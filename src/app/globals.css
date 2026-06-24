@@ -35,6 +35,12 @@ body {
   .btn-ghost {
     @apply btn border border-slate-200 bg-white text-slate-700 hover:bg-slate-50;
   }
+  .input {
+    @apply w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400;
+  }
+  .input-sm {
+    @apply w-full rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-400;
+  }
   .th {
     @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
   }

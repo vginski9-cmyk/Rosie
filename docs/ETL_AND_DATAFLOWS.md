@@ -1,8 +1,17 @@
-# Rosie — ETL & Data Flows
+# Rosie — Data Flows
 
-The user's explicit first priority: *"these are inputs and ETL pipelines and data
-flows we need to account for most initially."* This doc maps every input we know
-about, how it flows through Rosie, and what's built vs. planned.
+> **v0.2 update — the importer was removed.** Data is now **authored in-app**:
+> Rosie is the system of record for program design. You create, edit, duplicate,
+> and configure everything in the UI (`src/lib/actions.ts` server actions), and
+> **Excel is an export only** (`/api/programs/[id]/export` → funnel + capacity +
+> KSA coverage workbook). The spreadsheet-ingestion pipeline described below is
+> retained for historical context and as a reference if a *bulk-onboarding*
+> import is ever reintroduced as an option — but it is not part of the product.
+> The **"data flow through the model"** section further down is still current and
+> is the important part.
+
+The original inputs that informed the data model are listed below, followed by
+how data flows *through* the connected model once it's in Rosie.
 
 ## The inputs (from the provided artifacts)
 

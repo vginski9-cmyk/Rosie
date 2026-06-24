@@ -13,17 +13,27 @@ slots and instructors next term actually requires.*
 > funnel → capacity engine), seeded with real Sandhills CC and Cape Fear CC data.
 > See [`docs/PRD.md`](docs/PRD.md) for the full vision and roadmap.
 
-## What's in the slice
+## What's in it
+
+Everything is **authored in-app** — Rosie is the system of record for program
+design. (There is no importer by design; Excel is an *export*, not an input.)
 
 - **Dashboard** — program portfolio with North Star goals and automatic
   "biggest pipeline leak" detection.
-- **Program page** — program structure (Term → Course → Session), the
-  talent-pipeline funnel (target vs. actual), and a **live capacity engine**
-  (drag the enrollment slider, watch sections / WBL slots / faculty FTE recompute).
-- **Course sequencer** — drag-and-drop to re-sequence courses across terms,
-  persisted to the DB and fed straight back into the capacity engine.
-- **Import** — the ETL entry point: drop a spreadsheet, auto-detect the sheet
-  type, preview it, and load it (calendar blocks today; demand/template next).
+- **Program page** — structure (Term → Course → Session), the talent-pipeline
+  funnel (editable, target vs. actual), a **live capacity engine** (drag the
+  enrollment slider, watch sections / WBL slots / faculty FTE recompute), and
+  **KSA graduate-proficiency coverage** (does the curriculum reach the benchmark?).
+- **In-app authoring** — create / duplicate / delete programs; add and edit
+  terms, courses, and sessions; map KSAs to courses; edit funnel numbers — all
+  via server actions (works even without JS).
+- **Course sequencer** — drag-and-drop to re-sequence courses across terms.
+- **Skill library (KSAs)** — define Knowledge/Skills/Abilities with a definition,
+  a context-of-use, and per-level proficiency descriptors on a shared scale;
+  duplicate and reuse across programs.
+- **WBL Alignment Engine** — profile learners and employers across motivations /
+  constraints / capacities; score alignment live and hard-flag dealbreakers.
+- **Excel export** — a workbook with funnel, capacity, and KSA coverage per program.
 
 ## The core engine
 
@@ -78,11 +88,14 @@ src/
   lib/
     capacity.ts           ⭐ capacity engine (one student → cohort footprint)
     funnel.ts             talent-pipeline funnel math + leak detection
-    etl/parseWorkbook.ts  spreadsheet ingestion + type detection
+    ksa.ts                curriculum coverage / proficiency-gap analysis
+    wbl.ts                WBL alignment scoring engine
+    actions.ts            server actions — all in-app authoring (CRUD)
     queries.ts            data access (maps DB → engine shapes)
-  app/                    App Router pages (dashboard, program, sequencer, import)
-  components/             FunnelChart, CapacityWorkbench, CourseSequencer, Importer
-test/                     engine unit tests (11 passing)
+  app/                    App Router pages (dashboard, program, structure editor,
+                          sequencer, skills, wbl) + Excel export route
+  components/             FunnelChart, CapacityWorkbench, CourseSequencer
+test/                     engine unit tests (19 passing)
 ```
 
 ## Status & roadmap

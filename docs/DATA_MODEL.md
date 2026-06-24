@@ -96,13 +96,44 @@ To keep the schema portable to SQLite and Postgres alike, enum-like fields are
 
 When we move to Postgres in production we can promote these to native enums.
 
+## KSA / proficiency framework (v0.2)
+
+```
+Institution ─┬─ ProficiencyScale ──< ProficiencyLevel   (shared 1–5 scale, comparable)
+             └─ Skill ──< SkillLevelDescriptor          (per-skill narrative per level)
+                  ├──< ProgramSkill (targetLevel)        ← graduate proficiency BENCHMARK
+                  └──< CourseSkill  (targetLevel, role)  ← curriculum mapping (I/R/M)
+```
+
+- **Shared scale + per-skill descriptors.** One institution-wide
+  `ProficiencyScale` (e.g. Awareness → Expert) keeps benchmarks comparable across
+  skills; each `Skill` adds its own `SkillLevelDescriptor` text per level (your
+  Agile L1/L2/L3 example).
+- **Benchmarks vs. coverage.** `ProgramSkill.targetLevel` is what a graduate
+  should reach; `CourseSkill.targetLevel` + `role` (`INTRODUCED | REINFORCED |
+  MASTERED`) is what each course delivers. `src/lib/ksa.ts` compares them →
+  `MET | BELOW | NOT_TAUGHT` per skill, with core-vs-supporting coverage rates.
+- Works the same for short-term certificates and multi-year degrees.
+
+## WBL Alignment Engine (v0.2)
+
+```
+Institution ─ WblProfile (LEARNER | EMPLOYER) ──< WblFactor
+                                                   layer: MOTIVATION | CONSTRAINT | CAPACITY
+                                                   weight · binding · disclosure · matchKey
+```
+
+Factors are matched **across layers** by `matchKey` (a learner *motivation* for a
+living wage is met by an employer *capacity* to pay it). `src/lib/wbl.ts` scores
+alignment per layer and overall, and hard-flags **binding** factors with no
+counterpart as dealbreakers. Matches are computed live (not persisted) in v0.2.
+
 ## What's intentionally NOT here yet
 
-- **Alignment Engine (WBL)**: learner/employer motivation–constraint–capacity
-  profiles and matches. Designed (see the Alignment Engine research doc the user
-  provided) but not yet modeled — a P2 set of tables hanging off `Person` /
-  `Employer` / `Cohort`.
 - **Scenarios**: saved what-if capacity runs.
 - **Assignments**: explicit Person↔Session/Course staffing rows (we compute FTE
   *demand* now; assigning specific people to it is P1).
+- **WBL depth**: persisted matches, life-stage / sector modifiers, and the fuller
+  disclosure/tier dynamics from the research doc are P1.
 - **Auth / users / roles**: tenancy is structural, not yet enforced by auth.
+- **Importer**: intentionally removed — data is authored in-app; Excel is export-only.

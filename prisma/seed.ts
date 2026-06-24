@@ -503,8 +503,191 @@ async function main() {
     });
   }
 
+  // ----- KSA / proficiency framework --------------------------------------
+  // Shared 5-level scale (institution-wide), comparable across all skills.
+  const scaleLevels = [
+    { level: 1, label: "Awareness", summary: "Knows the concept exists; can describe it at a high level." },
+    { level: 2, label: "Foundational", summary: "Can apply with guidance in routine, low-complexity situations." },
+    { level: 3, label: "Proficient", summary: "Performs independently in typical situations to standard." },
+    { level: 4, label: "Advanced", summary: "Handles complex/non-routine cases; adapts approach." },
+    { level: 5, label: "Expert", summary: "Sets standards, optimizes, and mentors others." },
+  ];
+  const sandhillsScale = await prisma.proficiencyScale.create({
+    data: {
+      institutionId: sandhills.id,
+      name: "Rosie Standard Proficiency Scale",
+      isDefault: true,
+      levels: { create: scaleLevels },
+    },
+  });
+  await prisma.proficiencyScale.create({
+    data: { institutionId: capeFear.id, name: "Rosie Standard Proficiency Scale", isDefault: true, levels: { create: scaleLevels } },
+  });
+  void sandhillsScale;
+
+  async function makeSkill(opts: {
+    name: string;
+    type: string;
+    category: string;
+    definition: string;
+    howUsed: string;
+    descriptors: { level: number; descriptor: string }[];
+  }) {
+    return prisma.skill.create({
+      data: {
+        institutionId: sandhills.id,
+        name: opts.name,
+        type: opts.type,
+        category: opts.category,
+        definition: opts.definition,
+        howUsed: opts.howUsed,
+        descriptors: { create: opts.descriptors },
+      },
+    });
+  }
+
+  // The user's exact example skill.
+  const agile = await makeSkill({
+    name: "Agile Methodology",
+    type: "SKILL",
+    category: "Professional",
+    definition:
+      "Agile Methodology is a project management approach that emphasizes incremental development, flexibility, collaboration, and continual improvement. It involves breaking down projects into smaller units or iterations and adapting to changing requirements and feedback.",
+    howUsed:
+      "As a Product Manager, Agile Methodology is utilized to oversee the development of products in a dynamic environment. Product Managers work closely with cross-functional teams to prioritize tasks, gather feedback, and deliver value to customers incrementally.",
+    descriptors: [
+      { level: 1, descriptor: "Understands the basic principles of Agile Methodology, such as iterative development and collaboration. May have limited experience applying Agile practices in real-world projects." },
+      { level: 2, descriptor: "Can effectively implement Agile practices in product development. Possesses a deeper understanding of frameworks such as Scrum or Kanban, and can adapt Agile processes to suit different project needs." },
+      { level: 3, descriptor: "Expert in Agile Methodology. Extensive experience leading Agile teams, optimizing workflows, and driving continuous improvement; mentors others and leads organizational Agile transformations." },
+    ],
+  });
+
+  const positioning = await makeSkill({
+    name: "Radiographic Positioning",
+    type: "SKILL",
+    category: "Clinical",
+    definition: "The accurate positioning of patients and equipment to produce diagnostic-quality radiographic images while minimizing repeat exposures.",
+    howUsed: "Radiologic technologists position patients for routine and trauma exams across body regions, adapting standard projections to patient condition and clinical question.",
+    descriptors: [
+      { level: 2, descriptor: "Performs basic routine projections (chest, extremity) under supervision with correct alignment." },
+      { level: 3, descriptor: "Independently positions for the full range of routine exams to diagnostic standard." },
+      { level: 4, descriptor: "Adapts positioning for trauma, pediatric, and non-routine cases without repeat exposures." },
+    ],
+  });
+  const patientCare = await makeSkill({
+    name: "Patient Care & Safety",
+    type: "ABILITY",
+    category: "Clinical",
+    definition: "Providing safe, ethical, patient-centered care including communication, transfer, monitoring, and emergency response in the imaging setting.",
+    howUsed: "Technologists assess patient status, ensure safe transfers and immobilization, and respond to contrast reactions or emergencies during exams.",
+    descriptors: [
+      { level: 2, descriptor: "Demonstrates basic patient communication and safe transfer technique with guidance." },
+      { level: 3, descriptor: "Independently manages routine patient care, monitoring, and safety throughout an exam." },
+      { level: 4, descriptor: "Leads care in high-acuity/emergency situations and coordinates with the care team." },
+    ],
+  });
+  const radSafety = await makeSkill({
+    name: "Radiation Safety & Protection",
+    type: "KNOWLEDGE",
+    category: "Clinical",
+    definition: "Applying ALARA principles and regulatory requirements to minimize radiation dose to patients, staff, and the public.",
+    howUsed: "Technologists select exposure factors, apply shielding and collimation, and monitor dose to keep exposures as low as reasonably achievable.",
+    descriptors: [
+      { level: 2, descriptor: "States ALARA principles and applies basic shielding/collimation with guidance." },
+      { level: 3, descriptor: "Independently optimizes technique and protection for routine exams within regulation." },
+    ],
+  });
+  const imageEval = await makeSkill({
+    name: "Image Evaluation & Critique",
+    type: "SKILL",
+    category: "Clinical",
+    definition: "Evaluating radiographic images for diagnostic quality and determining whether repeat or additional imaging is required.",
+    howUsed: "Technologists critique their own images for positioning, exposure, and artifacts before submitting for interpretation.",
+    descriptors: [
+      { level: 3, descriptor: "Reliably judges routine images for diagnostic quality and identifies common faults." },
+      { level: 4, descriptor: "Critiques complex/non-routine images and prescribes corrective action." },
+    ],
+  });
+
+  // Graduate proficiency BENCHMARKS for Radiography (a mix that yields MET /
+  // BELOW / NOT_TAUGHT so coverage analytics are meaningful).
+  const programSkillTargets: { skill: { id: string }; targetLevel: number; priority: string }[] = [
+    { skill: positioning, targetLevel: 4, priority: "core" },
+    { skill: patientCare, targetLevel: 4, priority: "core" }, // courses reach 3 -> BELOW
+    { skill: radSafety, targetLevel: 3, priority: "core" },
+    { skill: imageEval, targetLevel: 4, priority: "core" },
+    { skill: agile, targetLevel: 2, priority: "supporting" }, // never taught -> NOT_TAUGHT
+  ];
+  for (const ps of programSkillTargets) {
+    await prisma.programSkill.create({ data: { programId: rad.id, skillId: ps.skill.id, targetLevel: ps.targetLevel, priority: ps.priority } });
+  }
+
+  // Course-level curriculum mapping for Radiography.
+  const radCourses = await prisma.course.findMany({ where: { term: { programId: rad.id } } });
+  const byCode = (code: string) => radCourses.find((c) => c.code === code);
+  const courseMaps: { code: string; skill: { id: string }; level: number; role: string }[] = [
+    { code: "RAD-111", skill: positioning, level: 2, role: "INTRODUCED" },
+    { code: "RAD-121", skill: positioning, level: 3, role: "REINFORCED" },
+    { code: "RAD-221", skill: positioning, level: 4, role: "MASTERED" },
+    { code: "RAD-110", skill: patientCare, level: 2, role: "INTRODUCED" },
+    { code: "RAD-131", skill: patientCare, level: 3, role: "REINFORCED" },
+    { code: "RAD-110", skill: radSafety, level: 2, role: "INTRODUCED" },
+    { code: "RAD-221", skill: radSafety, level: 3, role: "REINFORCED" },
+    { code: "RAD-221", skill: imageEval, level: 3, role: "REINFORCED" },
+    { code: "RAD-251", skill: imageEval, level: 4, role: "MASTERED" },
+  ];
+  for (const m of courseMaps) {
+    const c = byCode(m.code);
+    if (c) await prisma.courseSkill.create({ data: { courseId: c.id, skillId: m.skill.id, targetLevel: m.level, role: m.role } });
+  }
+
+  // ----- WBL alignment profiles -------------------------------------------
+  const radCohort = await prisma.cohort.findFirst({ where: { programId: rad.id } });
+  await prisma.wblProfile.create({
+    data: {
+      institutionId: sandhills.id,
+      subjectType: "LEARNER",
+      name: "Radiography Cohort — Class of 2029",
+      cohortId: radCohort?.id ?? null,
+      tier: "Adult learners + recent HS grads",
+      summary: "Typical entering rad-tech cohort in the Sandhills service area.",
+      factors: {
+        create: [
+          { layer: "MOTIVATION", label: "Earn a living wage in-region", detail: "Wage must clear MIT living wage for a 1-adult household.", weight: 1, binding: false, disclosure: "STATED", matchKey: "living wage" },
+          { layer: "MOTIVATION", label: "Advancement into CT/MRI", detail: "Path to advanced-modality credentials.", weight: 0.8, binding: false, disclosure: "STATED", matchKey: "advancement" },
+          { layer: "CONSTRAINT", label: "Needs daytime clinical hours", detail: "Many have dependents / second jobs.", weight: 1, binding: true, disclosure: "STATED", matchKey: "daytime hours" },
+          { layer: "CONSTRAINT", label: "Limited travel radius", detail: "Cannot commute beyond ~45 min.", weight: 0.7, binding: false, disclosure: "INFERRED", matchKey: "local site" },
+          { layer: "CAPACITY", label: "ARRT-eligible at completion", detail: "Program is JRCERT-accredited.", weight: 1, binding: false, disclosure: "STATED", matchKey: "arrt eligible" },
+        ],
+      },
+    },
+  });
+  await prisma.wblProfile.create({
+    data: {
+      institutionId: sandhills.id,
+      subjectType: "EMPLOYER",
+      name: "FirstHealth Moore Regional Hospital",
+      employerId: firstHealth.id,
+      tier: "Anchor clinical partner",
+      summary: "Primary acute-care imaging clinical site and hiring employer.",
+      factors: {
+        create: [
+          { layer: "CAPACITY", label: "Pays at/above living wage", detail: "Posted wages clear living wage for most household types.", weight: 1, binding: false, disclosure: "STATED", matchKey: "living wage" },
+          { layer: "CAPACITY", label: "Offers daytime clinical shifts", detail: "Day rotations available for students.", weight: 1, binding: false, disclosure: "STATED", matchKey: "daytime hours" },
+          { layer: "CAPACITY", label: "Local acute-care site", detail: "Within the 45-min radius.", weight: 0.8, binding: false, disclosure: "STATED", matchKey: "local site" },
+          { layer: "MOTIVATION", label: "Wants advancement-minded hires", detail: "Builds a CT/MRI pipeline internally.", weight: 0.6, binding: false, disclosure: "INFERRED", matchKey: "advancement" },
+          { layer: "CONSTRAINT", label: "Requires ARRT eligibility to hire", detail: "Non-negotiable credential requirement.", weight: 1, binding: true, disclosure: "STATED", matchKey: "arrt eligible" },
+          { layer: "CAPACITY", label: "Hosts up to 12 clinical slots", detail: "Preceptor capacity caps cohort placement.", weight: 1, binding: false, disclosure: "STATED", matchKey: "wbl slots" },
+        ],
+      },
+    },
+  });
+
   const counts = {
     institutions: await prisma.institution.count(),
+    skills: await prisma.skill.count(),
+    programSkills: await prisma.programSkill.count(),
+    wblProfiles: await prisma.wblProfile.count(),
     programs: await prisma.program.count(),
     courses: await prisma.course.count(),
     sessions: await prisma.session.count(),

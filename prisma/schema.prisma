@@ -34,6 +34,9 @@ model Institution {
   calendarBlocks CalendarBlock[]
   people         Person[]
   employers      Employer[]
+  skills         Skill[]
+  proficiencyScales ProficiencyScale[]
+  wblProfiles    WblProfile[]
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +120,7 @@ model Program {
   terms        Term[]
   cohorts      Cohort[]
   yearTargets  ProgramYearTarget[]
+  programSkills ProgramSkill[]
 
   @@index([institutionId])
 }
@@ -166,6 +170,7 @@ model Course {
   weeklyClinicalHours Float @default(0)
 
   sessions Session[]
+  courseSkills CourseSkill[]
 
   @@index([termId])
 }
@@ -291,4 +296,152 @@ model Employer {
   people Person[]
 
   @@index([institutionId])
+}
+
+// ---------------------------------------------------------------------------
+// KSA / PROFICIENCY FRAMEWORK
+//
+// A shared institution-wide proficiency scale (numbered levels with generic
+// meaning) gives every skill a comparable benchmark axis; each skill then layers
+// its own per-level descriptors on top. Programs and courses reference skills and
+// set the target proficiency level a graduate / course should reach.
+// ---------------------------------------------------------------------------
+
+/// An institution's proficiency scale (e.g. 5 levels: Awareness → Expert).
+model ProficiencyScale {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  isDefault     Boolean @default(false)
+
+  levels ProficiencyLevel[]
+
+  @@index([institutionId])
+}
+
+/// One level on a proficiency scale. `level` is the comparable numeric rank.
+model ProficiencyLevel {
+  id      String @id @default(cuid())
+  scaleId String
+  scale   ProficiencyScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  level   Int
+  label   String // "Awareness", "Foundational", "Proficient", "Advanced", "Expert"
+  summary String? // generic meaning of this level, scale-wide
+
+  @@unique([scaleId, level])
+}
+
+/// A Knowledge, Skill, or Ability in the institution's library. Reusable across
+/// programs and courses, short-term and long-term alike.
+model Skill {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  type          String  @default("SKILL") // KNOWLEDGE | SKILL | ABILITY
+  category      String? // grouping, e.g. "Technical", "Professional", "Clinical"
+  definition    String?
+  howUsed       String? // context-of-use narrative (role-specific)
+  source        String  @default("manual") // manual | lightcast | import
+  externalId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  descriptors   SkillLevelDescriptor[]
+  programSkills ProgramSkill[]
+  courseSkills  CourseSkill[]
+
+  @@index([institutionId])
+}
+
+/// Per-skill narrative descriptor for a given proficiency level (maps to the
+/// institution scale's numeric level). E.g. Agile Methodology @ Level 1/2/3.
+model SkillLevelDescriptor {
+  id         String @id @default(cuid())
+  skillId    String
+  skill      Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  level      Int
+  descriptor String
+
+  @@unique([skillId, level])
+}
+
+/// Graduate proficiency benchmark: the level a program expects its graduates to
+/// reach in a skill.
+model ProgramSkill {
+  id          String @id @default(cuid())
+  programId   String
+  program     Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  skillId     String
+  skill       Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  targetLevel Int
+  priority    String? // core | supporting
+  notes       String?
+
+  @@unique([programId, skillId])
+  @@index([skillId])
+}
+
+/// Course-level curriculum mapping: the level a course develops a skill to, and
+/// whether it introduces / reinforces / masters it.
+model CourseSkill {
+  id          String @id @default(cuid())
+  courseId    String
+  course      Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  skillId     String
+  skill       Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  targetLevel Int
+  role        String? // INTRODUCED | REINFORCED | MASTERED
+
+  @@unique([courseId, skillId])
+  @@index([skillId])
+}
+
+// ---------------------------------------------------------------------------
+// WBL ALIGNMENT ENGINE
+//
+// The three-layer model (motivations / constraints / capacities) profiled on
+// both sides — learner and employer. Alignment between a learner profile and an
+// employer profile is computed live by the engine from these factors.
+// ---------------------------------------------------------------------------
+
+/// A profile of one side of a work-based-learning relationship.
+model WblProfile {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  subjectType   String // LEARNER | EMPLOYER
+  name          String
+  /// Soft references (no FK) to a cohort or employer this profile represents.
+  cohortId      String?
+  employerId    String?
+  tier          String? // employer tier or learner segment
+  summary       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  factors WblFactor[]
+
+  @@index([institutionId])
+}
+
+/// One factor in a WBL profile, on one of the three layers.
+model WblFactor {
+  id         String @id @default(cuid())
+  profileId  String
+  profile    WblProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  layer      String // MOTIVATION | CONSTRAINT | CAPACITY
+  label      String
+  detail     String?
+  /// Strength / importance of this factor (0–1+).
+  weight     Float   @default(1)
+  /// True if this is a hard requirement that must be met (a "binding" constraint).
+  binding    Boolean @default(false)
+  /// How the factor surfaced: STATED | INFERRED | HIDDEN | UNKNOWN.
+  disclosure String  @default("STATED")
+  /// Free-text key used to match a learner factor to an employer factor.
+  matchKey   String?
+
+  @@index([profileId])
 }

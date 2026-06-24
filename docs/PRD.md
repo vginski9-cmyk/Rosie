@@ -194,18 +194,25 @@ See [`ETL_AND_DATAFLOWS.md`](./ETL_AND_DATAFLOWS.md).
 
 | Capability | Status |
 |---|---|
-| Multi-tenant schema (14 models) | ✅ built |
-| Capacity engine + 11 passing tests | ✅ built |
-| Funnel model + leak detection | ✅ built |
+| Multi-tenant schema (21 models) | ✅ built |
+| Capacity + funnel engines (19 passing tests, incl. KSA + WBL) | ✅ built |
 | Dashboard (portfolio, North Star, leak) | ✅ built |
-| Program page (structure + funnel + live capacity) | ✅ built |
+| Program page (structure + funnel + live capacity + KSA coverage) | ✅ built |
 | Drag-and-drop sequencer (persisted) | ✅ built |
-| ETL import (detect + preview + load calendar) | ✅ built |
-| Seed from real Sandhills/Cape Fear artifacts | ✅ built (2 inst., 3 programs, 292 sessions, 380 blocks) |
-| Template/demand full importers | ⏳ P1 |
-| Session CRUD editing | ⏳ P1 |
-| Alignment Engine (WBL) | ⏳ P2 |
+| **In-app authoring** (new/duplicate/delete program; CRUD terms/courses/sessions; edit funnel) | ✅ built |
+| **KSA framework** (skill library, shared proficiency scale + per-skill descriptors, program/course mapping, graduate benchmarks, coverage analysis) | ✅ built |
+| **WBL Alignment Engine** (learner/employer profiles; motivations/constraints/capacities; live alignment + dealbreaker detection) | ✅ built |
+| **Excel export** (funnel + capacity + KSA coverage workbook) | ✅ built |
+| Seed from real Sandhills/Cape Fear artifacts | ✅ built (2 inst., 3 programs, 292 sessions, 380 blocks, 5 KSAs, 2 WBL profiles) |
+| ~~ETL importer~~ | ❌ removed — all data is authored in-app by design |
+| Session-level inline editing polish, bulk ops | ⏳ P1 |
+| WBL: persisted matches, match-key autocomplete, life-stage/sector modifiers | ⏳ P1 |
 | Auth / Postgres / regional roll-ups | ⏳ P2 |
+
+> **v0.2 direction change:** data is **authored in-app**, not imported. Rosie is
+> the system of record for program design — create, edit, duplicate, and
+> configure everything in the UI; Excel is an **export** (data out), not an
+> import path.
 
 ## 12. Open questions (to resolve as we iterate)
 
