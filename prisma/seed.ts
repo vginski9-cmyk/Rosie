@@ -683,10 +683,48 @@ async function main() {
     },
   });
 
+  // ----- Staff supply (assignments) ---------------------------------------
+  // Deliberately under-supplied so the integrated plan surfaces a faculty
+  // bottleneck once multiple cohorts overlap.
+  const facultyNames = ["A. Rivera", "B. Chen", "C. Okafor"];
+  for (const n of facultyNames) {
+    const person = await prisma.person.create({ data: { institutionId: sandhills.id, name: n, role: "instructor" } });
+    await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: person.id, programId: rad.id, role: "instructor", fteCommitment: 1.0 } });
+  }
+  const coord = await prisma.person.create({ data: { institutionId: sandhills.id, name: "Lindsey (Program Lead)", role: "coordinator" } });
+  await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: coord.id, programId: rad.id, role: "coordinator", fteCommitment: 0.5 } });
+  // Preceptors hosted by clinical partners.
+  for (let i = 1; i <= 8; i++) {
+    const prec = await prisma.person.create({ data: { institutionId: sandhills.id, name: `Preceptor ${i}`, role: "preceptor", employerId: firstHealth.id } });
+    await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: prec.id, programId: rad.id, role: "preceptor", fteCommitment: 1.0 } });
+  }
+
+  // ----- Skills at the delivery/assessment grain (SessionSkill) ------------
+  // Closes the loop design → delivery → assessment. radSafety is intentionally
+  // left unassessed to demonstrate an assessment gap.
+  const linkSessions = async (code: string, kind: string, skillId: string, mode: string, level: number) => {
+    const course = radCourses.find((c) => c.code === code);
+    if (!course) return;
+    const sess = await prisma.session.findMany({ where: { courseId: course.id, kind } });
+    for (const s of sess) {
+      await prisma.sessionSkill.upsert({
+        where: { sessionId_skillId: { sessionId: s.id, skillId } },
+        update: { mode, targetLevel: level },
+        create: { sessionId: s.id, skillId, mode, targetLevel: level },
+      });
+    }
+  };
+  await linkSessions("RAD-111", "LAB", positioning.id, "DELIVER", 2);
+  await linkSessions("RAD-221", "LAB", positioning.id, "BOTH", 4); // delivered + assessed
+  await linkSessions("RAD-131", "CLINICAL", patientCare.id, "ASSESS", 3);
+  await linkSessions("RAD-251", "CLASS", imageEval.id, "ASSESS", 4);
+
   const counts = {
     institutions: await prisma.institution.count(),
     skills: await prisma.skill.count(),
     programSkills: await prisma.programSkill.count(),
+    assignments: await prisma.assignment.count(),
+    sessionSkills: await prisma.sessionSkill.count(),
     wblProfiles: await prisma.wblProfile.count(),
     programs: await prisma.program.count(),
     courses: await prisma.course.count(),

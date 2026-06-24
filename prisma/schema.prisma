@@ -37,6 +37,7 @@ model Institution {
   skills         Skill[]
   proficiencyScales ProficiencyScale[]
   wblProfiles    WblProfile[]
+  assignments    Assignment[]
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,7 @@ model Program {
   cohorts      Cohort[]
   yearTargets  ProgramYearTarget[]
   programSkills ProgramSkill[]
+  assignments  Assignment[]
 
   @@index([institutionId])
 }
@@ -151,6 +153,7 @@ model Term {
   endWeek   Int?
 
   courses Course[]
+  assignments Assignment[]
 
   @@unique([programId, index])
   @@index([programId])
@@ -197,6 +200,8 @@ model Session {
   rotationType  String? // clinical: Med-Surg, OR, Imaging, ...
   clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
   notes         String?
+
+  skillLinks SessionSkill[]
 
   @@index([courseId])
 }
@@ -279,6 +284,7 @@ model Person {
   email         String?
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id])
+  assignments   Assignment[]
 
   @@index([institutionId])
 }
@@ -351,6 +357,7 @@ model Skill {
   descriptors   SkillLevelDescriptor[]
   programSkills ProgramSkill[]
   courseSkills  CourseSkill[]
+  sessionSkills SessionSkill[]
 
   @@index([institutionId])
 }
@@ -444,4 +451,46 @@ model WblFactor {
   matchKey   String?
 
   @@index([profileId])
+}
+
+// ---------------------------------------------------------------------------
+// CONNECTIVE TISSUE — where supply meets demand, and skills meet delivery
+// ---------------------------------------------------------------------------
+
+/// Staff SUPPLY: a person committed to a program (optionally a specific term) at
+/// some FTE. Reconciled against the faculty/preceptor FTE DEMAND the capacity
+/// engine computes, to surface staffing gaps.
+model Assignment {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  personId      String
+  person        Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  programId     String
+  program       Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  termId        String?
+  term          Term?   @relation(fields: [termId], references: [id], onDelete: SetNull)
+  role          String  // instructor | preceptor | support | coordinator
+  fteCommitment Float   @default(1) // how much instructional FTE this person supplies
+  notes         String?
+
+  @@index([programId])
+  @@index([personId])
+}
+
+/// Skills at the DELIVERY/ASSESSMENT grain: which session develops and/or
+/// assesses a skill. Because sessions scale with enrollment in the capacity
+/// engine, this is how skill-delivery and competency-assessment volume scale too
+/// — closing the loop from curriculum design → delivery → assessment → funnel.
+model SessionSkill {
+  id          String @id @default(cuid())
+  sessionId   String
+  session     Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  skillId     String
+  skill       Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  mode        String  @default("DELIVER") // DELIVER | ASSESS | BOTH
+  targetLevel Int?    // level this session develops/assesses the skill to
+
+  @@unique([sessionId, skillId])
+  @@index([skillId])
 }

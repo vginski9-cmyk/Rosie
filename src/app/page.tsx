@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getDashboard } from "@/lib/queries";
+import { getDashboard, getProgramBottleneck } from "@/lib/queries";
 import { analyzeFunnel, pipelineHealth, type StageKey } from "@/lib/funnel";
 import { fmt } from "@/lib/format";
 
@@ -9,6 +9,13 @@ export default async function DashboardPage() {
   const institutions = await getDashboard();
 
   const totalPrograms = institutions.reduce((n, i) => n + i.programs.length, 0);
+
+  // Integrated bottleneck summary per program (supply vs concurrent demand).
+  const allProgramIds = institutions.flatMap((i) => i.programs.map((p) => p.id));
+  const bottleneckEntries = await Promise.all(
+    allProgramIds.map(async (id) => [id, await getProgramBottleneck(id)] as const),
+  );
+  const bottleneckByProgram = new Map(bottleneckEntries);
 
   return (
     <div className="space-y-8">
@@ -49,6 +56,7 @@ export default async function DashboardPage() {
                 : [];
               const health = analysis.length ? pipelineHealth(analysis) : null;
               const northStar = p.yearTargets.find((t) => t.credentialTarget != null);
+              const bn = bottleneckByProgram.get(p.id);
 
               return (
                 <Link key={p.id} href={`/programs/${p.id}`} className="card card-pad block transition-shadow hover:shadow-md">
@@ -59,7 +67,10 @@ export default async function DashboardPage() {
                         {p.occupation?.title} · SOC {p.occupation?.socCode}
                       </p>
                     </div>
-                    <span className="badge bg-rose-50 text-rose-700">{p.credential}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="badge bg-rose-50 text-rose-700">{p.credential}</span>
+                      {bn?.hasBottleneck && <span className="badge bg-amber-100 text-amber-800">{bn.bottleneckCount} bottleneck{bn.bottleneckCount === 1 ? "" : "s"}</span>}
+                    </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-3">

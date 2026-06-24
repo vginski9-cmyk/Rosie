@@ -24,6 +24,11 @@ design. (There is no importer by design; Excel is an *export*, not an input.)
   funnel (editable, target vs. actual), a **live capacity engine** (drag the
   enrollment slider, watch sections / WBL slots / faculty FTE recompute), and
   **KSA graduate-proficiency coverage** (does the curriculum reach the benchmark?).
+- **Operations plan** — the integrated view: a cohort enters each year, overlaid
+  on the academic calendar so several run at once; Rosie sums the **concurrent**
+  capacity demand per term and reconciles it against **supply** (staff FTE,
+  preceptors, employer WBL slots) to surface **bottlenecks**. See
+  [`docs/INTEGRATION.md`](docs/INTEGRATION.md) for how every piece feeds this.
 - **In-app authoring** — create / duplicate / delete programs; add and edit
   terms, courses, and sessions; map KSAs to courses; edit funnel numbers — all
   via server actions (works even without JS).

@@ -95,3 +95,27 @@ export function analyzeCoverage(
     skills,
   };
 }
+
+export interface AssessmentCoverage {
+  benchmarked: number;
+  assessed: number;
+  assessmentRate: number;
+  /** Benchmarked skills with no session that assesses them — a measurement gap. */
+  unassessed: { skillId: string; skillName: string }[];
+}
+
+/**
+ * Closes the skills loop: a skill can be TAUGHT (curriculum) yet never ASSESSED.
+ * Given the set of skill ids that some session assesses, report which graduate
+ * benchmarks actually have an assessment behind them.
+ */
+export function assessmentCoverage(benchmarks: ProgramBenchmark[], assessedSkillIds: Set<string>): AssessmentCoverage {
+  const unassessed = benchmarks.filter((b) => !assessedSkillIds.has(b.skillId)).map((b) => ({ skillId: b.skillId, skillName: b.skillName }));
+  const assessed = benchmarks.length - unassessed.length;
+  return {
+    benchmarked: benchmarks.length,
+    assessed,
+    assessmentRate: benchmarks.length ? assessed / benchmarks.length : 1,
+    unassessed,
+  };
+}

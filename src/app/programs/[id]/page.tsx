@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getProgramFull, getProgramArchetype, getProficiencyScale } from "@/lib/queries";
+import { getProgramFull, getProgramArchetype, getProficiencyScale, getProgramBottleneck } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CapacityWorkbench } from "@/components/CapacityWorkbench";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
-import { analyzeCoverage, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
+import { analyzeCoverage, assessmentCoverage, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
 import {
   duplicateProgram, deleteProgram, updateFunnelStage, addProgramSkill, removeProgramSkill,
 } from "@/lib/actions";
@@ -43,6 +43,14 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const coverage = analyzeCoverage(benchmarks, development);
   const mappedSkillIds = new Set(program.programSkills.map((p) => p.skillId));
 
+  // Skills → assessment loop, and the integrated bottleneck summary.
+  const assessedSkillIds = new Set<string>();
+  for (const t of program.terms) for (const c of t.courses) for (const s of c.sessions) for (const l of s.skillLinks) {
+    if (l.mode === "ASSESS" || l.mode === "BOTH") assessedSkillIds.add(l.skillId);
+  }
+  const assessment = assessmentCoverage(benchmarks, assessedSkillIds);
+  const bottleneck = await getProgramBottleneck(program.id);
+
   return (
     <div className="space-y-8">
       <div>
@@ -58,6 +66,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/programs/${program.id}/plan`} className="btn-primary">Operations plan ↦</Link>
             <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>
             <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
@@ -66,6 +75,13 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           </div>
         </div>
       </div>
+
+      {bottleneck?.hasBottleneck && (
+        <Link href={`/programs/${program.id}/plan`} className="block rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200 hover:bg-rose-100">
+          ⚠ <strong>{bottleneck.bottleneckCount}</strong> capacity bottleneck{bottleneck.bottleneckCount === 1 ? "" : "s"} across the multi-cohort plan —
+          peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE / {fmt.num(bottleneck.peak.clinicalSlots)} clinical slots vs. supply of {fmt.fte(bottleneck.supply.facultyFte)} FTE / {fmt.num(bottleneck.supply.wblSlots)} slots. See the operations plan →
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Kpi label="North Star" value={fmt.num(northStar?.credentialTarget)} sub="grads / yr (regional need)" />
@@ -108,8 +124,13 @@ export default async function ProgramPage({ params }: { params: { id: string } }
       <section className="card card-pad space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Graduate proficiency benchmarks (KSAs)</h2>
-          <span className="text-xs text-slate-400">core coverage {fmt.pct(coverage.coreCoverageRate)}</span>
+          <span className="text-xs text-slate-400">core coverage {fmt.pct(coverage.coreCoverageRate)} · assessed {fmt.pct(assessment.assessmentRate)}</span>
         </div>
+        {assessment.unassessed.length > 0 && (
+          <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Taught but never <strong>assessed</strong>: {assessment.unassessed.map((u) => u.skillName).join(", ")}. Tag sessions as ASSESS in the structure editor to close the loop.
+          </div>
+        )}
         {coverage.skills.length === 0 ? (
           <p className="text-sm text-slate-500">No skills benchmarked yet. Add one below from the skill library.</p>
         ) : (

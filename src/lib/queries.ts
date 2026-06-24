@@ -70,12 +70,24 @@ export async function getProgramFull(programId: string) {
         include: {
           courses: {
             orderBy: { sequenceOrder: "asc" },
-            include: { sessions: true, courseSkills: { include: { skill: true } } },
+            include: {
+              sessions: { include: { skillLinks: { include: { skill: true } } } },
+              courseSkills: { include: { skill: true } },
+            },
           },
         },
       },
     },
   });
+}
+
+/** Lightweight bottleneck summary for a program, for dashboard/program banners. */
+export async function getProgramBottleneck(programId: string) {
+  const data = await getProgramPlanData(programId);
+  if (!data || data.cohortSeeds.length === 0) return null;
+  const { buildAcademicPlan, cohortSeriesFromYearTargets } = await import("./plan");
+  const plan = buildAcademicPlan(data.archetype, cohortSeriesFromYearTargets(data.cohortSeeds), data.supply);
+  return { hasBottleneck: plan.hasBottleneck, bottleneckCount: plan.bottleneckCount, peak: plan.peak, supply: data.supply };
 }
 
 /** The institution-wide proficiency scale (levels) for an institution. */
@@ -108,4 +120,51 @@ export async function getWblProfiles(institutionId: string) {
 
 export async function getInstitutions() {
   return prisma.institution.findMany({ orderBy: { name: "asc" }, include: { occupations: true } });
+}
+
+/**
+ * Assemble every input the integrated planning engine needs for one program:
+ * the authored archetype, the cohort series (from year targets), staff + WBL
+ * supply (reconciled against demand), the assignment roster, and which skills
+ * are actually assessed.
+ */
+export async function getProgramPlanData(programId: string) {
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    include: {
+      institution: true,
+      yearTargets: { orderBy: { year: "asc" } },
+      programSkills: { include: { skill: true } },
+      assignments: { include: { person: true } },
+      terms: { include: { courses: { include: { sessions: { include: { skillLinks: true } } } } } },
+    },
+  });
+  if (!program) return null;
+
+  const archetype = await getProgramArchetype(programId);
+
+  // Supply: faculty/coordinator FTE + preceptor FTE from assignments; WBL slots
+  // from the institution's employers.
+  const facultyFte = program.assignments.filter((a) => a.role === "instructor" || a.role === "coordinator").reduce((s, a) => s + a.fteCommitment, 0);
+  const preceptors = program.assignments.filter((a) => a.role === "preceptor").reduce((s, a) => s + a.fteCommitment, 0);
+  const employerSlots = await prisma.employer.aggregate({ where: { institutionId: program.institutionId }, _sum: { wblSlots: true } });
+  const supply = { facultyFte, preceptors, wblSlots: employerSlots._sum.wblSlots ?? 0 };
+
+  // Cohort series from per-year planned cohort capacity.
+  const cohortSeeds = program.yearTargets
+    .filter((t) => (t.cohortCapacity ?? 0) > 0)
+    .map((t) => ({ year: t.year, seats: Math.round(t.cohortCapacity!) }));
+
+  // Skills actually assessed (any session marked ASSESS or BOTH).
+  const assessedSkillIds = new Set<string>();
+  for (const term of program.terms) for (const c of term.courses) for (const s of c.sessions) for (const l of s.skillLinks) {
+    if (l.mode === "ASSESS" || l.mode === "BOTH") assessedSkillIds.add(l.skillId);
+  }
+
+  return { program, archetype, supply, cohortSeeds, assessedSkillIds, assignments: program.assignments };
+}
+
+/** People available to staff a program (for the assignment picker). */
+export async function getStaffOptions(institutionId: string) {
+  return prisma.person.findMany({ where: { institutionId }, orderBy: { name: "asc" } });
 }

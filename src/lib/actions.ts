@@ -389,3 +389,83 @@ export async function deleteWblProfile(profileId: string) {
   revalidatePath("/wbl");
   redirect("/wbl");
 }
+
+// ---------------------------------------------------------------------------
+// STAFF ASSIGNMENTS (supply)
+// ---------------------------------------------------------------------------
+
+export async function addAssignment(programId: string, institutionId: string, formData: FormData) {
+  const personId = str(formData.get("personId"));
+  if (!personId) return;
+  await prisma.assignment.create({
+    data: {
+      institutionId,
+      programId,
+      personId,
+      role: str(formData.get("role")) || "instructor",
+      fteCommitment: numOr(formData.get("fteCommitment"), 1),
+    },
+  });
+  revalidatePath(`/programs/${programId}/plan`);
+}
+
+export async function removeAssignment(id: string, programId: string) {
+  await prisma.assignment.delete({ where: { id } });
+  revalidatePath(`/programs/${programId}/plan`);
+}
+
+export async function createStaff(institutionId: string, programId: string, formData: FormData) {
+  await prisma.person.create({
+    data: {
+      institutionId,
+      name: str(formData.get("name")) || "New staff",
+      role: str(formData.get("role")) || "instructor",
+    },
+  });
+  revalidatePath(`/programs/${programId}/plan`);
+}
+
+// ---------------------------------------------------------------------------
+// SESSION SKILLS (delivery / assessment)
+// ---------------------------------------------------------------------------
+
+export async function addSessionSkill(sessionId: string, programId: string, formData: FormData) {
+  const skillId = str(formData.get("skillId"));
+  if (!skillId) return;
+  await prisma.sessionSkill.upsert({
+    where: { sessionId_skillId: { sessionId, skillId } },
+    update: { mode: str(formData.get("mode")) || "DELIVER", targetLevel: optNum(formData.get("targetLevel")) },
+    create: { sessionId, skillId, mode: str(formData.get("mode")) || "DELIVER", targetLevel: optNum(formData.get("targetLevel")) },
+  });
+  revalidatePath(`/programs/${programId}/structure`);
+}
+
+export async function removeSessionSkill(id: string, programId: string) {
+  await prisma.sessionSkill.delete({ where: { id } });
+  revalidatePath(`/programs/${programId}/structure`);
+}
+
+/** Tag every session of a given kind in a course with a skill (delivery/assessment). */
+export async function tagCourseSessions(courseId: string, programId: string, formData: FormData) {
+  const skillId = str(formData.get("skillId"));
+  const kind = str(formData.get("kind"));
+  if (!skillId || !kind) return;
+  const mode = str(formData.get("mode")) || "DELIVER";
+  const targetLevel = optNum(formData.get("targetLevel"));
+  const sessions = await prisma.session.findMany({ where: { courseId, kind }, select: { id: true } });
+  for (const s of sessions) {
+    await prisma.sessionSkill.upsert({
+      where: { sessionId_skillId: { sessionId: s.id, skillId } },
+      update: { mode, targetLevel },
+      create: { sessionId: s.id, skillId, mode, targetLevel },
+    });
+  }
+  revalidatePath(`/programs/${programId}/structure`);
+}
+
+/** Remove a skill from all sessions of a course. */
+export async function untagCourseSessions(courseId: string, programId: string, skillId: string) {
+  const sessions = await prisma.session.findMany({ where: { courseId }, select: { id: true } });
+  await prisma.sessionSkill.deleteMany({ where: { sessionId: { in: sessions.map((s) => s.id) }, skillId } });
+  revalidatePath(`/programs/${programId}/structure`);
+}

@@ -5,6 +5,7 @@ import { getProgramFull } from "@/lib/queries";
 import {
   addTerm, deleteTerm, addCourse, updateCourse, deleteCourse,
   addSession, deleteSession, addCourseSkill, removeCourseSkill,
+  tagCourseSessions, untagCourseSessions,
 } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +100,27 @@ export default async function StructureEditor({ params }: { params: { id: string
                     <button className="btn-ghost py-1 text-xs">Add KSA</button>
                   </form>
                 </div>
+
+                {/* Delivery / assessment at the session grain */}
+                <div className="mt-3">
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Delivers / assesses (session-level)</div>
+                  <div className="flex flex-wrap gap-1">
+                    {aggregateSessionSkills(course.sessions).map((g) => (
+                      <span key={g.skillId + g.mode} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${g.mode === "ASSESS" ? "bg-amber-50 text-amber-700" : g.mode === "BOTH" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`}>
+                        {g.skillName} · {g.mode.toLowerCase()} · {g.count} sess
+                        <form action={untagCourseSessions.bind(null, course.id, pid, g.skillId)}><button className="text-slate-300 hover:text-rose-600">✕</button></form>
+                      </span>
+                    ))}
+                    {course.sessions.every((s) => s.skillLinks.length === 0) && <span className="text-xs text-slate-400">None.</span>}
+                  </div>
+                  <form action={tagCourseSessions.bind(null, course.id, pid)} className="mt-2 flex flex-wrap items-end gap-2">
+                    <select name="skillId" required className="input-sm w-44"><option value="">Tag skill…</option>{library.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}</select>
+                    <select name="kind" className="input-sm w-24"><option value="CLASS">Class</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option></select>
+                    <select name="mode" className="input-sm w-28"><option value="DELIVER">Deliver</option><option value="ASSESS">Assess</option><option value="BOTH">Both</option></select>
+                    <Lab label="Level"><input name="targetLevel" type="number" min="1" max="5" className="input-sm w-14" /></Lab>
+                    <button className="btn-ghost py-1 text-xs">Tag sessions</button>
+                  </form>
+                </div>
               </div>
             ))}
 
@@ -116,6 +138,20 @@ export default async function StructureEditor({ params }: { params: { id: string
       </div>
     </div>
   );
+}
+
+type SessionWithLinks = { skillLinks: { skillId: string; mode: string; skill: { name: string } }[] };
+function aggregateSessionSkills(sessions: SessionWithLinks[]) {
+  const map = new Map<string, { skillId: string; skillName: string; mode: string; count: number }>();
+  for (const s of sessions) {
+    for (const l of s.skillLinks) {
+      const key = l.skillId + "|" + l.mode;
+      const cur = map.get(key) ?? { skillId: l.skillId, skillName: l.skill.name, mode: l.mode, count: 0 };
+      cur.count += 1;
+      map.set(key, cur);
+    }
+  }
+  return [...map.values()];
 }
 
 function Lab({ label, children }: { label: string; children: React.ReactNode }) {

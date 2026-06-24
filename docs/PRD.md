@@ -194,8 +194,12 @@ See [`ETL_AND_DATAFLOWS.md`](./ETL_AND_DATAFLOWS.md).
 
 | Capability | Status |
 |---|---|
-| Multi-tenant schema (21 models) | ✅ built |
-| Capacity + funnel engines (19 passing tests, incl. KSA + WBL) | ✅ built |
+| Multi-tenant schema (23 models) | ✅ built |
+| **Integration engine** — multi-cohort calendar overlay + supply/demand reconciliation (`plan.ts`); see [`INTEGRATION.md`](./INTEGRATION.md) | ✅ built |
+| **Operations plan** — concurrent demand vs faculty/preceptor/WBL supply, bottleneck board, staff assignments | ✅ built |
+| **Skills loop** — design (benchmark) → delivery (`SessionSkill`) → assessment coverage | ✅ built |
+| Bottleneck surfacing on dashboard + program banner | ✅ built |
+| Capacity + funnel engines (27 passing tests, incl. KSA + WBL + plan) | ✅ built |
 | Dashboard (portfolio, North Star, leak) | ✅ built |
 | Program page (structure + funnel + live capacity + KSA coverage) | ✅ built |
 | Drag-and-drop sequencer (persisted) | ✅ built |
