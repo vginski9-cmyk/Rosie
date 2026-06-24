@@ -25,7 +25,7 @@ automatically. It runs on every push to the working branch.
 3. Open the **Actions** tab → the **Deploy demo to GitHub Pages** run → when it
    finishes (~2–3 min), the **deploy** job shows the URL:
 
-   **https://vginski9-cmyk.github.io/rosie/**
+   **https://vginski9-cmyk.github.io/Rosie/**
 
 To re-publish after changes: just push (or Actions tab → run the workflow
 manually via **Run workflow**).

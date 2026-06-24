@@ -23,6 +23,9 @@ jobs:
     env:
       DATABASE_URL: "file:./dev.db"
       DEMO: "1"
+      # GitHub Pages serves a project site at /<RepoName>/ (case-sensitive), so
+      # the app's basePath must match the repo name exactly.
+      PAGES_BASE_PATH: "/${{ github.event.repository.name }}"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
