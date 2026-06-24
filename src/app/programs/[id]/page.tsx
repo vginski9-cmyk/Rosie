@@ -76,6 +76,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
+            <Link href={`/programs/${program.id}/schedule`} className="btn-primary">Calendar &amp; staffing ↦</Link>
             <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
             <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>

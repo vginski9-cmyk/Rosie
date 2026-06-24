@@ -96,11 +96,12 @@ const TOPICS: Record<string, { lecture?: string[]; lab?: string[] }> = {
 // (small groups), later clinicals are precepted (1:1 with a preceptor, fractional
 // clinical-instructor oversight) — exactly the two modes the FTE model handles.
 const CLINICAL_PROFILE: Record<string, { mode: string; maxStudents: number; faculty: number; preceptors: number }> = {
+  // Clinical groups (one clinical instructor or lead preceptor per ~8 students).
   "RAD-151": { mode: "Instructor-led", maxStudents: 8, faculty: 1, preceptors: 0 },
   "RAD-161": { mode: "Instructor-led", maxStudents: 8, faculty: 1, preceptors: 0 },
-  "RAD-171": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
-  "RAD-251": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
-  "RAD-261": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
+  "RAD-171": { mode: "Preceptor-led", maxStudents: 8, faculty: 0, preceptors: 1 },
+  "RAD-251": { mode: "Preceptor-led", maxStudents: 8, faculty: 0, preceptors: 1 },
+  "RAD-261": { mode: "Preceptor-led", maxStudents: 8, faculty: 0, preceptors: 1 },
 };
 
 function buildSessions(s: SessionSeed) {
@@ -449,6 +450,8 @@ async function main() {
   // Employers & people (clinical partners + staff)
   const firstHealth = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "FirstHealth Moore Regional Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 12, notes: "Primary imaging & OR clinical site" } });
   await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Pinehurst Surgical Clinic", setting: "Ambulatory Surgical Center", wblSlots: 4 } });
+  const scotland = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Scotland Memorial Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 10, notes: "Secondary acute-care imaging clinical site" } });
+  const pinehurstOutpatient = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Pinehurst Outpatient Imaging Center", setting: "Outpatient Imaging Center", wblSlots: 6 } });
   // A night-only imaging center: real slots, but NOT alignment-feasible for a
   // cohort that needs daytime hours — so loop 2 excludes it from placement.
   const nightCenter = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Night Imaging Center", setting: "Outpatient Imaging Center", wblSlots: 6, notes: "Evening/overnight rotations only" } });
@@ -727,16 +730,18 @@ async function main() {
   // ----- Staff supply (assignments) ---------------------------------------
   // Deliberately under-supplied so the integrated plan surfaces a faculty
   // bottleneck once multiple cohorts overlap.
-  const facultyNames = ["A. Rivera", "B. Chen", "C. Okafor"];
+  const facultyNames = ["Dr. Angela Rivera", "Brian Chen, R.T.(R)", "Carmen Okafor, R.T.(R)(CT)", "David Whitfield, R.T.(R)", "Erin Salas, R.T.(R)(MR)", "Frank Delgado, R.T.(R)"];
   for (const n of facultyNames) {
     const person = await prisma.person.create({ data: { institutionId: sandhills.id, name: n, role: "instructor" } });
     await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: person.id, programId: rad.id, role: "instructor", fteCommitment: 1.0 } });
   }
-  const coord = await prisma.person.create({ data: { institutionId: sandhills.id, name: "Lindsey (Program Lead)", role: "coordinator" } });
+  const coord = await prisma.person.create({ data: { institutionId: sandhills.id, name: "Lindsey Bauer (Program Lead)", role: "coordinator" } });
   await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: coord.id, programId: rad.id, role: "coordinator", fteCommitment: 0.5 } });
-  // Preceptors hosted by clinical partners.
-  for (let i = 1; i <= 8; i++) {
-    const prec = await prisma.person.create({ data: { institutionId: sandhills.id, name: `Preceptor ${i}`, role: "preceptor", employerId: firstHealth.id } });
+  // Clinical preceptors / instructors at the affiliated sites.
+  const preceptorNames = ["Maria Santos, R.T.(R)", "James Holloway, R.T.(R)", "Priya Nair, R.T.(R)(CT)", "Tyrone Banks, R.T.(R)", "Hannah Kim, R.T.(R)(MR)", "Luis Moreno, R.T.(R)", "Aisha Bello, R.T.(R)", "Greg Tanaka, R.T.(R)", "Nicole Forbes, R.T.(R)", "Omar Haddad, R.T.(R)(CT)", "Rachel Stein, R.T.(R)", "Devon Pierce, R.T.(R)"];
+  const sites = [firstHealth.id, scotland.id, pinehurstOutpatient.id];
+  for (let i = 0; i < preceptorNames.length; i++) {
+    const prec = await prisma.person.create({ data: { institutionId: sandhills.id, name: preceptorNames[i], role: "preceptor", employerId: sites[i % sites.length] } });
     await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: prec.id, programId: rad.id, role: "preceptor", fteCommitment: 1.0 } });
   }
 

@@ -213,6 +213,30 @@ export async function getStaffOptions(institutionId: string) {
   return prisma.person.findMany({ where: { institutionId }, orderBy: { name: "asc" } });
 }
 
+/** Everything the day-by-day schedule / shift-assignment board needs: the term
+ *  templates (courses + sessions), the staff roster, and planned enrollment. */
+export async function getProgramSchedule(programId: string) {
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    include: {
+      institution: true,
+      yearTargets: { orderBy: { year: "asc" } },
+      terms: {
+        orderBy: { index: "asc" },
+        include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+      },
+    },
+  });
+  if (!program) return null;
+  const roster = await prisma.person.findMany({
+    where: { institutionId: program.institutionId, role: { in: ["instructor", "preceptor", "coordinator", "support"] } },
+    orderBy: { name: "asc" },
+    include: { employer: { select: { name: true } } },
+  });
+  const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
+  return { program, roster, defaultEnrollment };
+}
+
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
   return prisma.course.findUnique({
