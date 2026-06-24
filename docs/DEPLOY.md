@@ -10,6 +10,10 @@ A permanent URL that renders every screen with the real seeded data. You can
 click through everything and use the interactive bits (the capacity slider,
 charts, drag-and-drop). It's a **snapshot**, so edits don't save.
 
+> **Note:** GitHub Pages only works on a **public** repo (free plan) or a paid
+> GitHub plan. If the repo is private on the free plan, use Option B (Vercel),
+> which works with private repos.
+
 ### How it goes live
 A GitHub Actions workflow (`.github/workflows/pages.yml`) builds and publishes it
 automatically. It runs on every push to the working branch.
