@@ -115,6 +115,18 @@ model Program {
   serviceArea   String?
   status        String   @default("active") // active | draft | archived
   monthsToFullProductivity Int? // lag from completion to "fully productive"
+  // --- Launch cadence & delivery calendar ---
+  /// Calendar slots this program delivers in, in order (CSV of FALL|SPRING|SUMMER).
+  /// Programs that skip summer use "FALL,SPRING"; trimester programs use all three.
+  termSlots     String   @default("FALL,SPRING,SUMMER")
+  /// ANNUAL | BIENNIAL | MULTI_PER_YEAR | ON_DEMAND
+  launchCadence String   @default("ANNUAL")
+  /// Term codes a new cohort launches in (CSV). One for annual, several for multi-per-year.
+  launchTerms   String   @default("FALL")
+  /// Years between launch cycles (2 = biennial). Ignored for ON_DEMAND.
+  launchIntervalYears Int @default(1)
+  /// Fallback planned seats per cohort when a year has no explicit target.
+  defaultCohortSeats Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -247,6 +259,12 @@ model Cohort {
   program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   name      String
   entryYear Int?
+  /// Entry term code (FALL|SPRING|SUMMER) — used for on-demand / explicit cohorts.
+  entryTermCode String?
+  /// Planned Term-1 seats for this specific cohort (overrides program defaults).
+  plannedSeats  Float?
+  /// When true this cohort is an explicit launch included in the plan as-is.
+  isExplicit    Boolean @default(false)
 
   stages FunnelStage[]
 

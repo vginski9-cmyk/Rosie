@@ -126,6 +126,42 @@ export async function deleteProgram(programId: string) {
   redirect("/");
 }
 
+const csvFromCheckboxes = (fd: FormData, name: string, fallback: string) => {
+  const vals = fd.getAll(name).map(String).filter(Boolean);
+  return vals.length ? vals.join(",") : fallback;
+};
+
+/** Edit a program's delivery calendar and launch cadence. */
+export async function updateLaunchConfig(programId: string, formData: FormData) {
+  await prisma.program.update({
+    where: { id: programId },
+    data: {
+      termSlots: csvFromCheckboxes(formData, "termSlots", "FALL,SPRING,SUMMER"),
+      launchCadence: str(formData.get("launchCadence")) || "ANNUAL",
+      launchTerms: csvFromCheckboxes(formData, "launchTerms", "FALL"),
+      launchIntervalYears: Math.max(1, numOr(formData.get("launchIntervalYears"), 1)),
+      defaultCohortSeats: optNum(formData.get("defaultCohortSeats")),
+    },
+  });
+  revalidatePath(`/programs/${programId}/plan`);
+  revalidatePath(`/programs/${programId}`);
+}
+
+/** Add an explicit on-demand cohort (entry term + year + seats). */
+export async function addExplicitCohort(programId: string, formData: FormData) {
+  await prisma.cohort.create({
+    data: {
+      programId,
+      name: str(formData.get("name")) || "Ad-hoc cohort",
+      entryYear: numOr(formData.get("entryYear"), 2026),
+      entryTermCode: str(formData.get("entryTermCode")) || "FALL",
+      plannedSeats: optNum(formData.get("plannedSeats")),
+      isExplicit: true,
+    },
+  });
+  revalidatePath(`/programs/${programId}/plan`);
+}
+
 // ---------------------------------------------------------------------------
 // TERMS / COURSES / SESSIONS
 // ---------------------------------------------------------------------------

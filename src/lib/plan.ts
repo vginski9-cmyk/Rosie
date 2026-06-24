@@ -20,16 +20,16 @@ import {
   type DemandTotals,
   type CapacityConfig,
 } from "./capacity";
-import { ordinalOf, termFromOrdinal, type AcademicTerm, type TermCode } from "./calendar";
+import { CYCLE, deliveryOrdinals, ordinalOfCalendar, termFromOrdinal, type AcademicTerm, type TermCode } from "./calendar";
 
 /** Default per-program-term retention (Term 1 = 1.0), gentle decline. */
-export const DEFAULT_ATTRITION = [1.0, 0.94, 0.88, 0.82, 0.76, 0.7, 0.66, 0.62];
+export const DEFAULT_ATTRITION = [1.0, 0.94, 0.88, 0.82, 0.76, 0.7, 0.66, 0.62, 0.6, 0.58, 0.56, 0.54];
 
 export interface CohortSeed {
   id: string;
   label: string;
-  entryCode: TermCode;
-  entryFallYear: number;
+  /** Absolute academic-term ordinal at which this cohort starts Term 1. */
+  entryOrdinal: number;
   /** Planned students entering Term 1. */
   termOneSeats: number;
 }
@@ -94,6 +94,8 @@ function gapLine(demand: number, supply: number): GapLine {
 export interface PlanOptions {
   attrition?: number[];
   config?: CapacityConfig;
+  /** Calendar slots the program delivers in; inactive slots are skipped. */
+  activeCodes?: TermCode[];
 }
 
 /**
@@ -107,14 +109,17 @@ export function buildAcademicPlan(
 ): AcademicPlan {
   const attrition = opts.attrition ?? DEFAULT_ATTRITION;
   const cfg = opts.config ?? DEFAULT_CONFIG;
+  const activeCodes = opts.activeCodes ?? CYCLE;
   const ordered = [...programTerms].sort((a, b) => a.index - b.index);
 
   // Map academic-term ordinal → active segments (a cohort sitting in a program-term).
+  // Program-terms are placed on the program's DELIVERY calendar, skipping any
+  // calendar slots the program doesn't run in.
   const byOrdinal = new Map<number, ActiveSegment[]>();
   for (const cohort of cohorts) {
-    const start = ordinalOf(cohort.entryCode, cohort.entryFallYear);
+    const ords = deliveryOrdinals(cohort.entryOrdinal, ordered.length, activeCodes);
     ordered.forEach((pt, i) => {
-      const ordinal = start + i;
+      const ordinal = ords[i];
       const enrollment = Math.round(cohort.termOneSeats * (attrition[i] ?? attrition[attrition.length - 1]));
       if (enrollment <= 0) return;
       const seg: ActiveSegment = {
@@ -163,17 +168,65 @@ export function buildAcademicPlan(
   return { terms, peak, hasBottleneck: bottleneckCount > 0, bottleneckCount };
 }
 
+export type LaunchCadence = "ANNUAL" | "BIENNIAL" | "MULTI_PER_YEAR" | "ON_DEMAND";
+
+export interface LaunchConfig {
+  cadence: LaunchCadence;
+  /** Term codes a cohort launches in (one for annual/biennial, several for multi). */
+  launchTerms: TermCode[];
+  /** Years between launch cycles (2 = biennial). */
+  intervalYears: number;
+  startYear: number; // calendar year
+  endYear: number;
+  /** Planned Term-1 seats by calendar year (falls back to defaultSeats). */
+  seatsByYear: Record<number, number>;
+  defaultSeats: number;
+}
+
+export interface ExplicitCohort {
+  id: string;
+  label: string;
+  entryCode: TermCode;
+  entryCalendarYear: number;
+  seats: number;
+}
+
+const capTerm = (c: TermCode) => c.charAt(0) + c.slice(1).toLowerCase();
+
 /**
- * Generate a cohort series from per-year planned seats (e.g. ProgramYearTarget
- * cohortCapacity). One cohort enters each Fall.
+ * Generate the cohort series from a launch cadence. Supports annual, biennial
+ * (intervalYears > 1), multiple-per-year (several launchTerms), and on-demand
+ * (explicit cohorts only). The result is many concurrent cohorts for long
+ * programs / frequent launches.
  */
-export function cohortSeriesFromYearTargets(
-  seatsByYear: { year: number; seats: number }[],
-  entryCode: TermCode = "FALL",
-): CohortSeed[] {
-  return seatsByYear
-    .filter((y) => y.seats > 0)
-    .map((y) => ({ id: `cohort-${y.year}`, label: `Entering ${entryCode === "FALL" ? "Fall" : ""} ${y.year}`.trim(), entryCode, entryFallYear: y.year, termOneSeats: y.seats }));
+export function generateCohortSeries(cfg: LaunchConfig, explicit: ExplicitCohort[] = []): CohortSeed[] {
+  const toSeed = (e: ExplicitCohort): CohortSeed => ({
+    id: e.id,
+    label: e.label,
+    entryOrdinal: ordinalOfCalendar(e.entryCode, e.entryCalendarYear),
+    termOneSeats: Math.round(e.seats),
+  });
+
+  if (cfg.cadence === "ON_DEMAND") return explicit.filter((e) => e.seats > 0).map(toSeed);
+
+  const interval = Math.max(1, cfg.cadence === "BIENNIAL" ? Math.max(2, cfg.intervalYears) : cfg.intervalYears || 1);
+  const terms = cfg.launchTerms.length ? cfg.launchTerms : (["FALL"] as TermCode[]);
+  const series: CohortSeed[] = [];
+  for (let year = cfg.startYear; year <= cfg.endYear; year += interval) {
+    for (const code of terms) {
+      const seats = cfg.seatsByYear[year] ?? cfg.defaultSeats;
+      if (seats > 0) {
+        series.push({
+          id: `c-${year}-${code}`,
+          label: `${capTerm(code)} ${year}`,
+          entryOrdinal: ordinalOfCalendar(code, year),
+          termOneSeats: Math.round(seats),
+        });
+      }
+    }
+  }
+  // Explicit cohorts can augment a generated cadence (e.g. an extra ad-hoc start).
+  return [...series, ...explicit.filter((e) => e.seats > 0).map(toSeed)];
 }
 
 /** Merge several program plans into one institution-level plan (sums demand). */

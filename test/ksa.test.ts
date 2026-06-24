@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { analyzeCoverage, type ProgramBenchmark, type CourseDevelopment } from "../src/lib/ksa";
+import { analyzeCoverage, analyzeAssessment, competencyAdjustedCompletion, type ProgramBenchmark, type CourseDevelopment } from "../src/lib/ksa";
 
 const benchmarks: ProgramBenchmark[] = [
   { skillId: "a", skillName: "Radiographic Positioning", targetLevel: 4, priority: "core" },
@@ -51,5 +51,32 @@ describe("analyzeCoverage", () => {
   it("orders contributing courses by term", () => {
     const a = result.skills.find((s) => s.skillId === "a")!;
     expect(a.contributingCourses.map((c) => c.termIndex)).toEqual([1, 4]);
+  });
+});
+
+describe("analyzeAssessment (loop 1: assessment → completion)", () => {
+  const benchmarks: ProgramBenchmark[] = [
+    { skillId: "a", skillName: "Positioning", targetLevel: 4, priority: "core" },
+    { skillId: "b", skillName: "Patient Care", targetLevel: 3, priority: "core" },
+    { skillId: "c", skillName: "Radiation Safety", targetLevel: 3, priority: "core" },
+    { skillId: "d", skillName: "Agile", targetLevel: 2, priority: "supporting" },
+  ];
+
+  it("grades each benchmark by the level actually assessed", () => {
+    const a = analyzeAssessment(benchmarks, { a: 4, b: 2, c: 0 });
+    expect(a.skills.find((s) => s.skillId === "a")!.status).toBe("ASSESSED");
+    expect(a.skills.find((s) => s.skillId === "b")!.status).toBe("UNDER"); // assessed L2 < target L3
+    expect(a.skills.find((s) => s.skillId === "c")!.status).toBe("UNASSESSED");
+  });
+
+  it("computes competency readiness over core benchmarks", () => {
+    const a = analyzeAssessment(benchmarks, { a: 4, b: 2, c: 0 });
+    // core = a,b,c; only a assessed to target -> 1/3
+    expect(a.coreCount).toBe(3);
+    expect(a.competencyReadiness).toBeCloseTo(1 / 3);
+  });
+
+  it("modulates projected completion by readiness", () => {
+    expect(competencyAdjustedCompletion(30, 1 / 3)).toBeCloseTo(10);
   });
 });

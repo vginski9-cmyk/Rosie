@@ -6,7 +6,7 @@ import { FunnelChart } from "@/components/FunnelChart";
 import { CapacityWorkbench } from "@/components/CapacityWorkbench";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
-import { analyzeCoverage, assessmentCoverage, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
+import { analyzeCoverage, assessmentCoverage, analyzeAssessment, competencyAdjustedCompletion, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
 import {
   duplicateProgram, deleteProgram, updateFunnelStage, addProgramSkill, removeProgramSkill,
 } from "@/lib/actions";
@@ -43,13 +43,22 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const coverage = analyzeCoverage(benchmarks, development);
   const mappedSkillIds = new Set(program.programSkills.map((p) => p.skillId));
 
-  // Skills → assessment loop, and the integrated bottleneck summary.
+  // Skills → assessment loop (boolean coverage + leveled competency readiness).
   const assessedSkillIds = new Set<string>();
+  const assessedLevels: Record<string, number> = {};
   for (const t of program.terms) for (const c of t.courses) for (const s of c.sessions) for (const l of s.skillLinks) {
-    if (l.mode === "ASSESS" || l.mode === "BOTH") assessedSkillIds.add(l.skillId);
+    if (l.mode === "ASSESS" || l.mode === "BOTH") {
+      assessedSkillIds.add(l.skillId);
+      assessedLevels[l.skillId] = Math.max(assessedLevels[l.skillId] ?? 0, l.targetLevel ?? 0);
+    }
   }
   const assessment = assessmentCoverage(benchmarks, assessedSkillIds);
+  const competency = analyzeAssessment(benchmarks, assessedLevels);
   const bottleneck = await getProgramBottleneck(program.id);
+
+  // Loop 1: assessment competency → funnel completion projection.
+  const completingTarget = cohort?.stages.find((s) => s.stageKey === "completing")?.targetNumber ?? null;
+  const projectedCompetent = completingTarget != null ? competencyAdjustedCompletion(completingTarget, competency.competencyReadiness) : null;
 
   return (
     <div className="space-y-8">
@@ -98,6 +107,12 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             <span className="text-xs text-slate-400">target vs. actual · {totalSessions} sessions/student</span>
           </div>
           <FunnelChart stages={cohort.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
+          {projectedCompetent != null && (
+            <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${competency.competencyReadiness < 1 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
+              <strong>Competency-adjusted completion (loop 1):</strong> with {fmt.pct(competency.competencyReadiness)} of core competencies assessed to target, ~
+              <strong>{fmt.num(projectedCompetent)}</strong> of the {fmt.num(completingTarget)} planned completers are <em>verifiably</em> competent. Unassessed core skills can&apos;t be certified — close the gap in the structure editor.
+            </div>
+          )}
           <details className="mt-3">
             <summary className="cursor-pointer text-sm font-medium text-rose-700">Edit funnel numbers</summary>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">

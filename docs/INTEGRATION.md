@@ -86,16 +86,39 @@ that assess it → competency that feeds the funnel's completion stage).
 | Data access (assembles engine inputs) | `src/lib/queries.ts` | DB → engines |
 | In-app authoring (mutations) | `src/lib/actions.ts` | UI → DB |
 
+## The two loops (now closed)
+
+**Loop 1 — assessment → completion.** `SessionSkill(ASSESS, level)` rolls up to a
+per-skill *assessed level*; `analyzeAssessment()` grades each graduate benchmark
+(ASSESSED / UNDER / UNASSESSED) and yields a **competency readiness** = share of
+core benchmarks assessed to target. `competencyAdjustedCompletion()` then scales
+the funnel's "completing" figure by readiness — a program that assesses only half
+its core competencies can only defensibly certify half its planned completers.
+Surfaced on the program page funnel. (Seed: Radiography reads 50% — positioning &
+image-evaluation assessed to target; patient-care assessed below target; radiation
+safety unassessed.)
+
+**Loop 2 — alignment → placement capacity.** `effectivePlacementCapacity()` runs
+each employer's profile through the WBL alignment engine for the cohort; only
+**alignment-feasible** employers' slots count toward placement, and the ops plan
+reconciles clinical demand against that *effective* number, not raw slots. (Seed:
+Radiography's Night Imaging Center contributes 0 of its 6 slots — it can't meet
+the cohort's binding daytime-hours constraint — so effective WBL = 16 of 22 raw.)
+
+## Launch cadence (flexible)
+
+A program declares its **delivery calendar** (`termSlots`, e.g. skip summer) and
+**launch cadence**: ANNUAL, BIENNIAL (`launchIntervalYears`), MULTI_PER_YEAR
+(several `launchTerms`), or ON_DEMAND (explicit `Cohort` rows). `generateCohortSeries()`
+expands this into many concurrent cohorts; `deliveryOrdinals()` walks only active
+terms. Long, frequently-launched programs naturally yield 15–20+ cohorts in flight.
+
 ## What's still only partially wired (honest gaps)
 
-- **Funnel ← assessment**: assessment coverage is computed, but competency
-  throughput does not yet *drive* the funnel's "completing/licensed" actuals. The
-  hook (`assessmentCoverage` + `SessionSkill ASSESS`) is in place; closing this
-  loop is the next integration step.
-- **WBL ↔ placement ↔ capacity**: the WBL engine scores learner/employer
-  alignment, and the plan reconciles WBL *slot counts*; they are not yet joined so
-  that *alignment-feasible* slots constrain placement. Planned.
-- **Calendar blocks**: the plan uses term ordinals; the 380 holiday-adjusted
-  blocks are not yet used to refine per-term teachable-day counts in the engine.
-- **Cohort entry cadence** is assumed annual (Fall). Multi-entry (Spring/Summer
-  starts) is supported by the engine but not yet authored per program in the UI.
+- **Calendar blocks**: the plan uses academic-term ordinals; the 380 holiday-
+  adjusted blocks aren't yet used to refine per-term teachable-day counts.
+- **Funnel actuals ← competency**: readiness adjusts the *projection*; it doesn't
+  yet write back to the stored "licensed/placed" actuals (kept manual on purpose).
+- **Placement assignment**: effective capacity is computed in aggregate; assigning
+  specific cohorts to specific feasible employers (and consuming their slots) is
+  the next step.

@@ -168,3 +168,66 @@ export function alignProfiles(
     unmetBinding,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Loop 2 — alignment → constrained placement
+// ---------------------------------------------------------------------------
+
+export interface EmployerSlots {
+  employerId: string;
+  name: string;
+  slots: number;
+  profile: WblProfileInput | null;
+}
+
+export interface PlacementEmployer {
+  employerId: string;
+  name: string;
+  slots: number;
+  /** Has an aligned profile and no binding dealbreaker. */
+  feasible: boolean;
+  score: number | null; // null when no profile to score against
+  reason?: string;
+}
+
+export interface PlacementCapacity {
+  /** Total WBL slots regardless of alignment. */
+  raw: number;
+  /** Slots from alignment-FEASIBLE employers only — what actually counts. */
+  effective: number;
+  /** Alignment-score-weighted slots (softer signal). */
+  weighted: number;
+  employers: PlacementEmployer[];
+}
+
+/**
+ * Reconcile employer WBL capacity through the alignment lens: only slots from
+ * employers whose profile is alignment-feasible for this learner cohort count
+ * toward placement. Employers with no profile are treated as feasible (unknown,
+ * not blocked) but contribute to a lower confidence elsewhere.
+ */
+export function effectivePlacementCapacity(
+  learner: WblProfileInput | null,
+  employers: EmployerSlots[],
+  context?: AlignmentContext,
+): PlacementCapacity {
+  const rows: PlacementEmployer[] = employers.map((e) => {
+    if (!learner || !e.profile) {
+      return { employerId: e.employerId, name: e.name, slots: e.slots, feasible: true, score: null, reason: learner ? "no employer profile" : "no learner profile" };
+    }
+    const r = alignProfiles(learner, e.profile, context);
+    return {
+      employerId: e.employerId,
+      name: e.name,
+      slots: e.slots,
+      feasible: r.feasible,
+      score: r.score,
+      reason: r.feasible ? undefined : r.unmetBinding.map((u) => u.factor.label).join("; "),
+    };
+  });
+
+  const raw = rows.reduce((s, r) => s + r.slots, 0);
+  const effective = rows.filter((r) => r.feasible).reduce((s, r) => s + r.slots, 0);
+  const weighted = rows.reduce((s, r) => s + r.slots * (r.score ?? 1), 0);
+  return { raw, effective, weighted, employers: rows };
+}

@@ -74,3 +74,23 @@ describe("alignProfiles", () => {
     expect(neutral.score).toBeGreaterThan(0);
   });
 });
+
+import { effectivePlacementCapacity } from "../src/lib/wbl";
+
+describe("effectivePlacementCapacity (loop 2: alignment → placement)", () => {
+  it("counts only alignment-feasible employer slots", () => {
+    const nightEmployerProfile = { ...goodEmployer, id: "night", factors: goodEmployer.factors.filter((f) => f.matchKey !== "daytime hours") };
+    const cap = effectivePlacementCapacity(learner, [
+      { employerId: "e1", name: "FirstHealth", slots: 12, profile: goodEmployer },
+      { employerId: "e2", name: "Night Clinic", slots: 8, profile: nightEmployerProfile },
+    ]);
+    expect(cap.raw).toBe(20);
+    expect(cap.effective).toBe(12); // night clinic blocked by unmet daytime-hours constraint
+    expect(cap.employers.find((e) => e.employerId === "e2")!.feasible).toBe(false);
+  });
+
+  it("treats employers with no profile as feasible (unknown, not blocked)", () => {
+    const cap = effectivePlacementCapacity(learner, [{ employerId: "e3", name: "Unprofiled", slots: 5, profile: null }]);
+    expect(cap.effective).toBe(5);
+  });
+});

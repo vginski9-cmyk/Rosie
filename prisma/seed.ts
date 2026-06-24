@@ -398,6 +398,11 @@ async function main() {
   const rad = await createProgram({ institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", programType: "Traditional Full Time", credential: "AAS", terms: radTerms });
   const surg = await createProgram({ institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", programType: "Traditional Full Time", credential: "Diploma", terms: surgTerms });
 
+  // Launch cadences: Radiography launches Fall + Spring each year (many cohorts
+  // in flight at once); Surgical Tech launches biennially.
+  await prisma.program.update({ where: { id: rad.id }, data: { launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 41 } });
+  await prisma.program.update({ where: { id: surg.id }, data: { launchCadence: "BIENNIAL", launchTerms: "FALL", launchIntervalYears: 2, termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 19 } });
+
   // North Star year targets (29 rad-techs/yr; cohort capacity 41 to hit it)
   for (const y of [2026, 2027, 2028, 2029, 2030]) {
     await prisma.programYearTarget.create({ data: { programId: rad.id, year: y, credentialTarget: 29, cohortCapacity: 41 } });
@@ -429,6 +434,9 @@ async function main() {
   // Employers & people (clinical partners + staff)
   const firstHealth = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "FirstHealth Moore Regional Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 12, notes: "Primary imaging & OR clinical site" } });
   await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Pinehurst Surgical Clinic", setting: "Ambulatory Surgical Center", wblSlots: 4 } });
+  // A night-only imaging center: real slots, but NOT alignment-feasible for a
+  // cohort that needs daytime hours — so loop 2 excludes it from placement.
+  const nightCenter = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Night Imaging Center", setting: "Outpatient Imaging Center", wblSlots: 6, notes: "Evening/overnight rotations only" } });
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Lindsey (Program Lead)", role: "coordinator", email: "lead@sandhills.edu" } });
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Radiography Faculty 1", role: "instructor" } });
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Clinical Preceptor — Imaging", role: "preceptor", employerId: firstHealth.id } });
@@ -678,6 +686,25 @@ async function main() {
           { layer: "MOTIVATION", label: "Wants advancement-minded hires", detail: "Builds a CT/MRI pipeline internally.", weight: 0.6, binding: false, disclosure: "INFERRED", matchKey: "advancement" },
           { layer: "CONSTRAINT", label: "Requires ARRT eligibility to hire", detail: "Non-negotiable credential requirement.", weight: 1, binding: true, disclosure: "STATED", matchKey: "arrt eligible" },
           { layer: "CAPACITY", label: "Hosts up to 12 clinical slots", detail: "Preceptor capacity caps cohort placement.", weight: 1, binding: false, disclosure: "STATED", matchKey: "wbl slots" },
+        ],
+      },
+    },
+  });
+  await prisma.wblProfile.create({
+    data: {
+      institutionId: sandhills.id,
+      subjectType: "EMPLOYER",
+      name: "Night Imaging Center",
+      employerId: nightCenter.id,
+      tier: "Secondary site",
+      summary: "Outpatient imaging with evening/overnight rotations only.",
+      factors: {
+        create: [
+          { layer: "CAPACITY", label: "Pays at/above living wage", weight: 1, binding: false, disclosure: "STATED", matchKey: "living wage" },
+          { layer: "CAPACITY", label: "Local site", weight: 0.7, binding: false, disclosure: "STATED", matchKey: "local site" },
+          { layer: "CONSTRAINT", label: "Evening/overnight shifts only", detail: "No daytime rotations available.", weight: 1, binding: true, disclosure: "STATED", matchKey: "night shift" },
+          // Note: NO "daytime hours" capacity — the learner's binding daytime
+          // constraint has no counterpart here → placement infeasible.
         ],
       },
     },

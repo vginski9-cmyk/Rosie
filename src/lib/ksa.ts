@@ -96,6 +96,62 @@ export function analyzeCoverage(
   };
 }
 
+export type AssessmentStatus = "ASSESSED" | "UNDER" | "UNASSESSED";
+
+export interface SkillAssessment {
+  skillId: string;
+  skillName: string;
+  priority?: string | null;
+  targetLevel: number;
+  /** Highest level any session assesses this skill to (0 = none). */
+  assessedLevel: number;
+  status: AssessmentStatus;
+}
+
+export interface AssessmentAnalysis {
+  skills: SkillAssessment[];
+  coreCount: number;
+  coreAssessedToTarget: number;
+  /** Share of core benchmarks assessed AT OR ABOVE their target level (0–1).
+   *  This is the competency gate the completion/licensure projection rides on. */
+  competencyReadiness: number;
+}
+
+/**
+ * Loop 1 — assessment → completion. A benchmark you never assess (or assess
+ * below target) cannot be validly certified at graduation. This grades each
+ * benchmark against the levels actually assessed (SessionSkill ASSESS/BOTH) and
+ * yields a competency-readiness score that modulates projected completion.
+ */
+export function analyzeAssessment(benchmarks: ProgramBenchmark[], assessedLevels: Record<string, number>): AssessmentAnalysis {
+  const skills: SkillAssessment[] = benchmarks.map((b) => {
+    const assessedLevel = assessedLevels[b.skillId] ?? 0;
+    let status: AssessmentStatus;
+    if (assessedLevel <= 0) status = "UNASSESSED";
+    else if (assessedLevel >= b.targetLevel) status = "ASSESSED";
+    else status = "UNDER";
+    return { skillId: b.skillId, skillName: b.skillName, priority: b.priority ?? null, targetLevel: b.targetLevel, assessedLevel, status };
+  });
+  const core = skills.filter((s) => s.priority === "core");
+  const pool = core.length ? core : skills;
+  const assessedToTarget = pool.filter((s) => s.status === "ASSESSED").length;
+  return {
+    skills,
+    coreCount: pool.length,
+    coreAssessedToTarget: assessedToTarget,
+    competencyReadiness: pool.length ? assessedToTarget / pool.length : 1,
+  };
+}
+
+/**
+ * Projected fully-competent completers: the funnel's "completing" figure scaled
+ * by competency readiness. If only 60% of core competencies are assessed to
+ * target, the defensible completion count is 60% of plan.
+ */
+export function competencyAdjustedCompletion(baseCompleting: number, readiness: number): number {
+  return baseCompleting * readiness;
+}
+
 export interface AssessmentCoverage {
   benchmarked: number;
   assessed: number;
