@@ -1,0 +1,294 @@
+// Rosie data model.
+// Dev uses SQLite (file-based, boots instantly). The schema is written to be
+// Postgres-portable: no native enums, no Json/array columns, explicit tenant
+// scoping via institutionId on every root entity. Swap `provider = "postgresql"`
+// and the DATABASE_URL to deploy.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// TENANCY
+// ---------------------------------------------------------------------------
+
+/// The tenant root. Everything hangs off an Institution so we can aggregate /
+/// disaggregate across institutions in a multi-tenant deployment later.
+model Institution {
+  id           String   @id @default(cuid())
+  name         String
+  shortName    String?
+  serviceArea  String? // free-text description of the geographic service area
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  programs       Program[]
+  regions        Region[]
+  occupations    Occupation[]
+  demand         DemandProjection[]
+  calendarBlocks CalendarBlock[]
+  people         Person[]
+  employers      Employer[]
+}
+
+// ---------------------------------------------------------------------------
+// LABOR-MARKET DEMAND  (Lightcast SOC-code analysis)
+// ---------------------------------------------------------------------------
+
+/// An occupation, keyed by SOC code (e.g. 29-2034 Radiologic Technologists).
+model Occupation {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  socCode       String
+  title         String
+  createdAt     DateTime @default(now())
+
+  demand   DemandProjection[]
+  programs Program[]
+
+  @@unique([institutionId, socCode])
+  @@index([institutionId])
+}
+
+/// A geography the demand is measured against. `kind` is one of:
+/// NATIONAL | STATE | MSA | RADIUS_60 | RADIUS_45 | SERVICE_AREA.
+model Region {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  kind          String
+  sortOrder     Int      @default(0)
+
+  demand DemandProjection[]
+
+  @@unique([institutionId, name])
+  @@index([institutionId])
+}
+
+/// One demand observation: occupation x region x year.
+/// jobs = stock of jobs; openings = growth + replacement openings that year.
+model DemandProjection {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId  String
+  occupation    Occupation @relation(fields: [occupationId], references: [id], onDelete: Cascade)
+  regionId      String
+  region        Region   @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  year          Int
+  jobs          Float?
+  openings      Float?
+  growthPct     Float?
+  replacementPct Float?
+  turnoverPct   Float?
+
+  @@unique([occupationId, regionId, year])
+  @@index([institutionId])
+}
+
+// ---------------------------------------------------------------------------
+// PROGRAM STRUCTURE  (the "one student's experience" archetype)
+// ---------------------------------------------------------------------------
+
+/// A program type: any variation in entry point, sequencing, or instructional
+/// model (Traditional ADN, LPN-to-RN bridge, Accelerated BSN, ...).
+model Program {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId  String?
+  occupation    Occupation? @relation(fields: [occupationId], references: [id])
+  name          String
+  programType   String // e.g. "Traditional Full Time"
+  credential    String? // e.g. "Diploma", "AAS", "Certificate"
+  serviceArea   String?
+  status        String   @default("active") // active | draft | archived
+  monthsToFullProductivity Int? // lag from completion to "fully productive"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  terms        Term[]
+  cohorts      Cohort[]
+  yearTargets  ProgramYearTarget[]
+
+  @@index([institutionId])
+}
+
+/// Annual North-Star targets for a program: how many credentials to produce and
+/// the cohort capacity required to get there.
+model ProgramYearTarget {
+  id              String  @id @default(cuid())
+  programId       String
+  program         Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  year            Int
+  credentialTarget Float?  // target completers/credentials for the year
+  cohortCapacity   Float?  // seats needed to hit the target given funnel rates
+
+  @@unique([programId, year])
+  @@index([programId])
+}
+
+/// An archetypal term in the program sequence (Term 1..N). startWeek/endWeek
+/// define the instructional window used to validate session timing.
+model Term {
+  id        String  @id @default(cuid())
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  index     Int // 1-based position in the sequence
+  name      String
+  startWeek Int?
+  endWeek   Int?
+
+  courses Course[]
+
+  @@unique([programId, index])
+  @@index([programId])
+}
+
+/// A course within a term. Weekly hours capture the instructional load a single
+/// student must complete for each component; totals are derived by the engine.
+model Course {
+  id                 String @id @default(cuid())
+  termId             String
+  term               Term   @relation(fields: [termId], references: [id], onDelete: Cascade)
+  code               String?
+  name               String
+  sequenceOrder      Int    @default(0) // position within the term (drag-to-reorder)
+  weeklyClassHours   Float  @default(0)
+  weeklyLabHours     Float  @default(0)
+  weeklyClinicalHours Float @default(0)
+
+  sessions Session[]
+
+  @@index([termId])
+}
+
+/// One required instructional session in a single student's experience.
+/// kind = CLASS | LAB | CLINICAL. The engine scales these by enrollment to
+/// compute how many real sections/slots/instructors are needed.
+model Session {
+  id            String @id @default(cuid())
+  courseId      String
+  course        Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind          String
+  number        Int
+  title         String?
+  lengthHours   Float  @default(0)
+  deliveryMode  String? // in-person | online | hybrid
+  location      String? // lecture hall | skills lab | clinical site ...
+  maxStudents   Int    @default(1) // capacity of ONE instance of this session
+  facultyNeeded Int    @default(1) // faculty per instance
+  supportStaffNeeded Int @default(0)
+  preceptorsNeeded   Int @default(0) // clinical only
+  week          Int?
+  dayOfWeek     String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  rotationType  String? // clinical: Med-Surg, OR, Imaging, ...
+  clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
+  notes         String?
+
+  @@index([courseId])
+}
+
+// ---------------------------------------------------------------------------
+// CALENDAR / DATE DIMENSION  (drives real scheduling from the archetype)
+// ---------------------------------------------------------------------------
+
+/// A schedulable block within an academic term (16/14/12/8/5-week, etc.).
+/// nonHoliday* = count of teachable weekdays after holidays are removed; these
+/// convert "weekly hours" into real per-term session counts.
+model CalendarBlock {
+  id            String  @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  blockKey      String
+  termKey       String?
+  academicYear  Int?
+  termCode      String? // SPRING | SUMMER | FALL
+  name          String
+  startDate     DateTime?
+  endDate       DateTime?
+  lengthWeeks   Int?
+  lengthDays    Int?
+  nonHolidayMon Int?
+  nonHolidayTue Int?
+  nonHolidayWed Int?
+  nonHolidayThu Int?
+  nonHolidayFri Int?
+
+  @@unique([institutionId, blockKey])
+  @@index([institutionId])
+}
+
+// ---------------------------------------------------------------------------
+// TALENT-PIPELINE FUNNEL
+// ---------------------------------------------------------------------------
+
+/// A cohort moving through the funnel (e.g. "Class of 2029").
+model Cohort {
+  id        String  @id @default(cuid())
+  programId String
+  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name      String
+  entryYear Int?
+
+  stages FunnelStage[]
+
+  @@index([programId])
+}
+
+/// One stage of the talent-pipeline funnel for a cohort, with target vs actual.
+/// stageKey is one of the canonical stages (see lib/funnel.ts STAGES).
+model FunnelStage {
+  id           String @id @default(cuid())
+  cohortId     String
+  cohort       Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  stageKey     String
+  sortOrder    Int
+  label        String
+  targetNumber Float?
+  actualNumber Float?
+
+  @@unique([cohortId, stageKey])
+  @@index([cohortId])
+}
+
+// ---------------------------------------------------------------------------
+// STAKEHOLDERS
+// ---------------------------------------------------------------------------
+
+/// People who staff or support delivery: instructors, support staff,
+/// preceptors, clinical supervisors, program coordinators.
+model Person {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  role          String // instructor | support | preceptor | supervisor | coordinator
+  email         String?
+  employerId    String?
+  employer      Employer? @relation(fields: [employerId], references: [id])
+
+  @@index([institutionId])
+}
+
+/// An employer / clinical partner that hires graduates and/or hosts WBL.
+model Employer {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  setting       String? // acute-care hospital | imaging center | ambulatory surgical center ...
+  wblSlots      Int?    // clinical/WBL slots the partner can host
+  notes         String?
+
+  people Person[]
+
+  @@index([institutionId])
+}
