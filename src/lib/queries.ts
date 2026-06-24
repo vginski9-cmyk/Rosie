@@ -220,7 +220,7 @@ export async function getCourse(courseId: string) {
     include: {
       sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] },
       courseSkills: { include: { skill: true } },
-      term: { include: { program: { include: { institution: true } } } },
+      term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },
   });
 }

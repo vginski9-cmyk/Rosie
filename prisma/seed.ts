@@ -51,7 +51,57 @@ type CourseSeed = {
 type TermSeed = { index: number; name: string; startWeek: number; endWeek: number; courses: CourseSeed[] };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-const CLINICAL_ROTATIONS = ["General Radiography", "Fluoroscopy", "Mobile / Surgery", "Trauma / ER", "Computed Tomography", "Pediatrics", "Outpatient Imaging"];
+const CLINICAL_ROTATIONS = ["General Radiography", "Fluoroscopy / GI", "Operating Room & Mobile", "Trauma / Emergency", "Computed Tomography", "Chest & Bone", "Pediatrics", "Outpatient Imaging", "Vascular / Special Procedures"];
+
+// Curated, nuanced session topics so the schedule reads like a real syllabus.
+const TOPICS: Record<string, { lecture?: string[]; lab?: string[] }> = {
+  "RAD-110": {
+    lecture: ["Orientation, Professional Ethics & Scope of Practice", "Medical & Radiographic Terminology", "Patient Assessment & Vital Signs", "Infection Control & Medical Asepsis", "Body Mechanics & Safe Patient Transfer", "Therapeutic Communication & Informed Consent", "Principles of Radiation Protection (ALARA)", "Technical Factors: kVp, mAs & Exposure", "Contrast Media, Allergic Reactions & Venipuncture", "Pharmacology & Drug Administration Basics", "Care of the Trauma & Critical Patient", "Pediatric & Geriatric Patient Care", "Aseptic Technique & Sterile Fields", "Medical-Legal Issues, HIPAA & Documentation", "Cultural Competence & Patient-Centered Care", "Patient Care Review & Comprehensive Final"],
+    lab: ["Hand Hygiene, PPE & Isolation Practice", "Vital Signs & Patient Monitoring Stations", "Wheelchair & Stretcher Transfer Lab", "Oxygen Delivery & Suction Equipment", "Sterile Tray Setup & Gloving", "Venipuncture & Contrast Setup Simulation", "Immobilization Devices & Positioning Aids", "Radiation Protection: Shielding & Collimation", "Patient Care Scenarios I (Trauma)", "Patient Care Scenarios II (Pediatric)", "Vital Signs Competency Check", "Transfer & Body Mechanics Competency", "Aseptic Technique Competency", "Contrast & Venipuncture Competency", "Integrated Patient Care Simulation", "Patient Care Practical Examination"],
+  },
+  "RAD-111": {
+    lecture: ["Image Receptors, Positioning Terminology & Body Planes", "Chest & Upper Airway Radiography", "Abdomen: Supine, Upright & Decubitus", "Fingers, Hand & Wrist", "Forearm, Elbow & Humerus", "Shoulder Girdle & Clavicle", "Toes, Foot & Calcaneus", "Ankle, Lower Leg & Knee", "Femur & Patella", "Pelvis & Hip", "Bony Thorax: Ribs & Sternum", "Trauma Adaptations of the Extremities", "Pediatric Extremity Imaging", "Image Critique: Positioning & Quality", "Comprehensive Procedures Review", "Procedures I Comprehensive Final"],
+    lab: ["Energized Lab Orientation & Safety", "Chest & Abdomen Positioning Lab", "Hand, Wrist & Forearm Lab", "Elbow & Humerus Lab", "Shoulder & Clavicle Lab", "Foot, Ankle & Lower Leg Lab", "Knee & Femur Lab", "Pelvis & Hip Lab", "Bony Thorax Lab", "Trauma Positioning Lab", "Pediatric Positioning Lab", "Image Critique Workshop", "Upper Extremity Competency", "Lower Extremity Competency", "Chest/Abdomen Competency", "Procedures I Practical Exam"],
+  },
+  "RAD-112": {
+    lecture: ["Skull Anatomy & Cranial Positioning", "Facial Bones, Sinuses & Orbits", "Cervical Spine & Trauma Cross-Table", "Thoracic & Lumbar Spine", "Sacrum, Coccyx & Scoliosis Series", "Upper GI: Esophagus & Stomach", "Small Bowel & Enteroclysis", "Lower GI: Barium Enema", "Biliary System & Cholangiography", "Urinary System: IVU & Cystography", "Contrast Media in GI/GU Imaging", "Surgical & Mobile C-arm Procedures", "Image Critique: Spine & Contrast Studies", "Pathology Recognition in GI/GU", "Comprehensive Procedures II Review", "Procedures II Comprehensive Final"],
+    lab: ["Cranium & Skull Positioning Lab", "Facial Bones & Sinus Lab", "Cervical Spine & Trauma Lab", "Thoracic & Lumbar Spine Lab", "Sacrum/Coccyx & Scoliosis Lab", "Upper GI Fluoroscopy Simulation", "Lower GI / BE Simulation", "Urinary System Simulation", "C-arm & Surgical Positioning Lab", "Contrast Handling Lab", "Spine Competency", "Skull/Facial Competency", "GI/GU Simulation Competency", "Mobile/Surgical Competency", "Integrated Procedures Lab", "Procedures II Practical Exam"],
+  },
+  "RAD-121": {
+    lecture: ["Nature of X-radiation & the X-ray Tube", "Prime Exposure Factors Revisited", "X-ray Production & Beam Quality", "Photon Interactions with Matter", "Image Receptors & Digital Detectors", "Receptor Exposure & the Exposure Index", "Spatial Resolution & Detail", "Contrast & Dynamic Range", "Distortion: Size & Shape", "Grids: Construction & Use", "Scatter Control & Beam Restriction", "Automatic Exposure Control (AEC)", "Technique Charts & Optimization", "Image Quality Troubleshooting", "Image Production I Review", "Image Production I Final"],
+    lab: ["Tube & Generator Orientation", "Exposure Factor Experiments: kVp", "Exposure Factor Experiments: mAs", "Distance & Inverse Square Lab", "Receptor Exposure / EI Lab", "Resolution & Detail Phantoms", "Contrast Experiments", "Distortion Experiments", "Grid Comparison Lab", "Scatter & Collimation Lab", "AEC Lab", "Technique Chart Construction", "QC Image Evaluation", "Optimization Workshop", "Integrated Imaging Lab", "Image Production I Practical"],
+  },
+  "RAD-122": {
+    lecture: ["Digital Imaging Systems Overview", "CR vs DR Acquisition", "Histogram Analysis & Processing", "Exposure Indicators & Dose Creep", "Image Post-Processing & Windowing", "PACS, DICOM & Image Networking", "Artifacts in Digital Imaging", "Image Production II Review & Final"],
+    lab: ["Workstation & PACS Navigation", "CR Reader & Plate Handling", "DR Detector Calibration", "Histogram & Processing Lab", "Windowing & Annotation Lab", "Artifact Identification Lab", "QC & Repeat Analysis Lab", "Image Production II Practical"],
+  },
+  "RAD-141": {
+    lecture: ["Radiation Units, Quantities & Measurement", "Interaction of Radiation with Tissue", "Cell Biology & Radiosensitivity", "Early & Late Tissue Reactions", "Stochastic vs Deterministic Effects", "Dose Limits & Regulatory Framework", "Personnel Monitoring & Dosimetry", "Protective Devices & Shielding Design", "Patient Dose Reduction Strategies", "Fluoroscopy & Fetal Dose Considerations", "Radiation Safety Program Management", "Radiation Safety Comprehensive Final"],
+  },
+  "RAD-211": {
+    lecture: ["Mammography Principles & Positioning", "Bone Densitometry (DEXA)", "Computed Tomography Physics & Procedures", "MRI Principles & Safety", "Vascular & Interventional Procedures", "Cardiac Catheterization Imaging", "Sectional Anatomy: Head & Neck", "Sectional Anatomy: Thorax & Abdomen", "Radiographic Pathology: Skeletal", "Radiographic Pathology: Chest & Abdomen", "Image Analysis & Critique Methodology", "Specialty Modalities Review", "Advanced Procedures Case Studies", "Geriatric & Bariatric Adaptations", "Procedures III Comprehensive Review", "Procedures III Final"],
+    lab: ["Sectional Anatomy Workshop I", "Sectional Anatomy Workshop II", "CT Console Simulation", "Mammography Phantom Lab", "DEXA Simulation", "Vascular Procedures Simulation", "Pathology Image Analysis I", "Pathology Image Analysis II", "Critique Methodology Lab", "Specialty Positioning Lab", "Case Study Workshop I", "Case Study Workshop II", "Advanced Competency I", "Advanced Competency II", "Integrated Specialty Lab", "Procedures III Practical"],
+  },
+  "RAD-231": {
+    lecture: ["Advanced Digital Image Processing", "Quality Control Programs & Testing", "Quality Assurance & Accreditation", "Dose Monitoring & Optimization", "Equipment QC: Generators & Tubes", "Display & PACS QC", "Image Production III Review & Final"],
+    lab: ["QC Test Tools Orientation", "Generator & Output QC Lab", "Beam Quality & HVL Lab", "Detector Uniformity Lab", "Display Monitor QC Lab", "Repeat/Reject Analysis Lab", "QA Program Audit Workshop", "Image Production III Practical"],
+  },
+  "RAD-271": {
+    lecture: ["Registry Review: Patient Care & Safety", "Registry Review: Image Production", "Registry Review: Procedures", "Registry Review: Radiation Physics", "Mock Registry Examination I", "Mock Registry Examination II", "Professional Transition & Resume/Interview", "Capstone Comprehensive Final"],
+    lab: ["Image Critique Capstone I", "Image Critique Capstone II", "Positioning Skills Refresher", "Trauma Adaptation Refresher", "Mobile/Surgical Refresher", "Comprehensive Skills Competency", "Capstone Portfolio Review", "Capstone Practical Examination"],
+  },
+};
+
+// Clinical delivery profile per course: early clinicals are instructor-led
+// (small groups), later clinicals are precepted (1:1 with a preceptor, fractional
+// clinical-instructor oversight) — exactly the two modes the FTE model handles.
+const CLINICAL_PROFILE: Record<string, { mode: string; maxStudents: number; faculty: number; preceptors: number }> = {
+  "RAD-151": { mode: "Instructor-led", maxStudents: 8, faculty: 1, preceptors: 0 },
+  "RAD-161": { mode: "Instructor-led", maxStudents: 8, faculty: 1, preceptors: 0 },
+  "RAD-171": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
+  "RAD-251": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
+  "RAD-261": { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 },
+};
 
 function buildSessions(s: SessionSeed) {
   return Array.from({ length: s.count }, (_, i) => ({
@@ -70,24 +120,29 @@ function buildSessions(s: SessionSeed) {
   }));
 }
 
-/** Auto-generate realistic session-by-session rows from a course's catalog hours. */
+/** Auto-generate richly detailed session-by-session rows from catalog hours. */
 function genSessions(c: CourseSeed, weeks: number) {
   const rows: ReturnType<typeof buildSessions> = [];
-  const short = c.code.replace(/[^A-Z0-9]/gi, "");
+  const bank = TOPICS[c.code] ?? {};
   if (c.weeklyClassHours > 0) {
     for (let i = 0; i < weeks; i++) {
-      rows.push({ kind: "CLASS", number: i + 1, title: `${short} Lecture — Week ${i + 1}`, lengthHours: c.weeklyClassHours, maxStudents: 24, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: "Mon", location: "Classroom", rotationType: null, clinicalMode: null } as any);
+      const title = bank.lecture?.[i] ?? `${c.name} — Unit ${i + 1}`;
+      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? "Mon" : "Wed", location: "Health Sciences Classroom 204", rotationType: null, clinicalMode: null } as any);
     }
   }
   if (c.weeklyLabHours > 0) {
     for (let i = 0; i < weeks; i++) {
-      rows.push({ kind: "LAB", number: i + 1, title: `${short} Lab — Week ${i + 1}`, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: "Wed", location: "Energized Radiography Lab", rotationType: null, clinicalMode: null } as any);
+      const title = bank.lab?.[i] ?? `${c.name} Lab — Week ${i + 1}`;
+      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? "Tue" : "Thu", location: "Energized Radiography Lab", rotationType: null, clinicalMode: null } as any);
     }
   }
   if (c.weeklyClinicalHours > 0) {
+    const p = CLINICAL_PROFILE[c.code] ?? { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 };
     const clinWeeks = Math.min(weeks, 15);
+    const shiftLen = c.weeklyClinicalHours >= 18 ? 12 : 8; // heavier clinical terms run 12-hr shifts
     for (let i = 0; i < clinWeeks; i++) {
-      rows.push({ kind: "CLINICAL", number: i + 1, title: `Clinical Rotation — Week ${i + 1}`, lengthHours: 8, maxStudents: 8, facultyNeeded: 0, supportStaffNeeded: 0, preceptorsNeeded: 1, week: i + 1, dayOfWeek: DAYS[i % 5], location: "Affiliated Clinical Site", rotationType: CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length], clinicalMode: "Preceptor-led" } as any);
+      const rotation = CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length];
+      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: DAYS[i % 5], location: i % 3 === 0 ? "FirstHealth Moore Regional — Imaging" : i % 3 === 1 ? "Scotland Memorial Hospital — Radiology" : "Pinehurst Outpatient Imaging Center", rotationType: rotation, clinicalMode: p.mode } as any);
     }
   }
   return rows;

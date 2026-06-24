@@ -1,140 +1,119 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/queries";
-import { fmt } from "@/lib/format";
+import { CourseServicePanel, type PanelSession } from "@/components/CourseServicePanel";
 
 export const dynamic = "force-dynamic";
 
-const KIND_META: Record<string, { label: string; color: string }> = {
-  CLASS: { label: "Class sessions", color: "text-sky-700" },
-  LAB: { label: "Lab sessions", color: "text-violet-700" },
-  CLINICAL: { label: "Clinical sessions", color: "text-rose-700" },
-};
+const HOUR_TILES = [
+  { key: "creditHours", label: "Credit hours" },
+  { key: "weeklyClassHours", label: "Class hrs / week" },
+  { key: "weeklyLabHours", label: "Lab hrs / week" },
+  { key: "weeklyClinicalHours", label: "Clinical hrs / week" },
+] as const;
 
 export default async function CoursePage({ params }: { params: { id: string } }) {
   const course = await getCourse(params.id);
   if (!course) notFound();
   const program = course.term.program;
 
-  const byKind = (k: string) => course.sessions.filter((s) => s.kind === k);
-  const kinds = ["CLASS", "LAB", "CLINICAL"].filter((k) => byKind(k).length > 0);
+  const plannedEnrollment =
+    program.defaultCohortSeats ??
+    Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ??
+    40;
+
+  const sessions: PanelSession[] = course.sessions.map((s) => ({
+    id: s.id,
+    number: s.number,
+    kind: s.kind as "CLASS" | "LAB" | "CLINICAL",
+    title: s.title,
+    lengthHours: s.lengthHours,
+    maxStudents: s.maxStudents,
+    facultyNeeded: s.facultyNeeded,
+    preceptorsNeeded: s.preceptorsNeeded,
+    supportStaffNeeded: s.supportStaffNeeded,
+    week: s.week,
+    dayOfWeek: s.dayOfWeek,
+    location: s.location,
+    rotationType: s.rotationType,
+    clinicalMode: s.clinicalMode,
+  }));
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-10">
+      {/* Header */}
       <div>
         <Link href={`/programs/${program.id}/flow`} className="text-sm text-slate-500 hover:text-slate-700">
           ← {program.name} curriculum flow
         </Link>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              <span className="font-mono text-slate-400">{course.code}</span> {course.name}
-            </h1>
-            <p className="text-sm text-slate-500">{program.institution.name} · {course.term.name}</p>
+            <div className="font-mono text-sm font-semibold text-slate-400">{course.code}</div>
+            <h1 className="mt-0.5 text-3xl font-semibold tracking-tight">{course.name}</h1>
+            <p className="mt-1 text-sm text-slate-500">{program.institution.name} · {program.name} · {course.term.name}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {course.semesterOffered && <span className="badge bg-slate-100 text-slate-600">Offered: {course.semesterOffered}</span>}
-            {course.courseType && <span className="badge bg-rose-50 text-rose-700">{course.courseType.toLowerCase()}</span>}
+          <div className="flex flex-wrap items-center gap-2">
+            {course.semesterOffered && <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Offered: {course.semesterOffered}</span>}
+            {course.courseType && <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700">{course.courseType.toLowerCase()}</span>}
           </div>
         </div>
       </div>
 
       {/* Hours / credits */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Credit hours" value={fmt.num(course.creditHours)} />
-        <Stat label="Class hrs/wk" value={fmt.num(course.weeklyClassHours)} />
-        <Stat label="Lab hrs/wk" value={fmt.num(course.weeklyLabHours)} />
-        <Stat label="Clinical hrs/wk" value={fmt.num(course.weeklyClinicalHours)} />
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {HOUR_TILES.map((h) => (
+          <div key={h.key} className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{h.label}</div>
+            <div className="mt-1 text-3xl font-semibold tabular-nums text-slate-900">
+              {(course[h.key] ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {course.description && (
-        <section className="card card-pad">
-          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Description</h2>
-          <p className="text-sm leading-relaxed text-slate-700">{course.description}</p>
-        </section>
-      )}
-
-      {course.requisites && (
-        <section className="card card-pad">
-          <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">Requisites</h2>
-          <p className="text-sm leading-relaxed text-slate-700">{course.requisites}</p>
-        </section>
-      )}
-
-      {course.courseSkills.length > 0 && (
-        <section className="card card-pad">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Develops KSAs</h2>
-          <div className="flex flex-wrap gap-1">
-            {course.courseSkills.map((cs) => (
-              <Link key={cs.id} href={`/skills/${cs.skillId}`} className="badge bg-violet-50 text-violet-700 hover:bg-violet-100">
-                {cs.skill.name} → L{cs.targetLevel}{cs.role ? ` (${cs.role.toLowerCase()})` : ""}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Session-by-session schedule */}
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold">Session-by-session schedule</h2>
-        {kinds.map((kind) => {
-          const meta = KIND_META[kind];
-          const sessions = byKind(kind);
-          const isClinical = kind === "CLINICAL";
-          return (
-            <div key={kind} className="card overflow-hidden">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-                <h3 className={`font-semibold ${meta.color}`}>{meta.label}</h3>
-                <span className="text-xs text-slate-400">{sessions.length} sessions</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="th">#</th>
-                      <th className="th">Title</th>
-                      <th className="th text-center">Week</th>
-                      <th className="th text-center">Day</th>
-                      <th className="th text-right">Hrs</th>
-                      <th className="th text-center">Cap</th>
-                      <th className="th">Location</th>
-                      <th className="th">{isClinical ? "Rotation / mode" : "Staffing"}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {sessions.map((s) => (
-                      <tr key={s.id}>
-                        <td className="td text-slate-400">{s.number}</td>
-                        <td className="td font-medium">{s.title}</td>
-                        <td className="td text-center">{s.week ?? "—"}</td>
-                        <td className="td text-center">{s.dayOfWeek ?? "—"}</td>
-                        <td className="td text-right">{fmt.num(s.lengthHours)}</td>
-                        <td className="td text-center">{s.maxStudents}</td>
-                        <td className="td text-xs text-slate-500">{s.location ?? "—"}</td>
-                        <td className="td text-xs text-slate-500">
-                          {isClinical
-                            ? `${s.rotationType ?? "—"}${s.clinicalMode ? ` · ${s.clinicalMode}` : ""}${s.preceptorsNeeded ? ` · ${s.preceptorsNeeded} preceptor` : ""}`
-                            : `${s.facultyNeeded} faculty${s.supportStaffNeeded ? ` · ${s.supportStaffNeeded} support` : ""}`}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* Catalog narrative */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {course.description && (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 lg:col-span-2">
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Course description</h2>
+            <p className="text-[15px] leading-relaxed text-slate-700">{course.description}</p>
+          </section>
+        )}
+        <section className="space-y-6">
+          {course.requisites && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Requisites</h2>
+              <p className="text-sm leading-relaxed text-slate-700">{course.requisites}</p>
+            </div>
+          )}
+          {course.courseSkills.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-6">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Develops KSAs</h2>
+              <div className="flex flex-wrap gap-2">
+                {course.courseSkills.map((cs) => (
+                  <Link key={cs.id} href={`/skills/${cs.skillId}`} className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100">
+                    {cs.skill.name} → L{cs.targetLevel}{cs.role ? ` (${cs.role.toLowerCase()})` : ""}
+                  </Link>
+                ))}
               </div>
             </div>
-          );
-        })}
-        {kinds.length === 0 && <p className="text-sm text-slate-400">No sessions defined for this course yet.</p>}
-      </section>
-    </div>
-  );
-}
+          )}
+        </section>
+      </div>
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="card card-pad">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+      {/* Session schedule + service requirements (interactive) */}
+      <div>
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">Session-by-session schedule &amp; service requirements</h2>
+        <p className="mb-6 text-sm text-slate-500">
+          Every session a single student is required to attend, and the delivery footprint it creates once scaled to the
+          cohort. Drag the enrollment to watch the formulas recompute.
+        </p>
+        {sessions.length > 0 ? (
+          <CourseServicePanel sessions={sessions} defaultEnrollment={plannedEnrollment} />
+        ) : (
+          <p className="text-sm text-slate-400">No sessions defined for this course yet.</p>
+        )}
+      </div>
     </div>
   );
 }
