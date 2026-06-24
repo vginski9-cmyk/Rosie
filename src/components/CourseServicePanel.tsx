@@ -6,6 +6,16 @@ import { courseService, DEFAULT_SERVICE, type ServiceSession } from "@/lib/servi
 export interface PanelSession extends ServiceSession {
   number: number;
   supportStaffNeeded?: number;
+  startTime?: string | null;
+  dayOfWeek?: string | null;
+  week?: number | null;
+}
+
+function time12(hhmm?: string | null) {
+  if (!hhmm) return "—";
+  const [h, m] = hhmm.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${ap}`;
 }
 
 const num = (n: number, d = 0) => n.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 });
@@ -76,17 +86,23 @@ export function CourseServicePanel({ sessions, defaultEnrollment }: { sessions: 
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-3 font-semibold">#</th>
-                    <th className="px-4 py-3 font-semibold">Session</th>
-                    <th className="px-4 py-3 text-center font-semibold">Week</th>
-                    <th className="px-4 py-3 text-center font-semibold">Day</th>
-                    <th className="px-4 py-3 text-right font-semibold">Length</th>
-                    <th className="px-4 py-3 text-center font-semibold">Cap / sec</th>
-                    <th className="px-4 py-3">Location</th>
-                    {isClinical ? <th className="px-4 py-3">Rotation &amp; mode</th> : <th className="px-4 py-3">Staffing</th>}
-                    <th className="border-l border-slate-200 bg-rose-50/40 px-4 py-3 text-right font-semibold text-rose-700">Sections</th>
-                    <th className="bg-rose-50/40 px-4 py-3 text-right font-semibold text-rose-700">Space hrs</th>
-                    <th className="bg-rose-50/40 px-4 py-3 text-right font-semibold text-rose-700">{isClinical ? "Preceptor hrs" : "Faculty hrs"}</th>
+                    <th className="px-3 py-3 font-semibold">#</th>
+                    <th className="px-3 py-3 font-semibold">Session</th>
+                    <th className="px-3 py-3 text-center font-semibold">Wk</th>
+                    <th className="px-3 py-3 text-center font-semibold">Day</th>
+                    <th className="px-3 py-3 text-center font-semibold">Time</th>
+                    <th className="px-3 py-3 text-right font-semibold">Len</th>
+                    <th className="px-3 py-3 text-center font-semibold">Cap</th>
+                    <th className="px-3 py-3">Location</th>
+                    <th className="px-3 py-3">{isClinical ? "Rotation / mode" : "Staffing"}</th>
+                    <th className="border-l border-slate-200 bg-rose-50/40 px-3 py-3 text-right font-semibold text-rose-700">Sections</th>
+                    <th className="bg-rose-50/40 px-3 py-3 text-right font-semibold text-rose-700">Space hrs</th>
+                    <th className="bg-sky-50/50 px-3 py-3 text-right font-semibold text-sky-700">Fac hrs</th>
+                    <th className="bg-sky-50/50 px-3 py-3 text-right font-semibold text-sky-700">Fac/wk</th>
+                    <th className="bg-sky-50/50 px-3 py-3 text-right font-semibold text-sky-700">Fac FTE</th>
+                    <th className="bg-rose-50/40 px-3 py-3 text-right font-semibold text-rose-700">Prec hrs</th>
+                    <th className="bg-rose-50/40 px-3 py-3 text-right font-semibold text-rose-700">Prec/wk</th>
+                    <th className="bg-rose-50/40 px-3 py-3 text-right font-semibold text-rose-700">Prec FTE</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -94,23 +110,27 @@ export function CourseServicePanel({ sessions, defaultEnrollment }: { sessions: 
                     const s = p.session as PanelSession;
                     return (
                       <tr key={s.id} className="align-top hover:bg-slate-50/50">
-                        <td className="px-4 py-3.5 text-slate-400">{s.number}</td>
-                        <td className="px-4 py-3.5 font-medium leading-snug text-slate-800">{s.title}</td>
-                        <td className="px-4 py-3.5 text-center text-slate-600">{s.week ?? "—"}</td>
-                        <td className="px-4 py-3.5 text-center text-slate-600">{s.dayOfWeek ?? "—"}</td>
-                        <td className="px-4 py-3.5 text-right tabular-nums text-slate-600">{num(s.lengthHours, 1)} h</td>
-                        <td className="px-4 py-3.5 text-center tabular-nums text-slate-600">{num(s.maxStudents)}</td>
-                        <td className="px-4 py-3.5 leading-snug text-slate-500">{s.location ?? "—"}</td>
-                        <td className="px-4 py-3.5 leading-snug text-slate-500">
-                          {isClinical ? (
-                            <span>{s.rotationType ?? "—"}{s.clinicalMode ? <span className="text-slate-400"> · {s.clinicalMode}</span> : null}{s.preceptorsNeeded ? <span className="text-slate-400"> · {num(s.preceptorsNeeded)} preceptor</span> : null}</span>
-                          ) : (
-                            <span>{num(s.facultyNeeded, 2)} faculty{s.supportStaffNeeded ? <span className="text-slate-400"> · {num(s.supportStaffNeeded)} support</span> : null}</span>
-                          )}
+                        <td className="px-3 py-3 text-slate-400">{s.number}</td>
+                        <td className="px-3 py-3 font-medium leading-snug text-slate-800">{s.title}</td>
+                        <td className="px-3 py-3 text-center text-slate-600">{s.week ?? "—"}</td>
+                        <td className="px-3 py-3 text-center text-slate-600">{s.dayOfWeek ?? "—"}</td>
+                        <td className="whitespace-nowrap px-3 py-3 text-center text-slate-600">{time12(s.startTime)}</td>
+                        <td className="px-3 py-3 text-right tabular-nums text-slate-600">{num(s.lengthHours, 1)}h</td>
+                        <td className="px-3 py-3 text-center tabular-nums text-slate-600">{num(s.maxStudents)}</td>
+                        <td className="px-3 py-3 leading-snug text-slate-500">{s.location ?? "—"}</td>
+                        <td className="px-3 py-3 leading-snug text-slate-500">
+                          {isClinical
+                            ? <span>{s.rotationType ?? "—"}{s.clinicalMode ? <span className="text-slate-400"> · {s.clinicalMode}</span> : null}</span>
+                            : <span>{num(s.facultyNeeded, 2)} fac{s.supportStaffNeeded ? <span className="text-slate-400"> · {num(s.supportStaffNeeded)} sup</span> : null}</span>}
                         </td>
-                        <td className="border-l border-slate-200 bg-rose-50/30 px-4 py-3.5 text-right font-semibold tabular-nums text-rose-700">{num(p.sections)}</td>
-                        <td className="bg-rose-50/30 px-4 py-3.5 text-right tabular-nums text-slate-700">{num(p.spaceHours, 1)}</td>
-                        <td className="bg-rose-50/30 px-4 py-3.5 text-right tabular-nums text-slate-700">{num(isClinical ? p.preceptorContactHours : p.facultyContactHours, 1)}</td>
+                        <td className="border-l border-slate-200 bg-rose-50/30 px-3 py-3 text-right font-semibold tabular-nums text-rose-700">{num(p.sections)}</td>
+                        <td className="bg-rose-50/30 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.spaceHours, 1)}</td>
+                        <td className="bg-sky-50/40 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.facultyContactHours, 1)}</td>
+                        <td className="bg-sky-50/40 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.facultyWeeklyHours, 2)}</td>
+                        <td className="bg-sky-50/40 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.facultyFte, 3)}</td>
+                        <td className="bg-rose-50/30 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.preceptorContactHours, 1)}</td>
+                        <td className="bg-rose-50/30 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.preceptorWeeklyFte, 2)}</td>
+                        <td className="bg-rose-50/30 px-3 py-3 text-right tabular-nums text-slate-700">{num(p.preceptorFte, 3)}</td>
                       </tr>
                     );
                   })}

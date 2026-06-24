@@ -15,6 +15,8 @@ export default async function SchedulePage({ params }: { params: { id: string } 
     id: t.id,
     index: t.index,
     name: t.name,
+    startDateISO: t.startDate ? t.startDate.toISOString().slice(0, 10) : null,
+    weeks: t.startWeek != null && t.endWeek != null ? t.endWeek - t.startWeek + 1 : 16,
     sessions: t.courses.flatMap((c) =>
       c.sessions.map(
         (s): ScheduleSession => ({
@@ -30,6 +32,7 @@ export default async function SchedulePage({ params }: { params: { id: string } 
           preceptorsNeeded: s.preceptorsNeeded,
           week: s.week,
           dayOfWeek: s.dayOfWeek,
+          startTime: s.startTime,
           location: s.location,
           rotationType: s.rotationType,
           clinicalMode: s.clinicalMode,

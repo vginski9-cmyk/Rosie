@@ -48,7 +48,13 @@ type CourseSeed = {
   requisites?: string;
 };
 
-type TermSeed = { index: number; name: string; startWeek: number; endWeek: number; courses: CourseSeed[] };
+type TermSeed = { index: number; name: string; startWeek: number; endWeek: number; startDate?: string; courses: CourseSeed[] };
+
+// Real-world first day for each program term (Mondays), so the calendar lands on
+// actual dates / months / years.
+const TERM_START_DATES = ["2025-08-18", "2026-01-12", "2026-05-18", "2026-08-17", "2027-01-11", "2027-05-17", "2027-08-16", "2028-01-10"];
+// Time-of-day slots by session kind (24h "HH:MM").
+const START_TIME: Record<string, string> = { CLASS: "09:00", LAB: "13:00", CLINICAL: "07:00" };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const CLINICAL_ROTATIONS = ["General Radiography", "Fluoroscopy / GI", "Operating Room & Mobile", "Trauma / Emergency", "Computed Tomography", "Chest & Bone", "Pediatrics", "Outpatient Imaging", "Vascular / Special Procedures"];
@@ -121,20 +127,32 @@ function buildSessions(s: SessionSeed) {
   }));
 }
 
+// Stagger class/lab times by course so the weekly timetable doesn't pile every
+// session at the same hour (a single student can't be in two places at once).
+const CLASS_SLOTS = ["08:00", "09:30", "11:00", "12:30"];
+const LAB_SLOTS = ["13:00", "14:30", "16:00"];
+const CLASS_DAYS: [string, string][] = [["Mon", "Wed"], ["Tue", "Thu"], ["Wed", "Fri"], ["Mon", "Thu"]];
+const LAB_DAYS = ["Tue", "Thu", "Fri", "Mon"];
+
 /** Auto-generate richly detailed session-by-session rows from catalog hours. */
 function genSessions(c: CourseSeed, weeks: number) {
   const rows: ReturnType<typeof buildSessions> = [];
   const bank = TOPICS[c.code] ?? {};
+  const h = [...c.code].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const classStart = CLASS_SLOTS[h % CLASS_SLOTS.length];
+  const labStart = LAB_SLOTS[h % LAB_SLOTS.length];
+  const [classD1, classD2] = CLASS_DAYS[h % CLASS_DAYS.length];
+  const labDay = LAB_DAYS[h % LAB_DAYS.length];
   if (c.weeklyClassHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lecture?.[i] ?? `${c.name} — Unit ${i + 1}`;
-      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? "Mon" : "Wed", location: "Health Sciences Classroom 204", rotationType: null, clinicalMode: null } as any);
+      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? classD1 : classD2, startTime: classStart, location: "Health Sciences Classroom 204", rotationType: null, clinicalMode: null } as any);
     }
   }
   if (c.weeklyLabHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lab?.[i] ?? `${c.name} Lab — Week ${i + 1}`;
-      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? "Tue" : "Thu", location: "Energized Radiography Lab", rotationType: null, clinicalMode: null } as any);
+      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: labDay, startTime: labStart, location: "Energized Radiography Lab", rotationType: null, clinicalMode: null } as any);
     }
   }
   if (c.weeklyClinicalHours > 0) {
@@ -143,7 +161,7 @@ function genSessions(c: CourseSeed, weeks: number) {
     const shiftLen = c.weeklyClinicalHours >= 18 ? 12 : 8; // heavier clinical terms run 12-hr shifts
     for (let i = 0; i < clinWeeks; i++) {
       const rotation = CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length];
-      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: DAYS[i % 5], location: i % 3 === 0 ? "FirstHealth Moore Regional — Imaging" : i % 3 === 1 ? "Scotland Memorial Hospital — Radiology" : "Pinehurst Outpatient Imaging Center", rotationType: rotation, clinicalMode: p.mode } as any);
+      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: DAYS[i % 5], startTime: START_TIME.CLINICAL, location: i % 3 === 0 ? "FirstHealth Moore Regional — Imaging" : i % 3 === 1 ? "Scotland Memorial Hospital — Radiology" : "Pinehurst Outpatient Imaging Center", rotationType: rotation, clinicalMode: p.mode } as any);
     }
   }
   return rows;
@@ -282,8 +300,9 @@ async function createProgram(opts: {
   });
 
   for (const t of opts.terms) {
+    const startDate = t.startDate ?? TERM_START_DATES[t.index - 1] ?? null;
     const term = await prisma.term.create({
-      data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek },
+      data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek, startDate: startDate ? new Date(startDate) : null },
     });
     const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
     let order = 0;

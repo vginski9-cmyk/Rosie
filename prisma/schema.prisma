@@ -163,6 +163,8 @@ model Term {
   name      String
   startWeek Int?
   endWeek   Int?
+  /// Real-world first day of the term — anchors the day-by-day calendar.
+  startDate DateTime?
 
   courses Course[]
   assignments Assignment[]
@@ -215,6 +217,7 @@ model Session {
   preceptorsNeeded   Int @default(0) // clinical only
   week          Int?
   dayOfWeek     String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  startTime     String? // time of day, "HH:MM" (24h)
   rotationType  String? // clinical: Med-Surg, OR, Imaging, ...
   clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
   notes         String?

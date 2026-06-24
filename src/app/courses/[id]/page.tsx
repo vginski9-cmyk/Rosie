@@ -34,6 +34,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
     supportStaffNeeded: s.supportStaffNeeded,
     week: s.week,
     dayOfWeek: s.dayOfWeek,
+    startTime: s.startTime,
     location: s.location,
     rotationType: s.rotationType,
     clinicalMode: s.clinicalMode,
