@@ -180,9 +180,15 @@ model Course {
   code               String?
   name               String
   sequenceOrder      Int    @default(0) // position within the term (drag-to-reorder)
-  weeklyClassHours   Float  @default(0)
-  weeklyLabHours     Float  @default(0)
-  weeklyClinicalHours Float @default(0)
+  weeklyClassHours   Float  @default(0) // catalog "Class Hours" (weekly contact)
+  weeklyLabHours     Float  @default(0) // catalog "Lab Hours"
+  weeklyClinicalHours Float @default(0) // catalog "Clinical Hours"
+  // --- Catalog metadata (for the curriculum flow + course detail) ---
+  creditHours        Float?
+  semesterOffered    String? // Fall | Spring | Summer | All
+  description        String?
+  requisites         String? // prerequisite / corequisite narrative
+  courseType         String? // CORE | GENED | SUPPORT — for flow-chart coloring
 
   sessions Session[]
   courseSkills CourseSkill[]

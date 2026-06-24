@@ -75,7 +75,8 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href={`/programs/${program.id}/plan`} className="btn-primary">Operations plan ↦</Link>
+            <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
+            <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
             <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>
             <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
@@ -231,7 +232,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                   const counts = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<string, number>;
                   course.sessions.forEach((s) => (counts[s.kind] += 1));
                   return (
-                    <div key={course.id} className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <Link key={course.id} href={`/courses/${course.id}`} className="block rounded-lg border border-slate-100 bg-slate-50/50 p-3 transition-colors hover:bg-slate-100">
                       <div className="flex items-center justify-between">
                         <div className="text-sm font-medium">
                           {course.code ? <span className="text-slate-400">{course.code} · </span> : null}{course.name}
@@ -246,7 +247,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                         {course.weeklyClassHours}h class · {course.weeklyLabHours}h lab · {course.weeklyClinicalHours}h clinical / wk
                         {course.courseSkills.length > 0 && <span className="text-slate-400"> · {course.courseSkills.length} KSAs</span>}
                       </div>
-                    </div>
+                    </Link>
                   );
                 })}
                 {term.courses.length === 0 && <p className="text-xs text-slate-400">No courses yet.</p>}

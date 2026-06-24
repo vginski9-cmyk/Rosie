@@ -212,3 +212,15 @@ export async function getProgramPlanData(programId: string) {
 export async function getStaffOptions(institutionId: string) {
   return prisma.person.findMany({ where: { institutionId }, orderBy: { name: "asc" } });
 }
+
+/** A single course with its full catalog detail + session-by-session schedule. */
+export async function getCourse(courseId: string) {
+  return prisma.course.findUnique({
+    where: { id: courseId },
+    include: {
+      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] },
+      courseSkills: { include: { skill: true } },
+      term: { include: { program: { include: { institution: true } } } },
+    },
+  });
+}

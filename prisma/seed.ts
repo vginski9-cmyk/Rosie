@@ -39,10 +39,19 @@ type CourseSeed = {
   weeklyClassHours: number;
   weeklyLabHours: number;
   weeklyClinicalHours: number;
-  sessions: SessionSeed[];
+  sessions?: SessionSeed[]; // optional — auto-generated from hours when omitted
+  // Catalog metadata
+  credits?: number;
+  semester?: string; // Fall | Spring | Summer | All
+  type?: string; // CORE | GENED | SUPPORT
+  description?: string;
+  requisites?: string;
 };
 
 type TermSeed = { index: number; name: string; startWeek: number; endWeek: number; courses: CourseSeed[] };
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const CLINICAL_ROTATIONS = ["General Radiography", "Fluoroscopy", "Mobile / Surgery", "Trauma / ER", "Computed Tomography", "Pediatrics", "Outpatient Imaging"];
 
 function buildSessions(s: SessionSeed) {
   return Array.from({ length: s.count }, (_, i) => ({
@@ -61,135 +70,79 @@ function buildSessions(s: SessionSeed) {
   }));
 }
 
-// --- Radiography program archetype (5 semesters) ---------------------------
+/** Auto-generate realistic session-by-session rows from a course's catalog hours. */
+function genSessions(c: CourseSeed, weeks: number) {
+  const rows: ReturnType<typeof buildSessions> = [];
+  const short = c.code.replace(/[^A-Z0-9]/gi, "");
+  if (c.weeklyClassHours > 0) {
+    for (let i = 0; i < weeks; i++) {
+      rows.push({ kind: "CLASS", number: i + 1, title: `${short} Lecture — Week ${i + 1}`, lengthHours: c.weeklyClassHours, maxStudents: 24, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: "Mon", location: "Classroom", rotationType: null, clinicalMode: null } as any);
+    }
+  }
+  if (c.weeklyLabHours > 0) {
+    for (let i = 0; i < weeks; i++) {
+      rows.push({ kind: "LAB", number: i + 1, title: `${short} Lab — Week ${i + 1}`, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: "Wed", location: "Energized Radiography Lab", rotationType: null, clinicalMode: null } as any);
+    }
+  }
+  if (c.weeklyClinicalHours > 0) {
+    const clinWeeks = Math.min(weeks, 15);
+    for (let i = 0; i < clinWeeks; i++) {
+      rows.push({ kind: "CLINICAL", number: i + 1, title: `Clinical Rotation — Week ${i + 1}`, lengthHours: 8, maxStudents: 8, facultyNeeded: 0, supportStaffNeeded: 0, preceptorsNeeded: 1, week: i + 1, dayOfWeek: DAYS[i % 5], location: "Affiliated Clinical Site", rotationType: CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length], clinicalMode: "Preceptor-led" } as any);
+    }
+  }
+  return rows;
+}
+
+// --- Radiography (A.A.S. — A45110) full curriculum, real catalog data --------
+const c = (
+  code: string, name: string, classH: number, labH: number, clinH: number,
+  credits: number, semester: string, type: string, description: string, requisites: string,
+): CourseSeed => ({ code, name, weeklyClassHours: classH, weeklyLabHours: labH, weeklyClinicalHours: clinH, credits, semester, type, description, requisites });
+
 const radTerms: TermSeed[] = [
   {
-    index: 1,
-    name: "Term 1 — Fall (Year 1)",
-    startWeek: 1,
-    endWeek: 16,
+    index: 1, name: "First Fall", startWeek: 1, endWeek: 16,
     courses: [
-      {
-        code: "RAD-110",
-        name: "Intro to Radiography",
-        weeklyClassHours: 3,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 0,
-        sessions: [{ kind: "CLASS", count: 16, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "Lecture hall" }],
-      },
-      {
-        code: "RAD-111",
-        name: "Patient Care & Positioning Lab",
-        weeklyClassHours: 1,
-        weeklyLabHours: 4,
-        weeklyClinicalHours: 0,
-        sessions: [
-          { kind: "CLASS", count: 16, lengthHours: 1, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "Classroom" },
-          { kind: "LAB", count: 16, lengthHours: 4, maxStudents: 16, facultyNeeded: 2, title: "Positioning Lab", location: "Energized lab" },
-        ],
-      },
+      c("BIO-163", "Basic Anatomy & Physiology", 4, 2, 0, 5, "All", "SUPPORT", "A basic study of the structure and function of the human body. Topics include the body systems, homeostasis, cells, tissues, nutrition, acid-base balance, and electrolytes.", "Take one: ENG-002, BSP-4002, ENG-025, or ENG-8025 (Required, Previous)."),
+      c("ENG-111", "Writing and Inquiry", 3, 0, 0, 3, "All", "GENED", "Develops the ability to produce clear writing in a variety of genres and formats using a recursive process. Emphasis on inquiry, analysis, rhetorical strategies, thesis development, audience awareness, and revision.", "Take one: DRE-097, ENG-002, BSP-4002, ENG-025, or ENG-8025 (Required, Previous)."),
+      c("RAD-110", "Radiography Introduction & Patient Care", 2, 3, 0, 3, "Fall", "CORE", "Overview of the radiography profession and student responsibilities. Emphasis on basic principles of patient care, radiation protection, technical factors, and medical terminology.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-111, RAD-151 (Previous or Concurrent)."),
+      c("RAD-111", "RAD Procedures I", 3, 3, 0, 4, "Fall", "CORE", "Knowledge and skills necessary to perform standard radiographic procedures. Emphasis on radiography of the chest, abdomen, extremities, bony thorax and pelvis.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-110, RAD-151 (Previous or Concurrent)."),
+      c("RAD-151", "RAD Clinical Ed I", 0, 0, 6, 2, "Fall", "CORE", "Introduces patient management and basic radiographic procedures in the clinical setting. Emphasis on mastering positioning of the chest and extremities, manipulating equipment, and applying the principles of ALARA.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-110, RAD-111 (Previous or Concurrent)."),
     ],
   },
   {
-    index: 2,
-    name: "Term 2 — Spring (Year 1)",
-    startWeek: 1,
-    endWeek: 16,
+    index: 2, name: "First Spring", startWeek: 1, endWeek: 16,
     courses: [
-      {
-        code: "RAD-121",
-        name: "Radiographic Procedures I",
-        weeklyClassHours: 3,
-        weeklyLabHours: 3,
-        weeklyClinicalHours: 0,
-        sessions: [
-          { kind: "CLASS", count: 16, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "Lecture hall" },
-          { kind: "LAB", count: 16, lengthHours: 3, maxStudents: 16, facultyNeeded: 2, title: "Procedures Lab", location: "Energized lab" },
-        ],
-      },
-      {
-        code: "RAD-131",
-        name: "Clinical Education I",
-        weeklyClassHours: 0,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 16,
-        sessions: [
-          { kind: "CLINICAL", count: 12, lengthHours: 8, maxStudents: 8, facultyNeeded: 1, preceptorsNeeded: 1, title: "Clinical Rotation", location: "Hospital imaging", rotationType: "General Radiography", clinicalMode: "Instructor-led" },
-        ],
-      },
+      c("COM-120", "Introduction to Interpersonal Communication", 3, 0, 0, 3, "All", "GENED", "Introduces the practices and principles of interpersonal communication in dyadic and group settings. Emphasis on the communication process, perception, listening, self-disclosure, nonverbal communication, conflict, and power.", ""),
+      c("MAT-143", "Quantitative Literacy", 2, 2, 0, 3, "All", "GENED", "Engages students in complex, realistic situations involving quantity, change and relationship, and uncertainty through project- and activity-based assessment. Emphasis on numeracy, proportional reasoning, and consumer statistics.", "See catalog placement requirements (Required, Previous)."),
+      c("RAD-112", "RAD Procedures II", 3, 3, 0, 4, "Spring", "CORE", "Knowledge and skills necessary to perform standard radiographic procedures. Emphasis on radiography of the skull, spine, and the gastrointestinal, biliary, and urinary systems.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-121, RAD-161 (Previous or Concurrent)."),
+      c("RAD-121", "Image Production I", 2, 3, 0, 3, "Spring", "CORE", "Basic principles of radiographic image production. Emphasis on image production, x-ray equipment, receptor exposure, and basic imaging quality factors.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-112, RAD-161 (Previous or Concurrent)."),
+      c("RAD-161", "RAD Clinical Ed II", 0, 0, 15, 5, "Spring", "CORE", "Additional experience in patient management and in more complex radiographic procedures. Emphasis on mastering positioning of the spine, pelvis, head and neck, and thorax and adapting to patient variations.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-112, RAD-121 (Previous or Concurrent)."),
     ],
   },
   {
-    index: 3,
-    name: "Term 3 — Summer (Year 1)",
-    startWeek: 1,
-    endWeek: 10,
+    index: 3, name: "First Summer", startWeek: 1, endWeek: 10,
     courses: [
-      {
-        code: "RAD-141",
-        name: "Clinical Education II",
-        weeklyClassHours: 0,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 24,
-        sessions: [
-          { kind: "CLINICAL", count: 15, lengthHours: 8, maxStudents: 6, facultyNeeded: 1, preceptorsNeeded: 1, title: "Clinical Rotation", location: "Hospital imaging", rotationType: "Fluoroscopy / Surgery", clinicalMode: "Preceptor-led" },
-        ],
-      },
+      c("RAD-122", "Image Production II", 1, 3, 0, 2, "Summer", "CORE", "Continues to develop the concepts and principles of radiologic technology. Emphasis on advanced digital principles and production.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-141, RAD-171 (Previous or Concurrent)."),
+      c("RAD-141", "Radiation Safety", 2, 0, 0, 2, "Summer", "CORE", "Principles of radiation protection and radiobiology. Topics include the effects of ionizing radiation on body tissues, protective measures for limiting exposure, and radiation monitoring devices.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-122, RAD-171 (Previous or Concurrent)."),
+      c("RAD-171", "RAD Clinical Ed III", 0, 0, 9, 3, "Summer", "CORE", "Experience in patient management specific to advanced radiographic procedures. Emphasis on applying appropriate technical factors and mastering positioning of advanced studies.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-122, RAD-141 (Previous or Concurrent)."),
     ],
   },
   {
-    index: 4,
-    name: "Term 4 — Fall (Year 2)",
-    startWeek: 1,
-    endWeek: 16,
+    index: 4, name: "Second Fall", startWeek: 1, endWeek: 16,
     courses: [
-      {
-        code: "RAD-221",
-        name: "Radiographic Procedures II",
-        weeklyClassHours: 3,
-        weeklyLabHours: 2,
-        weeklyClinicalHours: 0,
-        sessions: [
-          { kind: "CLASS", count: 16, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "Lecture hall" },
-          { kind: "LAB", count: 16, lengthHours: 2, maxStudents: 16, facultyNeeded: 2, title: "Adv. Procedures Lab", location: "Energized lab" },
-        ],
-      },
-      {
-        code: "RAD-231",
-        name: "Clinical Education III",
-        weeklyClassHours: 0,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 24,
-        sessions: [
-          { kind: "CLINICAL", count: 15, lengthHours: 8, maxStudents: 6, facultyNeeded: 1, preceptorsNeeded: 1, title: "Clinical Rotation", location: "Hospital imaging", rotationType: "CT / Advanced Modalities", clinicalMode: "Preceptor-led" },
-        ],
-      },
+      c("PSY-150", "General Psychology", 3, 0, 0, 3, "All", "GENED", "Overview of the scientific study of human behavior. Topics include history, methodology, biopsychology, sensation, perception, learning, motivation, cognition, abnormal behavior, and personality theory.", "Take one: ENG-002, BSP-4002, ENG-025, ENG-8025, or ENG-111 (Required, Previous)."),
+      c("RAD-211", "RAD Procedures III", 2, 3, 0, 3, "Fall", "CORE", "Knowledge and skills necessary to perform standard and specialty radiographic procedures. Emphasis on specialty procedures, advanced imaging, radiographic pathology, and image analysis.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-231, RAD-251 (Previous or Concurrent)."),
+      c("RAD-231", "Image Production III", 1, 3, 0, 2, "Fall", "CORE", "Continues to develop image-production concepts. Emphasis on complex imaging production and principles, quality control, and quality assurance in the imaging sciences.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-211, RAD-251 (Previous or Concurrent)."),
+      c("RAD-251", "RAD Clinical Ed IV", 0, 0, 21, 7, "Fall", "CORE", "Continue mastering all basic radiographic procedures and attain experience in advanced areas. Emphasis on equipment operation, pathological recognition, pediatric and geriatric variations, and radiation protection.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-211, RAD-231 (Previous or Concurrent)."),
     ],
   },
   {
-    index: 5,
-    name: "Term 5 — Spring (Year 2)",
-    startWeek: 1,
-    endWeek: 16,
+    index: 5, name: "Second Spring", startWeek: 1, endWeek: 16,
     courses: [
-      {
-        code: "RAD-251",
-        name: "Registry Review & Capstone",
-        weeklyClassHours: 4,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 0,
-        sessions: [{ kind: "CLASS", count: 16, lengthHours: 4, maxStudents: 30, facultyNeeded: 1, title: "Registry Review", location: "Lecture hall" }],
-      },
-      {
-        code: "RAD-241",
-        name: "Clinical Education IV",
-        weeklyClassHours: 0,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 24,
-        sessions: [
-          { kind: "CLINICAL", count: 15, lengthHours: 8, maxStudents: 6, facultyNeeded: 1, preceptorsNeeded: 1, title: "Clinical Rotation", location: "Hospital imaging", rotationType: "Capstone Rotation", clinicalMode: "Preceptor-led" },
-        ],
-      },
+      c("HUM-115", "Critical Thinking", 3, 0, 0, 3, "All", "GENED", "Introduces the use of critical thinking skills in the context of human conflict. Emphasis on evaluating information, problem solving, cross-cultural perspectives, and resolving controversies and dilemmas.", "Take one: DRE-097, ENG-002, BSP-4002, ENG-025, ENG-8025, or ENG-111 (Required, Previous)."),
+      c("RAD-261", "RAD Clinical Ed V", 0, 0, 21, 7, "Spring", "CORE", "Enhances expertise in all radiographic procedures, patient management, radiation protection, and image production and evaluation. Emphasis on an autonomous approach to diverse clinical situations.", "Take RAD-251 (Required, Previous). Take RAD-271 (Previous or Concurrent)."),
+      c("RAD-271", "Radiography Capstone", 2, 3, 0, 3, "Spring", "CORE", "Opportunity to exhibit the problem-solving skills required for certification. Emphasis on critical thinking and integration of didactic and clinical components.", "Take RAD-211, RAD-231, RAD-251 (Required, Previous). Take RAD-261 (Previous or Concurrent)."),
     ],
   },
 ];
@@ -276,8 +229,10 @@ async function createProgram(opts: {
     const term = await prisma.term.create({
       data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek },
     });
+    const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
     let order = 0;
     for (const c of t.courses) {
+      const sessions = c.sessions ? c.sessions.flatMap(buildSessions) : genSessions(c, weeks);
       await prisma.course.create({
         data: {
           termId: term.id,
@@ -287,7 +242,12 @@ async function createProgram(opts: {
           weeklyClassHours: c.weeklyClassHours,
           weeklyLabHours: c.weeklyLabHours,
           weeklyClinicalHours: c.weeklyClinicalHours,
-          sessions: { create: c.sessions.flatMap(buildSessions) },
+          creditHours: c.credits ?? null,
+          semesterOffered: c.semester ?? null,
+          courseType: c.type ?? null,
+          description: c.description ?? null,
+          requisites: c.requisites ?? null,
+          sessions: { create: sessions },
         },
       });
     }
@@ -635,14 +595,13 @@ async function main() {
   const byCode = (code: string) => radCourses.find((c) => c.code === code);
   const courseMaps: { code: string; skill: { id: string }; level: number; role: string }[] = [
     { code: "RAD-111", skill: positioning, level: 2, role: "INTRODUCED" },
-    { code: "RAD-121", skill: positioning, level: 3, role: "REINFORCED" },
-    { code: "RAD-221", skill: positioning, level: 4, role: "MASTERED" },
+    { code: "RAD-112", skill: positioning, level: 3, role: "REINFORCED" },
+    { code: "RAD-211", skill: positioning, level: 4, role: "MASTERED" },
     { code: "RAD-110", skill: patientCare, level: 2, role: "INTRODUCED" },
-    { code: "RAD-131", skill: patientCare, level: 3, role: "REINFORCED" },
-    { code: "RAD-110", skill: radSafety, level: 2, role: "INTRODUCED" },
-    { code: "RAD-221", skill: radSafety, level: 3, role: "REINFORCED" },
-    { code: "RAD-221", skill: imageEval, level: 3, role: "REINFORCED" },
-    { code: "RAD-251", skill: imageEval, level: 4, role: "MASTERED" },
+    { code: "RAD-151", skill: patientCare, level: 3, role: "REINFORCED" },
+    { code: "RAD-141", skill: radSafety, level: 2, role: "INTRODUCED" },
+    { code: "RAD-231", skill: imageEval, level: 3, role: "REINFORCED" },
+    { code: "RAD-271", skill: imageEval, level: 4, role: "MASTERED" },
   ];
   for (const m of courseMaps) {
     const c = byCode(m.code);
@@ -742,9 +701,9 @@ async function main() {
     }
   };
   await linkSessions("RAD-111", "LAB", positioning.id, "DELIVER", 2);
-  await linkSessions("RAD-221", "LAB", positioning.id, "BOTH", 4); // delivered + assessed
-  await linkSessions("RAD-131", "CLINICAL", patientCare.id, "ASSESS", 3);
-  await linkSessions("RAD-251", "CLASS", imageEval.id, "ASSESS", 4);
+  await linkSessions("RAD-211", "LAB", positioning.id, "BOTH", 4); // delivered + assessed
+  await linkSessions("RAD-151", "CLINICAL", patientCare.id, "ASSESS", 3);
+  await linkSessions("RAD-271", "CLASS", imageEval.id, "ASSESS", 4);
 
   const counts = {
     institutions: await prisma.institution.count(),
