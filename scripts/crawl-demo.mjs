@@ -26,7 +26,7 @@ async function routes() {
   const r = ["/", "/insights", "/semester", "/skills", "/wbl", "/programs/new"];
   for (const f of families) r.push(`/families/${f.id}`);
   for (const p of programs) {
-    r.push(`/programs/${p.id}`, `/programs/${p.id}/flow`, `/programs/${p.id}/schedule`, `/programs/${p.id}/plan`, `/programs/${p.id}/structure`, `/programs/${p.id}/sequencer`, `/programs/${p.id}/students`, `/programs/${p.id}/wbl`);
+    r.push(`/programs/${p.id}`, `/programs/${p.id}/flow`, `/programs/${p.id}/schedule`, `/programs/${p.id}/plan`, `/programs/${p.id}/structure`, `/programs/${p.id}/students`, `/programs/${p.id}/wbl`);
   }
   for (const c of cohorts) r.push(`/programs/${c.programId}/offerings/${c.id}`, `/programs/${c.programId}/offerings/${c.id}/schedule`);
   for (const co of courses) r.push(`/courses/${co.id}`);
