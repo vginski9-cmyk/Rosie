@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expandSchedule, summarize, gridByWeekDay, staffLoads, type ScheduleSession } from "../src/lib/schedule";
+import { expandSchedule, summarize, gridByWeekDay, staffLoads, staffLoadDetail, studentsForShift, shiftHoursFor, type ScheduleSession, type SectionStudent } from "../src/lib/schedule";
 
 const base = (over: Partial<ScheduleSession>): ScheduleSession => ({
   id: "s", courseId: "c", courseCode: "RAD-111", courseName: "Procedures I", kind: "CLASS",
@@ -44,6 +44,50 @@ describe("summarize", () => {
     expect(s.clinicalShifts).toBe(6);
     expect(s.instructorSlots).toBe(2 + 4 * 2); // class 2 + lab 8
     expect(s.preceptorSlots).toBe(6);
+  });
+});
+
+describe("co-teaching split contact hours", () => {
+  const coTaught = base({
+    id: "ct", maxStudents: 100, lengthHours: 3,
+    staff: [
+      { personId: "A", name: "Inst A", role: "instructor", contactHours: 2, segment: "Lecture" },
+      { personId: "B", name: "Inst B", role: "instructor", contactHours: 1, segment: "Lab" },
+    ],
+  });
+
+  it("attributes each instructor only their share of the session length", () => {
+    const [shift] = expandSchedule([coTaught], 30);
+    expect(shiftHoursFor(shift, "A")).toBe(2);
+    expect(shiftHoursFor(shift, "B")).toBe(1);
+    // unknown person (manual override) earns the full length
+    expect(shiftHoursFor(shift, "Z")).toBe(3);
+  });
+
+  it("staffLoadDetail weights contact hours by the co-teaching split", () => {
+    const shifts = expandSchedule([coTaught], 30);
+    const loads = staffLoadDetail(shifts, { [shifts[0].id]: ["A", "B"] }, 1);
+    const a = loads.find((l) => l.personId === "A")!;
+    const b = loads.find((l) => l.personId === "B")!;
+    expect(a.classHours).toBe(2);
+    expect(b.classHours).toBe(1);
+  });
+});
+
+describe("studentsForShift", () => {
+  const students: SectionStudent[] = [
+    { id: "s1", name: "One", sectionIndex: 1 },
+    { id: "s2", name: "Two", sectionIndex: 2 },
+    { id: "s3", name: "Three", sectionIndex: 3 },
+  ];
+  it("puts everyone in a single-section session", () => {
+    const [shift] = expandSchedule([base({ id: "lec", maxStudents: 100 })], 30); // 1 section
+    expect(studentsForShift(shift, students).map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
+  });
+  it("splits students across multiple sections round-robin", () => {
+    const shifts = expandSchedule([base({ id: "lab", maxStudents: 1 })], 2); // 2 sections
+    expect(studentsForShift(shifts[0], students).map((s) => s.id)).toEqual(["s1", "s3"]); // sections 1,3 -> shift 1
+    expect(studentsForShift(shifts[1], students).map((s) => s.id)).toEqual(["s2"]); // section 2 -> shift 2
   });
 });
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent } from "@/lib/queries";
+import { getStudent, getProgramSessionPlan } from "@/lib/queries";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { fmt } from "@/lib/format";
 
@@ -24,6 +24,23 @@ const TYPE_BADGE: Record<string, string> = {
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
+
+  // The program's session plan, reduced to per-course instructors + homework so
+  // the student's personal schedule shows who teaches them and what's assigned.
+  const plan = await getProgramSessionPlan(student.programId);
+  const coursePlan = new Map<string, { instructors: Map<string, { name: string; hours: number }>; homework: Set<string>; sessions: number; clinical: boolean }>();
+  for (const t of plan) for (const c of t.courses) {
+    const entry = { instructors: new Map<string, { name: string; hours: number }>(), homework: new Set<string>(), sessions: c.sessions.length, clinical: c.sessions.some((s) => s.kind === "CLINICAL") };
+    for (const s of c.sessions) {
+      if (s.homework) entry.homework.add(s.homework);
+      for (const si of s.instructors) {
+        const cur = entry.instructors.get(si.personId) ?? { name: si.person.name, hours: 0 };
+        cur.hours += si.contactHours;
+        entry.instructors.set(si.personId, cur);
+      }
+    }
+    coursePlan.set(c.id, entry);
+  }
 
   const stage = STAGES.find((s) => s.key === student.stageKey);
   const reachedIdx = student.stageKey && student.stageKey in STAGE_INDEX ? STAGE_INDEX[student.stageKey as StageKey] : -1;
@@ -58,6 +75,8 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{student.status}</span>
+            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700">Section {student.sectionIndex}</span>
+            {student.clinicalSite && <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700">{student.clinicalSite}</span>}
             {stage && (
               <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-white" style={{ background: stage.color }}>
                 {stage.label}
@@ -147,6 +166,55 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
         )}
       </section>
+
+      {/* Class schedule — who teaches this student, and what's assigned */}
+      {student.grades.length > 0 && (
+        <section>
+          <h2 className="mb-1 text-xl font-semibold tracking-tight">Class schedule &amp; instructors</h2>
+          <p className="mb-4 text-sm text-slate-500">
+            This student is in <strong>Section {student.sectionIndex}</strong>{student.clinicalSite ? <> · clinicals at <strong>{student.clinicalSite}</strong></> : null}.
+            Co-taught courses list each instructor with the contact hours they cover. Open a course for the full day-by-day plan.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {student.grades.map((g) => {
+              const cp = coursePlan.get(g.course.id);
+              const instructors = cp ? [...cp.instructors.values()].sort((a, b) => b.hours - a.hours) : [];
+              const homework = cp ? [...cp.homework] : [];
+              return (
+                <div key={g.id} className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="flex items-start justify-between gap-2">
+                    <Link href={`/courses/${g.course.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">
+                      {g.course.code ? <span className="text-slate-400">{g.course.code} · </span> : null}{g.course.name}
+                    </Link>
+                    <span className="shrink-0 text-[11px] text-slate-400">Term {g.termIndex} · {cp?.sessions ?? 0} sessions</span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Instructors</div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {instructors.length === 0 && <span className="text-[12px] text-slate-400">—</span>}
+                      {instructors.map((ins) => (
+                        <span key={ins.name} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                          {ins.name}{instructors.length > 1 && <span className="text-slate-400">{Math.round(ins.hours)}h</span>}
+                        </span>
+                      ))}
+                      {instructors.length > 1 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">co-taught</span>}
+                    </div>
+                  </div>
+                  {homework.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Assignments / homework</div>
+                      <ul className="mt-1 space-y-0.5">
+                        {homework.slice(0, 3).map((h, i) => <li key={i} className="text-[12px] text-slate-600">• {h}</li>)}
+                        {homework.length > 3 && <li className="text-[11px] text-slate-400">+{homework.length - 3} more across the course</li>}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* KSA proficiency over time */}
       <section>

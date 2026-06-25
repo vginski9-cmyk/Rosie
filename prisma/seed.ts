@@ -481,6 +481,8 @@ async function seedStudents(
     return n;
   };
 
+  const CLINICAL_SITES = ["FirstHealth Moore Regional Hospital", "Scotland Memorial Hospital", "Pinehurst Outpatient Imaging Center"];
+  let academicSeq = 0;
   let created = 0;
   for (const stop of stops) {
     const completedTerms = completedTermsFor(stop.stage);
@@ -536,10 +538,14 @@ async function seedStudents(
           absenceRows.push({ date: addDaysISO(termStart(t), 10 + Math.floor(rng() * 90)), courseCode: c?.code ?? null, sessionTitle: c ? `${c.name} session` : "Session", excused: rng() < 0.45 });
         }
 
+        const sectionIndex = (academicSeq % 3) + 1; // 3 lab/clinical groups
+        const clinicalSite = CLINICAL_SITES[academicSeq % CLINICAL_SITES.length];
+        academicSeq += 1;
         const student = await prisma.student.create({
           data: {
             programId, cohortId, name, email, status: stop.status, stageKey: stop.stage,
             entryYear: 2029, gpa, attendedCount: Math.max(0, totalSessions - missed), missedCount: missed,
+            sectionIndex, clinicalSite,
             grades: { create: gradeRows },
             assessments: { create: assessmentRows },
             absences: { create: absenceRows },
@@ -560,6 +566,82 @@ async function seedStudents(
   console.log(`Seeded ${created} students.`);
 }
 
+// Courses that are deliberately co-taught, with the split (in contact hours)
+// between a primary and a secondary instructor for each CLASS session.
+const COTEACH: Record<string, { primaryShare: number; segment: [string, string] }> = {
+  "RAD-110": { primaryShare: 2 / 3, segment: ["Lecture", "Patient-care lab"] }, // 3h class → 2h + 1h
+  "RAD-211": { primaryShare: 2 / 3, segment: ["Procedures lecture", "Image analysis"] },
+  "RAD-271": { primaryShare: 0.5, segment: ["Registry review", "Capstone critique"] }, // even split
+};
+
+const HOMEWORK_BANK: Record<string, string[]> = {
+  CLASS: [
+    "Read assigned chapter; complete end-of-chapter review questions.",
+    "Pre-lecture quiz due before class on the LMS.",
+    "Worksheet: label anatomy on provided projections.",
+    "Prepare 3 questions on the assigned positioning routine.",
+  ],
+  LAB: [
+    "Bring completed positioning prep sheet; lab check-off today.",
+    "Review the procedure video; practice setup before lab.",
+    "Document peer-evaluation of last week's images.",
+  ],
+  CLINICAL: [
+    "Log today's exams in Trajecsys; submit competency attempts.",
+    "Reflective journal entry on a non-routine case.",
+    "Have clinical instructor sign off on weekly objectives.",
+  ],
+};
+
+async function seedSessionStaff(
+  programId: string,
+  faculty: { id: string; name: string }[],
+  preceptors: { id: string; name: string; siteIndex: number }[],
+) {
+  const rng = mulberry32(7);
+  const courses = await prisma.course.findMany({
+    where: { term: { programId } },
+    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
+    include: { sessions: true },
+  });
+
+  let courseIdx = 0;
+  const siteGroups: Record<number, { id: string; name: string }[]> = { 0: [], 1: [], 2: [] };
+  for (const p of preceptors) siteGroups[p.siteIndex].push({ id: p.id, name: p.name });
+
+  for (const c of courses) {
+    // A consistent primary + secondary instructor per course (round-robin).
+    const primary = faculty[courseIdx % faculty.length];
+    const secondary = faculty[(courseIdx + 1) % faculty.length];
+    courseIdx += 1;
+    const co = c.code ? COTEACH[c.code] : undefined;
+
+    for (const s of c.sessions) {
+      const rows: { sessionId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
+      if (s.kind === "CLINICAL") {
+        // Preceptor from the site group rotated by session number.
+        const group = siteGroups[s.number % 3];
+        const prec = (group.length ? group : preceptors)[s.number % Math.max(1, group.length || preceptors.length)];
+        if (prec) rows.push({ sessionId: s.id, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
+      } else if (co && s.kind === "CLASS") {
+        const primShare = Math.round(s.lengthHours * co.primaryShare * 10) / 10;
+        const secShare = Math.round((s.lengthHours - primShare) * 10) / 10;
+        rows.push({ sessionId: s.id, personId: primary.id, role: "instructor", contactHours: primShare, segment: co.segment[0] });
+        if (secShare > 0) rows.push({ sessionId: s.id, personId: secondary.id, role: "instructor", contactHours: secShare, segment: co.segment[1] });
+      } else {
+        rows.push({ sessionId: s.id, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
+      }
+      if (rows.length) await prisma.sessionInstructor.createMany({ data: rows });
+
+      // Homework / what-to-prepare for most sessions.
+      const bank = HOMEWORK_BANK[s.kind] ?? [];
+      if (bank.length && rng() < 0.8) {
+        await prisma.session.update({ where: { id: s.id }, data: { homework: bank[Math.floor(rng() * bank.length)] } });
+      }
+    }
+  }
+}
+
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
@@ -567,6 +649,7 @@ async function main() {
   await prisma.studentSkillAssessment.deleteMany();
   await prisma.studentCourseGrade.deleteMany();
   await prisma.student.deleteMany();
+  await prisma.sessionInstructor.deleteMany();
   await prisma.funnelStage.deleteMany();
   await prisma.cohort.deleteMany();
   await prisma.session.deleteMany();
@@ -971,19 +1054,30 @@ async function main() {
   // Deliberately under-supplied so the integrated plan surfaces a faculty
   // bottleneck once multiple cohorts overlap.
   const facultyNames = ["Dr. Angela Rivera", "Brian Chen, R.T.(R)", "Carmen Okafor, R.T.(R)(CT)", "David Whitfield, R.T.(R)", "Erin Salas, R.T.(R)(MR)", "Frank Delgado, R.T.(R)"];
+  const facultyPeople: { id: string; name: string }[] = [];
   for (const n of facultyNames) {
     const person = await prisma.person.create({ data: { institutionId: sandhills.id, name: n, role: "instructor" } });
     await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: person.id, programId: rad.id, role: "instructor", fteCommitment: 1.0 } });
+    facultyPeople.push({ id: person.id, name: n });
   }
   const coord = await prisma.person.create({ data: { institutionId: sandhills.id, name: "Lindsey Bauer (Program Lead)", role: "coordinator" } });
   await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: coord.id, programId: rad.id, role: "coordinator", fteCommitment: 0.5 } });
   // Clinical preceptors / instructors at the affiliated sites.
   const preceptorNames = ["Maria Santos, R.T.(R)", "James Holloway, R.T.(R)", "Priya Nair, R.T.(R)(CT)", "Tyrone Banks, R.T.(R)", "Hannah Kim, R.T.(R)(MR)", "Luis Moreno, R.T.(R)", "Aisha Bello, R.T.(R)", "Greg Tanaka, R.T.(R)", "Nicole Forbes, R.T.(R)", "Omar Haddad, R.T.(R)(CT)", "Rachel Stein, R.T.(R)", "Devon Pierce, R.T.(R)"];
   const sites = [firstHealth.id, scotland.id, pinehurstOutpatient.id];
+  const preceptorPeople: { id: string; name: string; siteIndex: number }[] = [];
   for (let i = 0; i < preceptorNames.length; i++) {
     const prec = await prisma.person.create({ data: { institutionId: sandhills.id, name: preceptorNames[i], role: "preceptor", employerId: sites[i % sites.length] } });
     await prisma.assignment.create({ data: { institutionId: sandhills.id, personId: prec.id, programId: rad.id, role: "preceptor", fteCommitment: 1.0 } });
+    preceptorPeople.push({ id: prec.id, name: preceptorNames[i], siteIndex: i % sites.length });
   }
+
+  // ----- Default per-session staffing (incl. co-teaching split hours) ------
+  // Give every class/lab a primary instructor (consistent per course) and split
+  // a couple of long RAD classes across two instructors with partial contact
+  // hours, so workload + the calendar show real, co-taught staffing out of the
+  // box. Clinicals get a preceptor from the rotation's site group.
+  await seedSessionStaff(rad.id, facultyPeople, preceptorPeople);
 
   // ----- Skills at the delivery/assessment grain (SessionSkill) ------------
   // Closes the loop design → delivery → assessment. radSafety is intentionally
@@ -1019,6 +1113,7 @@ async function main() {
     students: await prisma.student.count(),
     studentGrades: await prisma.studentCourseGrade.count(),
     studentAssessments: await prisma.studentSkillAssessment.count(),
+    sessionInstructors: await prisma.sessionInstructor.count(),
     demand: await prisma.demandProjection.count(),
     calendarBlocks: await prisma.calendarBlock.count(),
   };

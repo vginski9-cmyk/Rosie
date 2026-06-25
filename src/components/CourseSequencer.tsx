@@ -20,6 +20,7 @@ export interface SeqCourse {
   code?: string | null;
   name: string;
   termId: string;
+  requisites?: string | null;
   classCount: number;
   labCount: number;
   clinicalCount: number;
@@ -27,44 +28,55 @@ export interface SeqCourse {
 export interface SeqTerm {
   id: string;
   name: string;
+  courseCount?: number;
 }
 
-function CourseCard({ course, dragging }: { course: SeqCourse; dragging?: boolean }) {
+const CODE_RE = /[A-Z]{2,4}-\d{3}/g;
+
+function CourseCard({ course, dragging, issues }: { course: SeqCourse; dragging?: boolean; issues?: string[] }) {
   return (
-    <div className={`rounded-lg border bg-white p-3 shadow-sm ${dragging ? "border-rose-400 shadow-md" : "border-slate-200"}`}>
+    <div className={`rounded-lg border bg-white p-3 shadow-sm ${issues && issues.length ? "border-amber-400 ring-1 ring-amber-200" : dragging ? "border-rose-400 shadow-md" : "border-slate-200"}`}>
       <div className="text-sm font-medium">
         {course.code ? <span className="text-slate-400">{course.code} · </span> : null}
         {course.name}
       </div>
-      <div className="mt-1 flex gap-1 text-[11px]">
+      <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
         {course.classCount > 0 && <span className="badge bg-sky-100 text-sky-700">{course.classCount} class</span>}
         {course.labCount > 0 && <span className="badge bg-violet-100 text-violet-700">{course.labCount} lab</span>}
         {course.clinicalCount > 0 && <span className="badge bg-rose-100 text-rose-700">{course.clinicalCount} clinical</span>}
       </div>
+      {issues && issues.length > 0 && (
+        <div className="mt-1.5 rounded bg-amber-50 px-1.5 py-1 text-[10px] font-medium text-amber-800">
+          ⚠ prerequisite{issues.length > 1 ? "s" : ""} {issues.join(", ")} scheduled after this course
+        </div>
+      )}
     </div>
   );
 }
 
-function SortableCourse({ course }: { course: SeqCourse }) {
+function SortableCourse({ course, issues }: { course: SeqCourse; issues?: string[] }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: course.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
-      <CourseCard course={course} />
+      <CourseCard course={course} issues={issues} />
     </div>
   );
 }
 
-function TermColumn({ term, courses }: { term: SeqTerm; courses: SeqCourse[] }) {
+function TermColumn({ term, courses, issuesByCourse }: { term: SeqTerm; courses: SeqCourse[]; issuesByCourse: Record<string, string[]> }) {
   // The column itself is droppable via an empty sortable context that accepts the term id.
   const { setNodeRef } = useSortable({ id: `term:${term.id}`, data: { isContainer: true, termId: term.id } });
   return (
     <div className="flex w-72 shrink-0 flex-col">
-      <div className="mb-2 text-sm font-semibold">{term.name}</div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-sm font-semibold">{term.name}</span>
+        <span className="text-[11px] text-slate-400">{courses.length} course{courses.length === 1 ? "" : "s"}</span>
+      </div>
       <SortableContext items={courses.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="min-h-[120px] space-y-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-2">
           {courses.map((c) => (
-            <SortableCourse key={c.id} course={c} />
+            <SortableCourse key={c.id} course={c} issues={issuesByCourse[c.id]} />
           ))}
           {courses.length === 0 && <div className="py-6 text-center text-xs text-slate-400">drop a course here</div>}
         </div>
@@ -152,21 +164,40 @@ export function CourseSequencer({ programId, terms, initialCourses }: { programI
 
   const active = activeId ? courses.find((c) => c.id === activeId) : null;
 
+  // Live prerequisite check: a course's requisite codes should sit in EARLIER
+  // terms. Flag any prereq currently scheduled in a later term (out of order).
+  const termPos = new Map(terms.map((t, i) => [t.id, i]));
+  const codeToTerm = new Map(courses.filter((c) => c.code).map((c) => [c.code as string, c.termId]));
+  const issuesByCourse: Record<string, string[]> = {};
+  for (const c of courses) {
+    if (!c.requisites) continue;
+    const refs = [...new Set((c.requisites.match(CODE_RE) ?? []))].filter((code) => code !== c.code && codeToTerm.has(code));
+    const myPos = termPos.get(c.termId) ?? 0;
+    const bad = refs.filter((code) => (termPos.get(codeToTerm.get(code)!) ?? 0) > myPos);
+    if (bad.length) issuesByCourse[c.id] = bad;
+  }
+  const issueCount = Object.keys(issuesByCourse).length;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button onClick={save} disabled={!dirty || saving} className="btn-primary disabled:opacity-40">
           {saving ? "Saving…" : "Save layout"}
         </button>
         {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
         {!dirty && savedAt && <span className="text-xs text-emerald-600">Saved at {savedAt}</span>}
-        <span className="text-xs text-slate-400">Drag courses within a term to re-order, or across terms to re-sequence.</span>
+        {issueCount > 0 ? (
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">⚠ {issueCount} course{issueCount === 1 ? "" : "s"} with out-of-order prerequisites</span>
+        ) : (
+          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">✓ prerequisite order looks valid</span>
+        )}
+        <span className="text-xs text-slate-400">Drag within a term to re-order, or across terms to re-sequence.</span>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {terms.map((t) => (
-            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} />
+            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} issuesByCourse={issuesByCourse} />
           ))}
         </div>
         <DragOverlay>{active ? <CourseCard course={active} dragging /> : null}</DragOverlay>

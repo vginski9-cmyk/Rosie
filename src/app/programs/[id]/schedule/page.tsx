@@ -2,14 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramSchedule } from "@/lib/queries";
 import { ScheduleBoard, type TermTemplate, type RosterPerson } from "@/components/ScheduleBoard";
-import type { ScheduleSession } from "@/lib/schedule";
+import type { ScheduleSession, SectionStudent } from "@/lib/schedule";
 
 export const dynamic = "force-dynamic";
 
 export default async function SchedulePage({ params }: { params: { id: string } }) {
   const data = await getProgramSchedule(params.id);
   if (!data) notFound();
-  const { program, roster, defaultEnrollment } = data;
+  const { program, roster, students, defaultEnrollment } = data;
 
   const terms: TermTemplate[] = program.terms.map((t) => ({
     id: t.id,
@@ -36,12 +36,15 @@ export default async function SchedulePage({ params }: { params: { id: string } 
           location: s.location,
           rotationType: s.rotationType,
           clinicalMode: s.clinicalMode,
+          homework: s.homework,
+          staff: s.instructors.map((si) => ({ personId: si.personId, name: si.person.name, role: si.role, contactHours: si.contactHours, segment: si.segment })),
         }),
       ),
     ),
   }));
 
   const rosterPeople: RosterPerson[] = roster.map((p) => ({ id: p.id, name: p.name, role: p.role, employerName: p.employer?.name ?? null }));
+  const sectionStudents: SectionStudent[] = students.map((s) => ({ id: s.id, name: s.name, sectionIndex: s.sectionIndex, stageKey: s.stageKey, status: s.status, clinicalSite: s.clinicalSite }));
 
   return (
     <div className="space-y-6">
@@ -50,11 +53,13 @@ export default async function SchedulePage({ params }: { params: { id: string } 
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Calendar &amp; staffing</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           The template, calendared out. Each session becomes the number of <strong>sections/shifts</strong> the cohort
-          needs (sections = ROUNDUP(enrollment ÷ capacity)), laid out week-by-week and day-by-day. Assign an instructor to
-          each class/lab shift and a preceptor to each clinical shift — it&apos;s live, right here in the browser.
+          needs (sections = ROUNDUP(enrollment ÷ capacity)), laid out week-by-week and day-by-day with seeded staffing.
+          <strong> Click any day or session</strong> to see what&apos;s covered, the homework, the instructors (co-taught
+          sessions split contact hours), and the named students in that section. Re-staff live, or use the
+          <strong> Sections</strong> tab to merge under-filled sections.
         </p>
       </div>
-      <ScheduleBoard terms={terms} roster={rosterPeople} defaultEnrollment={defaultEnrollment} />
+      <ScheduleBoard terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
     </div>
   );
 }

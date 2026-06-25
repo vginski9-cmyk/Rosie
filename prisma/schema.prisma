@@ -223,10 +223,29 @@ model Session {
   rotationType  String? // clinical: Med-Surg, OR, Imaging, ...
   clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
   notes         String?
+  homework      String? // assignment / homework / prep tied to this session
 
   skillLinks SessionSkill[]
+  instructors SessionInstructor[]
 
   @@index([courseId])
+}
+
+/// Who staffs a session, and for how many of its contact hours. Co-teaching is
+/// modeled by multiple rows whose contactHours sum to (at most) the session
+/// length — e.g. a 3-hr class split 2 hrs / 1 hr between two instructors.
+model SessionInstructor {
+  id           String  @id @default(cuid())
+  sessionId    String
+  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  personId     String
+  person       Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  role         String  @default("instructor") // instructor | preceptor | support
+  contactHours Float   // portion of the session length this person covers
+  segment      String? // what they cover, e.g. "Lecture" | "Lab supervision"
+
+  @@index([sessionId])
+  @@index([personId])
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +334,7 @@ model Person {
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id])
   assignments   Assignment[]
+  sessionStaff  SessionInstructor[]
 
   @@index([institutionId])
 }
@@ -553,6 +573,11 @@ model Student {
   gpa           Float?
   attendedCount Int     @default(0)
   missedCount   Int     @default(0)
+  /// Cohort section/group this student belongs to (1-based). Maps the student to
+  /// specific lab/clinical section shifts on the calendar.
+  sectionIndex  Int     @default(1)
+  /// Clinical rotation site/group, when on clinical rotations.
+  clinicalSite  String?
   createdAt     DateTime @default(now())
 
   grades      StudentCourseGrade[]

@@ -223,7 +223,12 @@ export async function getProgramSchedule(programId: string) {
       yearTargets: { orderBy: { year: "asc" } },
       terms: {
         orderBy: { index: "asc" },
-        include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+        include: {
+          courses: {
+            orderBy: { sequenceOrder: "asc" },
+            include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { instructors: { include: { person: { select: { id: true, name: true } } } } } } },
+          },
+        },
       },
     },
   });
@@ -233,8 +238,14 @@ export async function getProgramSchedule(programId: string) {
     orderBy: { name: "asc" },
     include: { employer: { select: { name: true } } },
   });
+  // Enrolled-and-beyond students form the section roster shown on each shift.
+  const students = await prisma.student.findMany({
+    where: { programId, status: { in: ["enrolled", "completed", "placed"] } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, sectionIndex: true, stageKey: true, status: true, clinicalSite: true },
+  });
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
-  return { program, roster, defaultEnrollment };
+  return { program, roster, students, defaultEnrollment };
 }
 
 /** The full student roster for a program, with funnel-stage rollups, so the
@@ -281,12 +292,32 @@ export async function getStudent(studentId: string) {
   });
 }
 
+/** The program's full session plan (terms → courses → sessions with planned
+ *  staffing + homework), used to build a single student's personal schedule. */
+export async function getProgramSessionPlan(programId: string) {
+  return prisma.term.findMany({
+    where: { programId },
+    orderBy: { index: "asc" },
+    include: {
+      courses: {
+        orderBy: { sequenceOrder: "asc" },
+        include: {
+          sessions: {
+            orderBy: [{ week: "asc" }, { number: "asc" }],
+            include: { instructors: { include: { person: { select: { id: true, name: true } } } } },
+          },
+        },
+      },
+    },
+  });
+}
+
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
   return prisma.course.findUnique({
     where: { id: courseId },
     include: {
-      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] },
+      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { instructors: { include: { person: { select: { id: true, name: true } } } } } },
       courseSkills: { include: { skill: true } },
       term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },

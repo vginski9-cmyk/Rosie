@@ -14,6 +14,16 @@ export type StaffType = "instructor" | "preceptor";
 
 export const DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** A planned staff member on a session, and the share of contact hours they
+ *  cover (co-teaching splits a session across two instructors). */
+export interface PlannedStaff {
+  personId: string;
+  name: string;
+  role: string; // instructor | preceptor | support
+  contactHours: number;
+  segment?: string | null;
+}
+
 export interface ScheduleSession {
   id: string;
   courseId: string;
@@ -31,6 +41,8 @@ export interface ScheduleSession {
   location?: string | null;
   rotationType?: string | null;
   clinicalMode?: string | null;
+  homework?: string | null;
+  staff?: PlannedStaff[]; // default (seeded) staffing, incl. co-teaching splits
 }
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -79,6 +91,9 @@ export interface Shift {
   staffType: StaffType;
   /** Staff of `staffType` needed to run ONE section/shift (lab can be 2). */
   staffPerShift: number;
+  homework: string | null;
+  /** Default (seeded) staffing for the session, incl. co-teaching splits. */
+  staff: PlannedStaff[];
   // Real calendar placement (populated when a term start date is provided).
   dateISO: string | null; // "2025-09-15"
   dateLabel: string | null; // "Mon, Sep 15, 2025"
@@ -139,6 +154,8 @@ export function expandSchedule(sessions: ScheduleSession[], enrollment: number, 
         sections,
         staffType: type,
         staffPerShift: per,
+        homework: s.homework ?? null,
+        staff: s.staff ?? [],
         dateISO,
         dateLabel,
         monthKey,
@@ -228,24 +245,59 @@ export interface StaffLoadDetail {
   clinicalHours: number;
   distinctDays: number;
 }
+/** Contact hours a person works on a single shift. With co-teaching, a session
+ *  is split, so the person only earns their planned share of the length. */
+export function shiftHoursFor(shift: Shift, personId: string): number {
+  const planned = shift.staff.find((p) => p.personId === personId);
+  if (planned) return Math.min(planned.contactHours, shift.lengthHours);
+  return shift.lengthHours;
+}
+
 export function staffLoadDetail(shifts: Shift[], assignments: Record<string, string[]>, termWeeks: number): StaffLoadDetail[] {
   const map = new Map<string, StaffLoadDetail & { _days: Set<string> }>();
   for (const s of shifts) {
     for (const personId of assignments[s.id] ?? []) {
       const cur = map.get(personId) ?? { personId, shifts: 0, contactHours: 0, weeklyAvgHours: 0, classHours: 0, labHours: 0, clinicalHours: 0, distinctDays: 0, _days: new Set<string>() };
+      const hrs = shiftHoursFor(s, personId);
       cur.shifts += 1;
-      cur.contactHours += s.lengthHours;
-      if (s.kind === "CLASS") cur.classHours += s.lengthHours;
-      else if (s.kind === "LAB") cur.labHours += s.lengthHours;
-      else cur.clinicalHours += s.lengthHours;
+      cur.contactHours += hrs;
+      if (s.kind === "CLASS") cur.classHours += hrs;
+      else if (s.kind === "LAB") cur.labHours += hrs;
+      else cur.clinicalHours += hrs;
       cur._days.add(s.dateISO ?? `${s.week}-${s.day}`);
       map.set(personId, cur);
     }
   }
   const weeks = Math.max(1, termWeeks);
   return [...map.values()]
-    .map(({ _days, ...d }) => ({ ...d, distinctDays: _days.size, weeklyAvgHours: d.contactHours / weeks }))
+    .map(({ _days, ...d }) => ({
+      ...d,
+      contactHours: Math.round(d.contactHours * 10) / 10,
+      classHours: Math.round(d.classHours * 10) / 10,
+      labHours: Math.round(d.labHours * 10) / 10,
+      clinicalHours: Math.round(d.clinicalHours * 10) / 10,
+      distinctDays: _days.size,
+      weeklyAvgHours: d.contactHours / weeks,
+    }))
     .sort((a, b) => b.contactHours - a.contactHours);
+}
+
+/** A named student placed into a cohort section. */
+export interface SectionStudent {
+  id: string;
+  name: string;
+  sectionIndex: number;
+  stageKey?: string | null;
+  status?: string | null;
+  clinicalSite?: string | null;
+}
+
+/** Which students sit in a given shift: those whose cohort section maps onto
+ *  this shift's section (round-robin across the session's section count). For a
+ *  single-section session (e.g. a 40-seat lecture) that's everyone. */
+export function studentsForShift(shift: Shift, students: SectionStudent[]): SectionStudent[] {
+  const sections = Math.max(1, shift.sections);
+  return students.filter((s) => ((Math.max(1, s.sectionIndex) - 1) % sections) + 1 === shift.sectionIndex);
 }
 
 /** Group shifts by real month → date → shifts for a month-grid calendar. */

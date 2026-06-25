@@ -40,6 +40,19 @@ export default async function CoursePage({ params }: { params: { id: string } })
     clinicalMode: s.clinicalMode,
   }));
 
+  // Planned staffing rollup (distinct instructors + co-teaching detection).
+  const staffRoll = new Map<string, { name: string; hours: number; role: string }>();
+  let coTaughtSessions = 0;
+  for (const s of course.sessions) {
+    if (s.instructors.length > 1) coTaughtSessions += 1;
+    for (const si of s.instructors) {
+      const cur = staffRoll.get(si.personId) ?? { name: si.person.name, hours: 0, role: si.role };
+      cur.hours += si.contactHours;
+      staffRoll.set(si.personId, cur);
+    }
+  }
+  const plannedStaff = [...staffRoll.values()].sort((a, b) => b.hours - a.hours);
+
   return (
     <div className="mx-auto max-w-6xl space-y-10">
       {/* Header */}
@@ -71,6 +84,25 @@ export default async function CoursePage({ params }: { params: { id: string } })
           </div>
         ))}
       </div>
+
+      {/* Planned staffing (with co-teaching split contact hours) */}
+      {plannedStaff.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Planned staffing</h2>
+            {coTaughtSessions > 0 && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">{coTaughtSessions} co-taught session{coTaughtSessions === 1 ? "" : "s"} (split contact hours)</span>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {plannedStaff.map((p) => (
+              <span key={p.name} className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-1.5 text-sm ring-1 ring-slate-200">
+                <span className="font-medium text-slate-800">{p.name}</span>
+                <span className="text-[11px] capitalize text-slate-400">{p.role}</span>
+                <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600">{Math.round(p.hours)}h</span>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Catalog narrative */}
       <div className="grid gap-6 lg:grid-cols-3">
