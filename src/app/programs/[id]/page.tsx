@@ -82,7 +82,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           <div className="flex flex-wrap gap-2">
             <span className="self-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Template:</span>
             <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
-            <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
+            <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Design structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>
             <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
             <form action={duplicateProgram.bind(null, program.id)}><button className="btn-ghost">Duplicate</button></form>

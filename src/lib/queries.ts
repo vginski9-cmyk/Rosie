@@ -400,10 +400,12 @@ export async function getProgramSessionPlan(programId: string) {
 
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
+  // The course is part of the TEMPLATE — no instructors/students here (those are
+  // offering concerns). Just catalog detail, the session archetype, and KSAs.
   return prisma.course.findUnique({
     where: { id: courseId },
     include: {
-      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { instructors: { include: { person: { select: { id: true, name: true } } } } } },
+      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] },
       courseSkills: { include: { skill: true } },
       term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },

@@ -178,6 +178,18 @@ export async function deleteTerm(termId: string, programId: string) {
   revalidatePath(`/programs/${programId}`);
 }
 
+export async function updateTerm(termId: string, programId: string, formData: FormData) {
+  await prisma.term.update({
+    where: { id: termId },
+    data: {
+      name: str(formData.get("name")) || "Term",
+      startWeek: optNum(formData.get("startWeek")),
+      endWeek: optNum(formData.get("endWeek")),
+    },
+  });
+  revalidatePath(`/programs/${programId}`);
+}
+
 export async function addCourse(termId: string, programId: string, formData: FormData) {
   const last = await prisma.course.findFirst({ where: { termId }, orderBy: { sequenceOrder: "desc" } });
   await prisma.course.create({
@@ -189,6 +201,9 @@ export async function addCourse(termId: string, programId: string, formData: For
       weeklyClassHours: numOr(formData.get("weeklyClassHours")),
       weeklyLabHours: numOr(formData.get("weeklyLabHours")),
       weeklyClinicalHours: numOr(formData.get("weeklyClinicalHours")),
+      creditHours: optNum(formData.get("creditHours")),
+      semesterOffered: str(formData.get("semesterOffered")) || null,
+      courseType: str(formData.get("courseType")) || null,
     },
   });
   revalidatePath(`/programs/${programId}`);
@@ -203,6 +218,11 @@ export async function updateCourse(courseId: string, programId: string, formData
       weeklyClassHours: numOr(formData.get("weeklyClassHours")),
       weeklyLabHours: numOr(formData.get("weeklyLabHours")),
       weeklyClinicalHours: numOr(formData.get("weeklyClinicalHours")),
+      creditHours: optNum(formData.get("creditHours")),
+      semesterOffered: str(formData.get("semesterOffered")) || null,
+      courseType: str(formData.get("courseType")) || null,
+      description: str(formData.get("description")) || null,
+      requisites: str(formData.get("requisites")) || null,
     },
   });
   revalidatePath(`/programs/${programId}`);
@@ -228,7 +248,10 @@ export async function addSession(courseId: string, programId: string, formData: 
       supportStaffNeeded: numOr(formData.get("supportStaffNeeded")),
       preceptorsNeeded: numOr(formData.get("preceptorsNeeded")),
       week: optNum(formData.get("week")),
+      dayOfWeek: str(formData.get("dayOfWeek")) || null,
+      startTime: str(formData.get("startTime")) || null,
       location: str(formData.get("location")) || null,
+      homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
     },
@@ -247,7 +270,10 @@ export async function updateSession(sessionId: string, programId: string, formDa
       supportStaffNeeded: numOr(formData.get("supportStaffNeeded")),
       preceptorsNeeded: numOr(formData.get("preceptorsNeeded")),
       week: optNum(formData.get("week")),
+      dayOfWeek: str(formData.get("dayOfWeek")) || null,
+      startTime: str(formData.get("startTime")) || null,
       location: str(formData.get("location")) || null,
+      homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
     },
@@ -257,6 +283,28 @@ export async function updateSession(sessionId: string, programId: string, formDa
 
 export async function deleteSession(sessionId: string, programId: string) {
   await prisma.session.delete({ where: { id: sessionId } });
+  revalidatePath(`/programs/${programId}`);
+}
+
+/** Bulk-set day / time / location (and optional length) for every session of a
+ *  kind in a course — the common case where all lectures share a slot. Only the
+ *  fields you fill are applied. */
+export async function setSessionTiming(courseId: string, programId: string, formData: FormData) {
+  const kind = str(formData.get("kind")) || "CLASS";
+  const data: Record<string, unknown> = {};
+  const day = str(formData.get("dayOfWeek"));
+  const time = str(formData.get("startTime"));
+  const loc = str(formData.get("location"));
+  const len = str(formData.get("lengthHours"));
+  const cap = str(formData.get("maxStudents"));
+  if (day) data.dayOfWeek = day;
+  if (time) data.startTime = time;
+  if (loc) data.location = loc;
+  if (len) data.lengthHours = Number(len);
+  if (cap) data.maxStudents = Number(cap);
+  if (Object.keys(data).length > 0) {
+    await prisma.session.updateMany({ where: { courseId, kind }, data });
+  }
   revalidatePath(`/programs/${programId}`);
 }
 
