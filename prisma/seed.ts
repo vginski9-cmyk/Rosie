@@ -750,6 +750,7 @@ async function main() {
   await prisma.term.deleteMany();
   await prisma.programYearTarget.deleteMany();
   await prisma.program.deleteMany();
+  await prisma.programFamily.deleteMany();
   await prisma.demandProjection.deleteMany();
   await prisma.region.deleteMany();
   await prisma.occupation.deleteMany();
@@ -823,9 +824,27 @@ async function main() {
   await prisma.program.update({ where: { id: rad.id }, data: { launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 41 } });
   await prisma.program.update({ where: { id: surg.id }, data: { launchCadence: "BIENNIAL", launchTerms: "FALL", launchIntervalYears: 2, termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 19 } });
 
-  // North Star year targets (29 rad-techs/yr; cohort capacity 41 to hit it)
-  for (const y of [2026, 2027, 2028, 2029, 2030]) {
+  // ----- Program families: group templates leading to the same occupation ----
+  const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "All Radiography program templates producing ARRT-eligible radiographers for the Sandhills region." } });
+  const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates." } });
+  await prisma.program.update({ where: { id: rad.id }, data: { familyId: radFamily.id } });
+  await prisma.program.update({ where: { id: surg.id }, data: { familyId: surgFamily.id } });
+
+  // A SECOND Radiography template under the same family — an evening/part-time
+  // track that shares the workforce goal but runs on its own cadence.
+  const radEvening = await createProgram({
+    institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography — Evening Track", programType: "Evening Part Time", credential: "AAS",
+    terms: [{ index: 1, name: "Evening Foundations", startWeek: 1, endWeek: 24, courses: [c("RAD-110E", "Radiography Introduction (Evening)", 2, 3, 0, 3, "Fall", "CORE", "Evening-cohort introduction to the radiography profession and patient care.", "Enrollment in the Evening Radiography Track.")] }],
+  });
+  await prisma.program.update({ where: { id: radEvening.id }, data: { familyId: radFamily.id, launchCadence: "BIENNIAL", launchTerms: "FALL", defaultCohortSeats: 20 } });
+
+  // North Star year targets (29 rad-techs/yr; cohort capacity 41 to hit it).
+  // Targets live on the traditional template and represent the FAMILY goal; both
+  // templates' cohorts count toward producing them.
+  for (const y of [2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032]) {
     await prisma.programYearTarget.create({ data: { programId: rad.id, year: y, credentialTarget: 29, cohortCapacity: 41 } });
+  }
+  for (const y of [2026, 2027, 2028, 2029, 2030]) {
     await prisma.programYearTarget.create({ data: { programId: surg.id, year: y, credentialTarget: 14, cohortCapacity: 19 } });
   }
 
@@ -861,6 +880,45 @@ async function main() {
     await prisma.cohortTerm.create({ data: { cohortId: radClassOf2029.id, termId: t.id, startDate: d ? new Date(d) : null } });
   }
   await prisma.cohort.update({ where: { id: surgClassOf2029.id }, data: { startDate: new Date(TERM_START_DATES[0]), status: "planned" } });
+
+  // ----- A constellation of Radiography cohorts across years -----------------
+  // Each class enters ~2 years before it graduates; production climbs over time
+  // toward the 29/yr workforce goal. (2029 is the detailed cohort above.)
+  const radClassYears: { grad: number; enrolled: number; produced: number }[] = [
+    { grad: 2026, enrolled: 14, produced: 9 },
+    { grad: 2027, enrolled: 18, produced: 12 },
+    { grad: 2028, enrolled: 24, produced: 16 },
+    { grad: 2030, enrolled: 33, produced: 22 },
+    { grad: 2031, enrolled: 39, produced: 27 },
+  ];
+  const statusFor = (grad: number) => (grad <= 2027 ? "completed" : grad <= 2029 ? "active" : "planned");
+  for (const o of radClassYears) {
+    const co = await createFunnel(rad.id, `Class of ${o.grad}`, o.grad, {
+      interested: { target: 83, actual: Math.round(o.enrolled * 4.0) },
+      qualified: { target: 62, actual: Math.round(o.enrolled * 1.7) },
+      offered: { target: 52, actual: Math.round(o.enrolled * 1.25) },
+      enrolled: { target: 41, actual: o.enrolled },
+      completing: { target: 36, actual: o.produced },
+      licensed: { target: 32, actual: Math.max(0, Math.round(o.produced * 0.92)) },
+      placed: { target: 29, actual: Math.max(0, Math.round(o.produced * 0.85)) },
+      productive: { target: 29, actual: Math.max(0, Math.round(o.produced * 0.8)) },
+    });
+    await prisma.cohort.update({ where: { id: co.id }, data: { startDate: new Date(`${o.grad - 2}-08-18`), status: statusFor(o.grad), plannedSeats: o.enrolled } });
+  }
+  // Two Evening-track cohorts (smaller; biennial) under the same family.
+  for (const o of [{ grad: 2028, enrolled: 16, produced: 10 }, { grad: 2030, enrolled: 18, produced: 13 }]) {
+    const co = await createFunnel(radEvening.id, `Evening Class of ${o.grad}`, o.grad, {
+      interested: { target: 40, actual: Math.round(o.enrolled * 3.5) },
+      qualified: { target: 30, actual: Math.round(o.enrolled * 1.6) },
+      offered: { target: 24, actual: Math.round(o.enrolled * 1.2) },
+      enrolled: { target: 20, actual: o.enrolled },
+      completing: { target: 17, actual: o.produced },
+      licensed: { target: 15, actual: Math.max(0, Math.round(o.produced * 0.9)) },
+      placed: { target: 14, actual: Math.max(0, Math.round(o.produced * 0.85)) },
+      productive: { target: 14, actual: Math.max(0, Math.round(o.produced * 0.8)) },
+    });
+    await prisma.cohort.update({ where: { id: co.id }, data: { startDate: new Date(`${o.grad - 2}-08-18`), status: statusFor(o.grad), plannedSeats: o.enrolled } });
+  }
 
   // Employers & people (clinical partners + staff)
   const firstHealth = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "FirstHealth Moore Regional Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 12, notes: "Primary imaging & OR clinical site" } });

@@ -28,6 +28,7 @@ model Institution {
   updatedAt    DateTime @updatedAt
 
   programs       Program[]
+  programFamilies ProgramFamily[]
   regions        Region[]
   occupations    Occupation[]
   demand         DemandProjection[]
@@ -56,8 +57,28 @@ model Occupation {
 
   demand   DemandProjection[]
   programs Program[]
+  families ProgramFamily[]
 
   @@unique([institutionId, socCode])
+  @@index([institutionId])
+}
+
+/// A PROGRAM FAMILY groups multiple program TEMPLATES that lead to the same
+/// occupation/credential (e.g. "Radiography" → Traditional, Accelerated, Evening
+/// variants). The family is where multi-year workforce goals are anchored and
+/// where the constellation of cohorts across all its templates is monitored.
+model ProgramFamily {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId  String?
+  occupation    Occupation? @relation(fields: [occupationId], references: [id])
+  name          String
+  description   String?
+  createdAt     DateTime @default(now())
+
+  programs Program[]
+
   @@index([institutionId])
 }
 
@@ -110,6 +131,8 @@ model Program {
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   occupationId  String?
   occupation    Occupation? @relation(fields: [occupationId], references: [id])
+  familyId      String?
+  family        ProgramFamily? @relation(fields: [familyId], references: [id])
   name          String
   programType   String // e.g. "Traditional Full Time"
   credential    String? // e.g. "Diploma", "AAS", "Certificate"

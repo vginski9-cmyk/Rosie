@@ -43,9 +43,11 @@ export async function getDashboard() {
   return prisma.institution.findMany({
     orderBy: { name: "asc" },
     include: {
+      programFamilies: { select: { id: true, name: true } },
       programs: {
         include: {
           occupation: true,
+          family: { select: { id: true, name: true } },
           yearTargets: { orderBy: { year: "asc" } },
           cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } } } },
           _count: { select: { terms: true } },
@@ -62,6 +64,7 @@ export async function getProgramFull(programId: string) {
     include: {
       institution: true,
       occupation: true,
+      family: { select: { id: true, name: true } },
       yearTargets: { orderBy: { year: "asc" } },
       cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } } } },
       programSkills: { include: { skill: true }, orderBy: { skill: { name: "asc" } } },
@@ -125,6 +128,50 @@ export async function getWblProfiles(institutionId: string) {
     orderBy: [{ subjectType: "asc" }, { name: "asc" }],
     include: { factors: true },
   });
+}
+
+/** All program families grouped by institution, for the dashboard. */
+export async function getFamilies() {
+  return prisma.institution.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      programFamilies: {
+        orderBy: { name: "asc" },
+        include: {
+          occupation: { select: { title: true, socCode: true } },
+          programs: { select: { id: true, name: true, _count: { select: { cohorts: true } } } },
+        },
+      },
+    },
+  });
+}
+
+/** Everything the family hub needs: its templates (programs) with year targets +
+ *  cohorts (funnel target/actual), and the regional demand to anchor goals to. */
+export async function getFamily(familyId: string) {
+  const family = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    include: {
+      institution: true,
+      occupation: true,
+      programs: {
+        orderBy: { name: "asc" },
+        include: {
+          yearTargets: { orderBy: { year: "asc" } },
+          _count: { select: { terms: true } },
+          cohorts: {
+            orderBy: { name: "asc" },
+            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } } },
+          },
+        },
+      },
+    },
+  });
+  if (!family) return null;
+  const demand = family.occupationId
+    ? await prisma.demandProjection.findMany({ where: { occupationId: family.occupationId, region: { kind: "SERVICE_AREA" } }, orderBy: { year: "asc" } })
+    : [];
+  return { family, demand };
 }
 
 export async function getInstitutions() {

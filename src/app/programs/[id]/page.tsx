@@ -64,7 +64,10 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">← {program.institution.name}</Link>
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Link href="/" className="hover:text-slate-700">{program.institution.name}</Link>
+          {program.family && <><span className="text-slate-300">/</span><Link href={`/families/${program.family.id}`} className="hover:text-rose-700">{program.family.name} family</Link></>}
+        </div>
         <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">

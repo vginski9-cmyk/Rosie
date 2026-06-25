@@ -27,7 +27,15 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {institutions.map((inst) => (
+      {institutions.map((inst) => {
+        // Group the institution's programs (templates) by family.
+        const families = new Map<string, { id: string | null; name: string; programs: typeof inst.programs }>();
+        for (const p of inst.programs) {
+          const fid = p.family?.id ?? "_none";
+          if (!families.has(fid)) families.set(fid, { id: p.family?.id ?? null, name: p.family?.name ?? "Other programs", programs: [] });
+          families.get(fid)!.programs.push(p);
+        }
+        return (
         <section key={inst.id} className="space-y-4">
           <div className="flex items-end justify-between">
             <div>
@@ -41,8 +49,19 @@ export default async function DashboardPage() {
             </div>
           </div>
 
+          {[...families.values()].map((fam) => (
+          <div key={fam.id ?? "none"} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {fam.id ? (
+                  <Link href={`/families/${fam.id}`} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{fam.name} ↦</Link>
+                ) : <span className="text-base font-semibold text-slate-500">{fam.name}</span>}
+                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200">{fam.programs.length} template{fam.programs.length === 1 ? "" : "s"}</span>
+              </div>
+              {fam.id && <Link href={`/families/${fam.id}`} className="text-xs text-rose-600 hover:underline">goals &amp; trajectory →</Link>}
+            </div>
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {inst.programs.map((p) => {
+            {fam.programs.map((p) => {
               const cohort = p.cohorts[0];
               const analysis = cohort
                 ? analyzeFunnel(
@@ -101,8 +120,11 @@ export default async function DashboardPage() {
               );
             })}
           </div>
+          </div>
+          ))}
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }
