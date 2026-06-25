@@ -30,6 +30,33 @@ export interface WblProfileInput {
 
 const LAYERS: WblLayer[] = ["MOTIVATION", "CONSTRAINT", "CAPACITY"];
 
+/** Minimal shape of a stored snapshot factor (Prisma row), for mapping. */
+export interface RawFactor {
+  layer: string;
+  label: string;
+  detail?: string | null;
+  weight: number;
+  binding: boolean;
+  disclosure: string;
+  matchKey: string | null;
+}
+
+/** Build an engine profile from a stored snapshot's factors. */
+export function toProfileInput(id: string, subjectType: "LEARNER" | "EMPLOYER", name: string, factors: RawFactor[]): WblProfileInput {
+  return {
+    id, subjectType, name,
+    factors: factors.map((f) => ({ layer: f.layer as WblLayer, label: f.label, detail: f.detail, weight: f.weight, binding: f.binding, disclosure: f.disclosure, matchKey: f.matchKey })),
+  };
+}
+
+/** Build the employer side of the placement engine from latest-snapshot rows. */
+export function employerSlotsFrom(rows: { employerId: string; name: string; slots: number; snapshot: { factors: RawFactor[] } | null }[]): EmployerSlots[] {
+  return rows.map((e) => ({
+    employerId: e.employerId, name: e.name, slots: e.slots,
+    profile: e.snapshot ? toProfileInput(e.employerId, "EMPLOYER", e.name, e.snapshot.factors) : null,
+  }));
+}
+
 const keyOf = (f: WblFactorInput) =>
   (f.matchKey ?? f.label).toLowerCase().replace(/\s+/g, " ").trim();
 
@@ -230,4 +257,102 @@ export function effectivePlacementCapacity(
   const effective = rows.filter((r) => r.feasible).reduce((s, r) => s + r.slots, 0);
   const weighted = rows.reduce((s, r) => s + r.slots * (r.score ?? 1), 0);
   return { raw, effective, weighted, employers: rows };
+}
+
+// ---------------------------------------------------------------------------
+// Per-student placement recommendation
+//
+// For ONE student's WBL snapshot, score every employer, rank the feasible ones,
+// and surface the student's NEEDS: binding requirements no feasible employer can
+// meet (→ a support action), plus which needs the best-fit employer satisfies.
+// ---------------------------------------------------------------------------
+
+export interface RankedEmployer {
+  employerId: string;
+  name: string;
+  slots: number;
+  feasible: boolean;
+  score: number | null;
+  /** Student binding factors this employer meets. */
+  met: WblFactorInput[];
+  /** Binding factors (either side) with no counterpart for this employer. */
+  unmetBinding: AlignmentResult["unmetBinding"];
+  result: AlignmentResult | null;
+}
+
+export interface StudentNeed {
+  factor: WblFactorInput;
+  /** Why it's a need: no feasible employer meets it. */
+  note: string;
+  /** Suggested support action to unblock the student. */
+  action: string;
+}
+
+export interface PlacementRecommendation {
+  ranked: RankedEmployer[];
+  /** Best feasible employer (highest score), or null if none feasible. */
+  best: RankedEmployer | null;
+  /** Student binding needs NO feasible employer can satisfy — require support. */
+  unmetNeeds: StudentNeed[];
+  /** Student binding needs the best-fit employer satisfies. */
+  metNeeds: WblFactorInput[];
+  /** Plain-language recommended actions for the coordinator. */
+  actions: string[];
+  feasibleCount: number;
+}
+
+/** Map a known constraint to a concrete support action. Falls back to a generic. */
+function supportAction(factor: WblFactorInput): string {
+  const k = (factor.matchKey ?? factor.label).toLowerCase();
+  if (k.includes("daytime") || k.includes("day shift")) return "Place at a site with day rotations, or arrange a daytime cohort block.";
+  if (k.includes("evening") || k.includes("night")) return "Find an evening/overnight clinical partner or adjust the rotation window.";
+  if (k.includes("travel") || k.includes("local") || k.includes("radius") || k.includes("transit") || k.includes("transport"))
+    return "Assign the nearest site and/or provide transportation support (transit pass, carpool).";
+  if (k.includes("childcare") || k.includes("dependent")) return "Offer childcare assistance or a schedule that fits dependent-care days.";
+  if (k.includes("ct") || k.includes("mri") || k.includes("modality") || k.includes("advancement"))
+    return "Route to a site offering the desired advanced modality, or add it to the rotation plan.";
+  if (k.includes("wage") || k.includes("living wage")) return "Prioritize partners that pay at/above the student's target wage.";
+  if (k.includes("arrt") || k.includes("eligible") || k.includes("cert")) return "Confirm credential timeline; gate placement until eligibility is met.";
+  return `Address “${factor.label}” before placement — no current partner meets it.`;
+}
+
+export function recommendPlacement(
+  student: WblProfileInput,
+  employers: EmployerSlots[],
+  context?: AlignmentContext,
+): PlacementRecommendation {
+  const ranked: RankedEmployer[] = employers.map((e) => {
+    if (!e.profile) {
+      return { employerId: e.employerId, name: e.name, slots: e.slots, feasible: true, score: null, met: [], unmetBinding: [], result: null };
+    }
+    const result = alignProfiles(student, e.profile, context);
+    const empKeys = new Set(e.profile.factors.map(keyOf));
+    const met = student.factors.filter((f) => f.binding && empKeys.has(keyOf(f)));
+    return { employerId: e.employerId, name: e.name, slots: e.slots, feasible: result.feasible, score: result.score, met, unmetBinding: result.unmetBinding, result };
+  });
+
+  // Rank: feasible first, then by score (nulls — unknown — after scored).
+  ranked.sort((a, b) => {
+    if (a.feasible !== b.feasible) return a.feasible ? -1 : 1;
+    return (b.score ?? -1) - (a.score ?? -1);
+  });
+
+  const feasible = ranked.filter((r) => r.feasible && r.result);
+  const best = feasible[0] ?? null;
+
+  // A student's binding need is "unmet" when NO feasible employer satisfies its key.
+  const feasibleKeys = new Set<string>();
+  for (const r of ranked) if (r.feasible && r.result) for (const f of (employers.find((e) => e.employerId === r.employerId)?.profile?.factors ?? [])) feasibleKeys.add(keyOf(f));
+
+  const unmetNeeds: StudentNeed[] = student.factors
+    .filter((f) => f.binding && !feasibleKeys.has(keyOf(f)))
+    .map((f) => ({ factor: f, note: "No alignment-feasible partner meets this requirement.", action: supportAction(f) }));
+
+  const metNeeds = best?.met ?? [];
+  const actions: string[] = [];
+  if (best) actions.push(`Recommend placement at ${best.name}${best.score != null ? ` (fit ${(best.score * 100).toFixed(0)}%)` : ""}.`);
+  else actions.push("No feasible placement yet — resolve the blocking needs below before assigning a site.");
+  for (const n of unmetNeeds) actions.push(n.action);
+
+  return { ranked, best, unmetNeeds, metNeeds, actions, feasibleCount: feasible.length };
 }

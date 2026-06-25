@@ -94,3 +94,33 @@ describe("effectivePlacementCapacity (loop 2: alignment → placement)", () => {
     expect(cap.effective).toBe(5);
   });
 });
+
+import { recommendPlacement } from "../src/lib/wbl";
+
+describe("recommendPlacement (per-student needs + recommendation)", () => {
+  const nightProfile: WblProfileInput = { ...goodEmployer, id: "night", name: "Night Center", factors: goodEmployer.factors.filter((f) => f.matchKey !== "daytime hours") };
+
+  it("ranks feasible employers first and picks the best as the recommendation", () => {
+    const rec = recommendPlacement(learner, [
+      { employerId: "night", name: "Night Center", slots: 6, profile: nightProfile },
+      { employerId: "fh", name: "FirstHealth", slots: 12, profile: goodEmployer },
+    ]);
+    expect(rec.best?.employerId).toBe("fh");
+    expect(rec.ranked[0].employerId).toBe("fh"); // feasible first
+    expect(rec.ranked[1].feasible).toBe(false);   // night center blocked
+    expect(rec.feasibleCount).toBe(1);
+  });
+
+  it("surfaces an unmet binding need with a support action when no feasible site meets it", () => {
+    // Only the night center exists → the daytime-hours need is unmet everywhere.
+    const rec = recommendPlacement(learner, [{ employerId: "night", name: "Night Center", slots: 6, profile: nightProfile }]);
+    expect(rec.best).toBeNull();
+    expect(rec.unmetNeeds.some((n) => n.factor.matchKey === "daytime hours")).toBe(true);
+    expect(rec.actions.length).toBeGreaterThan(0);
+  });
+
+  it("reports the binding needs the best-fit employer satisfies", () => {
+    const rec = recommendPlacement(learner, [{ employerId: "fh", name: "FirstHealth", slots: 12, profile: goodEmployer }]);
+    expect(rec.metNeeds.some((f) => f.matchKey === "daytime hours")).toBe(true);
+  });
+});

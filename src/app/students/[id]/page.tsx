@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent, getProgramSessionPlan } from "@/lib/queries";
+import { getStudent, getProgramSessionPlan, getEmployerWblSlots } from "@/lib/queries";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
+import { recommendPlacement, toProfileInput, employerSlotsFrom } from "@/lib/wbl";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+const LAYER_META: Record<string, { label: string; color: string }> = {
+  MOTIVATION: { label: "Motivations", color: "bg-sky-100 text-sky-700" },
+  CONSTRAINT: { label: "Constraints", color: "bg-rose-100 text-rose-700" },
+  CAPACITY: { label: "Capacities", color: "bg-emerald-100 text-emerald-700" },
+};
 
 const dateFmt = (d: Date | null) =>
   d ? new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
@@ -40,6 +47,17 @@ export default async function StudentPage({ params }: { params: { id: string } }
       }
     }
     coursePlan.set(c.id, entry);
+  }
+
+  // WBL fit: build the student's latest learner profile, score employers, and
+  // recommend a placement + surface unmet needs.
+  const latestSnap = student.wblSnapshots[0] ?? null;
+  let wbl: Awaited<ReturnType<typeof getEmployerWblSlots>> = [];
+  let rec: ReturnType<typeof recommendPlacement> | null = null;
+  if (latestSnap) {
+    wbl = await getEmployerWblSlots(student.program.institutionId);
+    const learner = toProfileInput(student.id, "LEARNER", student.name, latestSnap.factors);
+    rec = recommendPlacement(learner, employerSlotsFrom(wbl));
   }
 
   const stage = STAGES.find((s) => s.key === student.stageKey);
@@ -261,6 +279,106 @@ export default async function StudentPage({ params }: { params: { id: string } }
         )}
       </section>
 
+      {/* Work-based learning fit & recommendation */}
+      {latestSnap && rec && (
+        <section>
+          <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-xl font-semibold tracking-tight">Work-based learning fit &amp; recommendation</h2>
+            <span className="text-xs text-slate-400">
+              snapshot as of {dateFmt(latestSnap.asOfDate)}
+              {student.wblSnapshots.length > 1 ? ` · ${student.wblSnapshots.length} dated captures` : ""}
+            </span>
+          </div>
+          <p className="mb-4 text-sm text-slate-500">{latestSnap.summary}</p>
+
+          {/* Recommendation banner */}
+          {rec.best ? (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <div className="text-sm">
+                <span className="font-semibold text-emerald-800">Recommended placement: {rec.best.name}</span>
+                {rec.best.score != null && <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white">{fmt.pct(rec.best.score)} fit</span>}
+                <span className="ml-2 text-emerald-700">· {rec.feasibleCount} feasible site{rec.feasibleCount === 1 ? "" : "s"}</span>
+              </div>
+              {rec.metNeeds.length > 0 && (
+                <div className="mt-1 text-xs text-emerald-700">Meets binding needs: {rec.metNeeds.map((f) => f.label).join(", ")}.</div>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-4 text-sm font-medium text-rose-800">
+              No feasible placement yet — resolve the blocking needs below before assigning a site.
+            </div>
+          )}
+
+          {/* Unmet needs the coordinator must act on */}
+          {rec.unmetNeeds.length > 0 && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Needs requiring support ({rec.unmetNeeds.length})</div>
+              <ul className="mt-2 space-y-1.5">
+                {rec.unmetNeeds.map((n, i) => (
+                  <li key={i} className="text-sm text-amber-900">
+                    <span className="font-medium">{n.factor.label}</span> — {n.action}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Snapshot detail: structured fields + factors by layer */}
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Logistics (this snapshot)</div>
+              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[13px]">
+                <Field label="Shift preference" value={latestSnap.shiftPreference} />
+                <Field label="Max travel" value={latestSnap.maxTravelMinutes != null ? `${latestSnap.maxTravelMinutes} min` : null} />
+                <Field label="Transport" value={latestSnap.transport} />
+                <Field label="Available" value={latestSnap.availability} />
+                <Field label="Target wage" value={latestSnap.targetWage != null ? `$${latestSnap.targetWage}/hr` : null} />
+                <Field label="Desired modality" value={latestSnap.desiredModality} />
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Motivations · constraints · capacities</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {latestSnap.factors.map((f) => (
+                  <span key={f.id} className={`rounded-full px-2 py-0.5 text-[11px] ${LAYER_META[f.layer]?.color ?? "bg-slate-100 text-slate-600"}`}>
+                    {f.binding ? "★ " : ""}{f.label}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-2 text-[10px] text-slate-400">★ = binding (non-negotiable)</div>
+            </div>
+          </div>
+
+          {/* Ranked employer fit */}
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                  <th className="px-4 py-2 font-semibold">Clinical partner</th>
+                  <th className="px-4 py-2 text-center font-semibold">Fit</th>
+                  <th className="px-4 py-2 text-center font-semibold">Slots</th>
+                  <th className="px-4 py-2 font-semibold">Status / blockers</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rec.ranked.map((r) => (
+                  <tr key={r.employerId} className={r.feasible ? "" : "bg-rose-50/30"}>
+                    <td className="px-4 py-2 font-medium text-slate-800">{r.name}</td>
+                    <td className="px-4 py-2 text-center tabular-nums">{r.score != null ? fmt.pct(r.score) : "—"}</td>
+                    <td className="px-4 py-2 text-center tabular-nums text-slate-500">{r.slots}</td>
+                    <td className="px-4 py-2 text-[12px]">
+                      {r.feasible
+                        ? <span className="text-emerald-600">feasible{r.met.length ? ` · meets ${r.met.map((f) => f.label).join(", ")}` : ""}</span>
+                        : <span className="text-rose-600">blocked — {r.unmetBinding.map((u) => u.factor.label).join("; ")}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {/* Attendance / absences */}
       <section>
         <h2 className="mb-1 text-xl font-semibold tracking-tight">Attendance</h2>
@@ -294,6 +412,15 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <span className="text-slate-400">{label}: </span>
+      <span className="font-medium text-slate-700">{value || "—"}</span>
     </div>
   );
 }

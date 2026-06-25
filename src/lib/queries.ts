@@ -288,8 +288,35 @@ export async function getStudent(studentId: string) {
         include: { skill: { select: { id: true, name: true, type: true } } },
       },
       absences: { orderBy: [{ date: "asc" }] },
+      wblSnapshots: { orderBy: { asOfDate: "desc" }, include: { factors: true } },
     },
   });
+}
+
+/** Employers with their LATEST WBL capacity snapshot — the employer side of the
+ *  per-student placement recommendation. */
+export async function getEmployerWblSlots(institutionId: string) {
+  const employers = await prisma.employer.findMany({
+    where: { institutionId },
+    orderBy: { name: "asc" },
+    include: { wblSnapshots: { orderBy: { asOfDate: "desc" }, take: 1, include: { factors: true } } },
+  });
+  return employers.map((e) => ({ employerId: e.id, name: e.name, slots: e.wblSlots ?? 0, snapshot: e.wblSnapshots[0] ?? null }));
+}
+
+/** The cohort-wide WBL placement board: every enrolled-and-beyond student with
+ *  their latest learner snapshot, plus employer capacity, so the page can
+ *  recommend a placement and surface unmet needs per student. */
+export async function getProgramWblBoard(programId: string) {
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { institution: true } });
+  if (!program) return null;
+  const students = await prisma.student.findMany({
+    where: { programId, status: { in: ["enrolled", "completed", "placed"] } },
+    orderBy: { name: "asc" },
+    include: { wblSnapshots: { orderBy: { asOfDate: "desc" }, take: 1, include: { factors: true } } },
+  });
+  const employers = await getEmployerWblSlots(program.institutionId);
+  return { program, students, employers };
 }
 
 /** The program's full session plan (terms → courses → sessions with planned

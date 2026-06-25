@@ -37,6 +37,7 @@ model Institution {
   skills         Skill[]
   proficiencyScales ProficiencyScale[]
   wblProfiles    WblProfile[]
+  wblSnapshots   WblSnapshot[]
   assignments    Assignment[]
 }
 
@@ -350,6 +351,7 @@ model Employer {
   notes         String?
 
   people Person[]
+  wblSnapshots WblSnapshot[]
 
   @@index([institutionId])
 }
@@ -505,6 +507,58 @@ model WblFactor {
 }
 
 // ---------------------------------------------------------------------------
+// WBL DATED SNAPSHOTS  (point-in-time capture, per individual student + employer)
+//
+// Where WblProfile is a cohort-level archetype, a WblSnapshot is a dated capture
+// of ONE student's (or employer's) work-based-learning picture at a moment in
+// time. Re-capturing over a term produces a history; the alignment engine reads
+// each student's latest snapshot to recommend placements and surface unmet needs.
+// ---------------------------------------------------------------------------
+
+model WblSnapshot {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  /// LEARNER_STUDENT | EMPLOYER
+  subjectType   String
+  studentId     String?
+  student       Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  employerId    String?
+  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  asOfDate      DateTime
+  summary       String?
+  /// Optional structured snapshot fields (learner side) for richer recommendations.
+  maxTravelMinutes Int?
+  transport        String? // own-car | public-transit | rides | none
+  availability     String? // CSV of available day codes, e.g. "Mon,Tue,Wed,Thu,Fri"
+  shiftPreference  String? // day | evening | flexible
+  targetWage       Float?
+  desiredModality  String? // CT | MRI | general | mammography ...
+  createdAt        DateTime @default(now())
+
+  factors WblSnapshotFactor[]
+
+  @@index([institutionId])
+  @@index([studentId])
+  @@index([employerId])
+}
+
+model WblSnapshotFactor {
+  id         String @id @default(cuid())
+  snapshotId String
+  snapshot   WblSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  layer      String  // MOTIVATION | CONSTRAINT | CAPACITY
+  label      String
+  detail     String?
+  weight     Float   @default(1)
+  binding    Boolean @default(false)
+  disclosure String  @default("STATED")
+  matchKey   String?
+
+  @@index([snapshotId])
+}
+
+// ---------------------------------------------------------------------------
 // CONNECTIVE TISSUE — where supply meets demand, and skills meet delivery
 // ---------------------------------------------------------------------------
 
@@ -583,6 +637,7 @@ model Student {
   grades      StudentCourseGrade[]
   assessments StudentSkillAssessment[]
   absences    StudentAbsence[]
+  wblSnapshots WblSnapshot[]
 
   @@index([programId])
   @@index([cohortId])

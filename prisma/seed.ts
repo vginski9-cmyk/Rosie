@@ -642,9 +642,100 @@ async function seedSessionStaff(
   }
 }
 
+// ---- WBL dated snapshots: per-employer capacity + per-student learner profiles
+type Fac = { layer: string; label: string; detail?: string; weight?: number; binding?: boolean; disclosure?: string; matchKey: string };
+const F = {
+  day: (): Fac => ({ layer: "CAPACITY", label: "Offers daytime clinical shifts", matchKey: "daytime hours" }),
+  evening: (): Fac => ({ layer: "CAPACITY", label: "Offers evening/overnight shifts", matchKey: "evening shift" }),
+  local: (): Fac => ({ layer: "CAPACITY", label: "Local — within ~30 minutes", matchKey: "local site" }),
+  transit: (): Fac => ({ layer: "CAPACITY", label: "On a public-transit line", matchKey: "transit access" }),
+  wage: (): Fac => ({ layer: "CAPACITY", label: "Pays at/above living wage", matchKey: "living wage" }),
+  ct: (): Fac => ({ layer: "CAPACITY", label: "Offers CT/MRI advanced rotations", matchKey: "ct modality" }),
+  arrtReq: (): Fac => ({ layer: "CONSTRAINT", label: "Requires ARRT eligibility to host", binding: true, matchKey: "arrt eligible" }),
+};
+
+async function seedWblSnapshots(
+  institutionId: string,
+  employers: { id: string; name: string; kind: "firstHealth" | "scotland" | "pinehurst" | "night" }[],
+  students: { id: string }[],
+) {
+  // Employer capacity snapshots (dated). Each site's factors determine which
+  // student constraints it can satisfy.
+  const EMP_FACTORS: Record<string, Fac[]> = {
+    firstHealth: [F.day(), F.local(), F.transit(), F.wage(), F.ct(), F.arrtReq()],
+    scotland: [F.day(), F.wage(), F.arrtReq()], // farther out, no CT, off transit
+    pinehurst: [F.day(), F.local(), F.wage(), F.ct(), F.arrtReq()],
+    night: [F.evening(), F.local(), F.wage(), F.arrtReq()], // evenings only — no daytime
+  };
+  for (const e of employers) {
+    await prisma.wblSnapshot.create({
+      data: {
+        institutionId, subjectType: "EMPLOYER", employerId: e.id, asOfDate: new Date("2025-08-01"),
+        summary: `Clinical-partner capacity snapshot for ${e.name}.`,
+        factors: { create: EMP_FACTORS[e.kind] },
+      },
+    });
+  }
+
+  // Learner archetypes — varied so recommendations and needs differ per student.
+  const common: Fac[] = [
+    { layer: "MOTIVATION", label: "Earn a living wage in-region", weight: 1, matchKey: "living wage" },
+    { layer: "CAPACITY", label: "ARRT-eligible at completion", weight: 1, matchKey: "arrt eligible" },
+  ];
+  const daytime = (): Fac => ({ layer: "CONSTRAINT", label: "Needs daytime clinical hours", binding: true, matchKey: "daytime hours" });
+  const ARCHETYPES: { key: string; fields: { maxTravelMinutes: number; transport: string; availability: string; shiftPreference: string; targetWage: number; desiredModality: string }; summary: string; factors: Fac[] }[] = [
+    { key: "A", summary: "Day-only, local, has a car.", fields: { maxTravelMinutes: 30, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 22, desiredModality: "general" },
+      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Must stay within ~30 minutes", binding: true, matchKey: "local site" }] },
+    { key: "B", summary: "Day shifts, relies on public transit.", fields: { maxTravelMinutes: 45, transport: "public-transit", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 21, desiredModality: "general" },
+      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Relies on public transit", binding: true, disclosure: "INFERRED", matchKey: "transit access" }] },
+    { key: "C", summary: "Career-focused — wants a CT rotation.", fields: { maxTravelMinutes: 40, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 23, desiredModality: "CT" },
+      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Needs a CT rotation for career goal", binding: true, matchKey: "ct modality" }, { layer: "MOTIVATION", label: "Advancement into CT/MRI", weight: 0.8, matchKey: "ct modality" }] },
+    { key: "D", summary: "Rural — can travel far, day shifts.", fields: { maxTravelMinutes: 75, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 22, desiredModality: "general" },
+      factors: [...common, daytime()] },
+    { key: "E", summary: "Works days — can only attend evenings.", fields: { maxTravelMinutes: 40, transport: "own-car", availability: "Mon,Tue,Wed,Thu", shiftPreference: "evening", targetWage: 24, desiredModality: "general" },
+      factors: [...common, { layer: "CONSTRAINT", label: "Can only attend evenings", binding: true, matchKey: "evening shift" }] },
+    { key: "F", summary: "Day shifts; needs childcare support.", fields: { maxTravelMinutes: 30, transport: "rides", availability: "Tue,Wed,Thu", shiftPreference: "day", targetWage: 20, desiredModality: "general" },
+      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Needs onsite/near-site childcare", binding: true, disclosure: "STATED", matchKey: "childcare" }] },
+  ];
+
+  for (let i = 0; i < students.length; i++) {
+    const a = ARCHETYPES[i % ARCHETYPES.length];
+    await prisma.wblSnapshot.create({
+      data: {
+        institutionId, subjectType: "LEARNER_STUDENT", studentId: students[i].id,
+        asOfDate: addDaysISO("2025-09-08", i), summary: a.summary,
+        maxTravelMinutes: a.fields.maxTravelMinutes, transport: a.fields.transport, availability: a.fields.availability,
+        shiftPreference: a.fields.shiftPreference, targetWage: a.fields.targetWage, desiredModality: a.fields.desiredModality,
+        factors: { create: a.factors },
+      },
+    });
+  }
+  // ONE childcare-blocked student (index 5) gets a SECOND, later snapshot showing
+  // the need resolved — so dated history is visible. The OTHER (index 11) keeps
+  // the unmet need, so the placement board still demonstrates "needs support".
+  for (const i of [5]) {
+    const s = students[i];
+    if (!s) continue;
+    await prisma.wblSnapshot.create({
+      data: {
+        institutionId, subjectType: "LEARNER_STUDENT", studentId: s.id,
+        asOfDate: new Date("2026-01-20"), summary: "Re-capture: childcare arranged; now placeable on day rotations.",
+        maxTravelMinutes: 30, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 21, desiredModality: "general",
+        factors: { create: [
+          { layer: "MOTIVATION", label: "Earn a living wage in-region", weight: 1, matchKey: "living wage" },
+          { layer: "CAPACITY", label: "ARRT-eligible at completion", weight: 1, matchKey: "arrt eligible" },
+          { layer: "CONSTRAINT", label: "Needs daytime clinical hours", binding: true, matchKey: "daytime hours" },
+        ] },
+      },
+    });
+  }
+}
+
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
+  await prisma.wblSnapshotFactor.deleteMany();
+  await prisma.wblSnapshot.deleteMany();
   await prisma.studentAbsence.deleteMany();
   await prisma.studentSkillAssessment.deleteMany();
   await prisma.studentCourseGrade.deleteMany();
@@ -1099,6 +1190,22 @@ async function main() {
   await linkSessions("RAD-151", "CLINICAL", patientCare.id, "ASSESS", 3);
   await linkSessions("RAD-271", "CLASS", imageEval.id, "ASSESS", 4);
 
+  // ----- WBL dated snapshots: per-employer capacity + per-student learner -----
+  const radWblStudents = await prisma.student.findMany({
+    where: { programId: rad.id, status: { in: ["enrolled", "completed", "placed"] } },
+    orderBy: { name: "asc" }, select: { id: true },
+  });
+  await seedWblSnapshots(
+    sandhills.id,
+    [
+      { id: firstHealth.id, name: firstHealth.name, kind: "firstHealth" },
+      { id: scotland.id, name: scotland.name, kind: "scotland" },
+      { id: pinehurstOutpatient.id, name: pinehurstOutpatient.name, kind: "pinehurst" },
+      { id: nightCenter.id, name: nightCenter.name, kind: "night" },
+    ],
+    radWblStudents,
+  );
+
   const counts = {
     institutions: await prisma.institution.count(),
     skills: await prisma.skill.count(),
@@ -1114,6 +1221,7 @@ async function main() {
     studentGrades: await prisma.studentCourseGrade.count(),
     studentAssessments: await prisma.studentSkillAssessment.count(),
     sessionInstructors: await prisma.sessionInstructor.count(),
+    wblSnapshots: await prisma.wblSnapshot.count(),
     demand: await prisma.demandProjection.count(),
     calendarBlocks: await prisma.calendarBlock.count(),
   };
