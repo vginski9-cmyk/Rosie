@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getSemesterView } from "@/lib/queries";
+import { InsightsTabs } from "@/components/InsightsTabs";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +32,12 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">← Portfolio</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Semester view</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
+        <p className="text-sm text-slate-500">Aggregate or disaggregate every program&apos;s pipeline and delivery — explore the full table, or zoom into one term.</p>
+      </div>
+      <InsightsTabs />
+      <div>
+        <h2 className="text-lg font-semibold tracking-tight">Semester</h2>
         <p className="max-w-3xl text-sm text-slate-500">
           Zoom into one term and see <strong>every offering running across all programs side by side</strong> — what&apos;s in
           session, how many seats, and the combined staffing footprint. Pick a semester to compare the load.
