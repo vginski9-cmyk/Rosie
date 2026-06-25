@@ -8,7 +8,7 @@ import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { analyzeCoverage, assessmentCoverage, analyzeAssessment, competencyAdjustedCompletion, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
 import {
-  duplicateProgram, deleteProgram, updateFunnelStage, addProgramSkill, removeProgramSkill,
+  duplicateProgram, deleteProgram, updateFunnelStage, addProgramSkill, removeProgramSkill, createOffering,
 } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
@@ -126,6 +126,19 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             })}
           </div>
         )}
+        {/* Spin up a new offering from this template */}
+        <form action={createOffering.bind(null, program.id)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">New offering name</span>
+            <input name="name" required placeholder="e.g. Fall 2026 cohort" className="input-sm w-56" />
+          </label>
+          <label className="block">
+            <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Start date</span>
+            <input name="startDate" type="date" className="input-sm w-40" />
+          </label>
+          <button className="btn-primary text-sm">+ Create offering from template</button>
+          <span className="pb-1.5 text-[11px] text-slate-400">generates each term&apos;s real dates from the template&apos;s week spans</span>
+        </form>
       </section>
 
       {bottleneck?.hasBottleneck && (

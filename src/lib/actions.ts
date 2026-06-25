@@ -166,6 +166,30 @@ export async function addExplicitCohort(programId: string, formData: FormData) {
 // TERMS / COURSES / SESSIONS
 // ---------------------------------------------------------------------------
 
+/** Turn the timeless template into a scheduled OFFERING: a cohort with a real
+ *  start date, the canonical funnel, and per-term dates cascaded from each
+ *  template term's week-span. Then you assign instructors and enroll students. */
+export async function createOffering(programId: string, formData: FormData) {
+  const name = str(formData.get("name")) || "New Offering";
+  const startStr = str(formData.get("startDate"));
+  const startD = startStr ? new Date(startStr) : null;
+  const cohort = await prisma.cohort.create({
+    data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null },
+  });
+  await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
+  const terms = await prisma.term.findMany({ where: { programId }, orderBy: { index: "asc" } });
+  const cursor = startD ? new Date(startD) : null;
+  for (const t of terms) {
+    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.id, startDate: cursor ? new Date(cursor) : null } });
+    if (cursor) {
+      const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+      cursor.setDate(cursor.getDate() + (weeks + 2) * 7); // term length + ~2-week break
+    }
+  }
+  revalidatePath(`/programs/${programId}`);
+  redirect(`/programs/${programId}/offerings/${cohort.id}`);
+}
+
 export async function addTerm(programId: string) {
   const last = await prisma.term.findFirst({ where: { programId }, orderBy: { index: "desc" } });
   const index = (last?.index ?? 0) + 1;
