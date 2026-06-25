@@ -54,12 +54,13 @@ export default async function SchedulePage({ params }: { params: { id: string } 
         <p className="max-w-3xl text-sm text-slate-500">
           The template, calendared out. Each session becomes the number of <strong>sections/shifts</strong> the cohort
           needs (sections = ROUNDUP(enrollment ÷ capacity)), laid out week-by-week and day-by-day with seeded staffing.
-          <strong> Click any day or session</strong> to see what&apos;s covered, the homework, the instructors (co-taught
-          sessions split contact hours), and the named students in that section. Re-staff live, or use the
-          <strong> Sections</strong> tab to merge under-filled sections.
+          <strong> Click any day or session</strong> to see what&apos;s covered, the homework, the instructors, and the named
+          students in that section. Assign staff and <strong>set each instructor&apos;s contact hours per session</strong>
+          (co-teaching splits — e.g. 2h + 1h on a 3h class); workload recomputes live. Use the <strong>Sections</strong> tab
+          to merge under-filled sections. Edits are saved in this browser.
         </p>
       </div>
-      <ScheduleBoard terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
+      <ScheduleBoard programId={program.id} terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
     </div>
   );
 }

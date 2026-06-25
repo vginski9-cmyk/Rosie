@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -64,14 +64,19 @@ function SortableCourse({ course, issues }: { course: SeqCourse; issues?: string
   );
 }
 
-function TermColumn({ term, courses, issuesByCourse }: { term: SeqTerm; courses: SeqCourse[]; issuesByCourse: Record<string, string[]> }) {
+function TermColumn({ term, courses, issuesByCourse, onRemove }: { term: SeqTerm; courses: SeqCourse[]; issuesByCourse: Record<string, string[]>; onRemove: (id: string) => void }) {
   // The column itself is droppable via an empty sortable context that accepts the term id.
   const { setNodeRef } = useSortable({ id: `term:${term.id}`, data: { isContainer: true, termId: term.id } });
   return (
     <div className="flex w-72 shrink-0 flex-col">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-semibold">{term.name}</span>
-        <span className="text-[11px] text-slate-400">{courses.length} course{courses.length === 1 ? "" : "s"}</span>
+        <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+          {courses.length} course{courses.length === 1 ? "" : "s"}
+          {courses.length === 0 && (
+            <button onClick={() => onRemove(term.id)} className="text-slate-300 hover:text-rose-600" title="remove empty term">✕</button>
+          )}
+        </span>
       </div>
       <SortableContext items={courses.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="min-h-[120px] space-y-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-2">
@@ -85,12 +90,48 @@ function TermColumn({ term, courses, issuesByCourse }: { term: SeqTerm; courses:
   );
 }
 
-export function CourseSequencer({ programId, terms, initialCourses }: { programId: string; terms: SeqTerm[]; initialCourses: SeqCourse[] }) {
+export function CourseSequencer({ programId, terms: initialTerms, initialCourses }: { programId: string; terms: SeqTerm[]; initialCourses: SeqCourse[] }) {
   const [courses, setCourses] = useState<SeqCourse[]>(initialCourses);
+  const [terms, setTerms] = useState<SeqTerm[]>(initialTerms);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  // Persist the working layout in the browser so it survives a reload.
+  const storeKey = `rosie:sequence:${programId}`;
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved.terms) && saved.terms.length) setTerms(saved.terms);
+        if (Array.isArray(saved.courses) && saved.courses.length) {
+          // Merge saved termId/order onto the authoritative course list.
+          const pos = new Map(saved.courses.map((c: { id: string; termId: string }) => [c.id, c.termId]));
+          setCourses((prev) => prev.map((c) => (pos.has(c.id) ? { ...c, termId: pos.get(c.id) as string } : c)));
+        }
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeKey]);
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(storeKey, JSON.stringify({ terms, courses: courses.map((c) => ({ id: c.id, termId: c.termId })) })); } catch { /* ignore */ }
+  }, [hydrated, storeKey, terms, courses]);
+
+  let termSeq = terms.length;
+  function addTermLocal() {
+    setTerms((prev) => [...prev, { id: `new:${++termSeq}:${prev.length}`, name: `Term ${prev.length + 1}`, courseCount: 0 }]);
+    setDirty(true);
+  }
+  function removeTermLocal(id: string) {
+    if (byTerm(id).length > 0) return; // only empty terms
+    setTerms((prev) => prev.filter((t) => t.id !== id));
+    setDirty(true);
+  }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -191,13 +232,18 @@ export function CourseSequencer({ programId, terms, initialCourses }: { programI
         ) : (
           <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">✓ prerequisite order looks valid</span>
         )}
-        <span className="text-xs text-slate-400">Drag within a term to re-order, or across terms to re-sequence.</span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
+        <span className="text-xs text-slate-500">{terms.length} term{terms.length === 1 ? "" : "s"} — drag courses within a term to re-order, or across terms to re-sequence.</span>
+        <button onClick={addTermLocal} disabled={terms.length >= 12} className="btn-primary ml-auto text-xs disabled:opacity-40">+ Add term</button>
+        {terms.length >= 12 && <span className="text-[11px] text-amber-600">12-term cap</span>}
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {terms.map((t) => (
-            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} issuesByCourse={issuesByCourse} />
+            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} issuesByCourse={issuesByCourse} onRemove={removeTermLocal} />
           ))}
         </div>
         <DragOverlay>{active ? <CourseCard course={active} dragging /> : null}</DragOverlay>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   expandSchedule, summarize, gridByWeekDay, gridByMonth, staffLoadDetail, studentsForShift, shiftHoursFor, formatTime12,
@@ -39,10 +39,13 @@ const VIEW_LABEL: Record<View, string> = {
   calendar: "Month calendar", grid: "Term grid", staffing: "Staffing · by week", course: "Staffing · by course", sections: "Sections",
 };
 
-export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { terms: TermTemplate[]; roster: RosterPerson[]; students: SectionStudent[]; defaultEnrollment: number }) {
+export function ScheduleBoard({ programId, terms, roster, students, defaultEnrollment }: { programId?: string; terms: TermTemplate[]; roster: RosterPerson[]; students: SectionStudent[]; defaultEnrollment: number }) {
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
   const [enrollment, setEnrollment] = useState(Math.max(1, defaultEnrollment || 40));
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
+  // Per-shift, per-instructor contact-hour allocation (co-teaching splits). Falls
+  // back to the seeded plan when a person has no explicit override here.
+  const [hourOverrides, setHourOverrides] = useState<Record<string, Record<string, number>>>({});
   const [week, setWeek] = useState(1);
   const [view, setView] = useState<View>("calendar");
   const [kinds, setKinds] = useState<Set<string>>(new Set(["CLASS", "LAB", "CLINICAL"]));
@@ -53,6 +56,26 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
   const term = terms.find((t) => t.id === termId) ?? terms[0];
   const allShifts = useMemo(() => (term ? expandSchedule(term.sessions, enrollment, { termStart: term.startDateISO }) : []), [term, enrollment]);
 
+  // Persist edits in the browser so they survive a reload (demo has no backend).
+  const storeKey = programId ? `rosie:staffing:${programId}` : null;
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (!storeKey) { setHydrated(true); return; }
+    try {
+      const raw = localStorage.getItem(storeKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved.assignments) setAssignments(saved.assignments);
+        if (saved.hourOverrides) setHourOverrides(saved.hourOverrides);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, [storeKey]);
+  useEffect(() => {
+    if (!storeKey || !hydrated) return;
+    try { localStorage.setItem(storeKey, JSON.stringify({ assignments, hourOverrides })); } catch { /* ignore */ }
+  }, [storeKey, hydrated, assignments, hourOverrides]);
+
   // Default staffing comes from the seeded plan (incl. co-teaching splits); a
   // per-shift override layers on top once the user edits it.
   const effectiveAssignments = useMemo(() => {
@@ -60,6 +83,16 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
     for (const s of allShifts) m[s.id] = assignments[s.id] ?? s.staff.map((x) => x.personId);
     return m;
   }, [allShifts, assignments]);
+
+  // Contact hours a person works on a shift: explicit override → seeded split → full length.
+  const hoursFor = useMemo(() => (shift: Shift, personId: string): number => {
+    const ov = hourOverrides[shift.id]?.[personId];
+    if (ov != null) return ov;
+    const planned = shift.staff.find((p) => p.personId === personId);
+    return planned ? Math.min(planned.contactHours, shift.lengthHours) : shift.lengthHours;
+  }, [hourOverrides]);
+  const setHours = (shift: Shift, personId: string, hours: number) =>
+    setHourOverrides((prev) => ({ ...prev, [shift.id]: { ...(prev[shift.id] ?? {}), [personId]: Math.max(0, hours) } }));
 
   const courseOptions = useMemo(() => {
     const m = new Map<string, string>();
@@ -79,7 +112,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
   const summary = useMemo(() => summarize(shifts), [shifts]);
   const grid = useMemo(() => gridByWeekDay(shifts), [shifts]);
   const months = useMemo(() => gridByMonth(shifts), [shifts]);
-  const loads = useMemo(() => staffLoadDetail(allShifts, effectiveAssignments, term?.weeks ?? 16), [allShifts, effectiveAssignments, term]);
+  const loads = useMemo(() => staffLoadDetail(allShifts, effectiveAssignments, term?.weeks ?? 16, hoursFor), [allShifts, effectiveAssignments, term, hoursFor]);
 
   const instructors = roster.filter((p) => p.role === "instructor" || p.role === "coordinator");
   const preceptors = roster.filter((p) => p.role === "preceptor");
@@ -131,7 +164,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
       return next;
     });
   }
-  const resetStaffing = () => setAssignments({});
+  const resetStaffing = () => { setAssignments({}); setHourOverrides({}); };
 
   function toggleKind(k: string) {
     setKinds((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n.size ? n : prev; });
@@ -164,7 +197,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
             ))}
           </div>
           <button onClick={autoFill} className="btn-primary">Auto-assign</button>
-          {Object.keys(assignments).length > 0 && <button onClick={resetStaffing} className="btn-ghost text-xs">Reset to plan</button>}
+          {(Object.keys(assignments).length > 0 || Object.keys(hourOverrides).length > 0) && <button onClick={resetStaffing} className="btn-ghost text-xs">Reset to plan</button>}
         </div>
       </div>
 
@@ -214,6 +247,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
                 <CourseStaffing
                   shifts={shifts} assignments={effectiveAssignments} assign={assign} unassign={unassign} conflicts={conflicts}
                   instructors={instructors} preceptors={preceptors} personName={personName} openShift={openShift}
+                  hoursFor={hoursFor} setHours={setHours}
                 />
               )}
               {view === "staffing" && (
@@ -221,6 +255,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
                   weeks={summary.weeks} week={week} setWeek={setWeek} grid={grid}
                   assignments={effectiveAssignments} assign={assign} unassign={unassign} conflicts={conflicts}
                   instructors={instructors} preceptors={preceptors} personName={personName} openShift={openShift}
+                  hoursFor={hoursFor} setHours={setHours}
                 />
               )}
             </div>
@@ -271,6 +306,7 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
           title={drawer.title} shifts={drawer.shifts} students={students}
           assignments={effectiveAssignments} assign={assign} unassign={unassign}
           instructors={instructors} preceptors={preceptors} personName={personName}
+          hoursFor={hoursFor} setHours={setHours}
           onClose={() => setDrawer(null)}
         />
       )}
@@ -279,10 +315,11 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
 }
 
 /* ---------- Detail drawer ---------- */
-function ShiftDrawer({ title, shifts, students, assignments, assign, unassign, instructors, preceptors, personName, onClose }: {
+function ShiftDrawer({ title, shifts, students, assignments, assign, unassign, instructors, preceptors, personName, hoursFor, setHours, onClose }: {
   title: string; shifts: Shift[]; students: SectionStudent[]; assignments: Record<string, string[]>;
   assign: (s: Shift, p: string) => void; unassign: (s: Shift, p: string) => void;
-  instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string; onClose: () => void;
+  instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string;
+  hoursFor: (s: Shift, p: string) => number; setHours: (s: Shift, p: string, h: number) => void; onClose: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -294,7 +331,7 @@ function ShiftDrawer({ title, shifts, students, assignments, assign, unassign, i
         </div>
         <div className="space-y-5 p-5">
           {shifts.map((s) => (
-            <ShiftDetail key={s.id} shift={s} students={students} assignments={assignments} assign={assign} unassign={unassign} instructors={instructors} preceptors={preceptors} personName={personName} />
+            <ShiftDetail key={s.id} shift={s} students={students} assignments={assignments} assign={assign} unassign={unassign} instructors={instructors} preceptors={preceptors} personName={personName} hoursFor={hoursFor} setHours={setHours} />
           ))}
         </div>
       </div>
@@ -302,18 +339,17 @@ function ShiftDrawer({ title, shifts, students, assignments, assign, unassign, i
   );
 }
 
-function ShiftDetail({ shift: s, students, assignments, assign, unassign, instructors, preceptors, personName }: {
+function ShiftDetail({ shift: s, students, assignments, assign, unassign, instructors, preceptors, personName, hoursFor, setHours }: {
   shift: Shift; students: SectionStudent[]; assignments: Record<string, string[]>;
   assign: (s: Shift, p: string) => void; unassign: (s: Shift, p: string) => void;
   instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string;
+  hoursFor: (s: Shift, p: string) => number; setHours: (s: Shift, p: string, h: number) => void;
 }) {
   const assigned = assignments[s.id] ?? [];
   const pool = s.staffType === "preceptor" ? preceptors : instructors;
   const roster = studentsForShift(s, students);
-  const hoursLabel = (pid: string) => {
-    const planned = s.staff.find((p) => p.personId === pid);
-    return planned ? `${planned.contactHours}h${planned.segment ? ` · ${planned.segment}` : ""}` : `${s.lengthHours}h`;
-  };
+  const allocated = assigned.reduce((n, pid) => n + hoursFor(s, pid), 0);
+  const over = allocated > s.lengthHours + 1e-9;
   return (
     <div className="rounded-xl border border-slate-200 p-4">
       <div className="flex items-center gap-2">
@@ -336,17 +372,26 @@ function ShiftDetail({ shift: s, students, assignments, assign, unassign, instru
         </div>
       )}
 
-      {/* Instructors with split hours */}
+      {/* Instructors with editable per-person contact-hour allocation */}
       <div className="mt-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Staffing ({s.staffType})</div>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {assigned.map((pid) => (
-            <span key={pid} className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-2 py-0.5 text-[11px] text-white">
-              {personName(pid)} <span className="opacity-70">{hoursLabel(pid)}</span>
-              <button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button>
-            </span>
-          ))}
-          <select value="" onChange={(e) => assign(s, e.target.value)} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px]">
+        <div className="flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Staffing &amp; contact-hour allocation ({s.staffType})</div>
+          <span className={`text-[11px] tabular-nums ${over ? "font-semibold text-rose-600" : "text-slate-400"}`}>{Math.round(allocated * 10) / 10} / {s.lengthHours}h{over ? " over" : ""}</span>
+        </div>
+        <div className="mt-1.5 space-y-1.5">
+          {assigned.map((pid) => {
+            const planned = s.staff.find((p) => p.personId === pid);
+            return (
+              <div key={pid} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1">
+                <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-800">{personName(pid)}{planned?.segment ? <span className="font-normal text-slate-400"> · {planned.segment}</span> : null}</span>
+                <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-[12px] tabular-nums" />
+                <span className="text-[11px] text-slate-400">h</span>
+                <button onClick={() => unassign(s, pid)} className="text-slate-300 hover:text-rose-600">×</button>
+              </div>
+            );
+          })}
+          {assigned.length === 0 && <p className="text-[12px] text-slate-400">No one assigned.</p>}
+          <select value="" onChange={(e) => assign(s, e.target.value)} className="w-full rounded-md border border-slate-300 px-1.5 py-1 text-[12px]">
             <option value="">+ add {s.staffType}…</option>
             {pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
@@ -457,10 +502,11 @@ function TermGrid({ weeks, grid, week, setWeek, openDay }: { weeks: number[]; gr
 }
 
 /* ---------- Staffing board ---------- */
-function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassign, conflicts, instructors, preceptors, personName, openShift }: {
+function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassign, conflicts, instructors, preceptors, personName, openShift, hoursFor, setHours }: {
   weeks: number[]; week: number; setWeek: (w: number) => void; grid: Map<number, Map<string, Shift[]>>;
   assignments: Record<string, string[]>; assign: (s: Shift, p: string) => void; unassign: (s: Shift, p: string) => void; conflicts: Set<string>;
   instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string; openShift: (s: Shift) => void;
+  hoursFor: (s: Shift, p: string) => number; setHours: (s: Shift, p: string, h: number) => void;
 }) {
   const weekShifts = grid.get(week) ?? new Map<string, Shift[]>();
   return (
@@ -492,11 +538,17 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
                       </button>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${full ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{assigned.length}/{s.staffPerShift}</span>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1">
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
                       {assigned.map((pid) => {
                         const conflict = conflicts.has(`${pid}|${s.dateISO ?? `${s.week}-${s.day}`}|${s.startTime ?? ""}`);
-                        const planned = s.staff.find((p) => p.personId === pid);
-                        return <span key={pid} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>{personName(pid)}{planned ? <span className="opacity-70">{planned.contactHours}h</span> : null}<button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button></span>;
+                        return (
+                          <span key={pid} className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-2 pr-1 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>
+                            {personName(pid)}
+                            <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
+                            <span className="opacity-70">h</span>
+                            <button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button>
+                          </span>
+                        );
                       })}
                       <select value="" onChange={(e) => assign(s, e.target.value)} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px]"><option value="">+ {s.staffType}…</option>{pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
                     </div>
@@ -513,9 +565,10 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
 }
 
 /* ---------- Staffing, grouped by course (every slot, all weeks, no toggling) ---------- */
-function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, instructors, preceptors, personName, openShift }: {
+function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, instructors, preceptors, personName, openShift, hoursFor, setHours }: {
   shifts: Shift[]; assignments: Record<string, string[]>; assign: (s: Shift, p: string) => void; unassign: (s: Shift, p: string) => void; conflicts: Set<string>;
   instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string; openShift: (s: Shift) => void;
+  hoursFor: (s: Shift, p: string) => number; setHours: (s: Shift, p: string, h: number) => void;
 }) {
   const groups = useMemo(() => {
     const m = new Map<string, { name: string; list: Shift[] }>();
@@ -546,7 +599,6 @@ function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, inst
               {list.map((s) => {
                 const assigned = assignments[s.id] ?? [];
                 const pool = s.staffType === "preceptor" ? preceptors : instructors;
-                const full = assigned.length >= s.staffPerShift;
                 return (
                   <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm hover:bg-slate-50/60">
                     <button onClick={() => openShift(s)} className="flex min-w-0 items-center gap-2 text-left">
@@ -558,10 +610,16 @@ function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, inst
                     <div className="ml-auto flex flex-wrap items-center gap-1">
                       {assigned.map((pid) => {
                         const conflict = conflicts.has(`${pid}|${s.dateISO ?? `${s.week}-${s.day}`}|${s.startTime ?? ""}`);
-                        const planned = s.staff.find((p) => p.personId === pid);
-                        return <span key={pid} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>{personName(pid)}{planned ? <span className="opacity-70">{planned.contactHours}h</span> : null}<button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button></span>;
+                        return (
+                          <span key={pid} className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-2 pr-1 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>
+                            {personName(pid)}
+                            <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
+                            <span className="opacity-70">h</span>
+                            <button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button>
+                          </span>
+                        );
                       })}
-                      {!full && <select value="" onChange={(e) => assign(s, e.target.value)} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px]"><option value="">+ {s.staffType}…</option>{pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+                      <select value="" onChange={(e) => assign(s, e.target.value)} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px]"><option value="">+ {s.staffType}…</option>{pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
                     </div>
                   </div>
                 );

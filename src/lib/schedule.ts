@@ -253,12 +253,12 @@ export function shiftHoursFor(shift: Shift, personId: string): number {
   return shift.lengthHours;
 }
 
-export function staffLoadDetail(shifts: Shift[], assignments: Record<string, string[]>, termWeeks: number): StaffLoadDetail[] {
+export function staffLoadDetail(shifts: Shift[], assignments: Record<string, string[]>, termWeeks: number, hoursFor: (shift: Shift, personId: string) => number = shiftHoursFor): StaffLoadDetail[] {
   const map = new Map<string, StaffLoadDetail & { _days: Set<string> }>();
   for (const s of shifts) {
     for (const personId of assignments[s.id] ?? []) {
       const cur = map.get(personId) ?? { personId, shifts: 0, contactHours: 0, weeklyAvgHours: 0, classHours: 0, labHours: 0, clinicalHours: 0, distinctDays: 0, _days: new Set<string>() };
-      const hrs = shiftHoursFor(s, personId);
+      const hrs = hoursFor(s, personId);
       cur.shifts += 1;
       cur.contactHours += hrs;
       if (s.kind === "CLASS") cur.classHours += hrs;
