@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { getDashboard, getProgramBottleneck } from "@/lib/queries";
+import { getDashboard, getProgramBottleneck, getInsightsFacts } from "@/lib/queries";
 import { analyzeFunnel, pipelineHealth, type StageKey } from "@/lib/funnel";
+import { PivotExplorer } from "@/components/PivotExplorer";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const institutions = await getDashboard();
+  const [institutions, facts] = await Promise.all([getDashboard(), getInsightsFacts()]);
 
   const totalPrograms = institutions.reduce((n, i) => n + i.programs.length, 0);
 
@@ -26,6 +27,23 @@ export default async function DashboardPage() {
           delivery capacity.
         </p>
       </div>
+
+      {/* All institutions, all programs — pivot/disaggregate across the whole portfolio */}
+      {facts.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold">All institutions, all programs</h2>
+              <p className="text-sm text-slate-500">
+                Pipeline and delivery metrics in one tidy table. Pick any two dimensions to aggregate or disaggregate by,
+                switch the measure, click headers to filter and cells to drill.
+              </p>
+            </div>
+            <Link href="/insights" className="text-xs text-rose-600 hover:underline">open full Insights explorer →</Link>
+          </div>
+          <PivotExplorer facts={facts} />
+        </section>
+      )}
 
       {institutions.map((inst) => {
         // Group the institution's programs (templates) by family.

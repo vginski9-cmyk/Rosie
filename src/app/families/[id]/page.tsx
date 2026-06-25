@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getFamily } from "@/lib/queries";
+import { getFamily, getInsightsFacts } from "@/lib/queries";
 import { FamilyAnalytics, type FamCohort } from "@/components/FamilyAnalytics";
+import { GoalPlanner } from "@/components/GoalPlanner";
+import { PivotExplorer } from "@/components/PivotExplorer";
 import type { StageKey } from "@/lib/funnel";
 import { courseService, DEFAULT_SERVICE, type ServiceSession } from "@/lib/service";
 
@@ -13,9 +15,11 @@ const STATUS_BADGE: Record<string, string> = {
 const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
 
 export default async function FamilyPage({ params }: { params: { id: string } }) {
-  const data = await getFamily(params.id);
+  const [data, allFacts] = await Promise.all([getFamily(params.id), getInsightsFacts()]);
   if (!data) notFound();
   const { family, demand } = data;
+  // Same tidy fact table as the Insights explorer, scoped to this family.
+  const familyFacts = allFacts.filter((f) => f.family === family.name && f.institution === family.institution.name);
 
   // Flatten cohorts across the family's templates into analytics rows, computing
   // each cohort's delivery footprint (FTE / contact hours) at its enrollment.
@@ -50,6 +54,16 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   const templates = family.programs.map((p) => ({ id: p.id, name: p.name }));
   const totalCohorts = cohorts.length;
   const totalStudents = family.programs.reduce((n, p) => n + p.cohorts.reduce((m, c) => m + c._count.students, 0), 0);
+
+  // Seeds for the North-Star goal planner: latest goal year, its goal, demand, terms.
+  const goalYears = Object.keys(goalByYear).map(Number).sort((a, b) => a - b);
+  const demandYears = Object.keys(demandByYear).map(Number).sort((a, b) => a - b);
+  const latestGoalYear = goalYears[goalYears.length - 1];
+  const latestDemandYear = demandYears[demandYears.length - 1];
+  const seedYear = latestGoalYear ?? latestDemandYear ?? new Date().getFullYear() + 2;
+  const seedNorthStar = Math.round(goalByYear[seedYear] ?? (latestGoalYear ? goalByYear[latestGoalYear] : 0) ?? 0) || 25;
+  const seedDemand = demandByYear[seedYear] ?? (latestDemandYear ? demandByYear[latestDemandYear] : null) ?? null;
+  const seedTerms = Math.max(5, ...family.programs.map((p) => p._count.terms));
 
   return (
     <div className="space-y-8">
@@ -89,6 +103,19 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         </div>
       </section>
 
+      {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">North-Star goal &amp; pipeline plan</h2>
+          <p className="text-sm text-slate-500">
+            Set the family&apos;s multi-year goal, then adjust any health-metric percentage — goal or actual — and the whole
+            pipeline ladder, including term-by-term enrollment, recomputes live. This is how each program anchors its activity
+            to the workforce goal it&apos;s working toward.
+          </p>
+        </div>
+        <GoalPlanner familyId={family.id} familyName={family.name} seedNorthStar={seedNorthStar} seedDemand={seedDemand} seedTerms={seedTerms} seedYear={seedYear} />
+      </section>
+
       {/* Multi-year goals, trajectory, constellation, health — interactive */}
       <section className="space-y-3">
         <div>
@@ -104,6 +131,21 @@ export default async function FamilyPage({ params }: { params: { id: string } })
           <FamilyAnalytics cohorts={cohorts} demandByYear={demandByYear} goalByYear={goalByYear} templates={templates} />
         )}
       </section>
+
+      {/* Family-scoped pivot — all this family's data, aggregate or disaggregate */}
+      {familyFacts.length > 0 && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Explore this family&apos;s data</h2>
+            <p className="text-sm text-slate-500">
+              Every offering&apos;s pipeline and delivery footprint in one tidy table — disaggregate by cohort, term, semester,
+              year or metric. Click a header to filter, a cell to drill into the underlying facts. Want a specific class? Pick
+              the cohort. Want Spring 2026? Pick the semester.
+            </p>
+          </div>
+          <PivotExplorer facts={familyFacts} hideDims={["institution", "family"]} defaultRowDim="cohort" defaultColDim="metric" defaultMetric="All" />
+        </section>
+      )}
     </div>
   );
 }

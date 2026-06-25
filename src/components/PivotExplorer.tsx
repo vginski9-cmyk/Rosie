@@ -9,12 +9,22 @@ const fmtN = (v: number) => {
   return v.toLocaleString(undefined, { maximumFractionDigits: abs < 100 ? 2 : 0 });
 };
 
-export function PivotExplorer({ facts }: { facts: Fact[] }) {
-  const [rowDim, setRowDim] = useState<Dim>("program");
-  const [colDim, setColDim] = useState<Dim>("year");
+export function PivotExplorer({
+  facts, hideDims = [], defaultRowDim = "program", defaultColDim = "year", defaultMetric = "Enrolled (Term 1)",
+}: {
+  facts: Fact[];
+  /** Dimensions to remove from the row/column pickers (e.g. when scoped to one family). */
+  hideDims?: Dim[];
+  defaultRowDim?: Dim;
+  defaultColDim?: Dim;
+  defaultMetric?: string;
+}) {
+  const dims = useMemo(() => DIMS.filter((d) => !hideDims.includes(d.key)), [hideDims]);
+  const [rowDim, setRowDim] = useState<Dim>(defaultRowDim);
+  const [colDim, setColDim] = useState<Dim>(defaultColDim);
   const [measure, setMeasure] = useState<Measure>("value");
   const [group, setGroup] = useState<string>("Pipeline");
-  const [metric, setMetric] = useState<string>("Enrolled (Term 1)");
+  const [metric, setMetric] = useState<string>(defaultMetric);
   const [filters, setFilters] = useState<Filters>({});
   const [drill, setDrill] = useState<{ row: string; col: string } | null>(null);
 
@@ -66,8 +76,8 @@ export function PivotExplorer({ facts }: { facts: Fact[] }) {
           </select>
         </Ctl>
         <span className="self-end pb-2 text-slate-300">│</span>
-        <Ctl label="Rows"><select value={rowDim} onChange={(e) => setRowDim(e.target.value as Dim)} className="ctl">{DIMS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Ctl>
-        <Ctl label="Columns"><select value={colDim} onChange={(e) => setColDim(e.target.value as Dim)} className="ctl">{DIMS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Ctl>
+        <Ctl label="Rows"><select value={rowDim} onChange={(e) => setRowDim(e.target.value as Dim)} className="ctl">{dims.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Ctl>
+        <Ctl label="Columns"><select value={colDim} onChange={(e) => setColDim(e.target.value as Dim)} className="ctl">{dims.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></Ctl>
         <Ctl label="Measure">
           <select value={measure} onChange={(e) => setMeasure(e.target.value as Measure)} className="ctl">
             <option value="value">Value</option><option value="actual">Actual</option><option value="target">Target</option>
