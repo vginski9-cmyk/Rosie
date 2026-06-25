@@ -170,6 +170,7 @@ model Term {
 
   courses Course[]
   assignments Assignment[]
+  cohortTerms CohortTerm[]
 
   @@unique([programId, index])
   @@index([programId])
@@ -241,12 +242,17 @@ model SessionInstructor {
   session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   personId     String
   person       Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  /// The OFFERING (cohort run) this staffing belongs to. Null = a template-level
+  /// default applying to any offering that hasn't assigned its own staff.
+  cohortId     String?
+  cohort       Cohort? @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   role         String  @default("instructor") // instructor | preceptor | support
   contactHours Float   // portion of the session length this person covers
   segment      String? // what they cover, e.g. "Lecture" | "Lab supervision"
 
   @@index([sessionId])
   @@index([personId])
+  @@index([cohortId])
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +290,12 @@ model CalendarBlock {
 // ---------------------------------------------------------------------------
 
 /// A cohort moving through the funnel (e.g. "Class of 2029").
+///
+/// A Cohort is also the program's INSTANTIATION / OFFERING: a specific scheduled
+/// run of the timeless Program template. The template defines terms/courses/
+/// sessions in the abstract; the offering binds them to real calendar dates
+/// (via CohortTerm), assigns real instructors (SessionInstructor.cohortId), and
+/// enrolls real students.
 model Cohort {
   id        String  @id @default(cuid())
   programId String
@@ -296,11 +308,32 @@ model Cohort {
   plannedSeats  Float?
   /// When true this cohort is an explicit launch included in the plan as-is.
   isExplicit    Boolean @default(false)
+  /// --- Offering / instantiation fields ---
+  /// Real-world first day of this offering's first term (anchors the calendar).
+  startDate     DateTime?
+  /// planned | active | completed | archived
+  status        String  @default("planned")
 
-  stages   FunnelStage[]
-  students Student[]
+  stages      FunnelStage[]
+  students    Student[]
+  cohortTerms CohortTerm[]
+  sessionStaff SessionInstructor[]
 
   @@index([programId])
+}
+
+/// Per-offering scheduling of a template term: the real-world start date this
+/// cohort begins a given Term. Lets one template be run on different calendars.
+model CohortTerm {
+  id        String  @id @default(cuid())
+  cohortId  String
+  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  termId    String
+  term      Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
+  startDate DateTime?
+
+  @@unique([cohortId, termId])
+  @@index([cohortId])
 }
 
 /// One stage of the talent-pipeline funnel for a cohort, with target vs actual.

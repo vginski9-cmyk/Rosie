@@ -595,6 +595,7 @@ const HOMEWORK_BANK: Record<string, string[]> = {
 
 async function seedSessionStaff(
   programId: string,
+  cohortId: string,
   faculty: { id: string; name: string }[],
   preceptors: { id: string; name: string; siteIndex: number }[],
 ) {
@@ -617,19 +618,19 @@ async function seedSessionStaff(
     const co = c.code ? COTEACH[c.code] : undefined;
 
     for (const s of c.sessions) {
-      const rows: { sessionId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
+      const rows: { sessionId: string; cohortId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
       if (s.kind === "CLINICAL") {
         // Preceptor from the site group rotated by session number.
         const group = siteGroups[s.number % 3];
         const prec = (group.length ? group : preceptors)[s.number % Math.max(1, group.length || preceptors.length)];
-        if (prec) rows.push({ sessionId: s.id, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
+        if (prec) rows.push({ sessionId: s.id, cohortId, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
       } else if (co && s.kind === "CLASS") {
         const primShare = Math.round(s.lengthHours * co.primaryShare * 10) / 10;
         const secShare = Math.round((s.lengthHours - primShare) * 10) / 10;
-        rows.push({ sessionId: s.id, personId: primary.id, role: "instructor", contactHours: primShare, segment: co.segment[0] });
-        if (secShare > 0) rows.push({ sessionId: s.id, personId: secondary.id, role: "instructor", contactHours: secShare, segment: co.segment[1] });
+        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: primShare, segment: co.segment[0] });
+        if (secShare > 0) rows.push({ sessionId: s.id, cohortId, personId: secondary.id, role: "instructor", contactHours: secShare, segment: co.segment[1] });
       } else {
-        rows.push({ sessionId: s.id, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
+        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
       }
       if (rows.length) await prisma.sessionInstructor.createMany({ data: rows });
 
@@ -741,6 +742,7 @@ async function main() {
   await prisma.studentCourseGrade.deleteMany();
   await prisma.student.deleteMany();
   await prisma.sessionInstructor.deleteMany();
+  await prisma.cohortTerm.deleteMany();
   await prisma.funnelStage.deleteMany();
   await prisma.cohort.deleteMany();
   await prisma.session.deleteMany();
@@ -838,7 +840,7 @@ async function main() {
     placed: { target: 29, actual: 12 },
     productive: { target: 29, actual: 12 },
   });
-  await createFunnel(surg.id, "Class of 2029", 2029, {
+  const surgClassOf2029 = await createFunnel(surg.id, "Class of 2029", 2029, {
     interested: { target: 39, actual: 31 },
     qualified: { target: 29 },
     offered: { target: 24 },
@@ -848,6 +850,17 @@ async function main() {
     placed: { target: 14, actual: 6 },
     productive: { target: 14, actual: 6 },
   });
+
+  // ----- Offerings (instantiations): bind cohorts to a real calendar ---------
+  // The Cohort IS the scheduled run of the timeless template. Anchor the rad
+  // Class-of-2029 offering on real term start dates via CohortTerm rows.
+  await prisma.cohort.update({ where: { id: radClassOf2029.id }, data: { startDate: new Date(TERM_START_DATES[0]), status: "active" } });
+  const radTermRows = await prisma.term.findMany({ where: { programId: rad.id }, orderBy: { index: "asc" } });
+  for (const t of radTermRows) {
+    const d = TERM_START_DATES[t.index - 1];
+    await prisma.cohortTerm.create({ data: { cohortId: radClassOf2029.id, termId: t.id, startDate: d ? new Date(d) : null } });
+  }
+  await prisma.cohort.update({ where: { id: surgClassOf2029.id }, data: { startDate: new Date(TERM_START_DATES[0]), status: "planned" } });
 
   // Employers & people (clinical partners + staff)
   const firstHealth = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "FirstHealth Moore Regional Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 12, notes: "Primary imaging & OR clinical site" } });
@@ -1168,7 +1181,7 @@ async function main() {
   // a couple of long RAD classes across two instructors with partial contact
   // hours, so workload + the calendar show real, co-taught staffing out of the
   // box. Clinicals get a preceptor from the rotation's site group.
-  await seedSessionStaff(rad.id, facultyPeople, preceptorPeople);
+  await seedSessionStaff(rad.id, radClassOf2029.id, facultyPeople, preceptorPeople);
 
   // ----- Skills at the delivery/assessment grain (SessionSkill) ------------
   // Closes the loop design → delivery → assessment. radSafety is intentionally

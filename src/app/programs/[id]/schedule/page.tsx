@@ -6,16 +6,16 @@ import type { ScheduleSession, SectionStudent } from "@/lib/schedule";
 
 export const dynamic = "force-dynamic";
 
-export default async function SchedulePage({ params }: { params: { id: string } }) {
-  const data = await getProgramSchedule(params.id);
+export default async function SchedulePage({ params, searchParams }: { params: { id: string }; searchParams: { offering?: string } }) {
+  const data = await getProgramSchedule(params.id, searchParams.offering);
   if (!data) notFound();
-  const { program, roster, students, defaultEnrollment } = data;
+  const { program, offering, offerings, roster, students, termDates, defaultEnrollment } = data;
 
   const terms: TermTemplate[] = program.terms.map((t) => ({
     id: t.id,
     index: t.index,
     name: t.name,
-    startDateISO: t.startDate ? t.startDate.toISOString().slice(0, 10) : null,
+    startDateISO: termDates[t.id] ?? null,
     weeks: t.startWeek != null && t.endWeek != null ? t.endWeek - t.startWeek + 1 : 16,
     sessions: t.courses.flatMap((c) =>
       c.sessions.map(
@@ -49,18 +49,32 @@ export default async function SchedulePage({ params }: { params: { id: string } 
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Calendar &amp; staffing</h1>
+        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name} template</Link>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Calendar &amp; staffing</h1>
+          {offerings.length > 0 && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-slate-400">Offering:</span>
+              {offerings.length === 1 ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700">{offering?.name}{offering?.startDate ? ` · starts ${offering.startDate.toISOString().slice(0, 10)}` : ""}</span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {offerings.map((o) => (
+                    <Link key={o.id} href={`/programs/${program.id}/schedule?offering=${o.id}`} className={`rounded-full px-3 py-1 font-medium ${o.id === offering?.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{o.name}</Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <p className="max-w-3xl text-sm text-slate-500">
-          The template, calendared out. Each session becomes the number of <strong>sections/shifts</strong> the cohort
-          needs (sections = ROUNDUP(enrollment ÷ capacity)), laid out week-by-week and day-by-day with seeded staffing.
-          <strong> Click any day or session</strong> to see what&apos;s covered, the homework, the instructors, and the named
-          students in that section. Assign staff and <strong>set each instructor&apos;s contact hours per session</strong>
-          (co-teaching splits — e.g. 2h + 1h on a 3h class); workload recomputes live. Use the <strong>Sections</strong> tab
-          to merge under-filled sections. Edits are saved in this browser.
+          A <strong>scheduled offering</strong> of the timeless program template{offering?.startDate ? <>, anchored on this run&apos;s real term dates (starts {offering.startDate.toISOString().slice(0, 10)})</> : null}.
+          Each session becomes the <strong>sections/shifts</strong> the cohort needs (= ROUNDUP(enrollment ÷ capacity)), laid out day-by-day with this offering&apos;s assigned instructors.
+          <strong> Click any day or session</strong> for what&apos;s covered, homework, instructors, and the named students in that section. Assign staff and
+          <strong> set each instructor&apos;s contact hours per session</strong> (co-teaching splits); workload recomputes live. Edits are saved in this browser.
         </p>
       </div>
-      <ScheduleBoard programId={program.id} terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
+      <ScheduleBoard programId={offering ? `${program.id}:${offering.id}` : program.id} terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
     </div>
   );
 }

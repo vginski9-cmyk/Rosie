@@ -213,9 +213,29 @@ export async function getStaffOptions(institutionId: string) {
   return prisma.person.findMany({ where: { institutionId }, orderBy: { name: "asc" } });
 }
 
-/** Everything the day-by-day schedule / shift-assignment board needs: the term
- *  templates (courses + sessions), the staff roster, and planned enrollment. */
-export async function getProgramSchedule(programId: string) {
+/** Pick the offering (cohort run) to view for a program: an explicit one, else
+ *  the active offering, else the one with enrolled students, else the first. */
+async function resolveOffering(programId: string, cohortId?: string) {
+  const offerings = await prisma.cohort.findMany({
+    where: { programId },
+    orderBy: [{ startDate: "asc" }, { name: "asc" }],
+    include: { cohortTerms: true, _count: { select: { students: true } } },
+  });
+  const offering =
+    (cohortId ? offerings.find((o) => o.id === cohortId) : undefined) ??
+    offerings.find((o) => o.status === "active") ??
+    offerings.find((o) => o._count.students > 0) ??
+    offerings[0] ??
+    null;
+  return { offering, offerings };
+}
+
+/** Everything the day-by-day schedule / shift-assignment board needs, scoped to
+ *  one OFFERING (cohort run): the template's terms/courses/sessions, the term
+ *  dates THIS offering runs on, the offering's assigned instructors, its enrolled
+ *  students, the staff roster, and planned enrollment. */
+export async function getProgramSchedule(programId: string, cohortId?: string) {
+  const { offering, offerings } = await resolveOffering(programId, cohortId);
   const program = await prisma.program.findUnique({
     where: { id: programId },
     include: {
@@ -226,7 +246,12 @@ export async function getProgramSchedule(programId: string) {
         include: {
           courses: {
             orderBy: { sequenceOrder: "asc" },
-            include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { instructors: { include: { person: { select: { id: true, name: true } } } } } } },
+            include: {
+              sessions: {
+                orderBy: [{ kind: "asc" }, { number: "asc" }],
+                include: { instructors: { where: offering ? { cohortId: offering.id } : {}, include: { person: { select: { id: true, name: true } } } } },
+              },
+            },
           },
         },
       },
@@ -238,14 +263,48 @@ export async function getProgramSchedule(programId: string) {
     orderBy: { name: "asc" },
     include: { employer: { select: { name: true } } },
   });
-  // Enrolled-and-beyond students form the section roster shown on each shift.
+  // Enrolled-and-beyond students of THIS offering form the section roster.
   const students = await prisma.student.findMany({
-    where: { programId, status: { in: ["enrolled", "completed", "placed"] } },
+    where: offering ? { cohortId: offering.id, status: { in: ["enrolled", "completed", "placed"] } } : { programId, status: { in: ["enrolled", "completed", "placed"] } },
     orderBy: { name: "asc" },
     select: { id: true, name: true, sectionIndex: true, stageKey: true, status: true, clinicalSite: true },
   });
+  // Per-offering term start dates (fallback to the template term's own date).
+  const offeringTermDate = new Map((offering?.cohortTerms ?? []).map((ct) => [ct.termId, ct.startDate]));
+  const termDates: Record<string, string | null> = {};
+  for (const t of program.terms) {
+    const d = offeringTermDate.get(t.id) ?? t.startDate;
+    termDates[t.id] = d ? d.toISOString().slice(0, 10) : null;
+  }
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
-  return { program, roster, students, defaultEnrollment };
+  return { program, offering, offerings, roster, students, termDates, defaultEnrollment };
+}
+
+/** All offerings (cohort runs) of a program, with their schedule + counts. */
+export async function getProgramOfferings(programId: string) {
+  return prisma.cohort.findMany({
+    where: { programId },
+    orderBy: [{ startDate: "asc" }, { name: "asc" }],
+    include: {
+      _count: { select: { students: true, sessionStaff: true } },
+      cohortTerms: { include: { term: { select: { index: true, name: true } } }, orderBy: { term: { index: "asc" } } },
+      stages: { orderBy: { sortOrder: "asc" } },
+    },
+  });
+}
+
+/** One offering (cohort run) in full: the program template it instantiates, its
+ *  per-term real dates, funnel, and staffing/enrollment counts. */
+export async function getOffering(cohortId: string) {
+  return prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { _count: { select: { courses: true } } } } } },
+      cohortTerms: { include: { term: true } },
+      stages: { orderBy: { sortOrder: "asc" } },
+      _count: { select: { students: true, sessionStaff: true } },
+    },
+  });
 }
 
 /** The full student roster for a program, with funnel-stage rollups, so the

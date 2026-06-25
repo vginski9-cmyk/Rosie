@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getProgramFull, getProgramArchetype, getProficiencyScale, getProgramBottleneck } from "@/lib/queries";
+import { getProgramFull, getProgramArchetype, getProficiencyScale, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CapacityWorkbench } from "@/components/CapacityWorkbench";
 import { fmt } from "@/lib/format";
@@ -23,9 +23,10 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const program = await getProgramFull(params.id);
   if (!program) notFound();
   const archetype = await getProgramArchetype(params.id);
-  const [scale, library] = await Promise.all([
+  const [scale, library, offerings] = await Promise.all([
     getProficiencyScale(program.institutionId),
     prisma.skill.findMany({ where: { institutionId: program.institutionId }, orderBy: { name: "asc" }, select: { id: true, name: true, type: true } }),
+    getProgramOfferings(params.id),
   ]);
 
   const cohort = program.cohorts[0];
@@ -73,13 +74,14 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             <p className="text-sm text-slate-500">
               {program.occupation?.title}{program.occupation ? ` · SOC ${program.occupation.socCode}` : ""} · {program.programType} · {program.credential}
             </p>
+            <p className="mt-1 text-xs text-slate-400">
+              This is the <strong>program template</strong> — the timeless structure (terms, courses, sessions, KSAs). A
+              <strong> scheduled offering</strong> below instantiates it for a cohort with real dates, instructors, and students.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <span className="self-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Template:</span>
             <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
-            <Link href={`/programs/${program.id}/schedule`} className="btn-primary">Calendar &amp; staffing ↦</Link>
-            <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
-            <Link href={`/programs/${program.id}/wbl`} className="btn-primary">WBL board ↦</Link>
-            <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
             <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>
             <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
@@ -88,6 +90,43 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           </div>
         </div>
       </div>
+
+      {/* Scheduled offerings (instantiations of the template) */}
+      <section className="card card-pad space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Scheduled offerings <span className="text-sm font-normal text-slate-400">— runs of this template</span></h2>
+          <span className="text-xs text-slate-400">{offerings.length} offering{offerings.length === 1 ? "" : "s"}</span>
+        </div>
+        {offerings.length === 0 ? (
+          <p className="text-sm text-slate-400">No offerings yet. A cohort with a start date becomes a scheduled run of this template.</p>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {offerings.map((o) => {
+              const STATUS: Record<string, string> = { active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700", completed: "bg-slate-200 text-slate-600", archived: "bg-slate-100 text-slate-400" };
+              return (
+                <div key={o.id} className="rounded-xl border border-slate-200 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Link href={`/programs/${program.id}/offerings/${o.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{o.name}</Link>
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {o.startDate ? `starts ${o.startDate.toISOString().slice(0, 10)}` : "no start date"} · {o.cohortTerms.length} scheduled term{o.cohortTerms.length === 1 ? "" : "s"} · {o._count.students} students · {o._count.sessionStaff} staff assignments
+                      </div>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{o.status}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Overview</Link>
+                    <Link href={`/programs/${program.id}/schedule?offering=${o.id}`} className="btn-ghost text-xs">Calendar &amp; staffing ↦</Link>
+                    <Link href={`/programs/${program.id}/students`} className="btn-ghost text-xs">Students ↦</Link>
+                    <Link href={`/programs/${program.id}/wbl`} className="btn-ghost text-xs">WBL board ↦</Link>
+                    <Link href={`/programs/${program.id}/plan`} className="btn-ghost text-xs">Operations plan</Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {bottleneck?.hasBottleneck && (
         <Link href={`/programs/${program.id}/plan`} className="block rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200 hover:bg-rose-100">
