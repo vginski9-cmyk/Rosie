@@ -8,6 +8,14 @@ const src = readFileSync("prisma/schema.prisma", "utf-8");
 
 let out = src.replace('provider = "sqlite"', 'provider = "postgresql"');
 
+// Use Neon's DIRECT (non-pooling) connection string that the Vercel↔Neon
+// integration provisions automatically. This works for both `prisma db push`
+// at build time and runtime queries at demo scale, and avoids pgbouncer /
+// prepared-statement pitfalls — without the user having to edit any locked,
+// integration-managed env var. (Local dev still uses DATABASE_URL via the
+// untouched sqlite schema.prisma.)
+out = out.replace(/url\s*=\s*env\("DATABASE_URL"\)/, 'url      = env("POSTGRES_URL_NON_POOLING")');
+
 // Add binaryTargets so the Prisma query engine works on Vercel's runtime
 // (Amazon Linux / RHEL OpenSSL 3) as well as locally.
 out = out.replace(
@@ -16,4 +24,4 @@ out = out.replace(
 );
 
 writeFileSync("prisma/schema.postgres.prisma", out);
-console.log("Wrote prisma/schema.postgres.prisma (provider=postgresql, +rhel binary target)");
+console.log("Wrote prisma/schema.postgres.prisma (provider=postgresql, url=POSTGRES_URL_NON_POOLING, +rhel binary target)");
