@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent, getProgramSessionPlan, getEmployerWblSlots } from "@/lib/queries";
+import { getStudent, getProgramSessionPlan, getEmployerWblSlots, getProgramCohortsLite } from "@/lib/queries";
+import { updateStudentEnrollment } from "@/lib/actions";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { recommendPlacement, toProfileInput, employerSlotsFrom } from "@/lib/wbl";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+
+const STUDENT_STATUSES = ["prospect", "applicant", "admitted", "enrolled", "completed", "licensed", "placed", "productive", "withdrawn"];
 
 const LAYER_META: Record<string, { label: string; color: string }> = {
   MOTIVATION: { label: "Motivations", color: "bg-sky-100 text-sky-700" },
@@ -31,6 +34,7 @@ const TYPE_BADGE: Record<string, string> = {
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
+  const cohorts = await getProgramCohortsLite(student.programId);
 
   // The program's session plan, reduced to per-course instructors + homework so
   // the student's personal schedule shows who teaches them and what's assigned.
@@ -81,7 +85,11 @@ export default async function StudentPage({ params }: { params: { id: string } }
     <div className="mx-auto max-w-6xl space-y-10">
       {/* Header */}
       <div>
-        <Link href={`/programs/${student.programId}/students`} className="text-sm text-slate-500 hover:text-slate-700">← {student.program.name} students</Link>
+        <div className="flex items-center gap-3 text-sm text-slate-500">
+          <Link href="/students" className="hover:text-slate-700">← All students</Link>
+          <span className="text-slate-300">·</span>
+          <Link href={`/programs/${student.programId}/students`} className="hover:text-slate-700">{student.program.name} roster</Link>
+        </div>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight">{student.name}</h1>
@@ -103,6 +111,32 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
         </div>
       </div>
+
+      {/* Manage enrollment — assign cohort / section / lifecycle status */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-slate-700">Manage enrollment</h2>
+        <p className="text-[11px] text-slate-400">Assign this student to a cohort and section, and advance their lifecycle status (which sets their pipeline stage).</p>
+        <form action={updateStudentEnrollment.bind(null, student.id)} className="mt-2 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cohort</span>
+            <select name="cohortId" defaultValue={student.cohortId ?? ""} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">— unassigned —</option>
+              {cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Section</span>
+            <input name="sectionIndex" type="number" min={1} defaultValue={student.sectionIndex} className="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm tabular-nums" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Status</span>
+            <select name="status" defaultValue={student.status} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              {STUDENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
+        </form>
+      </section>
 
       {/* KPI tiles */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

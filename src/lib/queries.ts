@@ -561,6 +561,37 @@ export async function getCourse(courseId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// STUDENTS WORKSPACE — institution-wide directory + intake/enroll options
+// ---------------------------------------------------------------------------
+
+/** A program's cohorts (id + name) for assignment selects. */
+export async function getProgramCohortsLite(programId: string) {
+  return prisma.cohort.findMany({ where: { programId }, orderBy: { name: "asc" }, select: { id: true, name: true } });
+}
+
+/** Every student across institutions (for the directory) plus the program/cohort
+ *  tree used by the enroll form's dependent selects. */
+export async function getStudentsDirectory() {
+  const [students, institutions] = await Promise.all([
+    prisma.student.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } },
+        cohort: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.institution.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true, name: true,
+        programs: { orderBy: { name: "asc" }, select: { id: true, name: true, cohorts: { orderBy: { name: "asc" }, select: { id: true, name: true } } } },
+      },
+    }),
+  ]);
+  return { students, institutions };
+}
+
+// ---------------------------------------------------------------------------
 // SEMESTER VIEW — every offering running in a chosen term, side by side
 // ---------------------------------------------------------------------------
 

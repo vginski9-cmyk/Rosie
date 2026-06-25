@@ -57,6 +57,52 @@ export async function saveFamilyGoalPlan(familyId: string, planJson: string): Pr
   revalidatePath(`/families/${familyId}`);
 }
 
+// ---------------------------------------------------------------------------
+// STUDENTS — intake / enroll / assign (the operational system of record)
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status → the funnel stage it corresponds to (drives pipeline drill-down). */
+const STATUS_TO_STAGE: Record<string, string | null> = {
+  prospect: "interested", applicant: "qualified", admitted: "offered",
+  enrolled: "enrolled", completed: "completing", licensed: "licensed",
+  placed: "placed", productive: "productive", withdrawn: null,
+};
+
+/** Intake: create a real student record and place them in a program (and optionally a cohort). */
+export async function enrollStudent(formData: FormData): Promise<void> {
+  const programId = str(formData.get("programId"));
+  if (!programId) return;
+  const status = str(formData.get("status")) || "enrolled";
+  await prisma.student.create({
+    data: {
+      programId,
+      cohortId: str(formData.get("cohortId")) || null,
+      name: str(formData.get("name")) || "New Student",
+      email: str(formData.get("email")) || null,
+      status,
+      stageKey: STATUS_TO_STAGE[status] ?? null,
+      entryYear: optNum(formData.get("entryYear")),
+      sectionIndex: Math.max(1, numOr(formData.get("sectionIndex"), 1)),
+    },
+  });
+  revalidatePath("/students");
+  revalidatePath(`/programs/${programId}/students`);
+}
+
+/** Assign / re-assign a student: cohort, section, and lifecycle status (→ stage). */
+export async function updateStudentEnrollment(studentId: string, formData: FormData): Promise<void> {
+  const status = str(formData.get("status"));
+  const data: { cohortId: string | null; sectionIndex: number; status?: string; stageKey?: string | null } = {
+    cohortId: str(formData.get("cohortId")) || null,
+    sectionIndex: Math.max(1, numOr(formData.get("sectionIndex"), 1)),
+  };
+  if (status) { data.status = status; data.stageKey = STATUS_TO_STAGE[status] ?? null; }
+  const student = await prisma.student.update({ where: { id: studentId }, data, select: { programId: true } });
+  revalidatePath("/students");
+  revalidatePath(`/students/${studentId}`);
+  revalidatePath(`/programs/${student.programId}/students`);
+}
+
 export interface CohortDrill {
   cohortId: string | null;
   programId: string | null;
