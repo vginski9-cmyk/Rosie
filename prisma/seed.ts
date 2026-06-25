@@ -355,9 +355,218 @@ async function createFunnel(programId: string, name: string, entryYear: number, 
   return cohort;
 }
 
+// --- Student / SIS seeding -------------------------------------------------
+
+// Small deterministic PRNG so re-seeds are stable.
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const FIRST_NAMES = [
+  "Ava", "Liam", "Maya", "Noah", "Sofia", "Ethan", "Isabella", "Mason", "Olivia", "Lucas",
+  "Emma", "Jayden", "Chloe", "Caleb", "Zoe", "Aiden", "Layla", "Diego", "Nia", "Owen",
+  "Harper", "Elijah", "Camila", "Wyatt", "Aaliyah", "Carter", "Leah", "Julian", "Brianna", "Gabriel",
+  "Destiny", "Xavier", "Jasmine", "Hunter", "Mia", "Andre", "Keisha", "Tyler", "Priya", "Marcus",
+  "Valeria", "Devin", "Amara", "Cole", "Imani", "Brandon", "Selena", "Trevor", "Yasmin", "Quinn",
+];
+const LAST_NAMES = [
+  "Johnson", "Martinez", "Nguyen", "Williams", "Garcia", "Brown", "Davis", "Rodriguez", "Wilson", "Patel",
+  "Thompson", "Moore", "Jackson", "Lee", "Perez", "White", "Harris", "Sanchez", "Clark", "Lewis",
+  "Robinson", "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Hill", "Green",
+  "Adams", "Baker", "Gonzalez", "Nelson", "Carter", "Mitchell", "Roberts", "Turner", "Phillips", "Campbell",
+];
+
+function addDaysISO(iso: string, days: number) {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+async function seedStudents(
+  programId: string,
+  cohortId: string,
+  _radCourses: { id: string; code: string | null }[],
+  skills: { positioning: string; patientCare: string; radSafety: string; imageEval: string },
+) {
+  const rng = mulberry32(2029);
+  const pick = <T,>(arr: T[]) => arr[Math.floor(rng() * arr.length)];
+
+  // Courses with their term index, for dated grade/assessment placement.
+  const courses = await prisma.course.findMany({
+    where: { term: { programId } },
+    include: { term: true },
+    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
+  });
+  const byCode = (code: string) => courses.find((c) => c.code === code);
+  const coursesInTerm = (idx: number) => courses.filter((c) => c.term.index === idx);
+  const maxTerm = Math.max(1, ...courses.map((c) => c.term.index));
+  const termStart = (idx: number) => TERM_START_DATES[idx - 1] ?? TERM_START_DATES[0];
+
+  // Furthest-reached stage for each student, matching the cumulative funnel
+  // actuals (interested 199 ⊃ qualified 39 ⊃ … ⊃ productive 12).
+  const stops: { stage: string; status: string; n: number }[] = [
+    { stage: "interested", status: "prospect", n: 160 },
+    { stage: "qualified", status: "applicant", n: 13 },
+    { stage: "offered", status: "admitted", n: 11 },
+    { stage: "enrolled", status: "enrolled", n: 2 },
+    { stage: "completing", status: "enrolled", n: 1 },
+    { stage: "licensed", status: "completed", n: 0 },
+    { stage: "placed", status: "placed", n: 0 },
+    { stage: "productive", status: "placed", n: 12 },
+  ];
+
+  // How far through the curriculum a student at a given stage has progressed.
+  const completedTermsFor = (stage: string): number => {
+    switch (stage) {
+      case "enrolled": return 0;        // Term 1 in progress
+      case "completing": return maxTerm - 1; // on the final term
+      case "licensed":
+      case "placed":
+      case "productive": return maxTerm; // graduated
+      default: return 0;                 // pre-enrollment: no academic record
+    }
+  };
+
+  // KSA assessment plan: skill → ladder of (term, level, courseCode, method).
+  const ksaPlan: { skillId: string; rungs: { t: number; level: number; code: string; method: string }[] }[] = [
+    { skillId: skills.positioning, rungs: [
+      { t: 1, level: 2, code: "RAD-111", method: "lab check-off" },
+      { t: 2, level: 3, code: "RAD-112", method: "lab check-off" },
+      { t: 4, level: 4, code: "RAD-211", method: "clinical evaluation" },
+    ] },
+    { skillId: skills.patientCare, rungs: [
+      { t: 1, level: 2, code: "RAD-110", method: "simulation" },
+      { t: 2, level: 3, code: "RAD-161", method: "clinical evaluation" },
+    ] },
+    { skillId: skills.radSafety, rungs: [
+      { t: 3, level: 2, code: "RAD-141", method: "written exam" },
+      { t: 4, level: 3, code: "RAD-231", method: "written exam" },
+    ] },
+    { skillId: skills.imageEval, rungs: [
+      { t: 4, level: 3, code: "RAD-231", method: "image critique" },
+      { t: 5, level: 4, code: "RAD-271", method: "capstone portfolio" },
+    ] },
+  ];
+
+  const gradeBank = [
+    { grade: "A", points: 4.0, w: 3 },
+    { grade: "A-", points: 3.7, w: 3 },
+    { grade: "B+", points: 3.3, w: 4 },
+    { grade: "B", points: 3.0, w: 4 },
+    { grade: "B-", points: 2.7, w: 2 },
+    { grade: "C+", points: 2.3, w: 2 },
+    { grade: "C", points: 2.0, w: 1 },
+  ];
+  const weightedGrade = () => {
+    const total = gradeBank.reduce((s, g) => s + g.w, 0);
+    let r = rng() * total;
+    for (const g of gradeBank) { r -= g.w; if (r <= 0) return g; }
+    return gradeBank[0];
+  };
+
+  const usedNames = new Set<string>();
+  const nextName = () => {
+    for (let tries = 0; tries < 50; tries++) {
+      const n = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
+      if (!usedNames.has(n)) { usedNames.add(n); return n; }
+    }
+    const n = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)} ${usedNames.size}`;
+    usedNames.add(n);
+    return n;
+  };
+
+  let created = 0;
+  for (const stop of stops) {
+    const completedTerms = completedTermsFor(stop.stage);
+    const isAcademic = ["enrolled", "completing", "licensed", "placed", "productive"].includes(stop.stage);
+    for (let i = 0; i < stop.n; i++) {
+      const name = nextName();
+      const [first, last] = name.split(" ");
+      const email = `${first[0].toLowerCase()}${last.toLowerCase()}@student.sandhills.edu`;
+
+      // Build the academic record for enrolled-and-beyond students.
+      const gradeRows: { courseId: string; termIndex: number; status: string; grade: string | null; gradePoints: number | null; completedDate: Date | null }[] = [];
+      const assessmentRows: { skillId: string; level: number; assessedDate: Date; courseCode: string; method: string }[] = [];
+      const absenceRows: { date: Date; courseCode: string | null; sessionTitle: string; excused: boolean }[] = [];
+      let gpa: number | null = null;
+
+      if (isAcademic) {
+        // Completed terms → finished grades; current term (if any) → in progress.
+        const currentTerm = completedTerms < maxTerm ? completedTerms + 1 : null;
+        let pts = 0, n = 0;
+        for (let t = 1; t <= completedTerms; t++) {
+          for (const c of coursesInTerm(t)) {
+            const g = weightedGrade();
+            pts += g.points; n += 1;
+            gradeRows.push({ courseId: c.id, termIndex: t, status: "completed", grade: g.grade, gradePoints: g.points, completedDate: addDaysISO(termStart(t), 110) });
+          }
+        }
+        if (currentTerm) {
+          for (const c of coursesInTerm(currentTerm)) {
+            gradeRows.push({ courseId: c.id, termIndex: currentTerm, status: "in_progress", grade: null, gradePoints: null, completedDate: null });
+          }
+        }
+        gpa = n > 0 ? Math.round((pts / n) * 100) / 100 : null;
+
+        // Dated KSA assessments up through completed terms.
+        const reach = currentTerm ?? completedTerms;
+        for (const plan of ksaPlan) {
+          for (const rung of plan.rungs) {
+            if (rung.t <= reach) {
+              assessmentRows.push({ skillId: plan.skillId, level: rung.level, assessedDate: addDaysISO(termStart(rung.t), 40 + Math.floor(rng() * 40)), courseCode: rung.code, method: rung.method });
+            }
+          }
+        }
+
+        // Attendance: a session count proportional to terms underway, with a
+        // handful of dated absences.
+        const termsUnderway = currentTerm ?? completedTerms;
+        const totalSessions = termsUnderway * 62 + Math.floor(rng() * 10);
+        const missed = Math.floor(rng() * 7);
+        for (let m = 0; m < missed; m++) {
+          const t = 1 + Math.floor(rng() * termsUnderway);
+          const opts = coursesInTerm(t);
+          const c = opts.length ? opts[Math.floor(rng() * opts.length)] : null;
+          absenceRows.push({ date: addDaysISO(termStart(t), 10 + Math.floor(rng() * 90)), courseCode: c?.code ?? null, sessionTitle: c ? `${c.name} session` : "Session", excused: rng() < 0.45 });
+        }
+
+        const student = await prisma.student.create({
+          data: {
+            programId, cohortId, name, email, status: stop.status, stageKey: stop.stage,
+            entryYear: 2029, gpa, attendedCount: Math.max(0, totalSessions - missed), missedCount: missed,
+            grades: { create: gradeRows },
+            assessments: { create: assessmentRows },
+            absences: { create: absenceRows },
+          },
+        });
+        void student;
+      } else {
+        // Pre-enrollment: pipeline status only.
+        await prisma.student.create({
+          data: { programId, cohortId, name, email, status: stop.status, stageKey: stop.stage, entryYear: 2029 },
+        });
+      }
+      created += 1;
+    }
+  }
+  // Keep TS happy if byCode unused in some configs.
+  void byCode;
+  console.log(`Seeded ${created} students.`);
+}
+
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
+  await prisma.studentAbsence.deleteMany();
+  await prisma.studentSkillAssessment.deleteMany();
+  await prisma.studentCourseGrade.deleteMany();
+  await prisma.student.deleteMany();
   await prisma.funnelStage.deleteMany();
   await prisma.cohort.deleteMany();
   await prisma.session.deleteMany();
@@ -445,7 +654,7 @@ async function main() {
   }
 
   // Funnels (target vs ballpark actual from the deck)
-  await createFunnel(rad.id, "Class of 2029", 2029, {
+  const radClassOf2029 = await createFunnel(rad.id, "Class of 2029", 2029, {
     interested: { target: 83, actual: 199 }, // strong top-of-funnel (199 declared pre-Rad)
     qualified: { target: 62, actual: 39 }, // leak: only 39 qualified last cohort
     offered: { target: 52, actual: 26 },
@@ -685,6 +894,18 @@ async function main() {
     if (c) await prisma.courseSkill.create({ data: { courseId: c.id, skillId: m.skill.id, targetLevel: m.level, role: m.role } });
   }
 
+  // ----- Student / SIS layer ----------------------------------------------
+  // Real named students populating the Class-of-2029 funnel so every stage can
+  // be drilled into by name. The 15 who reached "enrolled" or beyond carry the
+  // full academic record: dated course grades, dated KSA assessments, and
+  // attendance. Earlier-stage prospects/applicants carry only pipeline status.
+  await seedStudents(rad.id, radClassOf2029.id, radCourses, {
+    positioning: positioning.id,
+    patientCare: patientCare.id,
+    radSafety: radSafety.id,
+    imageEval: imageEval.id,
+  });
+
   // ----- WBL alignment profiles -------------------------------------------
   const radCohort = await prisma.cohort.findFirst({ where: { programId: rad.id } });
   await prisma.wblProfile.create({
@@ -795,6 +1016,9 @@ async function main() {
     courses: await prisma.course.count(),
     sessions: await prisma.session.count(),
     funnelStages: await prisma.funnelStage.count(),
+    students: await prisma.student.count(),
+    studentGrades: await prisma.studentCourseGrade.count(),
+    studentAssessments: await prisma.studentSkillAssessment.count(),
     demand: await prisma.demandProjection.count(),
     calendarBlocks: await prisma.calendarBlock.count(),
   };

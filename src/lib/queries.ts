@@ -237,6 +237,50 @@ export async function getProgramSchedule(programId: string) {
   return { program, roster, defaultEnrollment };
 }
 
+/** The full student roster for a program, with funnel-stage rollups, so the
+ *  pipeline can be drilled into by name. */
+export async function getProgramStudents(programId: string) {
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    include: {
+      institution: true,
+      cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } } } },
+    },
+  });
+  if (!program) return null;
+  const students = await prisma.student.findMany({
+    where: { programId },
+    orderBy: [{ name: "asc" }],
+    select: {
+      id: true, name: true, email: true, status: true, stageKey: true,
+      entryYear: true, gpa: true, attendedCount: true, missedCount: true,
+      _count: { select: { grades: true, assessments: true, absences: true } },
+    },
+  });
+  return { program, students };
+}
+
+/** A single student's complete record: dated grades, dated KSA assessments,
+ *  and dated attendance — the bottom of every drill-down. */
+export async function getStudent(studentId: string) {
+  return prisma.student.findUnique({
+    where: { id: studentId },
+    include: {
+      program: { include: { institution: true } },
+      cohort: true,
+      grades: {
+        orderBy: [{ termIndex: "asc" }],
+        include: { course: { select: { id: true, code: true, name: true, creditHours: true } } },
+      },
+      assessments: {
+        orderBy: [{ assessedDate: "asc" }],
+        include: { skill: { select: { id: true, name: true, type: true } } },
+      },
+      absences: { orderBy: [{ date: "asc" }] },
+    },
+  });
+}
+
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
   return prisma.course.findUnique({

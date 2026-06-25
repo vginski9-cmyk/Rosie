@@ -77,6 +77,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           <div className="flex flex-wrap gap-2">
             <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
             <Link href={`/programs/${program.id}/schedule`} className="btn-primary">Calendar &amp; staffing ↦</Link>
+            <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
             <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
             <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Edit structure</Link>
             <Link href={`/programs/${program.id}/sequencer`} className="btn-ghost">Sequence</Link>
@@ -108,7 +109,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             <h2 className="text-lg font-semibold">Talent pipeline — {cohort.name}</h2>
             <span className="text-xs text-slate-400">target vs. actual · {totalSessions} sessions/student</span>
           </div>
-          <FunnelChart stages={cohort.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
+          <FunnelChart programId={program.id} stages={cohort.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
           {projectedCompetent != null && (
             <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${competency.competencyReadiness < 1 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
               <strong>Competency-adjusted completion (loop 1):</strong> with {fmt.pct(competency.competencyReadiness)} of core competencies assessed to target, ~

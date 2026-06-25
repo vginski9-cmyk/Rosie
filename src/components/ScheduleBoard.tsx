@@ -215,6 +215,12 @@ export function ScheduleBoard({ terms, roster, defaultEnrollment }: { terms: Ter
                     <div className="bg-violet-500" style={{ width: `${(l.labHours / max) * 100}%` }} />
                     <div className="bg-rose-500" style={{ width: `${(l.clinicalHours / max) * 100}%` }} />
                   </div>
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
+                    <span className="inline-flex items-center gap-1 text-sky-600"><span className="h-2 w-2 rounded-sm bg-sky-500" />class {l.classHours.toLocaleString()}h</span>
+                    <span className="inline-flex items-center gap-1 text-violet-600"><span className="h-2 w-2 rounded-sm bg-violet-500" />lab {l.labHours.toLocaleString()}h</span>
+                    <span className="inline-flex items-center gap-1 text-rose-600"><span className="h-2 w-2 rounded-sm bg-rose-500" />clinical {l.clinicalHours.toLocaleString()}h</span>
+                    <span className="text-slate-400">· {l.distinctDays} days</span>
+                  </div>
                 </div>
               );
             })}

@@ -135,6 +135,7 @@ model Program {
   yearTargets  ProgramYearTarget[]
   programSkills ProgramSkill[]
   assignments  Assignment[]
+  students     Student[]
 
   @@index([institutionId])
 }
@@ -194,6 +195,7 @@ model Course {
 
   sessions Session[]
   courseSkills CourseSkill[]
+  grades   StudentCourseGrade[]
 
   @@index([termId])
 }
@@ -275,7 +277,8 @@ model Cohort {
   /// When true this cohort is an explicit launch included in the plan as-is.
   isExplicit    Boolean @default(false)
 
-  stages FunnelStage[]
+  stages   FunnelStage[]
+  students Student[]
 
   @@index([programId])
 }
@@ -385,6 +388,7 @@ model Skill {
   programSkills ProgramSkill[]
   courseSkills  CourseSkill[]
   sessionSkills SessionSkill[]
+  assessments   StudentSkillAssessment[]
 
   @@index([institutionId])
 }
@@ -520,4 +524,87 @@ model SessionSkill {
 
   @@unique([sessionId, skillId])
   @@index([skillId])
+}
+
+// ---------------------------------------------------------------------------
+// STUDENT / SIS LAYER
+//
+// Real named students moving through a program. Each student carries a funnel
+// stage (so the pipeline can be drilled into by name), dated course grades,
+// dated KSA proficiency assessments, and dated attendance/absence records.
+// This is the read-side that makes every funnel number and roster clickable
+// down to individual people.
+// ---------------------------------------------------------------------------
+
+/// One enrolled (or prospective) student in a program cohort.
+model Student {
+  id            String  @id @default(cuid())
+  programId     String
+  program       Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  cohortId      String?
+  cohort        Cohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  /// Lifecycle status: prospect | applicant | admitted | enrolled | completed | licensed | placed | withdrawn
+  status        String  @default("enrolled")
+  /// Current funnel stage key (matches FunnelStage.stageKey) — drives drill-down.
+  stageKey      String?
+  entryYear     Int?
+  gpa           Float?
+  attendedCount Int     @default(0)
+  missedCount   Int     @default(0)
+  createdAt     DateTime @default(now())
+
+  grades      StudentCourseGrade[]
+  assessments StudentSkillAssessment[]
+  absences    StudentAbsence[]
+
+  @@index([programId])
+  @@index([cohortId])
+}
+
+/// A student's outcome in one course (dated, with letter grade / points).
+model StudentCourseGrade {
+  id            String   @id @default(cuid())
+  studentId     String
+  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId      String
+  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  termIndex     Int
+  status        String   @default("in_progress") // in_progress | completed | withdrawn | failed
+  grade         String?  // letter grade
+  gradePoints   Float?   // 0–4 scale
+  completedDate DateTime?
+
+  @@index([studentId])
+  @@index([courseId])
+}
+
+/// A dated assessment of a student's proficiency in one KSA/skill.
+model StudentSkillAssessment {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  skillId      String
+  skill        Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  level        Int      // proficiency level reached (maps to the institution scale)
+  assessedDate DateTime
+  courseCode   String?  // where the assessment happened
+  method       String?  // checkoff | exam | clinical eval | simulation ...
+
+  @@index([studentId])
+  @@index([skillId])
+}
+
+/// A dated attendance record for a single session a student missed (or made up).
+model StudentAbsence {
+  id           String   @id @default(cuid())
+  studentId    String
+  student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  date         DateTime
+  courseCode   String?
+  sessionTitle String?
+  excused      Boolean  @default(false)
+
+  @@index([studentId])
 }

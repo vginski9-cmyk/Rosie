@@ -14,17 +14,21 @@ const OUT = "out";
 const prisma = new PrismaClient();
 
 async function routes() {
-  const [programs, skills, profiles, courses] = await Promise.all([
+  const [programs, skills, profiles, courses, students] = await Promise.all([
     prisma.program.findMany({ select: { id: true } }),
     prisma.skill.findMany({ select: { id: true } }),
     prisma.wblProfile.findMany({ select: { id: true } }),
     prisma.course.findMany({ select: { id: true } }),
+    prisma.student.findMany({ select: { id: true } }),
   ]);
   const r = ["/", "/skills", "/wbl", "/programs/new"];
-  for (const p of programs) r.push(`/programs/${p.id}`, `/programs/${p.id}/flow`, `/programs/${p.id}/schedule`, `/programs/${p.id}/plan`, `/programs/${p.id}/structure`, `/programs/${p.id}/sequencer`);
+  for (const p of programs) {
+    r.push(`/programs/${p.id}`, `/programs/${p.id}/flow`, `/programs/${p.id}/schedule`, `/programs/${p.id}/plan`, `/programs/${p.id}/structure`, `/programs/${p.id}/sequencer`, `/programs/${p.id}/students`);
+  }
   for (const co of courses) r.push(`/courses/${co.id}`);
   for (const s of skills) r.push(`/skills/${s.id}`);
   for (const w of profiles) r.push(`/wbl/${w.id}`);
+  for (const st of students) r.push(`/students/${st.id}`);
   return r;
 }
 
