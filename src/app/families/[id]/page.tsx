@@ -55,14 +55,13 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   const totalCohorts = cohorts.length;
   const totalStudents = family.programs.reduce((n, p) => n + p.cohorts.reduce((m, c) => m + c._count.students, 0), 0);
 
-  // Seeds for the North-Star goal planner: latest goal year, its goal, demand, terms.
-  const goalYears = Object.keys(goalByYear).map(Number).sort((a, b) => a - b);
-  const demandYears = Object.keys(demandByYear).map(Number).sort((a, b) => a - b);
-  const latestGoalYear = goalYears[goalYears.length - 1];
-  const latestDemandYear = demandYears[demandYears.length - 1];
-  const seedYear = latestGoalYear ?? latestDemandYear ?? new Date().getFullYear() + 2;
-  const seedNorthStar = Math.round(goalByYear[seedYear] ?? (latestGoalYear ? goalByYear[latestGoalYear] : 0) ?? 0) || 25;
-  const seedDemand = demandByYear[seedYear] ?? (latestDemandYear ? demandByYear[latestDemandYear] : null) ?? null;
+  // Seeds for the multi-year North-Star goal planner: the span of years the
+  // family is planning for (its target years ∪ cohort grad years), and the
+  // per-year goals from the family's credential targets.
+  const cohortYears = cohorts.map((c) => c.gradYear).filter((y) => y > 0);
+  const yearSet = new Set<number>([...Object.keys(goalByYear).map(Number), ...Object.keys(demandByYear).map(Number), ...cohortYears]);
+  const seedYears = [...yearSet].sort((a, b) => a - b);
+  const seedGoalsByYear: Record<number, number> = goalByYear;
   const seedTerms = Math.max(5, ...family.programs.map((p) => p._count.terms));
 
   return (
@@ -113,7 +112,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedNorthStar={seedNorthStar} seedDemand={seedDemand} seedTerms={seedTerms} seedYear={seedYear} savedPlan={family.goalPlan ?? null} />
+        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} seedTerms={seedTerms} savedPlan={family.goalPlan ?? null} />
       </section>
 
       {/* Multi-year goals, trajectory, constellation, health — interactive */}

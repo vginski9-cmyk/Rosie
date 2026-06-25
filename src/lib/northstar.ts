@@ -15,8 +15,9 @@
 //     licensed   = completing × licensureRate     (90%)
 //     placed     = licensed   × placementRate     (90%)
 //     productive = placed     × productivityRate  (90%)
-//   Utilization = enrolled ÷ regional demand — the share of the regional
-//   pipeline this cohort fills.
+//   Utilization = productive ÷ enrollment capacity — of everyone the cohort had
+//   capacity to seat, what share reached full productivity (the 51% benchmark =
+//   25 ÷ 49).
 //
 // Worked example (the workbook's 2025 benchmark cohort): capacity 49 →
 // interested 73, qualified 61, offered 54, enrolled 49, completing 34,
@@ -134,9 +135,9 @@ export function capacityFromNorthStar(productiveTarget: number, rates: LadderRat
   return y > 0 ? productiveTarget / y : 0;
 }
 
-/** Share of regional annual demand this cohort's enrollment fills. */
-export function utilization(enrolled: number, regionalDemand: number | null | undefined): number | null {
-  return regionalDemand && regionalDemand > 0 ? enrolled / regionalDemand : null;
+/** Of the cohort's enrollment capacity, what share reached full productivity. */
+export function utilization(productive: number, capacity: number | null | undefined): number | null {
+  return capacity && capacity > 0 ? productive / capacity : null;
 }
 
 /** Round a ladder to whole people (terms too) for display. */

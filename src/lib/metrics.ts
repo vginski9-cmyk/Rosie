@@ -53,13 +53,15 @@ export function computeHealthMetrics(stage: Partial<Record<StageKey, number>>, d
       healthy: ratio != null ? (d.higherBetter ? ratio >= d.benchmark : ratio <= d.benchmark) : null,
     });
   }
-  // Regional pipeline utilization — productive ÷ regional demand (separate axis).
-  if (demand != null && demand !== 0) {
-    const prod = stage.productive;
-    const ratio = prod != null ? prod / demand : null;
+  // Regional pipeline utilization — productive ÷ enrollment capacity. Of everyone
+  // the cohort had capacity to seat, what share reached full productivity.
+  const cap = stage.enrolled;
+  const prod = stage.productive;
+  if (cap != null && cap !== 0 && prod != null) {
+    const ratio = prod / cap;
     out.push({
-      key: "utilization", label: "Regional pipeline utilization", num: "productive", den: "demand", benchmark: 0.51, higherBetter: true,
-      ratio, vsBenchmark: ratio != null ? ratio - 0.51 : null, healthy: ratio != null ? ratio >= 0.51 : null,
+      key: "utilization", label: "Regional pipeline utilization", num: "productive", den: "enrolled", benchmark: 0.51, higherBetter: true,
+      ratio, vsBenchmark: ratio - 0.51, healthy: ratio >= 0.51,
     });
   }
   return out;

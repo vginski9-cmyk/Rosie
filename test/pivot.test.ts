@@ -39,4 +39,15 @@ describe("pivot", () => {
   it("distinct lists sorted dimension values", () => {
     expect(distinct(facts, "year")).toEqual(["2029", "2030"]);
   });
+  it("orders the metric dimension in funnel sequence, not alphabetically", () => {
+    const m: Fact[] = [
+      f({ metric: "Fully productive in region", value: 1 }),
+      f({ metric: "Interested candidates", value: 1 }),
+      f({ metric: "Enrolled (Term 1)", value: 1 }),
+      f({ metric: "Qualified applicants", value: 1 }),
+    ];
+    const p = pivot(m, "program", "metric", "value");
+    expect(p.colKeys).toEqual(["Interested candidates", "Qualified applicants", "Enrolled (Term 1)", "Fully productive in region"]);
+    expect(distinct(m, "metric")[0]).toBe("Interested candidates");
+  });
 });

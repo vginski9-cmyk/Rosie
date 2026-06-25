@@ -43,10 +43,10 @@ describe("northstar ladder", () => {
     expect(l.terms[2]).toBeCloseTo(49 * 0.94 * 0.94, 6);
   });
 
-  it("utilization is enrolled ÷ regional demand", () => {
-    expect(utilization(49, 96)).toBeCloseTo(0.5104, 3);
-    expect(utilization(49, 0)).toBeNull();
-    expect(utilization(49, null)).toBeNull();
+  it("utilization is productive ÷ enrollment capacity (the 51% benchmark)", () => {
+    expect(utilization(25, 49)).toBeCloseTo(0.5102, 3);
+    expect(utilization(25, 0)).toBeNull();
+    expect(utilization(25, null)).toBeNull();
   });
 
   it("defaultTermRetention starts at 1.0 then declines", () => {

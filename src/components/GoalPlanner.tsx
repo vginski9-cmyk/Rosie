@@ -8,25 +8,28 @@ import {
 } from "@/lib/northstar";
 import { saveFamilyGoalPlan } from "@/lib/actions";
 
-// The North-Star goal surface: set the family's multi-year goal, then adjust
-// every health-metric PERCENTAGE in a row (goal column + actual column) and the
-// whole cohort-metrics ladder — interested → productive, plus term-by-term
-// enrollment — autocalculates. Two tables, side by side, exactly like the
-// institutions workbook. Edits persist in-browser per family.
+// The North-Star goal surface. Set a MULTI-YEAR goal — one box per year, so a
+// program can stairstep up, hold, or shrink — then adjust every health-metric
+// PERCENTAGE in a row (goal % + actual %) and the whole cohort-metrics ladder
+// (interested → fully productive, plus term-by-term enrollment) autocalculates
+// for the selected year. Two tables, side by side, exactly like the institutions
+// workbook. Edits persist to the family's plan in the database.
 
 type Anchor = "northstar" | "capacity";
 
 interface Persisted {
   anchor: Anchor;
-  northStar: number;
-  capacity: number;
+  years: number[];
+  /** North-Star (fully-productive) goal per year, keyed by year string. */
+  goalsByYear: Record<string, number>;
+  /** Enrollment capacity per year (when anchoring on capacity), keyed by year string. */
+  capByYear: Record<string, number>;
+  selectedYear: number;
   goal: LadderRates;
   actual: LadderRates;
   termCount: number;
   termGoal: number[];
   termActual: number[];
-  demand: number | null;
-  year: number;
 }
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -41,46 +44,63 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedNorthStar, seedDemand, seedTerms, seedYear, savedPlan,
+  familyId, familyName, seedYears, seedGoalsByYear, seedTerms, savedPlan,
 }: {
   familyId: string;
   familyName: string;
-  seedNorthStar: number;
-  seedDemand: number | null;
+  seedYears: number[];
+  seedGoalsByYear: Record<number, number>;
   seedTerms: number;
-  seedYear: number;
   /** Previously-saved plan from the database (JSON string), if any. */
   savedPlan: string | null;
 }) {
   const initial: Persisted = useMemo(() => {
+    const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
+    const terms = Math.max(1, seedTerms || 5);
+    // Per-year North Star: use the family's target where known, else carry forward.
+    const goalsByYear: Record<string, number> = {};
+    let last = 25;
+    for (const y of years) {
+      const g = Math.round(seedGoalsByYear[y] ?? 0) || last;
+      goalsByYear[String(y)] = g;
+      last = g;
+    }
+    const capByYear: Record<string, number> = {};
+    for (const y of years) capByYear[String(y)] = Math.round(capacityFromNorthStar(goalsByYear[String(y)], BENCHMARK_RATES));
     const base: Persisted = {
       anchor: "northstar",
-      northStar: seedNorthStar || 25,
-      capacity: Math.round(capacityFromNorthStar(seedNorthStar || 25, BENCHMARK_RATES)),
+      years,
+      goalsByYear,
+      capByYear,
+      selectedYear: years[years.length - 1],
       goal: { ...BENCHMARK_RATES },
       actual: { ...BENCHMARK_RATES },
-      termCount: Math.max(1, seedTerms || 5),
-      termGoal: defaultTermRetention(Math.max(1, seedTerms || 5)),
-      termActual: defaultTermRetention(Math.max(1, seedTerms || 5), 0.92),
-      demand: seedDemand,
-      year: seedYear,
+      termCount: terms,
+      termGoal: defaultTermRetention(terms),
+      termActual: defaultTermRetention(terms, 0.92),
     };
-    // The DB plan is authoritative when present — render it on the server too so
-    // there's no hydration flash.
     if (savedPlan) {
       try {
         const saved = JSON.parse(savedPlan) as Partial<Persisted>;
-        return { ...base, ...saved, goal: { ...base.goal, ...saved.goal }, actual: { ...base.actual, ...saved.actual } };
+        const merged: Persisted = {
+          ...base, ...saved,
+          goal: { ...base.goal, ...saved.goal },
+          actual: { ...base.actual, ...saved.actual },
+          goalsByYear: { ...base.goalsByYear, ...saved.goalsByYear },
+          capByYear: { ...base.capByYear, ...saved.capByYear },
+        };
+        // Guard against a saved selectedYear no longer in range.
+        if (!merged.years.includes(merged.selectedYear)) merged.selectedYear = merged.years[merged.years.length - 1];
+        return merged;
       } catch { /* fall through to base */ }
     }
     return base;
-  }, [seedNorthStar, seedDemand, seedTerms, seedYear, savedPlan]);
+  }, [seedYears, seedGoalsByYear, seedTerms, savedPlan]);
 
   const [s, setS] = useState<Persisted>(initial);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const firstRender = useRef(true);
 
-  // Debounced persistence to the database whenever the plan changes.
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     setSaveState("saving");
@@ -90,16 +110,39 @@ export function GoalPlanner({
     return () => clearTimeout(t);
   }, [s, familyId]);
 
-  // Capacity drives both ladders. In North-Star mode it's derived from the goal
-  // ladder's back-half yield; in capacity mode the user sets it directly.
-  const goalCapacity = s.anchor === "northstar" ? capacityFromNorthStar(s.northStar, s.goal) : s.capacity;
+  // Capacity for any given year (the anchor for that year's ladder).
+  const capacityForYear = (year: number): number => {
+    if (s.anchor === "northstar") return capacityFromNorthStar(s.goalsByYear[String(year)] ?? 0, s.goal);
+    return s.capByYear[String(year)] ?? 0;
+  };
+  const productiveForYear = (year: number): number => buildLadder(capacityForYear(year), s.goal).productive;
+
+  const goalCapacity = capacityForYear(s.selectedYear);
   const goalLadder = roundLadder(buildLadder(goalCapacity, s.goal, s.termGoal.slice(0, s.termCount)));
-  // Actuals share the same enrollment capacity (what you planned to seat) but run
-  // the actual conversion percentages through it.
   const actualLadder = roundLadder(buildLadder(goalCapacity, s.actual, s.termActual.slice(0, s.termCount)));
 
-  const goalUtil = utilization(goalLadder.enrolled, s.demand);
-  const actualUtil = utilization(actualLadder.enrolled, s.demand);
+  // Utilization — productive ÷ enrollment capacity.
+  const goalUtil = utilization(goalLadder.productive, goalCapacity);
+  const actualUtil = utilization(actualLadder.productive, goalCapacity);
+
+  const setYearValue = (year: number, v: number) => setS((p) => {
+    const k = String(year);
+    return p.anchor === "northstar"
+      ? { ...p, goalsByYear: { ...p.goalsByYear, [k]: Math.max(0, v) } }
+      : { ...p, capByYear: { ...p.capByYear, [k]: Math.max(0, v) } };
+  });
+  const selectYear = (year: number) => setS((p) => ({ ...p, selectedYear: year }));
+  const addYear = () => setS((p) => {
+    const next = (p.years[p.years.length - 1] ?? new Date().getFullYear()) + 1;
+    const lastG = p.goalsByYear[String(p.years[p.years.length - 1])] ?? 25;
+    const lastC = p.capByYear[String(p.years[p.years.length - 1])] ?? Math.round(capacityFromNorthStar(lastG, p.goal));
+    return { ...p, years: [...p.years, next], goalsByYear: { ...p.goalsByYear, [String(next)]: lastG }, capByYear: { ...p.capByYear, [String(next)]: lastC } };
+  });
+  const removeYear = () => setS((p) => {
+    if (p.years.length <= 1) return p;
+    const years = p.years.slice(0, -1);
+    return { ...p, years, selectedYear: years.includes(p.selectedYear) ? p.selectedYear : years[years.length - 1] };
+  });
 
   const setGoalRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, goal: { ...p.goal, [k]: vPct / 100 } }));
   const setActualRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, actual: { ...p.actual, [k]: vPct / 100 } }));
@@ -114,7 +157,10 @@ export function GoalPlanner({
 
   const attain = (g: number, a: number) => (g > 0 ? a / g : null);
 
-  // The cohort-metrics ladder rows (second table), goal vs actual vs attainment.
+  // Per-year bars (north-star or capacity) for the stairstep visual.
+  const yearVals = s.years.map((y) => ({ year: y, val: s.anchor === "northstar" ? (s.goalsByYear[String(y)] ?? 0) : (s.capByYear[String(y)] ?? 0) }));
+  const maxYearVal = Math.max(1, ...yearVals.map((v) => v.val));
+
   const ladderRows: { label: string; g: number; a: number; strong?: boolean; sub?: boolean }[] = [
     { label: "Interested candidates", g: goalLadder.interested, a: actualLadder.interested },
     { label: "Qualified applicants", g: goalLadder.qualified, a: actualLadder.qualified },
@@ -129,29 +175,12 @@ export function GoalPlanner({
 
   return (
     <div className="space-y-4">
-      {/* Anchor controls */}
+      {/* Anchor + global controls */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
           <button onClick={() => setS((p) => ({ ...p, anchor: "northstar" }))} className={`px-3 py-1.5 ${s.anchor === "northstar" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: North Star</button>
           <button onClick={() => setS((p) => ({ ...p, anchor: "capacity" }))} className={`px-3 py-1.5 ${s.anchor === "capacity" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: Capacity</button>
         </div>
-
-        {s.anchor === "northstar" ? (
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-slate-500">North-Star goal — fully-productive workers / cohort</span>
-            <input type="number" min={0} value={s.northStar} onChange={(e) => setS((p) => ({ ...p, northStar: Math.max(0, Number(e.target.value) || 0) }))} className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
-          </label>
-        ) : (
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-slate-500">Enrollment capacity / cohort</span>
-            <input type="number" min={0} value={Math.round(s.capacity)} onChange={(e) => setS((p) => ({ ...p, capacity: Math.max(0, Number(e.target.value) || 0) }))} className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
-          </label>
-        )}
-
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-500">Regional annual demand</span>
-          <input type="number" min={0} value={s.demand ?? 0} onChange={(e) => setS((p) => ({ ...p, demand: Math.max(0, Number(e.target.value) || 0) || null }))} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
-        </label>
         <label className="flex items-center gap-2 text-sm">
           <span className="text-slate-500">Terms</span>
           <input type="number" min={1} max={12} value={s.termCount} onChange={(e) => setTermCount(Number(e.target.value) || 1)} className="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
@@ -160,11 +189,42 @@ export function GoalPlanner({
         <button onClick={resetBenchmark} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
       </div>
 
+      {/* Multi-year North-Star goals — one box per year (stairstep) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">{s.anchor === "northstar" ? "North-Star goal by year" : "Enrollment capacity by year"}</h3>
+            <p className="text-[11px] text-slate-400">{s.anchor === "northstar" ? "Fully-productive workers each year — stairstep up, hold, or shrink. Click a year to plan its full pipeline below." : "Enrolled seats each year. Click a year to plan its full pipeline below."}</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={removeYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="remove last year">−</button>
+            <button onClick={addYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="add a year">+ year</button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {yearVals.map(({ year, val }) => {
+            const selected = year === s.selectedYear;
+            const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
+            return (
+              <div key={year} className={`flex w-28 flex-col rounded-lg border p-2 ${selected ? "border-rose-400 bg-rose-50/60 ring-1 ring-rose-200" : "border-slate-200"}`}>
+                <button onClick={() => selectYear(year)} className={`mb-1 text-left text-xs font-semibold ${selected ? "text-rose-700" : "text-slate-600 hover:text-rose-600"}`}>{year}{selected ? " ●" : ""}</button>
+                {/* stairstep bar */}
+                <span className="mb-1 flex h-8 items-end">
+                  <span className="block w-full rounded-t bg-rose-300" style={{ height: `${Math.max(6, (val / maxYearVal) * 32)}px` }} />
+                </span>
+                <input type="number" min={0} value={Math.round(val)} onChange={(e) => setYearValue(year, Number(e.target.value) || 0)} className="w-full rounded border border-slate-300 px-1.5 py-1 text-right text-sm tabular-nums focus:border-rose-400 focus:outline-none" />
+                <span className="mt-0.5 text-[10px] text-slate-400">{s.anchor === "northstar" ? `cap ${derived}` : `prod ${derived}`}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <p className="text-[11px] text-slate-400">
-        {s.anchor === "northstar"
-          ? "Capacity is sized backward from the North Star through the goal yields. Type any percentage — goal or actual — and the whole ladder recomputes."
-          : "Enrollment capacity is the anchor; the surpluses and yields below size the rest of the ladder. Type any percentage and the whole ladder recomputes."}
-        {" "}Edits are saved to {familyName}&apos;s plan automatically.
+        Planning <strong className="text-slate-600">{s.selectedYear}</strong> — {s.anchor === "northstar"
+          ? "capacity is sized backward from that year's North Star through the goal yields."
+          : "that year's enrollment capacity anchors the ladder."}
+        {" "}Type any percentage — goal or actual — and the ladder recomputes. Saved to {familyName}&apos;s plan automatically.
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -208,7 +268,7 @@ export function GoalPlanner({
               <tr className="bg-slate-50/60">
                 <td className="px-4 py-1.5">
                   <span className="block font-medium text-slate-700">Regional pipeline utilization</span>
-                  <span className="block text-[10px] text-slate-400">enrolled ÷ regional demand</span>
+                  <span className="block text-[10px] text-slate-400">productive ÷ enrollment capacity</span>
                 </td>
                 <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{pctOf(goalUtil)}</td>
                 <td className={`px-2 py-1.5 text-right tabular-nums ${actualUtil != null && actualUtil >= UTILIZATION_BENCHMARK ? "text-emerald-600" : "text-amber-600"}`}>{pctOf(actualUtil)}</td>
@@ -232,11 +292,11 @@ export function GoalPlanner({
           </div>
         </div>
 
-        {/* Table 2 — autocalculated cohort metrics */}
+        {/* Table 2 — autocalculated cohort metrics (sequential, interested → productive) */}
         <div className="overflow-hidden rounded-xl border border-slate-200">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-            <h3 className="text-sm font-semibold text-slate-700">Talent-pipeline metrics — cohort ending {s.year}</h3>
-            <p className="text-[11px] text-slate-400">Autocalculated from the percentages. Goal vs actual vs attainment.</p>
+            <h3 className="text-sm font-semibold text-slate-700">Talent-pipeline metrics — cohort ending {s.selectedYear}</h3>
+            <p className="text-[11px] text-slate-400">Autocalculated from the percentages, in funnel order. Goal vs actual vs attainment.</p>
           </div>
           <table className="w-full border-collapse text-sm">
             <thead>
