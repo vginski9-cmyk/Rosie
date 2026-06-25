@@ -47,6 +47,64 @@ export async function createProgram(formData: FormData) {
   redirect(`/programs/${program.id}`);
 }
 
+// ---------------------------------------------------------------------------
+// PROGRAM FAMILY — North-Star goal plan
+// ---------------------------------------------------------------------------
+
+/** Persist the family's North-Star goal plan (a JSON blob from the goal planner). */
+export async function saveFamilyGoalPlan(familyId: string, planJson: string): Promise<void> {
+  await prisma.programFamily.update({ where: { id: familyId }, data: { goalPlan: planJson } });
+  revalidatePath(`/families/${familyId}`);
+}
+
+export interface CohortDrill {
+  cohortId: string | null;
+  programId: string | null;
+  students: { id: string; name: string; status: string; stageKey: string | null; sectionIndex: number; clinicalSite: string | null }[];
+  instructors: { personId: string; name: string; role: string; sessions: number; contactHours: number }[];
+  wbl: { id: string; studentId: string | null; studentName: string; asOfDate: string; shiftPreference: string | null; desiredModality: string | null; maxTravelMinutes: number | null }[];
+}
+
+/** Resolve a pivot cell's cohort to the real students / instructors / WBL placements behind it. */
+export async function getCohortDrill(institution: string, program: string, cohort: string): Promise<CohortDrill> {
+  const co = await prisma.cohort.findFirst({
+    where: { name: cohort, program: { name: program, institution: { name: institution } } },
+    include: {
+      program: { select: { id: true } },
+      students: { orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, sectionIndex: true, clinicalSite: true } },
+      sessionStaff: { include: { person: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!co) return { cohortId: null, programId: null, students: [], instructors: [], wbl: [] };
+
+  // Aggregate co-teaching staffing into one row per person (role + session count + hours).
+  const byPerson = new Map<string, { personId: string; name: string; role: string; sessions: number; contactHours: number }>();
+  for (const si of co.sessionStaff) {
+    const cur = byPerson.get(si.personId) ?? { personId: si.personId, name: si.person.name, role: si.role, sessions: 0, contactHours: 0 };
+    cur.sessions += 1;
+    cur.contactHours += si.contactHours;
+    if (si.role === "preceptor") cur.role = "preceptor";
+    byPerson.set(si.personId, cur);
+  }
+
+  const studentIds = co.students.map((s) => s.id);
+  const snaps = studentIds.length
+    ? await prisma.wblSnapshot.findMany({
+        where: { studentId: { in: studentIds }, subjectType: "LEARNER_STUDENT" },
+        orderBy: { asOfDate: "desc" },
+        include: { student: { select: { name: true } } },
+      })
+    : [];
+
+  return {
+    cohortId: co.id,
+    programId: co.program.id,
+    students: co.students,
+    instructors: [...byPerson.values()].sort((a, b) => b.contactHours - a.contactHours),
+    wbl: snaps.map((w) => ({ id: w.id, studentId: w.studentId, studentName: w.student?.name ?? "—", asOfDate: w.asOfDate.toISOString().slice(0, 10), shiftPreference: w.shiftPreference, desiredModality: w.desiredModality, maxTravelMinutes: w.maxTravelMinutes })),
+  };
+}
+
 export async function updateProgram(programId: string, formData: FormData) {
   await prisma.program.update({
     where: { id: programId },

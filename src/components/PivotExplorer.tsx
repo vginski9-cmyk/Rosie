@@ -1,7 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { pivot, distinct, applyFilters, DIMS, type Fact, type Dim, type Measure, type Filters, dimValue } from "@/lib/pivot";
+import { getCohortDrill, type CohortDrill } from "@/lib/actions";
 
 const fmtN = (v: number) => {
   if (v === 0) return "—";
@@ -57,6 +59,31 @@ export function PivotExplorer({
     if (!drill) return [];
     return applyFilters(facts, { ...effFilters, [rowDim]: new Set([drill.row]), [colDim]: new Set([drill.col]) });
   }, [drill, facts, effFilters, rowDim, colDim]);
+
+  // If the cell resolves to exactly one cohort, we can drill into the real
+  // students / instructors / WBL placements behind it.
+  const singleCohort = useMemo(() => {
+    if (!drillFacts.length) return null;
+    const cohorts = new Set(drillFacts.map((f) => f.cohort));
+    if (cohorts.size !== 1) return null;
+    const f = drillFacts[0];
+    return { institution: f.institution, program: f.program, cohort: f.cohort };
+  }, [drillFacts]);
+
+  const [entities, setEntities] = useState<CohortDrill | null>(null);
+  const [loadingEntities, setLoadingEntities] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setEntities(null);
+    if (drill && singleCohort) {
+      setLoadingEntities(true);
+      getCohortDrill(singleCohort.institution, singleCohort.program, singleCohort.cohort)
+        .then((e) => { if (!cancelled) setEntities(e); })
+        .catch(() => { if (!cancelled) setEntities(null); })
+        .finally(() => { if (!cancelled) setLoadingEntities(false); });
+    }
+    return () => { cancelled = true; };
+  }, [drill, singleCohort]);
 
   const measureNote = group === "All" ? "mixing metric groups — totals are illustrative only" : group === "Delivery" ? "delivery requirement (FTE / hours / sections)" : "pipeline count (people)";
 
@@ -149,16 +176,58 @@ export function PivotExplorer({
               <div className="text-sm font-semibold">{drill.row} · {drill.col}</div>
               <button onClick={() => setDrill(null)} className="text-slate-400 hover:text-slate-700">✕</button>
             </div>
-            <p className="mt-2 text-xs text-slate-500">{drillFacts.length} facts behind this cell</p>
-            <div className="mt-3 space-y-1.5">
-              {drillFacts.map((f, i) => (
-                <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/60 p-2 text-[12px]">
-                  <div className="font-medium text-slate-700">{f.metric} <span className="font-normal text-slate-400">· {f.metricGroup}</span></div>
-                  <div className="text-slate-500">{f.institution} · {f.program} · {f.cohort}{f.term ? ` · ${f.term}` : ""}{f.year ? ` · ${f.year}` : ""}</div>
-                  <div className="mt-0.5 tabular-nums text-slate-600">value {fmtN(f.value)}{f.target != null ? ` · target ${fmtN(f.target)}` : ""}{f.actual != null ? ` · actual ${fmtN(f.actual)}` : ""}</div>
-                </div>
-              ))}
-            </div>
+            <p className="mt-2 text-xs text-slate-500">{drillFacts.length} facts behind this cell{singleCohort ? ` · ${singleCohort.cohort}` : ""}</p>
+
+            {/* Entity drill — only when the cell pins a single cohort */}
+            {singleCohort && (
+              <div className="mt-3 space-y-3">
+                {loadingEntities && <p className="text-xs text-slate-400">Loading students, instructors &amp; placements…</p>}
+                {entities && (
+                  <>
+                    <DrillGroup title="Students" count={entities.students.length}>
+                      {entities.students.map((st) => (
+                        <Link key={st.id} href={`/students/${st.id}`} className="flex items-center justify-between rounded-md border border-slate-100 bg-white px-2 py-1.5 hover:border-rose-200 hover:bg-rose-50/40">
+                          <span className="truncate font-medium text-slate-700">{st.name}</span>
+                          <span className="ml-2 shrink-0 text-[11px] text-slate-400">{st.stageKey ?? st.status}{st.clinicalSite ? ` · ${st.clinicalSite}` : ` · §${st.sectionIndex}`}</span>
+                        </Link>
+                      ))}
+                    </DrillGroup>
+                    <DrillGroup title="Instructors &amp; preceptors" count={entities.instructors.length}>
+                      {entities.instructors.map((ins) => (
+                        <div key={ins.personId} className="flex items-center justify-between rounded-md border border-slate-100 bg-white px-2 py-1.5">
+                          <span className="truncate font-medium text-slate-700">{ins.name} <span className="font-normal text-slate-400">· {ins.role}</span></span>
+                          <span className="ml-2 shrink-0 text-[11px] tabular-nums text-slate-400">{ins.sessions} sess · {Math.round(ins.contactHours)}h</span>
+                        </div>
+                      ))}
+                    </DrillGroup>
+                    <DrillGroup title="WBL / clinical placements" count={entities.wbl.length}>
+                      {entities.wbl.map((w) => (
+                        <Link key={w.id} href={w.studentId ? `/students/${w.studentId}` : "#"} className="block rounded-md border border-slate-100 bg-white px-2 py-1.5 hover:border-rose-200 hover:bg-rose-50/40">
+                          <span className="flex items-center justify-between"><span className="truncate font-medium text-slate-700">{w.studentName}</span><span className="ml-2 shrink-0 text-[11px] text-slate-400">{w.asOfDate}</span></span>
+                          <span className="block text-[11px] text-slate-400">{[w.desiredModality, w.shiftPreference ? `${w.shiftPreference} shift` : null, w.maxTravelMinutes != null ? `≤${w.maxTravelMinutes}min` : null].filter(Boolean).join(" · ") || "snapshot"}</span>
+                        </Link>
+                      ))}
+                    </DrillGroup>
+                    {entities.programId && (
+                      <Link href={`/programs/${entities.programId}/students`} className="block text-center text-xs text-rose-600 hover:underline">open the full roster →</Link>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            <details className="mt-3" open={!singleCohort}>
+              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-slate-400">Underlying facts ({drillFacts.length})</summary>
+              <div className="mt-2 space-y-1.5">
+                {drillFacts.map((f, i) => (
+                  <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/60 p-2 text-[12px]">
+                    <div className="font-medium text-slate-700">{f.metric} <span className="font-normal text-slate-400">· {f.metricGroup}</span></div>
+                    <div className="text-slate-500">{f.institution} · {f.program} · {f.cohort}{f.term ? ` · ${f.term}` : ""}{f.year ? ` · ${f.year}` : ""}</div>
+                    <div className="mt-0.5 tabular-nums text-slate-600">value {fmtN(f.value)}{f.target != null ? ` · target ${fmtN(f.target)}` : ""}{f.actual != null ? ` · actual ${fmtN(f.actual)}` : ""}</div>
+                  </div>
+                ))}
+              </div>
+            </details>
           </div>
         </div>
       )}
@@ -168,4 +237,17 @@ export function PivotExplorer({
 
 function Ctl({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>{children}</label>;
+}
+
+function DrillGroup({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+  if (count === 0) return <div className="text-[11px] text-slate-300">{title}: none</div>;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</span>
+        <span className="text-[11px] text-slate-400">{count}</span>
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
 }

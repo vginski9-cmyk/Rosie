@@ -559,3 +559,102 @@ export async function getCourse(courseId: string) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// SEMESTER VIEW — every offering running in a chosen term, side by side
+// ---------------------------------------------------------------------------
+
+export interface SemesterOffering {
+  cohortId: string;
+  cohortName: string;
+  programId: string;
+  programName: string;
+  family: string | null;
+  familyId: string | null;
+  institution: string;
+  termName: string;
+  termIndex: number;
+  enrollment: number;
+  facultyFte: number;
+  preceptorFte: number;
+  spaceHours: number;
+  sections: number;
+  courses: { id: string; name: string; sessions: number }[];
+}
+
+export interface SemesterView {
+  options: { sem: string; year: number; count: number }[];
+  selected: { sem: string; year: number } | null;
+  offerings: SemesterOffering[];
+}
+
+/** Every offering-term active in a given semester+year, with its delivery footprint. */
+export async function getSemesterView(sem?: string, year?: number): Promise<SemesterView> {
+  const { courseService, DEFAULT_SERVICE } = await import("./service");
+  const seasonOf = (name: string, month?: number | null): string => {
+    const n = name.toLowerCase();
+    if (n.includes("fall")) return "Fall";
+    if (n.includes("spring")) return "Spring";
+    if (n.includes("summer")) return "Summer";
+    if (month != null) return month >= 8 ? "Fall" : month <= 5 ? "Spring" : "Summer";
+    return "Fall";
+  };
+
+  const cts = await prisma.cohortTerm.findMany({
+    include: {
+      term: { include: { courses: { include: { sessions: true } } } },
+      cohort: {
+        include: {
+          program: { include: { institution: { select: { name: true } }, family: { select: { id: true, name: true } } } },
+        },
+      },
+    },
+  });
+
+  type Row = SemesterOffering & { sem: string; year: number };
+  const rows: Row[] = [];
+  for (const ct of cts) {
+    const co = ct.cohort;
+    const p = co.program;
+    const yr = ct.startDate ? ct.startDate.getUTCFullYear() : (co.entryYear != null ? co.entryYear + Math.floor((ct.term.index - 1) / 2) : null);
+    if (yr == null) continue;
+    const season = seasonOf(ct.term.name, ct.startDate ? ct.startDate.getUTCMonth() + 1 : null);
+    const sessions = ct.term.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
+    const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
+    const t = sessions.length ? courseService(sessions, enrollment, DEFAULT_SERVICE).totals : null;
+    rows.push({
+      sem: season, year: yr,
+      cohortId: co.id, cohortName: co.name, programId: p.id, programName: p.name,
+      family: p.family?.name ?? null, familyId: p.family?.id ?? null, institution: p.institution.name,
+      termName: ct.term.name, termIndex: ct.term.index, enrollment,
+      facultyFte: t ? Math.round(t.facultyFte * 100) / 100 : 0,
+      preceptorFte: t ? Math.round(t.preceptorFte * 100) / 100 : 0,
+      spaceHours: t ? Math.round(t.spaceHours) : 0,
+      sections: t ? t.sections : 0,
+      courses: ct.term.courses.map((c) => ({ id: c.id, name: c.name, sessions: c.sessions.length })),
+    });
+  }
+
+  // Distinct semester options, chronological.
+  const optMap = new Map<string, { sem: string; year: number; count: number }>();
+  const SEASON_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
+  for (const r of rows) {
+    const k = `${r.year}-${r.sem}`;
+    const e = optMap.get(k) ?? { sem: r.sem, year: r.year, count: 0 };
+    e.count += 1;
+    optMap.set(k, e);
+  }
+  const options = [...optMap.values()].sort((a, b) => a.year - b.year || SEASON_ORDER[a.sem] - SEASON_ORDER[b.sem]);
+
+  const selected = sem && year != null && optMap.has(`${year}-${sem}`)
+    ? { sem, year }
+    : options[0] ? { sem: options[0].sem, year: options[0].year } : null;
+
+  const offerings = selected
+    ? rows.filter((r) => r.sem === selected.sem && r.year === selected.year)
+        .sort((a, b) => a.institution.localeCompare(b.institution) || (a.family ?? "").localeCompare(b.family ?? "") || a.programName.localeCompare(b.programName) || a.termIndex - b.termIndex)
+        .map(({ sem: _s, year: _y, ...rest }) => rest)
+    : [];
+
+  return { options, selected, offerings };
+}

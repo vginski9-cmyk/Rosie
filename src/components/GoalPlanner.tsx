@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BENCHMARK_RATES, RATE_DEFS, UTILIZATION_BENCHMARK,
   buildLadder, capacityFromNorthStar, utilization, roundLadder, defaultTermRetention,
   type LadderRates,
 } from "@/lib/northstar";
+import { saveFamilyGoalPlan } from "@/lib/actions";
 
 // The North-Star goal surface: set the family's multi-year goal, then adjust
 // every health-metric PERCENTAGE in a row (goal column + actual column) and the
@@ -40,7 +41,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedNorthStar, seedDemand, seedTerms, seedYear,
+  familyId, familyName, seedNorthStar, seedDemand, seedTerms, seedYear, savedPlan,
 }: {
   familyId: string;
   familyName: string;
@@ -48,39 +49,46 @@ export function GoalPlanner({
   seedDemand: number | null;
   seedTerms: number;
   seedYear: number;
+  /** Previously-saved plan from the database (JSON string), if any. */
+  savedPlan: string | null;
 }) {
-  const initial: Persisted = useMemo(() => ({
-    anchor: "northstar",
-    northStar: seedNorthStar || 25,
-    capacity: Math.round(capacityFromNorthStar(seedNorthStar || 25, BENCHMARK_RATES)),
-    goal: { ...BENCHMARK_RATES },
-    actual: { ...BENCHMARK_RATES },
-    termCount: Math.max(1, seedTerms || 5),
-    termGoal: defaultTermRetention(Math.max(1, seedTerms || 5)),
-    termActual: defaultTermRetention(Math.max(1, seedTerms || 5), 0.92),
-    demand: seedDemand,
-    year: seedYear,
-  }), [seedNorthStar, seedDemand, seedTerms, seedYear]);
+  const initial: Persisted = useMemo(() => {
+    const base: Persisted = {
+      anchor: "northstar",
+      northStar: seedNorthStar || 25,
+      capacity: Math.round(capacityFromNorthStar(seedNorthStar || 25, BENCHMARK_RATES)),
+      goal: { ...BENCHMARK_RATES },
+      actual: { ...BENCHMARK_RATES },
+      termCount: Math.max(1, seedTerms || 5),
+      termGoal: defaultTermRetention(Math.max(1, seedTerms || 5)),
+      termActual: defaultTermRetention(Math.max(1, seedTerms || 5), 0.92),
+      demand: seedDemand,
+      year: seedYear,
+    };
+    // The DB plan is authoritative when present — render it on the server too so
+    // there's no hydration flash.
+    if (savedPlan) {
+      try {
+        const saved = JSON.parse(savedPlan) as Partial<Persisted>;
+        return { ...base, ...saved, goal: { ...base.goal, ...saved.goal }, actual: { ...base.actual, ...saved.actual } };
+      } catch { /* fall through to base */ }
+    }
+    return base;
+  }, [seedNorthStar, seedDemand, seedTerms, seedYear, savedPlan]);
 
   const [s, setS] = useState<Persisted>(initial);
-  const [hydrated, setHydrated] = useState(false);
-  const key = `rosie:northstar:${familyId}`;
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const firstRender = useRef(true);
 
-  // Hydrate from localStorage after mount (avoids SSR mismatch).
+  // Debounced persistence to the database whenever the plan changes.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const saved = JSON.parse(raw) as Partial<Persisted>;
-        setS((cur) => ({ ...cur, ...saved, goal: { ...cur.goal, ...saved.goal }, actual: { ...cur.actual, ...saved.actual } }));
-      }
-    } catch { /* ignore */ }
-    setHydrated(true);
-  }, [key]);
-
-  useEffect(() => {
-    if (hydrated) try { localStorage.setItem(key, JSON.stringify(s)); } catch { /* ignore */ }
-  }, [s, hydrated, key]);
+    if (firstRender.current) { firstRender.current = false; return; }
+    setSaveState("saving");
+    const t = setTimeout(() => {
+      saveFamilyGoalPlan(familyId, JSON.stringify(s)).then(() => setSaveState("saved")).catch(() => setSaveState("idle"));
+    }, 700);
+    return () => clearTimeout(t);
+  }, [s, familyId]);
 
   // Capacity drives both ladders. In North-Star mode it's derived from the goal
   // ladder's back-half yield; in capacity mode the user sets it directly.
@@ -148,14 +156,15 @@ export function GoalPlanner({
           <span className="text-slate-500">Terms</span>
           <input type="number" min={1} max={12} value={s.termCount} onChange={(e) => setTermCount(Number(e.target.value) || 1)} className="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
         </label>
-        <button onClick={resetBenchmark} className="ml-auto rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
+        <span className="ml-auto text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
+        <button onClick={resetBenchmark} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
       </div>
 
       <p className="text-[11px] text-slate-400">
         {s.anchor === "northstar"
           ? "Capacity is sized backward from the North Star through the goal yields. Type any percentage — goal or actual — and the whole ladder recomputes."
           : "Enrollment capacity is the anchor; the surpluses and yields below size the rest of the ladder. Type any percentage and the whole ladder recomputes."}
-        {" "}Edits are saved in your browser for {familyName}.
+        {" "}Edits are saved to {familyName}&apos;s plan automatically.
       </p>
 
       <div className="grid gap-4 lg:grid-cols-2">

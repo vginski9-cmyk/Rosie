@@ -75,6 +75,9 @@ model ProgramFamily {
   occupation    Occupation? @relation(fields: [occupationId], references: [id])
   name          String
   description   String?
+  /// Serialized North-Star goal plan (anchor, rates, term retention, demand) —
+  /// edited in the family hub's goal planner. JSON blob for portability.
+  goalPlan      String?
   createdAt     DateTime @default(now())
 
   programs Program[]

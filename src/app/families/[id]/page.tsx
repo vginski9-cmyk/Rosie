@@ -113,7 +113,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedNorthStar={seedNorthStar} seedDemand={seedDemand} seedTerms={seedTerms} seedYear={seedYear} />
+        <GoalPlanner familyId={family.id} familyName={family.name} seedNorthStar={seedNorthStar} seedDemand={seedDemand} seedTerms={seedTerms} seedYear={seedYear} savedPlan={family.goalPlan ?? null} />
       </section>
 
       {/* Multi-year goals, trajectory, constellation, health — interactive */}

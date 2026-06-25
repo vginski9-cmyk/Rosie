@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <nav className="flex items-center gap-1 text-sm">
                 <Link href="/" className="btn-ghost">Dashboard</Link>
                 <Link href="/insights" className="btn-ghost">Insights</Link>
+                <Link href="/semester" className="btn-ghost">Semester</Link>
                 <Link href="/skills" className="btn-ghost">Skill library</Link>
                 <Link href="/wbl" className="btn-ghost">WBL alignment</Link>
                 <Link href="/programs/new" className="btn-primary">+ New program</Link>
