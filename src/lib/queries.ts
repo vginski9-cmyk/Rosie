@@ -276,8 +276,14 @@ export async function getProgramSchedule(programId: string, cohortId?: string) {
     const d = offeringTermDate.get(t.id) ?? t.startDate;
     termDates[t.id] = d ? d.toISOString().slice(0, 10) : null;
   }
+  // Per-section weekly-slot overrides for this offering (staggered sections).
+  const sectionOverrides: Record<string, { day: string | null; startTime: string | null; location: string | null }> = {};
+  if (offering) {
+    const rows = await prisma.sectionSchedule.findMany({ where: { cohortId: offering.id } });
+    for (const r of rows) sectionOverrides[`${r.sessionId}#${r.sectionIndex}`] = { day: r.dayOfWeek, startTime: r.startTime, location: r.location };
+  }
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
-  return { program, offering, offerings, roster, students, termDates, defaultEnrollment };
+  return { program, offering, offerings, roster, students, termDates, sectionOverrides, defaultEnrollment };
 }
 
 /** All offerings (cohort runs) of a program, with their schedule + counts. */

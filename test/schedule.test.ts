@@ -21,6 +21,16 @@ describe("expandSchedule", () => {
     expect(shifts.every((s) => s.staffType === "preceptor")).toBe(true);
   });
 
+  it("applies per-section overrides (staggered day/time/room) to the right section", () => {
+    const shifts = expandSchedule([base({ id: "lab", maxStudents: 1, dayOfWeek: "Tue", startTime: "13:00", location: "Lab A" })], 2, {
+      sectionOverrides: { "lab#2": { day: "Thu", startTime: "15:00", location: "Lab B" } },
+    });
+    const s1 = shifts.find((s) => s.id === "lab#1")!;
+    const s2 = shifts.find((s) => s.id === "lab#2")!;
+    expect([s1.day, s1.startTime, s1.location]).toEqual(["Tue", "13:00", "Lab A"]); // default
+    expect([s2.day, s2.startTime, s2.location]).toEqual(["Thu", "15:00", "Lab B"]); // overridden
+  });
+
   it("sorts by week then day", () => {
     const shifts = expandSchedule([
       base({ id: "a", week: 2, dayOfWeek: "Mon", maxStudents: 100 }),

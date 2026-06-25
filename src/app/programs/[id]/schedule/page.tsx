@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function SchedulePage({ params, searchParams }: { params: { id: string }; searchParams: { offering?: string } }) {
   const data = await getProgramSchedule(params.id, searchParams.offering);
   if (!data) notFound();
-  const { program, offering, offerings, roster, students, termDates, defaultEnrollment } = data;
+  const { program, offering, offerings, roster, students, termDates, sectionOverrides, defaultEnrollment } = data;
 
   const terms: TermTemplate[] = program.terms.map((t) => ({
     id: t.id,
@@ -74,7 +74,7 @@ export default async function SchedulePage({ params, searchParams }: { params: {
           <strong> set each instructor&apos;s contact hours per session</strong> (co-teaching splits); workload recomputes live. Edits are saved in this browser.
         </p>
       </div>
-      <ScheduleBoard programId={offering ? `${program.id}:${offering.id}` : program.id} terms={terms} roster={rosterPeople} students={sectionStudents} defaultEnrollment={defaultEnrollment} />
+      <ScheduleBoard programId={offering ? `${program.id}:${offering.id}` : program.id} terms={terms} roster={rosterPeople} students={sectionStudents} sectionOverrides={sectionOverrides} defaultEnrollment={defaultEnrollment} />
     </div>
   );
 }

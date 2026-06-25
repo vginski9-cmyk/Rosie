@@ -110,31 +110,44 @@ function staffFor(s: ScheduleSession): { type: StaffType; per: number } {
   return { type: "instructor", per: Math.max(1, Math.round(s.facultyNeeded || 1)) };
 }
 
+/** A per-section schedule override for one offering: which weekly slot a given
+ *  section of a session actually runs in. Keyed by `${sessionId}#${sectionIndex}`. */
+export interface SectionOverride { day?: string | null; startTime?: string | null; location?: string | null }
+
 /** Expand template sessions into the full list of dated, staffable shifts.
  *  Pass `opts.termStart` (ISO date of the term's first day) to land shifts on
- *  real calendar dates with times. */
-export function expandSchedule(sessions: ScheduleSession[], enrollment: number, opts: { termStart?: string | null } = {}): Shift[] {
+ *  real calendar dates with times. Pass `opts.sectionOverrides` (an offering's
+ *  per-section day/time/room) to place individual sections on their real,
+ *  staggered slots rather than the session-level default. */
+export function expandSchedule(
+  sessions: ScheduleSession[],
+  enrollment: number,
+  opts: { termStart?: string | null; sectionOverrides?: Record<string, SectionOverride> } = {},
+): Shift[] {
   const shifts: Shift[] = [];
   for (const s of sessions) {
     const sections = s.maxStudents > 0 && enrollment > 0 ? roundUpInt(enrollment / s.maxStudents) : 0;
     if (sections <= 0) continue;
     const week = s.week ?? 1;
-    const day = s.dayOfWeek ?? "Mon";
-    const dayIndex = DAY_ORDER.indexOf(day) === -1 ? 0 : DAY_ORDER.indexOf(day);
     const { type, per } = staffFor(s);
 
-    let dateISO: string | null = null, dateLabel: string | null = null, monthKey: string | null = null, monthLabel: string | null = null;
-    if (opts.termStart) {
-      const d = shiftDate(opts.termStart, week, dayIndex);
-      dateISO = d.toISOString().slice(0, 10);
-      dateLabel = `${WEEKDAYS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
-      monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-      monthLabel = `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-    }
-    const startTime = s.startTime ?? null;
-    const endTime = startTime ? addHoursToTime(startTime, s.lengthHours) : null;
-
     for (let i = 1; i <= sections; i++) {
+      const ov = opts.sectionOverrides?.[`${s.id}#${i}`];
+      const day = (ov?.day ?? s.dayOfWeek) ?? "Mon";
+      const dayIndex = DAY_ORDER.indexOf(day) === -1 ? 0 : DAY_ORDER.indexOf(day);
+      const startTime = (ov?.startTime ?? s.startTime) ?? null;
+      const location = (ov?.location ?? s.location) ?? null;
+      const endTime = startTime ? addHoursToTime(startTime, s.lengthHours) : null;
+
+      let dateISO: string | null = null, dateLabel: string | null = null, monthKey: string | null = null, monthLabel: string | null = null;
+      if (opts.termStart) {
+        const d = shiftDate(opts.termStart, week, dayIndex);
+        dateISO = d.toISOString().slice(0, 10);
+        dateLabel = `${WEEKDAYS[d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+        monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        monthLabel = `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+      }
+
       shifts.push({
         id: `${s.id}#${i}`,
         sessionId: s.id,
@@ -147,7 +160,7 @@ export function expandSchedule(sessions: ScheduleSession[], enrollment: number, 
         day,
         dayIndex,
         lengthHours: s.lengthHours,
-        location: s.location ?? null,
+        location,
         rotationType: s.rotationType ?? null,
         clinicalMode: s.clinicalMode ?? null,
         sectionIndex: i,

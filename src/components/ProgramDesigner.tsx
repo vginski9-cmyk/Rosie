@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
+import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
   addSession, updateSession, deleteSession, setSessionTiming,
@@ -39,7 +40,21 @@ const ROW = "grid grid-cols-[30px_38px_minmax(150px,1.5fr)_44px_60px_94px_50px_5
 
 export function ProgramDesigner({ programId, terms, library, defaultEnrollment }: { programId: string; terms: DTerm[]; library: { id: string; name: string }[]; defaultEnrollment: number }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [showSeq, setShowSeq] = useState(false);
   const pid = programId;
+  const toggleTerm = (id: string) => setCollapsed((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allCollapsed = terms.length > 0 && terms.every((t) => collapsed.has(t.id));
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(terms.map((t) => t.id)));
+
+  // Sequencer inputs (drag-drop), built from the same template.
+  const seqTerms: SeqTerm[] = terms.map((t) => ({ id: t.id, name: t.name, courseCount: t.courses.length }));
+  const seqCourses: SeqCourse[] = terms.flatMap((t) => t.courses.map((c) => ({
+    id: c.id, code: c.code, name: c.name, termId: t.id, requisites: c.requisites,
+    classCount: c.sessions.filter((s) => s.kind === "CLASS").length,
+    labCount: c.sessions.filter((s) => s.kind === "LAB").length,
+    clinicalCount: c.sessions.filter((s) => s.kind === "CLINICAL").length,
+  })));
 
   const calc = useMemo(() => {
     const perStudent = { CLASS: 0, LAB: 0, CLINICAL: 0 };
@@ -48,23 +63,27 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
     let facHrs = 0, facFte = 0, precHrs = 0, precFte = 0;
     const bySession = new Map<string, ReturnType<typeof sessionService>>();
     const courseStudentHrs = new Map<string, { CLASS: number; LAB: number; CLINICAL: number }>();
+    const courseFootprint = new Map<string, { sec: { CLASS: number; LAB: number; CLINICAL: number }; space: { CLASS: number; LAB: number; CLINICAL: number }; facFte: number; precFte: number }>();
     const termStudentHrs = new Map<string, { CLASS: number; LAB: number; CLINICAL: number }>();
     for (const t of terms) {
       const th = { CLASS: 0, LAB: 0, CLINICAL: 0 };
       for (const c of t.courses) {
         const ch = { CLASS: 0, LAB: 0, CLINICAL: 0 };
+        const fp = { sec: { CLASS: 0, LAB: 0, CLINICAL: 0 }, space: { CLASS: 0, LAB: 0, CLINICAL: 0 }, facFte: 0, precFte: 0 };
         for (const s of c.sessions) {
           const r = sessionService(s, enrollment, DEFAULT_SERVICE);
           bySession.set(s.id, r);
           perStudent[s.kind] += s.lengthHours; ch[s.kind] += s.lengthHours; th[s.kind] += s.lengthHours;
           sectionHrs[s.kind] += r.spaceHours; sections[s.kind] += r.sections;
+          fp.sec[s.kind] += r.sections; fp.space[s.kind] += r.spaceHours; fp.facFte += r.facultyFte; fp.precFte += r.preceptorFte;
           facHrs += r.facultyContactHours; facFte += r.facultyFte; precHrs += r.preceptorContactHours; precFte += r.preceptorFte;
         }
         courseStudentHrs.set(c.id, ch);
+        courseFootprint.set(c.id, fp);
       }
       termStudentHrs.set(t.id, th);
     }
-    return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, termStudentHrs };
+    return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, courseFootprint, termStudentHrs };
   }, [terms, enrollment]);
 
   const psTotal = calc.perStudent.CLASS + calc.perStudent.LAB + calc.perStudent.CLINICAL;
@@ -121,29 +140,47 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
         </div>
       </div>
 
-      {/* Add term */}
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">{terms.length} term{terms.length === 1 ? "" : "s"} · edit any field and hit its Save.</div>
-        <form action={addTerm.bind(null, pid)}><button className="btn-primary text-sm">+ Add term</button></form>
+      {/* Sticky jump-nav: terms, collapse, re-sequence, add term */}
+      <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
+        {terms.map((t) => (
+          <a key={t.id} href={`#term-${t.index}`} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">{t.name}</a>
+        ))}
+        <span className="flex-1" />
+        <button onClick={() => setShowSeq((v) => !v)} className={`rounded-lg px-2.5 py-1 text-xs font-medium ${showSeq ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>⇄ Re-sequence</button>
+        <button onClick={toggleAll} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200">{allCollapsed ? "Expand all" : "Collapse all"}</button>
+        <form action={addTerm.bind(null, pid)}><button className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700">+ Add term</button></form>
       </div>
+
+      {/* Drag & drop sequencing, in place */}
+      {showSeq && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50/30 p-4">
+          <div className="mb-2 text-sm font-semibold text-slate-700">Re-sequence courses across terms (drag &amp; drop)</div>
+          <CourseSequencer programId={pid} terms={seqTerms} initialCourses={seqCourses} />
+        </div>
+      )}
 
       {terms.map((term) => {
         const th = calc.termStudentHrs.get(term.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
+        const isCollapsed = collapsed.has(term.id);
         return (
-          <div key={term.id} className="card card-pad space-y-4">
+          <div key={term.id} id={`term-${term.index}`} className="card card-pad space-y-4 scroll-mt-16">
             {/* Term header — name + weeks (extend / compress) */}
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
-              <form action={updateTerm.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2">
-                <Field label="Term name"><input name="name" defaultValue={term.name} className="inp w-48" /></Field>
-                <Field label="Start wk"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-16" /></Field>
-                <Field label="End wk"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-16" /></Field>
-                <button className="btn-ghost py-1 text-xs">Save term</button>
-                <span className="pb-1 text-[11px] text-slate-400">{(term.endWeek ?? 0) - (term.startWeek ?? 0) + 1} wks · per student {n1(th.CLASS)}h class / {n1(th.LAB)}h lab / {n1(th.CLINICAL)}h clinical</span>
-              </form>
+              <div className="flex items-end gap-2">
+                <button onClick={() => toggleTerm(term.id)} className="pb-1 text-slate-400 hover:text-slate-700" title={isCollapsed ? "expand" : "collapse"}>{isCollapsed ? "▸" : "▾"}</button>
+                <form action={updateTerm.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2">
+                  <Field label="Term name"><input name="name" defaultValue={term.name} className="inp w-48" /></Field>
+                  <Field label="Start wk"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-16" /></Field>
+                  <Field label="End wk"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-16" /></Field>
+                  <button className="btn-ghost py-1 text-xs">Save term</button>
+                  <span className="pb-1 text-[11px] text-slate-400">{(term.endWeek ?? 0) - (term.startWeek ?? 0) + 1} wks · {term.courses.length} courses · per student {n1(th.CLASS)}h class / {n1(th.LAB)}h lab / {n1(th.CLINICAL)}h clinical</span>
+                </form>
+              </div>
               <form action={deleteTerm.bind(null, term.id, pid)}><button className="text-xs text-slate-400 hover:text-rose-600">Delete term</button></form>
             </div>
 
-            {term.courses.map((course) => {
+            {!isCollapsed && term.courses.map((course) => {
               const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
               return (
                 <div key={course.id} className="rounded-lg border border-slate-200 p-3">
@@ -164,10 +201,30 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
                       <Link href={`/courses/${course.id}`} className="text-xs text-rose-600 hover:underline">open ↦</Link>
                     </div>
                   </form>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">Per student: {n1(ch.CLASS)}h class · {n1(ch.LAB)}h lab · {n1(ch.CLINICAL)}h clinical</span>
-                    <form action={deleteCourse.bind(null, course.id, pid)}><button className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button></form>
-                  </div>
+                  {/* Per-course tallies — per student + delivery footprint @ N, live */}
+                  {(() => {
+                    const fp = calc.courseFootprint.get(course.id) ?? { sec: { CLASS: 0, LAB: 0, CLINICAL: 0 }, space: { CLASS: 0, LAB: 0, CLINICAL: 0 }, facFte: 0, precFte: 0 };
+                    const psTot = ch.CLASS + ch.LAB + ch.CLINICAL;
+                    const secTot = fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL;
+                    const spTot = fp.space.CLASS + fp.space.LAB + fp.space.CLINICAL;
+                    return (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-[11px]">
+                        <span className="font-semibold uppercase tracking-wide text-slate-400">Per student</span>
+                        <Pill dot="bg-sky-500" t={`${n1(ch.CLASS)}h class`} />
+                        <Pill dot="bg-violet-500" t={`${n1(ch.LAB)}h lab`} />
+                        <Pill dot="bg-rose-500" t={`${n1(ch.CLINICAL)}h clinical`} />
+                        <span className="font-semibold text-slate-700">{n1(psTot)}h total</span>
+                        <span className="mx-1 text-slate-300">|</span>
+                        <span className="font-semibold uppercase tracking-wide text-rose-500">@ {n0(enrollment)}</span>
+                        <span className="text-slate-600">{n0(secTot)} sections ({n0(fp.sec.CLASS)}/{n0(fp.sec.LAB)}/{n0(fp.sec.CLINICAL)})</span>
+                        <span className="text-slate-600">{n0(spTot)} space hrs</span>
+                        <span className="text-slate-600">fac <strong className="text-rose-700">{n2(fp.facFte)}</strong> FTE</span>
+                        {fp.precFte > 0 && <span className="text-slate-600">prec <strong className="text-rose-700">{n2(fp.precFte)}</strong> FTE</span>}
+                        <span className="flex-1" />
+                        <form action={deleteCourse.bind(null, course.id, pid)}><button className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button></form>
+                      </div>
+                    );
+                  })()}
 
                   {/* Sessions — all open, single row each, with live computed columns */}
                   <div className="mt-3 overflow-x-auto">
@@ -284,15 +341,17 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
             })}
 
             {/* Add course */}
-            <form action={addCourse.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-              <Field label="Code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
-              <Field label="New course name"><input name="name" required placeholder="Course name" className="inp w-56" /></Field>
-              <Field label="Credits"><input name="creditHours" type="number" step="0.5" className="inp w-16" /></Field>
-              <Field label="Class h/wk"><input name="weeklyClassHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
-              <Field label="Lab h/wk"><input name="weeklyLabHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
-              <Field label="Clin h/wk"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
-              <button className="btn-primary py-1 text-xs">+ Add course</button>
-            </form>
+            {!isCollapsed && (
+              <form action={addCourse.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+                <Field label="Code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
+                <Field label="New course name"><input name="name" required placeholder="Course name" className="inp w-56" /></Field>
+                <Field label="Credits"><input name="creditHours" type="number" step="0.5" className="inp w-16" /></Field>
+                <Field label="Class h/wk"><input name="weeklyClassHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
+                <Field label="Lab h/wk"><input name="weeklyLabHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
+                <Field label="Clin h/wk"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
+                <button className="btn-primary py-1 text-xs">+ Add course</button>
+              </form>
+            )}
           </div>
         );
       })}
@@ -311,6 +370,9 @@ function Hr({ label, v, dot, bold }: { label: string; v: number; dot?: string; b
 }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">{label}</span>{children}</label>;
+}
+function Pill({ dot, t }: { dot: string; t: string }) {
+  return <span className="inline-flex items-center gap-1 text-slate-600"><span className={`h-1.5 w-1.5 rounded-full ${dot}`} />{t}</span>;
 }
 function aggregateSkills(sessions: DSession[]) {
   const map = new Map<string, { skillId: string; name: string; mode: string; count: number }>();

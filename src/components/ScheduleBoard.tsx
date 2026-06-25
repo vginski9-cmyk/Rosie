@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   expandSchedule, summarize, gridByWeekDay, gridByMonth, staffLoadDetail, studentsForShift, shiftHoursFor, formatTime12,
-  type ScheduleSession, type Shift, type SectionStudent,
+  type ScheduleSession, type Shift, type SectionStudent, type SectionOverride,
 } from "@/lib/schedule";
 import { SectionManager } from "@/components/SectionManager";
 
@@ -39,7 +39,7 @@ const VIEW_LABEL: Record<View, string> = {
   calendar: "Month calendar", grid: "Term grid", staffing: "Staffing · by week", course: "Staffing · by course", sections: "Sections",
 };
 
-export function ScheduleBoard({ programId, terms, roster, students, defaultEnrollment }: { programId?: string; terms: TermTemplate[]; roster: RosterPerson[]; students: SectionStudent[]; defaultEnrollment: number }) {
+export function ScheduleBoard({ programId, terms, roster, students, sectionOverrides, defaultEnrollment }: { programId?: string; terms: TermTemplate[]; roster: RosterPerson[]; students: SectionStudent[]; sectionOverrides?: Record<string, SectionOverride>; defaultEnrollment: number }) {
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
   const [enrollment, setEnrollment] = useState(Math.max(1, defaultEnrollment || 40));
   const [assignments, setAssignments] = useState<Record<string, string[]>>({});
@@ -54,7 +54,7 @@ export function ScheduleBoard({ programId, terms, roster, students, defaultEnrol
   const [drawer, setDrawer] = useState<{ title: string; shifts: Shift[] } | null>(null);
 
   const term = terms.find((t) => t.id === termId) ?? terms[0];
-  const allShifts = useMemo(() => (term ? expandSchedule(term.sessions, enrollment, { termStart: term.startDateISO }) : []), [term, enrollment]);
+  const allShifts = useMemo(() => (term ? expandSchedule(term.sessions, enrollment, { termStart: term.startDateISO, sectionOverrides }) : []), [term, enrollment, sectionOverrides]);
 
   // Persist edits in the browser so they survive a reload (demo has no backend).
   const storeKey = programId ? `rosie:staffing:${programId}` : null;

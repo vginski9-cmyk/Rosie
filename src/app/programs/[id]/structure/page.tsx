@@ -39,7 +39,7 @@ export default async function StructureEditor({ params }: { params: { id: string
           when in the week, where, how long, capacity, faculty/preceptors required, and the KSAs each session develops or
           assesses. Everything&apos;s open and editable inline; the enrollment slider shows how the delivery footprint scales.
           No instructors or students — those live on a <Link href={`/programs/${program.id}`} className="text-rose-700 hover:underline">scheduled offering</Link>.
-          To re-sequence by dragging, use <Link href={`/programs/${program.id}/sequencer`} className="text-rose-700 hover:underline">Sequence</Link>.
+          Use the sticky bar to jump between terms, collapse what you&apos;re not editing, or open <strong>⇄ Re-sequence</strong> to drag courses across terms.
         </p>
       </div>
 
