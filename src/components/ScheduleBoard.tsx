@@ -34,7 +34,10 @@ const STAGE_DOT: Record<string, string> = {
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
-type View = "calendar" | "grid" | "staffing" | "sections";
+type View = "calendar" | "grid" | "staffing" | "course" | "sections";
+const VIEW_LABEL: Record<View, string> = {
+  calendar: "Month calendar", grid: "Term grid", staffing: "Staffing · by week", course: "Staffing · by course", sections: "Sections",
+};
 
 export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { terms: TermTemplate[]; roster: RosterPerson[]; students: SectionStudent[]; defaultEnrollment: number }) {
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
@@ -156,8 +159,8 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
         </div>
         <div className="flex items-end gap-2">
           <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
-            {(["calendar", "grid", "staffing", "sections"] as View[]).map((v) => (
-              <button key={v} onClick={() => setView(v)} className={`px-3 py-2 capitalize ${view === v ? "bg-rose-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{v === "calendar" ? "Month calendar" : v === "grid" ? "Term grid" : v === "sections" ? "Sections" : "Staffing"}</button>
+            {(["calendar", "grid", "staffing", "course", "sections"] as View[]).map((v) => (
+              <button key={v} onClick={() => setView(v)} className={`px-3 py-2 ${view === v ? "bg-rose-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{VIEW_LABEL[v]}</button>
             ))}
           </div>
           <button onClick={autoFill} className="btn-primary">Auto-assign</button>
@@ -207,6 +210,12 @@ export function ScheduleBoard({ terms, roster, students, defaultEnrollment }: { 
             <div>
               {view === "calendar" && <MonthCalendar months={months} assignments={effectiveAssignments} personName={personName} openShift={openShift} openDay={openDay} />}
               {view === "grid" && <TermGrid weeks={summary.weeks} grid={grid} week={week} setWeek={setWeek} openDay={openDay} />}
+              {view === "course" && (
+                <CourseStaffing
+                  shifts={shifts} assignments={effectiveAssignments} assign={assign} unassign={unassign} conflicts={conflicts}
+                  instructors={instructors} preceptors={preceptors} personName={personName} openShift={openShift}
+                />
+              )}
               {view === "staffing" && (
                 <StaffingBoard
                   weeks={summary.weeks} week={week} setWeek={setWeek} grid={grid}
@@ -394,9 +403,9 @@ function MonthCalendar({ months, assignments, personName, openShift, openDay }: 
                         const who = (assignments[s.id] ?? []).map(personName);
                         return (
                           <button key={s.id} onClick={() => openShift(s)} className={`block w-full rounded px-1.5 py-1 text-left text-[10px] leading-tight hover:ring-1 hover:ring-rose-300 ${KIND_STYLE[s.kind].chip}`} title="click for details">
-                            <div className="font-semibold">{formatTime12(s.startTime)} · {s.courseCode}</div>
-                            <div className="truncate">{s.title}</div>
-                            {who.length > 0 && <div className="truncate text-[9px] opacity-80">▸ {who.join(", ")}</div>}
+                            <span className="block font-semibold">{formatTime12(s.startTime)} · {s.courseCode}</span>
+                            <span className="block truncate">{s.title}</span>
+                            {who.length > 0 && <span className="block truncate text-[9px] opacity-80">▸ {who.join(", ")}</span>}
                           </button>
                         );
                       })}
@@ -472,14 +481,14 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
                   <div key={s.id} className={`rounded-xl border p-3 ${full ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-white"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <button onClick={() => openShift(s)} className="min-w-0 text-left">
-                        <div className="flex items-center gap-2">
+                        <span className="flex items-center gap-2">
                           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${KIND_STYLE[s.kind].chip}`}>{s.kind}</span>
                           <span className="font-mono text-xs text-slate-500">{s.courseCode}</span>
                           {s.startTime && <span className="text-[11px] text-slate-500">{formatTime12(s.startTime)}–{formatTime12(s.endTime)}</span>}
                           {s.sections > 1 && <span className="text-[11px] text-slate-400">sec {s.sectionIndex}/{s.sections}</span>}
-                        </div>
-                        <div className="mt-1 text-sm font-medium leading-snug text-slate-800 hover:text-rose-700">{s.title}</div>
-                        <div className="text-[11px] text-slate-500">{s.lengthHours}h{s.location ? ` · ${s.location}` : ""}{s.rotationType ? ` · ${s.rotationType}` : ""}{s.homework ? " · has homework" : ""}</div>
+                        </span>
+                        <span className="mt-1 block text-sm font-medium leading-snug text-slate-800 hover:text-rose-700">{s.title}</span>
+                        <span className="block text-[11px] text-slate-500">{s.lengthHours}h{s.location ? ` · ${s.location}` : ""}{s.rotationType ? ` · ${s.rotationType}` : ""}{s.homework ? " · has homework" : ""}</span>
                       </button>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${full ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{assigned.length}/{s.staffPerShift}</span>
                     </div>
@@ -499,6 +508,68 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
         ))}
         {[...weekShifts.values()].flat().length === 0 && <p className="text-sm text-slate-400">No shifts in week {week} with the current filters.</p>}
       </div>
+    </div>
+  );
+}
+
+/* ---------- Staffing, grouped by course (every slot, all weeks, no toggling) ---------- */
+function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, instructors, preceptors, personName, openShift }: {
+  shifts: Shift[]; assignments: Record<string, string[]>; assign: (s: Shift, p: string) => void; unassign: (s: Shift, p: string) => void; conflicts: Set<string>;
+  instructors: RosterPerson[]; preceptors: RosterPerson[]; personName: (id: string) => string; openShift: (s: Shift) => void;
+}) {
+  const groups = useMemo(() => {
+    const m = new Map<string, { name: string; list: Shift[] }>();
+    for (const s of shifts) {
+      if (!m.has(s.courseCode)) m.set(s.courseCode, { name: s.courseName, list: [] });
+      m.get(s.courseCode)!.list.push(s);
+    }
+    return [...m.entries()];
+  }, [shifts]);
+
+  if (groups.length === 0) return <p className="text-sm text-slate-400">No shifts match the current filters.</p>;
+
+  return (
+    <div className="space-y-6">
+      {groups.map(([code, { name, list }]) => {
+        const slots = list.reduce((n, s) => n + s.staffPerShift, 0);
+        const filled = list.reduce((n, s) => n + Math.min(s.staffPerShift, (assignments[s.id] ?? []).length), 0);
+        return (
+          <div key={code} className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <div className="text-sm font-semibold text-slate-800">{code} <span className="font-normal text-slate-400">· {name}</span></div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500">{list.length} shift{list.length === 1 ? "" : "s"} · whole term</span>
+                <span className={`rounded-full px-2 py-0.5 font-semibold tabular-nums ${filled >= slots ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>{filled}/{slots} slots</span>
+              </div>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {list.map((s) => {
+                const assigned = assignments[s.id] ?? [];
+                const pool = s.staffType === "preceptor" ? preceptors : instructors;
+                const full = assigned.length >= s.staffPerShift;
+                return (
+                  <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2.5 text-sm hover:bg-slate-50/60">
+                    <button onClick={() => openShift(s)} className="flex min-w-0 items-center gap-2 text-left">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${KIND_STYLE[s.kind].chip}`}>{s.kind}</span>
+                      <span className="whitespace-nowrap text-xs text-slate-500">Wk {s.week} · {s.day}{s.startTime ? ` · ${formatTime12(s.startTime)}` : ""}</span>
+                      {s.sections > 1 && <span className="whitespace-nowrap text-[11px] text-slate-400">sec {s.sectionIndex}/{s.sections}</span>}
+                      <span className="truncate font-medium text-slate-700 hover:text-rose-700">{s.title}</span>
+                    </button>
+                    <div className="ml-auto flex flex-wrap items-center gap-1">
+                      {assigned.map((pid) => {
+                        const conflict = conflicts.has(`${pid}|${s.dateISO ?? `${s.week}-${s.day}`}|${s.startTime ?? ""}`);
+                        const planned = s.staff.find((p) => p.personId === pid);
+                        return <span key={pid} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>{personName(pid)}{planned ? <span className="opacity-70">{planned.contactHours}h</span> : null}<button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button></span>;
+                      })}
+                      {!full && <select value="" onChange={(e) => assign(s, e.target.value)} className="rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px]"><option value="">+ {s.staffType}…</option>{pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
