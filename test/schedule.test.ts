@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expandSchedule, summarize, gridByWeekDay, staffLoads, staffLoadDetail, studentsForShift, shiftHoursFor, type ScheduleSession, type SectionStudent } from "../src/lib/schedule";
+import { expandSchedule, summarize, gridByWeekDay, staffLoads, staffLoadDetail, studentsForShift, shiftHoursFor, detectSectionConflicts, type ScheduleSession, type SectionStudent, type SectionSlot } from "../src/lib/schedule";
 
 const base = (over: Partial<ScheduleSession>): ScheduleSession => ({
   id: "s", courseId: "c", courseCode: "RAD-111", courseName: "Procedures I", kind: "CLASS",
@@ -88,6 +88,37 @@ describe("studentsForShift", () => {
     const shifts = expandSchedule([base({ id: "lab", maxStudents: 1 })], 2); // 2 sections
     expect(studentsForShift(shifts[0], students).map((s) => s.id)).toEqual(["s1", "s3"]); // sections 1,3 -> shift 1
     expect(studentsForShift(shifts[1], students).map((s) => s.id)).toEqual(["s2"]); // section 2 -> shift 2
+  });
+});
+
+describe("detectSectionConflicts", () => {
+  const slot = (over: Partial<SectionSlot>): SectionSlot => ({ key: "s", day: "Mon", startTime: "13:00", lengthHours: 3, location: "Lab A", ...over });
+
+  it("flags two sections sharing a room at overlapping times", () => {
+    const r = detectSectionConflicts([
+      slot({ key: "a" }),
+      slot({ key: "b", startTime: "14:00" }), // overlaps 13:00–16:00 in Lab A
+    ]);
+    expect(r.clashing.has("a") && r.clashing.has("b")).toBe(true);
+    expect(r.pairs).toHaveLength(1);
+  });
+
+  it("no clash when same time but different rooms", () => {
+    const r = detectSectionConflicts([slot({ key: "a", location: "Lab A" }), slot({ key: "b", location: "Lab B" })]);
+    expect(r.clashing.size).toBe(0);
+  });
+
+  it("no clash when same room but non-overlapping (back-to-back)", () => {
+    const r = detectSectionConflicts([slot({ key: "a", startTime: "13:00" }), slot({ key: "b", startTime: "16:00" })]);
+    expect(r.clashing.size).toBe(0);
+  });
+
+  it("reports peak concurrency per day (rooms/faculty needed at once)", () => {
+    const r = detectSectionConflicts([
+      slot({ key: "a", location: "L1" }), slot({ key: "b", location: "L2" }), slot({ key: "c", location: "L3" }),
+    ]);
+    expect(r.peakConcurrencyByDay.Mon).toBe(3); // three running at once, three rooms
+    expect(r.clashing.size).toBe(0); // different rooms → no double-booking
   });
 });
 

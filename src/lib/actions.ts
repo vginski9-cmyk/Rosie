@@ -190,6 +190,22 @@ export async function createOffering(programId: string, formData: FormData) {
   redirect(`/programs/${programId}/offerings/${cohort.id}`);
 }
 
+/** Persist an offering's per-section weekly slots (day/time/room) in bulk. */
+export async function saveSectionSchedules(
+  cohortId: string,
+  programId: string,
+  items: { sessionId: string; sectionIndex: number; dayOfWeek: string | null; startTime: string | null; location: string | null }[],
+) {
+  for (const it of items) {
+    await prisma.sectionSchedule.upsert({
+      where: { cohortId_sessionId_sectionIndex: { cohortId, sessionId: it.sessionId, sectionIndex: it.sectionIndex } },
+      create: { cohortId, sessionId: it.sessionId, sectionIndex: it.sectionIndex, dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null },
+      update: { dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null },
+    });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/schedule`);
+}
+
 export async function addTerm(programId: string) {
   const last = await prisma.term.findFirst({ where: { programId }, orderBy: { index: "desc" } });
   const index = (last?.index ?? 0) + 1;

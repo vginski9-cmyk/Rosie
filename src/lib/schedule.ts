@@ -300,6 +300,69 @@ export function studentsForShift(shift: Shift, students: SectionStudent[]): Sect
   return students.filter((s) => ((Math.max(1, s.sectionIndex) - 1) % sections) + 1 === shift.sectionIndex);
 }
 
+// ---------------------------------------------------------------------------
+// Offering scheduler — placing each section of each session into a weekly slot
+// (day + time + room) and detecting collisions across all courses.
+// ---------------------------------------------------------------------------
+
+export interface SectionSlot {
+  key: string; // unique per section (e.g. sessionId#sectionIndex)
+  day: string | null;
+  startTime: string | null; // "HH:MM"
+  lengthHours: number;
+  location: string | null;
+}
+
+const toMinutes = (t: string): number => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+const overlaps = (aStart: number, aEnd: number, bStart: number, bEnd: number) => aStart < bEnd && bStart < aEnd;
+
+export interface ConflictResult {
+  /** Section keys involved in at least one room double-booking. */
+  clashing: Set<string>;
+  /** The clashing pairs, with a human reason. */
+  pairs: { a: string; b: string; day: string; location: string }[];
+  /** day → max number of sections running at the same instant (rooms/faculty needed at once). */
+  peakConcurrencyByDay: Record<string, number>;
+}
+
+/** Detect room double-bookings (same day + same room + overlapping time) across
+ *  all placed sections, and the peak simultaneous load per day. */
+export function detectSectionConflicts(slots: SectionSlot[]): ConflictResult {
+  const clashing = new Set<string>();
+  const pairs: ConflictResult["pairs"] = [];
+  const placed = slots.filter((s) => s.day && s.startTime);
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      const A = placed[i], B = placed[j];
+      if (A.day !== B.day) continue;
+      const aS = toMinutes(A.startTime!), aE = aS + A.lengthHours * 60;
+      const bS = toMinutes(B.startTime!), bE = bS + B.lengthHours * 60;
+      if (!overlaps(aS, aE, bS, bE)) continue;
+      // Same room (case-insensitive) is a hard conflict.
+      if (A.location && B.location && A.location.trim().toLowerCase() === B.location.trim().toLowerCase()) {
+        clashing.add(A.key); clashing.add(B.key);
+        pairs.push({ a: A.key, b: B.key, day: A.day!, location: A.location });
+      }
+    }
+  }
+  // Peak concurrency per day: scan start/end events.
+  const peakConcurrencyByDay: Record<string, number> = {};
+  const byDay = new Map<string, SectionSlot[]>();
+  for (const s of placed) { if (!byDay.has(s.day!)) byDay.set(s.day!, []); byDay.get(s.day!)!.push(s); }
+  for (const [day, list] of byDay) {
+    const events: { t: number; delta: number }[] = [];
+    for (const s of list) { const st = toMinutes(s.startTime!); events.push({ t: st, delta: 1 }, { t: st + s.lengthHours * 60, delta: -1 }); }
+    events.sort((a, b) => a.t - b.t || a.delta - b.delta);
+    let cur = 0, peak = 0;
+    for (const e of events) { cur += e.delta; peak = Math.max(peak, cur); }
+    peakConcurrencyByDay[day] = peak;
+  }
+  return { clashing, pairs, peakConcurrencyByDay };
+}
+
 /** Group shifts by real month → date → shifts for a month-grid calendar. */
 export function gridByMonth(shifts: Shift[]): Map<string, { label: string; days: Map<string, Shift[]> }> {
   const months = new Map<string, { label: string; days: Map<string, Shift[]> }>();

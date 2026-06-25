@@ -398,6 +398,32 @@ export async function getProgramSessionPlan(programId: string) {
   });
 }
 
+/** Everything the offering scheduler needs: the offering, its program template
+ *  (terms → courses → sessions), the planned enrollment that sets section counts,
+ *  and any per-section slot overrides already saved for this run. */
+export async function getOfferingScheduler(cohortId: string) {
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      program: {
+        include: {
+          yearTargets: true,
+          terms: {
+            orderBy: { index: "asc" },
+            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+          },
+        },
+      },
+      sectionSchedules: true,
+    },
+  });
+  if (!cohort) return null;
+  const enrollment = Math.round(cohort.plannedSeats ?? cohort.program.defaultCohortSeats ?? Math.max(0, ...cohort.program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
+  const overrides: Record<string, { dayOfWeek: string | null; startTime: string | null; location: string | null }> = {};
+  for (const o of cohort.sectionSchedules) overrides[`${o.sessionId}#${o.sectionIndex}`] = { dayOfWeek: o.dayOfWeek, startTime: o.startTime, location: o.location };
+  return { cohort, program: cohort.program, enrollment, overrides };
+}
+
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
   // The course is part of the TEMPLATE — no instructors/students here (those are

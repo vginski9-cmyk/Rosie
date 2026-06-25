@@ -229,8 +229,29 @@ model Session {
 
   skillLinks SessionSkill[]
   instructors SessionInstructor[]
+  sectionSchedules SectionSchedule[]
 
   @@index([courseId])
+}
+
+/// Per-OFFERING scheduling override for ONE section of a session. The template
+/// gives a session a default day/time/place; an offering may need to stagger its
+/// N sections (six labs can't all run at once) across different slots/rooms. Each
+/// row overrides one section's weekly slot for a specific cohort run.
+model SectionSchedule {
+  id           String  @id @default(cuid())
+  cohortId     String
+  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId    String
+  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sectionIndex Int
+  dayOfWeek    String?
+  startTime    String? // "HH:MM"
+  location     String?
+
+  @@unique([cohortId, sessionId, sectionIndex])
+  @@index([cohortId])
+  @@index([sessionId])
 }
 
 /// Who staffs a session, and for how many of its contact hours. Co-teaching is
@@ -318,6 +339,7 @@ model Cohort {
   students    Student[]
   cohortTerms CohortTerm[]
   sessionStaff SessionInstructor[]
+  sectionSchedules SectionSchedule[]
 
   @@index([programId])
 }
