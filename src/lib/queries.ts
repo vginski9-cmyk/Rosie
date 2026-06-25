@@ -130,6 +130,74 @@ export async function getWblProfiles(institutionId: string) {
   });
 }
 
+/** Materialize the tidy long fact table across ALL institutions: pipeline metrics
+ *  (target/actual per cohort × stage) AND delivery metrics (faculty/preceptor FTE
+ *  & contact hours, space hours, sections per cohort × term, from the service
+ *  engine). One row per fact — the spine the pivot explorer aggregates. */
+export async function getInsightsFacts() {
+  const { courseService, DEFAULT_SERVICE } = await import("./service");
+  const insts = await prisma.institution.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      programs: {
+        include: {
+          family: { select: { name: true } },
+          terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: true } } } },
+          cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } }, cohortTerms: true } },
+        },
+      },
+    },
+  });
+
+  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+  const seasonOf = (name: string, month?: number | null): string => {
+    const n = name.toLowerCase();
+    if (n.includes("fall")) return "Fall";
+    if (n.includes("spring")) return "Spring";
+    if (n.includes("summer")) return "Summer";
+    if (month != null) return month >= 8 ? "Fall" : month <= 5 ? "Spring" : "Summer";
+    return "Fall";
+  };
+
+  type Fact = { institution: string; family: string; program: string; programType: string; cohort: string; metricGroup: string; metric: string; year: number | null; term: string | null; semester: string | null; value: number; target: number | null; actual: number | null };
+  const facts: Fact[] = [];
+
+  for (const inst of insts) {
+    for (const p of inst.programs) {
+      const family = p.family?.name ?? p.name;
+      const base = { institution: inst.name, family, program: p.name, programType: p.programType };
+      for (const co of p.cohorts) {
+        const gradYear = gradYearOf(co.name) ?? co.entryYear ?? null;
+        const entryYear = co.startDate ? co.startDate.getUTCFullYear() : (gradYear ? gradYear - 2 : null);
+        const entrySemester = co.startDate ? seasonOf("", co.startDate.getUTCMonth() + 1) : "Fall";
+        // --- Pipeline facts (target / actual per stage) ---
+        for (const s of co.stages) {
+          facts.push({ ...base, cohort: co.name, metricGroup: "Pipeline", metric: s.label, year: gradYear, term: null, semester: entrySemester, value: s.actualNumber ?? s.targetNumber ?? 0, target: s.targetNumber, actual: s.actualNumber });
+        }
+        // --- Delivery / FTE facts (per term, scaled to cohort enrollment) ---
+        const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
+        const ctYear = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate ? ct.startDate.getUTCFullYear() : null]));
+        for (const t of p.terms) {
+          const sessions = t.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
+          if (sessions.length === 0) continue;
+          const r = courseService(sessions, enrollment, DEFAULT_SERVICE).totals;
+          const termYear = ctYear.get(t.id) ?? (entryYear != null ? entryYear + Math.floor((t.index - 1) / 2) : gradYear);
+          const sem = seasonOf(t.name);
+          const dbase = { ...base, cohort: co.name, metricGroup: "Delivery", year: termYear, term: t.name, semester: sem };
+          const add = (metric: string, value: number) => facts.push({ ...dbase, metric, value, target: null, actual: value });
+          add("Faculty FTE", Math.round(r.facultyFte * 1000) / 1000);
+          add("Faculty contact hours", Math.round(r.facultyContactHours * 10) / 10);
+          add("Preceptor FTE", Math.round(r.preceptorFte * 1000) / 1000);
+          add("Preceptor contact hours", Math.round(r.preceptorContactHours * 10) / 10);
+          add("Space / service hours", Math.round(r.spaceHours));
+          add("Sections required", r.sections);
+        }
+      }
+    }
+  }
+  return facts;
+}
+
 /** All program families grouped by institution, for the dashboard. */
 export async function getFamilies() {
   return prisma.institution.findMany({
@@ -159,6 +227,7 @@ export async function getFamily(familyId: string) {
         include: {
           yearTargets: { orderBy: { year: "asc" } },
           _count: { select: { terms: true } },
+          terms: { include: { courses: { include: { sessions: true } } } },
           cohorts: {
             orderBy: { name: "asc" },
             include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } } },

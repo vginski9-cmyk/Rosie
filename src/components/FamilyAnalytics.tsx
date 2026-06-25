@@ -18,6 +18,11 @@ export interface FamCohort {
   enrolled: number;
   completers: number;
   stagesActual: Partial<Record<StageKey, number>>;
+  /** Delivery footprint for this cohort (whole program at its enrollment). */
+  facultyFte: number;
+  preceptorFte: number;
+  facultyHours: number;
+  preceptorHours: number;
 }
 
 const STATUS_COLOR: Record<string, string> = { active: "#10b981", completed: "#64748b", planned: "#0ea5e9", archived: "#cbd5e1" };
@@ -58,6 +63,22 @@ export function FamilyAnalytics({
     const demand = year != null ? demandByYear[year] : undefined;
     return computeHealthMetrics(agg, demand ?? undefined);
   }, [scoped, year, demandByYear]);
+
+  // Delivery footprint per year — sum FTE of cohorts ACTIVE that year (entry→grad
+  // overlap), so the resource cost sits beside the production goals.
+  const deliveryByYear = useMemo(() => {
+    const m: Record<number, { facFte: number; precFte: number; facHrs: number; active: number }> = {};
+    for (const y of years) {
+      let facFte = 0, precFte = 0, facHrs = 0, active = 0;
+      for (const c of tplScoped) {
+        const ey = c.entryYear ?? c.gradYear - 2;
+        if (ey <= y && y <= c.gradYear) { facFte += c.facultyFte; precFte += c.preceptorFte; facHrs += c.facultyHours; active += 1; }
+      }
+      m[y] = { facFte, precFte, facHrs, active };
+    }
+    return m;
+  }, [years, tplScoped]);
+  const maxFte = Math.max(0.1, ...years.map((y) => (deliveryByYear[y]?.facFte ?? 0) + (deliveryByYear[y]?.precFte ?? 0)));
 
   const constellation = useMemo(() => buildConstellation(scoped.map((c) => ({ id: c.id, name: c.name, programId: c.programId, programName: c.programName, entryYear: c.entryYear, gradYear: c.gradYear, enrolled: c.enrolled, completers: c.completers, status: c.status }))), [scoped]);
   const constYears = useMemo(() => yearSpan(constellation.flatMap((b) => [b.entryYear, b.gradYear])), [constellation]);
@@ -118,6 +139,35 @@ export function FamilyAnalytics({
                 </div>
               );
             })()}
+          </section>
+
+          {/* Delivery footprint — staffing FTE demand across overlapping cohorts, same year axis */}
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-700">Delivery footprint — staffing demand</h2>
+              <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                <Legend c="#e11d48" t="faculty FTE" /><Legend c="#7c3aed" t="preceptor FTE" />
+                <span className="text-slate-400">FTE needed across all cohorts running that year</span>
+              </div>
+            </div>
+            <div className="flex items-end gap-2 overflow-x-auto pb-1" style={{ height: 150 }}>
+              {years.map((y) => {
+                const d = deliveryByYear[y] ?? { facFte: 0, precFte: 0, facHrs: 0, active: 0 };
+                const hf = `${(d.facFte / maxFte) * 105}px`;
+                const hp = `${(d.precFte / maxFte) * 105}px`;
+                return (
+                  <div key={y} className="flex min-w-[58px] flex-1 flex-col items-center" title={`${y}: ${d.active} active cohort(s) · ${d.facFte.toFixed(2)} faculty FTE · ${d.precFte.toFixed(2)} preceptor FTE · ${fmt.num(d.facHrs)} faculty contact hrs`}>
+                    <div className="flex flex-1 flex-col justify-end">
+                      <div className="w-7 rounded-t bg-violet-500" style={{ height: hp }} />
+                      <div className="w-7 bg-rose-600" style={{ height: hf }} />
+                    </div>
+                    <div className="mt-1 text-[11px] font-semibold tabular-nums text-slate-700">{y}</div>
+                    <div className="text-[9px] tabular-nums text-slate-400">{(d.facFte + d.precFte).toFixed(1)} FTE</div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">Because cohorts overlap (a class runs ~2 years), peak staffing demand is the sum of every cohort active that year — read alongside the production goals above.</p>
           </section>
 
           {/* Per-year detail table */}
