@@ -33,8 +33,7 @@ export default async function PlanPage({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-8">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Operations plan</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Operations plan</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           Cohorts launch on the program&apos;s cadence and are overlaid on the academic calendar, so many run at once.
           Rosie sums the <strong>concurrent</strong> capacity demand per term and reconciles it against supply — staff

@@ -39,8 +39,7 @@ export default async function FlowPage({ params }: { params: { id: string } }) {
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Curriculum flow</h1>
             <p className="text-sm text-slate-500">

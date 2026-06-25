@@ -63,33 +63,15 @@ export default async function ProgramPage({ params }: { params: { id: string } }
 
   return (
     <div className="space-y-8">
-      <div>
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Link href="/" className="hover:text-slate-700">{program.institution.name}</Link>
-          {program.family && <><span className="text-slate-300">/</span><Link href={`/families/${program.family.id}`} className="hover:text-rose-700">{program.family.name} family</Link></>}
-        </div>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {program.name}
-              {program.status === "draft" && <span className="badge ml-2 bg-slate-200 text-slate-600 align-middle">draft</span>}
-            </h1>
-            <p className="text-sm text-slate-500">
-              {program.occupation?.title}{program.occupation ? ` · SOC ${program.occupation.socCode}` : ""} · {program.programType} · {program.credential}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              This is the <strong>program template</strong> — the timeless structure (terms, courses, sessions, KSAs). A
-              <strong> scheduled offering</strong> below instantiates it for a cohort with real dates, instructors, and students.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="self-center text-[11px] font-semibold uppercase tracking-wide text-slate-400">Template:</span>
-            <Link href={`/programs/${program.id}/flow`} className="btn-primary">Curriculum flow ↦</Link>
-            <Link href={`/programs/${program.id}/structure`} className="btn-ghost">Design &amp; sequence</Link>
-            <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
-            <form action={duplicateProgram.bind(null, program.id)}><button className="btn-ghost">Duplicate</button></form>
-            <form action={deleteProgram.bind(null, program.id)}><button className="btn-ghost text-rose-600">Delete</button></form>
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <p className="max-w-2xl text-xs text-slate-400">
+          This is the <strong>program template</strong> — the timeless structure (terms, courses, sessions, KSAs). A
+          <strong> scheduled offering</strong> below instantiates it for a cohort with real dates, instructors, and students.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a href={`/api/programs/${program.id}/export?enrollment=${defaultEnrollment}`} className="btn-ghost">Export Excel ↓</a>
+          <form action={duplicateProgram.bind(null, program.id)}><button className="btn-ghost">Duplicate</button></form>
+          <form action={deleteProgram.bind(null, program.id)}><button className="btn-ghost text-rose-600">Delete</button></form>
         </div>
       </div>
 

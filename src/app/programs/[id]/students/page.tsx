@@ -26,8 +26,7 @@ export default async function ProgramStudentsPage({ params }: { params: { id: st
   return (
     <div className="space-y-8">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <div className="mt-1 flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Students</h1>
             <p className="text-sm text-slate-500">{program.institution.name} · {program.name} · {students.length} people in the pipeline · click a stage to drill in</p>

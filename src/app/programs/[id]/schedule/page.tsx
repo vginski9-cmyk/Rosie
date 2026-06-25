@@ -49,8 +49,7 @@ export default async function SchedulePage({ params, searchParams }: { params: {
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name} template</Link>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Calendar &amp; staffing</h1>
           {offerings.length > 0 && (
             <div className="flex items-center gap-2 text-sm">

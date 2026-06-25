@@ -35,8 +35,7 @@ export default async function ProgramWblBoardPage({ params }: { params: { id: st
   return (
     <div className="space-y-8">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">WBL placement board</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">WBL placement board</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           Each enrolled student&apos;s latest work-based-learning snapshot, scored against every clinical partner&apos;s
           capacity. The engine recommends a placement per student and flags the binding needs no feasible site meets —

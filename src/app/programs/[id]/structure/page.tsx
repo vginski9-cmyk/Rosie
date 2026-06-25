@@ -32,8 +32,7 @@ export default async function StructureEditor({ params }: { params: { id: string
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name}</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Program &amp; course design</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Program &amp; course design</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           The <strong>timeless template</strong>: terms, courses, and the session-by-session experience — what&apos;s taught,
           when in the week, where, how long, capacity, faculty/preceptors required, and the KSAs each session develops or
