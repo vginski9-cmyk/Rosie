@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent, getProgramSessionPlan, getEmployerWblSlots, getProgramCohortsLite } from "@/lib/queries";
-import { updateStudentEnrollment } from "@/lib/actions";
+import { getStudent, getProgramSessionPlan, getEmployerWblSlots, getProgramCohortsLite, getInstitutionEmployersLite, getProgramTermsLite } from "@/lib/queries";
+import { updateStudentEnrollment, createPlacement, updatePlacementStatus, deletePlacement } from "@/lib/actions";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { recommendPlacement, toProfileInput, employerSlotsFrom } from "@/lib/wbl";
 import { fmt } from "@/lib/format";
@@ -9,6 +9,8 @@ import { fmt } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 const STUDENT_STATUSES = ["prospect", "applicant", "admitted", "enrolled", "completed", "licensed", "placed", "productive", "withdrawn"];
+const PLACEMENT_NEXT: Record<string, string[]> = { planned: ["active", "cancelled"], active: ["completed", "cancelled"], completed: [], cancelled: ["planned"] };
+const PSTATUS_BADGE: Record<string, string> = { planned: "bg-sky-100 text-sky-700", active: "bg-emerald-100 text-emerald-700", completed: "bg-slate-200 text-slate-600", cancelled: "bg-slate-100 text-slate-400" };
 
 const LAYER_META: Record<string, { label: string; color: string }> = {
   MOTIVATION: { label: "Motivations", color: "bg-sky-100 text-sky-700" },
@@ -34,7 +36,11 @@ const TYPE_BADGE: Record<string, string> = {
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
-  const cohorts = await getProgramCohortsLite(student.programId);
+  const [cohorts, programTerms, employers] = await Promise.all([
+    getProgramCohortsLite(student.programId),
+    getProgramTermsLite(student.programId),
+    getInstitutionEmployersLite(student.program.institutionId),
+  ]);
 
   // The program's session plan, reduced to per-course instructors + homework so
   // the student's personal schedule shows who teaches them and what's assigned.
@@ -136,6 +142,75 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </label>
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
         </form>
+      </section>
+
+      {/* WBL placements — assign this student to an employer partner for a rotation */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-700">Work-based learning placements</h2>
+          <span className="text-[11px] text-slate-400">{student.placements.length} placement{student.placements.length === 1 ? "" : "s"}</span>
+        </div>
+        {student.placements.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {student.placements.map((p) => (
+              <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[13px]">
+                <div>
+                  <Link href={`/employers/${p.employer.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.employer.name}</Link>
+                  <span className="ml-2 text-slate-400">{[p.cohort?.name, p.term?.name, p.modality].filter(Boolean).join(" · ") || "—"}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PSTATUS_BADGE[p.status] ?? "bg-slate-100 text-slate-600"}`}>{p.status}</span>
+                  {(PLACEMENT_NEXT[p.status] ?? []).map((s) => (
+                    <form key={s} action={updatePlacementStatus.bind(null, p.id, s)}>
+                      <button className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-600 hover:bg-white">→ {s}</button>
+                    </form>
+                  ))}
+                  <form action={deletePlacement.bind(null, p.id)}><button className="px-1 text-[11px] text-slate-300 hover:text-rose-600" title="remove">✕</button></form>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {employers.length === 0 ? (
+          <p className="mt-2 text-[12px] text-slate-400">No employer partners for this institution yet. Add one in the Employers workspace first.</p>
+        ) : (
+          <form action={createPlacement} className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+            <input type="hidden" name="studentId" value={student.id} />
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Partner</span>
+              <select name="employerId" required className="w-48 rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+                {employers.map((em) => <option key={em.id} value={em.id}>{em.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Cohort</span>
+              <select name="cohortId" defaultValue={student.cohortId ?? ""} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+                <option value="">—</option>
+                {cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Term</span>
+              <select name="termId" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+                <option value="">—</option>
+                {programTerms.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Start</span>
+              <input name="startDate" type="date" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">End</span>
+              <input name="endDate" type="date" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Modality</span>
+              <input name="modality" placeholder="CT" className="w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
+            </label>
+            <button className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">Assign placement</button>
+          </form>
+        )}
       </section>
 
       {/* KPI tiles */}

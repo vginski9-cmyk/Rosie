@@ -470,8 +470,60 @@ export async function getStudent(studentId: string) {
       },
       absences: { orderBy: [{ date: "asc" }] },
       wblSnapshots: { orderBy: { asOfDate: "desc" }, include: { factors: true } },
+      placements: {
+        orderBy: { createdAt: "desc" },
+        include: { employer: { select: { id: true, name: true } }, cohort: { select: { name: true } }, term: { select: { name: true } } },
+      },
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// EMPLOYERS WORKSPACE — partner directory, detail, and placement context
+// ---------------------------------------------------------------------------
+
+/** Every employer partner across institutions + the institution list for intake. */
+export async function getEmployersDirectory() {
+  const [employers, institutions] = await Promise.all([
+    prisma.employer.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        institution: { select: { id: true, name: true } },
+        _count: { select: { people: true } },
+        placements: { select: { status: true } },
+      },
+    }),
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+  return { employers, institutions };
+}
+
+/** One employer partner with its placements (the hosted students). */
+export async function getEmployer(id: string) {
+  return prisma.employer.findUnique({
+    where: { id },
+    include: {
+      institution: { select: { id: true, name: true } },
+      placements: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          student: { select: { id: true, name: true, program: { select: { name: true } } } },
+          cohort: { select: { name: true } },
+          term: { select: { name: true } },
+        },
+      },
+    },
+  });
+}
+
+/** Lightweight employer list for an institution (for placement assignment selects). */
+export async function getInstitutionEmployersLite(institutionId: string) {
+  return prisma.employer.findMany({ where: { institutionId }, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, wblSlots: true } });
+}
+
+/** A program's terms (id + name) for placement-window selects. */
+export async function getProgramTermsLite(programId: string) {
+  return prisma.term.findMany({ where: { programId }, orderBy: { index: "asc" }, select: { id: true, name: true } });
 }
 
 /** Employers with their LATEST WBL capacity snapshot — the employer side of the

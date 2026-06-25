@@ -197,6 +197,7 @@ model Term {
   courses Course[]
   assignments Assignment[]
   cohortTerms CohortTerm[]
+  placements WblPlacement[]
 
   @@unique([programId, index])
   @@index([programId])
@@ -366,6 +367,7 @@ model Cohort {
   cohortTerms CohortTerm[]
   sessionStaff SessionInstructor[]
   sectionSchedules SectionSchedule[]
+  placements  WblPlacement[]
 
   @@index([programId])
 }
@@ -430,11 +432,45 @@ model Employer {
   setting       String? // acute-care hospital | imaging center | ambulatory surgical center ...
   wblSlots      Int?    // clinical/WBL slots the partner can host
   notes         String?
+  /// Partnership lifecycle: prospect | active | paused | archived
+  status        String  @default("active")
+  contactName   String?
+  contactEmail  String?
+  contactPhone  String?
+  city          String?
 
   people Person[]
   wblSnapshots WblSnapshot[]
+  placements WblPlacement[]
 
   @@index([institutionId])
+}
+
+/// A work-based-learning placement: a student hosted by an employer for a rotation
+/// (optionally tied to a cohort + term window). The operational record behind
+/// "assign WBL" — distinct from the WblSnapshot (a point-in-time fit/readiness capture).
+model WblPlacement {
+  id           String @id @default(cuid())
+  studentId    String
+  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  employerId   String
+  employer     Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  cohortId     String?
+  cohort       Cohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  termId       String?
+  term         Term? @relation(fields: [termId], references: [id], onDelete: SetNull)
+  startDate    DateTime?
+  endDate      DateTime?
+  hoursPerWeek Float?
+  modality     String?  // CT | MRI | general | mammography ...
+  /// planned | active | completed | cancelled
+  status       String  @default("planned")
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([studentId])
+  @@index([employerId])
+  @@index([cohortId])
 }
 
 // ---------------------------------------------------------------------------
@@ -719,6 +755,7 @@ model Student {
   assessments StudentSkillAssessment[]
   absences    StudentAbsence[]
   wblSnapshots WblSnapshot[]
+  placements  WblPlacement[]
 
   @@index([programId])
   @@index([cohortId])

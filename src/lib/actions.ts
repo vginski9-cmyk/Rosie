@@ -103,6 +103,93 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
   revalidatePath(`/programs/${student.programId}/students`);
 }
 
+// ---------------------------------------------------------------------------
+// EMPLOYERS — partner intake / management
+// ---------------------------------------------------------------------------
+
+export async function createEmployer(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  await prisma.employer.create({
+    data: {
+      institutionId,
+      name: str(formData.get("name")) || "New partner",
+      setting: str(formData.get("setting")) || null,
+      city: str(formData.get("city")) || null,
+      wblSlots: optNum(formData.get("wblSlots")) ?? null,
+      status: str(formData.get("status")) || "prospect",
+      contactName: str(formData.get("contactName")) || null,
+      contactEmail: str(formData.get("contactEmail")) || null,
+      contactPhone: str(formData.get("contactPhone")) || null,
+      notes: str(formData.get("notes")) || null,
+    },
+  });
+  revalidatePath("/employers");
+}
+
+export async function updateEmployer(employerId: string, formData: FormData): Promise<void> {
+  await prisma.employer.update({
+    where: { id: employerId },
+    data: {
+      name: str(formData.get("name")) || "Partner",
+      setting: str(formData.get("setting")) || null,
+      city: str(formData.get("city")) || null,
+      wblSlots: optNum(formData.get("wblSlots")) ?? null,
+      status: str(formData.get("status")) || "active",
+      contactName: str(formData.get("contactName")) || null,
+      contactEmail: str(formData.get("contactEmail")) || null,
+      contactPhone: str(formData.get("contactPhone")) || null,
+      notes: str(formData.get("notes")) || null,
+    },
+  });
+  revalidatePath("/employers");
+  revalidatePath(`/employers/${employerId}`);
+}
+
+// ---------------------------------------------------------------------------
+// WBL PLACEMENTS — assign a student to a partner for a rotation
+// ---------------------------------------------------------------------------
+
+const dateOrNull = (v: FormDataEntryValue | null): Date | null => {
+  const s = str(v);
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+export async function createPlacement(formData: FormData): Promise<void> {
+  const studentId = str(formData.get("studentId"));
+  const employerId = str(formData.get("employerId"));
+  if (!studentId || !employerId) return;
+  await prisma.wblPlacement.create({
+    data: {
+      studentId, employerId,
+      cohortId: str(formData.get("cohortId")) || null,
+      termId: str(formData.get("termId")) || null,
+      startDate: dateOrNull(formData.get("startDate")),
+      endDate: dateOrNull(formData.get("endDate")),
+      hoursPerWeek: optNum(formData.get("hoursPerWeek")),
+      modality: str(formData.get("modality")) || null,
+      status: str(formData.get("status")) || "planned",
+      notes: str(formData.get("notes")) || null,
+    },
+  });
+  revalidatePath(`/students/${studentId}`);
+  revalidatePath(`/employers/${employerId}`);
+}
+
+export async function updatePlacementStatus(placementId: string, status: string): Promise<void> {
+  const p = await prisma.wblPlacement.update({ where: { id: placementId }, data: { status }, select: { studentId: true, employerId: true } });
+  revalidatePath(`/students/${p.studentId}`);
+  revalidatePath(`/employers/${p.employerId}`);
+}
+
+export async function deletePlacement(placementId: string): Promise<void> {
+  const p = await prisma.wblPlacement.delete({ where: { id: placementId }, select: { studentId: true, employerId: true } });
+  revalidatePath(`/students/${p.studentId}`);
+  revalidatePath(`/employers/${p.employerId}`);
+}
+
 export interface CohortDrill {
   cohortId: string | null;
   programId: string | null;
