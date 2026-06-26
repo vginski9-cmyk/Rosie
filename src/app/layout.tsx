@@ -23,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <Link href="/" className="btn-ghost">Dashboard</Link>
                 <Link href="/insights" className="btn-ghost">Insights</Link>
                 <Link href="/students" className="btn-ghost">Students</Link>
+                <Link href="/people" className="btn-ghost">People</Link>
                 <Link href="/employers" className="btn-ghost">Employers</Link>
                 <Link href="/skills" className="btn-ghost">Skill library</Link>
                 <Link href="/wbl" className="btn-ghost">WBL alignment</Link>

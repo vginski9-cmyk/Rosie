@@ -560,6 +560,29 @@ export async function getStudent(studentId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// PEOPLE WORKSPACE — faculty / preceptors / support staff directory
+// ---------------------------------------------------------------------------
+
+/** Every staff person across institutions with assignment load, plus the
+ *  institution + employer lists for the add/edit form. */
+export async function getPeopleDirectory() {
+  const [people, institutions, employers, studentCount] = await Promise.all([
+    prisma.person.findMany({
+      orderBy: { name: "asc" },
+      include: {
+        institution: { select: { id: true, name: true } },
+        employer: { select: { id: true, name: true } },
+        _count: { select: { sessionStaff: true, assignments: true } },
+      },
+    }),
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.employer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, institutionId: true } }),
+    prisma.student.count(),
+  ]);
+  return { people, institutions, employers, studentCount };
+}
+
+// ---------------------------------------------------------------------------
 // EMPLOYERS WORKSPACE — partner directory, detail, and placement context
 // ---------------------------------------------------------------------------
 

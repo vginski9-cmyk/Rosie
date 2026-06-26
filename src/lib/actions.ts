@@ -104,6 +104,43 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 }
 
 // ---------------------------------------------------------------------------
+// PEOPLE — faculty / preceptors / support staff
+// ---------------------------------------------------------------------------
+
+export async function createPerson(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  await prisma.person.create({
+    data: {
+      institutionId,
+      name: str(formData.get("name")) || "New person",
+      role: str(formData.get("role")) || "instructor",
+      email: str(formData.get("email")) || null,
+      employerId: str(formData.get("employerId")) || null,
+    },
+  });
+  revalidatePath("/people");
+}
+
+export async function updatePerson(personId: string, formData: FormData): Promise<void> {
+  await prisma.person.update({
+    where: { id: personId },
+    data: {
+      name: str(formData.get("name")) || "Person",
+      role: str(formData.get("role")) || "instructor",
+      email: str(formData.get("email")) || null,
+      employerId: str(formData.get("employerId")) || null,
+    },
+  });
+  revalidatePath("/people");
+}
+
+export async function deletePerson(personId: string): Promise<void> {
+  await prisma.person.delete({ where: { id: personId } });
+  revalidatePath("/people");
+}
+
+// ---------------------------------------------------------------------------
 // EMPLOYERS — partner intake / management
 // ---------------------------------------------------------------------------
 
