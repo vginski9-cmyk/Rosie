@@ -29,6 +29,26 @@ export interface Instantiation {
   status: string;
 }
 
+/** Live actual funnel for a year, summed from the student database (cumulative). */
+export interface ActualFunnel {
+  interested: number; qualified: number; offered: number; enrolled: number;
+  completing: number; licensed: number; placed: number; productive: number;
+}
+
+/** Actual health-metric ratio for one rate, computed from the live funnel + capacity. */
+function actualRateOf(key: keyof LadderRates, a: ActualFunnel, cap: number): number | null {
+  switch (key) {
+    case "interestedSurplus": return cap ? a.interested / cap : null;
+    case "qualifiedSurplus": return cap ? a.qualified / cap : null;
+    case "offeredSurplus": return cap ? a.offered / cap : null;
+    case "enrollmentRate": return cap ? a.enrolled / cap : null;
+    case "completionRate": return a.enrolled ? a.completing / a.enrolled : null;
+    case "licensureRate": return a.completing ? a.licensed / a.completing : null;
+    case "placementRate": return a.licensed ? a.placed / a.licensed : null;
+    case "productivityRate": return a.placed ? a.productive / a.placed : null;
+  }
+}
+
 interface Persisted {
   anchor: Anchor;
   years: number[];
@@ -51,7 +71,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {},
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {},
 }: {
   familyId: string;
   familyName: string;
@@ -59,6 +79,7 @@ export function GoalPlanner({
   seedGoalsByYear: Record<number, number>;
   savedPlan: string | null;
   instantiationsByYear?: Record<number, Instantiation[]>;
+  actualByYear?: Record<number, ActualFunnel>;
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -67,9 +88,14 @@ export function GoalPlanner({
     for (const y of years) { const g = Math.round(seedGoalsByYear[y] ?? 0) || last; goalsByYear[String(y)] = g; last = g; }
     const capByYear: Record<string, number> = {};
     for (const y of years) capByYear[String(y)] = Math.round(capacityFromNorthStar(goalsByYear[String(y)], BENCHMARK_RATES));
+    // Open on the latest year with live student data (else latest with a cohort, else last).
+    const withData = years.filter((y) => (actualByYear[y]?.interested ?? 0) > 0);
+    const withCohorts = years.filter((y) => (instantiationsByYear[y]?.length ?? 0) > 0);
+    const pool = withData.length ? withData : withCohorts;
+    const defaultYear = pool.length ? pool[pool.length - 1] : years[years.length - 1];
     const base: Persisted = {
       anchor: "northstar", years, goalsByYear, capByYear,
-      selectedYear: years[years.length - 1],
+      selectedYear: defaultYear,
       goal: { ...BENCHMARK_RATES }, actual: { ...BENCHMARK_RATES },
     };
     if (savedPlan) {
@@ -85,7 +111,7 @@ export function GoalPlanner({
       } catch { /* fall through */ }
     }
     return base;
-  }, [seedYears, seedGoalsByYear, savedPlan]);
+  }, [seedYears, seedGoalsByYear, savedPlan, instantiationsByYear, actualByYear]);
 
   const [s, setS] = useState<Persisted>(initial);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
@@ -106,9 +132,11 @@ export function GoalPlanner({
 
   const goalCapacity = capacityForYear(s.selectedYear);
   const goalLadder = roundLadder(buildLadder(goalCapacity, s.goal));
-  const actualLadder = roundLadder(buildLadder(goalCapacity, s.actual));
+  // ACTUAL is sourced live from the student database (no manual entry).
+  const actualFunnel: ActualFunnel | null = actualByYear[s.selectedYear] ?? null;
+  const hasActual = actualFunnel != null && (actualFunnel.interested > 0 || actualFunnel.enrolled > 0);
   const goalUtil = utilization(goalLadder.productive, goalCapacity);
-  const actualUtil = utilization(actualLadder.productive, goalCapacity);
+  const actualUtil = actualFunnel ? utilization(actualFunnel.productive, goalCapacity) : null;
 
   const setYearValue = (year: number, v: number) => setS((p) => {
     const k = String(year);
@@ -130,19 +158,19 @@ export function GoalPlanner({
   });
 
   const setGoalRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, goal: { ...p.goal, [k]: vPct / 100 } }));
-  const setActualRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, actual: { ...p.actual, [k]: vPct / 100 } }));
-  const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES }, actual: { ...BENCHMARK_RATES } }));
-  const attain = (g: number, a: number) => (g > 0 ? a / g : null);
+  const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES } }));
+  const attain = (g: number, a: number | null) => (a != null && g > 0 ? a / g : null);
 
-  const ladderRows: { label: string; g: number; a: number; strong?: boolean }[] = [
-    { label: "Interested candidates", g: goalLadder.interested, a: actualLadder.interested },
-    { label: "Qualified applicants", g: goalLadder.qualified, a: actualLadder.qualified },
-    { label: "Offered admission", g: goalLadder.offered, a: actualLadder.offered },
-    { label: "Enrollment capacity", g: goalLadder.enrolled, a: actualLadder.enrolled, strong: true },
-    { label: "Completing on time", g: goalLadder.completing, a: actualLadder.completing },
-    { label: "Passing licensure (first time)", g: goalLadder.licensed, a: actualLadder.licensed },
-    { label: "Retained & placed regionally", g: goalLadder.placed, a: actualLadder.placed },
-    { label: "Reaching full productivity", g: goalLadder.productive, a: actualLadder.productive, strong: true },
+  const af = actualFunnel;
+  const ladderRows: { label: string; g: number; a: number | null; strong?: boolean }[] = [
+    { label: "Interested candidates", g: goalLadder.interested, a: af?.interested ?? null },
+    { label: "Qualified applicants", g: goalLadder.qualified, a: af?.qualified ?? null },
+    { label: "Offered admission", g: goalLadder.offered, a: af?.offered ?? null },
+    { label: "Enrollment capacity", g: goalLadder.enrolled, a: af?.enrolled ?? null, strong: true },
+    { label: "Completing on time", g: goalLadder.completing, a: af?.completing ?? null },
+    { label: "Passing licensure (first time)", g: goalLadder.licensed, a: af?.licensed ?? null },
+    { label: "Retained & placed regionally", g: goalLadder.placed, a: af?.placed ?? null },
+    { label: "Reaching full productivity", g: goalLadder.productive, a: af?.productive ?? null, strong: true },
   ];
 
   return (
@@ -216,12 +244,12 @@ export function GoalPlanner({
 
       {/* Selected year's full pipeline — two tables */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">{s.selectedYear} pipeline plan <span className="font-normal text-slate-400">— set the health-metric rates; the ladder autocalculates</span></h3>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">{s.selectedYear} pipeline plan <span className="font-normal text-slate-400">— goal rates set the plan; actuals are sourced live from the student database</span></h3>
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
               <div className="text-sm font-semibold text-slate-700">Talent-pipeline health metrics</div>
-              <p className="text-[11px] text-slate-400">Goal % and actual %. Capacity-anchored surpluses or chained yields.</p>
+              <p className="text-[11px] text-slate-400">Goal % is editable. <strong>Actual % is live from the student database{hasActual ? "" : " — no students for this year yet"}.</strong></p>
             </div>
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -234,8 +262,9 @@ export function GoalPlanner({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {RATE_DEFS.map((d) => {
-                  const gv = s.goal[d.key], av = s.actual[d.key];
-                  const healthy = av >= d.benchmark;
+                  const gv = s.goal[d.key];
+                  const ar = af ? actualRateOf(d.key, af, goalCapacity) : null;
+                  const healthy = ar != null && ar >= d.benchmark;
                   return (
                     <tr key={d.key} className="hover:bg-slate-50/60">
                       <td className="px-4 py-1.5">
@@ -245,9 +274,7 @@ export function GoalPlanner({
                       <td className="px-2 py-1.5 text-right">
                         <input type="number" value={Math.round(gv * 1000) / 10} step={1} onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
                       </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <input type="number" value={Math.round(av * 1000) / 10} step={1} onChange={(e) => setActualRate(d.key, Number(e.target.value) || 0)} className={`w-16 rounded border px-1.5 py-1 text-right tabular-nums focus:outline-none ${healthy ? "border-slate-200 focus:border-emerald-400" : "border-amber-300 bg-amber-50 focus:border-amber-400"}`} /><span className="ml-0.5 text-slate-400">%</span>
-                      </td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${ar == null ? "text-slate-300" : healthy ? "text-emerald-600" : "text-amber-600"}`}>{ar == null ? "—" : pct(ar)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(d.benchmark)}</td>
                     </tr>
                   );
@@ -283,7 +310,7 @@ export function GoalPlanner({
                     <tr key={r.label} className={r.strong ? "bg-rose-50/40" : "hover:bg-slate-50/60"}>
                       <td className={`px-4 py-1.5 ${r.strong ? "font-semibold text-slate-800" : "text-slate-700"}`}>{r.label}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{num(r.g)}</td>
-                      <td className={`px-3 py-1.5 text-right tabular-nums ${r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{num(r.a)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${r.a == null ? "text-slate-300" : r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{r.a == null ? "—" : num(r.a)}</td>
                       <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${attainColor(a)}`}>{pctOf(a)}</td>
                     </tr>
                   );

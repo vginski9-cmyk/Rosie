@@ -84,6 +84,28 @@ export default async function FamilyPage({ params }: { params: { id: string } })
     }
   }
 
+  // Full cumulative actual funnel per year (interested → productive) from student data.
+  const actualByYear: Record<number, import("@/components/GoalPlanner").ActualFunnel> = {};
+  for (const p of family.programs) {
+    for (const co of p.cohorts) {
+      const gy = gradYearOf(co.name) || co.entryYear || 0;
+      if (!gy) continue;
+      const a = (actualByYear[gy] ??= { interested: 0, qualified: 0, offered: 0, enrolled: 0, completing: 0, licensed: 0, placed: 0, productive: 0 });
+      for (const st of co.students) {
+        if (st.status === "withdrawn") continue;
+        const r = STATUS_RANK[st.status] ?? -1;
+        if (r >= 0) a.interested++;
+        if (r >= 1) a.qualified++;
+        if (r >= 2) a.offered++;
+        if (r >= 3) a.enrolled++;
+        if (r >= 4) a.completing++;
+        if (r >= 5) a.licensed++;
+        if (r >= 6) a.placed++;
+        if (r >= 7) a.productive++;
+      }
+    }
+  }
+
   // Group the family's delivery-model templates by credential (AAS / Diploma / Cert),
   // citing how many fully-productive workers each is expected to deliver this year.
   const homeYear = new Date().getUTCFullYear();
@@ -137,7 +159,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} />
+        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} />
       </section>
 
       {/* Multi-year goals, trajectory, constellation, health — interactive */}
