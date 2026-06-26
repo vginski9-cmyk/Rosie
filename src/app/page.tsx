@@ -1,148 +1,81 @@
 import Link from "next/link";
-import { getDashboard, getProgramBottleneck, getInsightsFacts } from "@/lib/queries";
-import { analyzeFunnel, pipelineHealth, type StageKey } from "@/lib/funnel";
-import { PivotExplorer } from "@/components/PivotExplorer";
+import { getNorthStarHome } from "@/lib/queries";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
-  const [institutions, facts] = await Promise.all([getDashboard(), getInsightsFacts()]);
+const CRED_BADGE: Record<string, string> = {
+  AAS: "bg-rose-100 text-rose-700", Diploma: "bg-violet-100 text-violet-700",
+  Certificate: "bg-sky-100 text-sky-700", Cert: "bg-sky-100 text-sky-700", Other: "bg-slate-100 text-slate-600",
+};
 
-  const totalPrograms = institutions.reduce((n, i) => n + i.programs.length, 0);
-
-  // Integrated bottleneck summary per program (supply vs concurrent demand).
-  const allProgramIds = institutions.flatMap((i) => i.programs.map((p) => p.id));
-  const bottleneckEntries = await Promise.all(
-    allProgramIds.map(async (id) => [id, await getProgramBottleneck(id)] as const),
-  );
-  const bottleneckByProgram = new Map(bottleneckEntries);
+export default async function HomePage() {
+  const jobs = await getNorthStarHome();
+  const thisYear = jobs[0]?.thisYear ?? new Date().getUTCFullYear();
+  const lastYear = thisYear - 1;
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Program portfolio</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">North Star goals</h1>
         <p className="mt-1 text-sm text-slate-500">
-          {institutions.length} institutions · {totalPrograms} programs · one shared model from labor-market demand to
-          delivery capacity.
+          For every target job: the fully-productive workers the region needs this year ({thisYear}), what was delivered last
+          year ({lastYear}), and progress toward the goal. Open a job to see the program families delivering toward it.
         </p>
       </div>
 
-      {/* All institutions, all programs — pivot/disaggregate across the whole portfolio */}
-      {facts.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold">All institutions, all programs</h2>
-              <p className="text-sm text-slate-500">
-                Pipeline and delivery metrics in one tidy table. Pick any two dimensions to aggregate or disaggregate by,
-                switch the measure, click headers to filter and cells to drill.
-              </p>
-            </div>
-            <Link href="/insights" className="text-xs text-rose-600 hover:underline">open full Insights explorer →</Link>
-          </div>
-          <PivotExplorer facts={facts} />
-        </section>
-      )}
+      {jobs.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No jobs with goals yet.</p>}
 
-      {institutions.map((inst) => {
-        // Group the institution's programs (templates) by family.
-        const families = new Map<string, { id: string | null; name: string; programs: typeof inst.programs }>();
-        for (const p of inst.programs) {
-          const fid = p.family?.id ?? "_none";
-          if (!families.has(fid)) families.set(fid, { id: p.family?.id ?? null, name: p.family?.name ?? "Other programs", programs: [] });
-          families.get(fid)!.programs.push(p);
-        }
-        return (
-        <section key={inst.id} className="space-y-4">
-          <div className="flex items-end justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">{inst.name}</h2>
-              <p className="text-sm text-slate-500">{inst.serviceArea}</p>
-            </div>
-            <div className="flex gap-4 text-xs text-slate-500">
-              <span>{inst._count.calendarBlocks} calendar blocks</span>
-              <span>{inst._count.employers} employers</span>
-              <span>{inst._count.people} staff</span>
-            </div>
-          </div>
-
-          {[...families.values()].map((fam) => (
-          <div key={fam.id ?? "none"} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/40 p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {fam.id ? (
-                  <Link href={`/families/${fam.id}`} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{fam.name} ↦</Link>
-                ) : <span className="text-base font-semibold text-slate-500">{fam.name}</span>}
-                <span className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200">{fam.programs.length} template{fam.programs.length === 1 ? "" : "s"}</span>
+      <div className="grid gap-5 lg:grid-cols-2">
+        {jobs.map((j) => {
+          const pct = j.progress != null ? Math.min(1, j.progress) : null;
+          const onTrack = j.progress != null && j.progress >= 0.9;
+          return (
+            <div key={j.familyId} className="card card-pad space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Link href={`/families/${j.familyId}`} className="text-lg font-semibold text-slate-800 hover:text-rose-700 hover:underline">{j.job} ↦</Link>
+                  <p className="text-xs text-slate-500">{j.socCode ? `SOC ${j.socCode} · ` : ""}{j.institution}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl font-bold tabular-nums text-slate-900">{fmt.num(j.thisYearGoal)}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400">{thisYear} goal · productive</div>
+                </div>
               </div>
-              {fam.id && <Link href={`/families/${fam.id}`} className="text-xs text-rose-600 hover:underline">goals &amp; trajectory →</Link>}
+
+              {/* Progress: last year's delivery toward this year's goal */}
+              <div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">{lastYear} delivered: <strong className="text-slate-700">{fmt.num(j.lastYearActual)}</strong></span>
+                  <span className={onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>
+                    {j.progress != null ? `${Math.round(j.progress * 100)}% of ${thisYear} goal` : "—"}
+                  </span>
+                </div>
+                <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${pct != null ? pct * 100 : 0}%` }} />
+                </div>
+              </div>
+
+              {/* Credential breakdown — who delivers toward the job */}
+              <div className="space-y-1.5 border-t border-slate-100 pt-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Delivered by</div>
+                {j.credentials.map((c) => (
+                  <div key={c.credential} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="flex items-center gap-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${CRED_BADGE[c.credential] ?? CRED_BADGE.Other}`}>{c.credential}</span>
+                      <span className="text-slate-400">{c.programs.length} template{c.programs.length === 1 ? "" : "s"} · {c.instantiations} running</span>
+                    </span>
+                    <span className="tabular-nums text-slate-600"><strong className="text-slate-800">{fmt.num(c.expected)}</strong> / yr</span>
+                  </div>
+                ))}
+                {j.credentials.length === 0 && <p className="text-xs text-slate-400">No credentials configured.</p>}
+              </div>
+
+              <Link href={`/families/${j.familyId}`} className="block text-xs text-rose-600 hover:underline">open job →</Link>
             </div>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {fam.programs.map((p) => {
-              const cohort = p.cohorts[0];
-              const analysis = cohort
-                ? analyzeFunnel(
-                    cohort.stages.map((s) => ({
-                      key: s.stageKey as StageKey,
-                      label: s.label,
-                      target: s.targetNumber,
-                      actual: s.actualNumber,
-                    })),
-                  )
-                : [];
-              const health = analysis.length ? pipelineHealth(analysis) : null;
-              const northStar = p.yearTargets.find((t) => t.credentialTarget != null);
-              const bn = bottleneckByProgram.get(p.id);
-
-              return (
-                <Link key={p.id} href={`/programs/${p.id}`} className="card card-pad block transition-shadow hover:shadow-md">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="font-semibold">{p.name}</h3>
-                      <p className="text-xs text-slate-500">
-                        {p.occupation?.title} · SOC {p.occupation?.socCode}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="badge bg-rose-50 text-rose-700">{p.credential}</span>
-                      {bn?.hasBottleneck && <span className="badge bg-amber-100 text-amber-800">{bn.bottleneckCount} bottleneck{bn.bottleneckCount === 1 ? "" : "s"}</span>}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    <div>
-                      <div className="stat-label">North Star</div>
-                      <div className="stat-value">{fmt.num(northStar?.credentialTarget)}</div>
-                      <div className="text-[11px] text-slate-400">grads / yr</div>
-                    </div>
-                    <div>
-                      <div className="stat-label">Terms</div>
-                      <div className="stat-value">{p._count.terms}</div>
-                      <div className="text-[11px] text-slate-400">in sequence</div>
-                    </div>
-                    <div>
-                      <div className="stat-label">Goal attainment</div>
-                      <div className="stat-value">{fmt.pct(health?.northStarAttainment)}</div>
-                      <div className="text-[11px] text-slate-400">actual / target</div>
-                    </div>
-                  </div>
-
-                  {health?.biggestLeak && (
-                    <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                      Biggest pipeline leak: <strong>{health.biggestLeak.label}</strong> — converting{" "}
-                      {fmt.pct(health.biggestLeak.dropVsTarget)} below plan.
-                    </div>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-          </div>
-          ))}
-        </section>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -198,6 +198,87 @@ export async function getInsightsFacts() {
   return facts;
 }
 
+// ---------------------------------------------------------------------------
+// HOME — North Star per job (occupation), with the credential breakdown
+// ---------------------------------------------------------------------------
+
+export interface JobCredential {
+  credential: string;
+  expected: number;       // fully-productive expected this year toward the job
+  instantiations: number; // running cohorts across this credential's templates
+  programs: { id: string; name: string; expected: number; instantiations: number; terms: number }[];
+}
+export interface JobNorthStar {
+  familyId: string;
+  job: string;
+  socCode: string | null;
+  institution: string;
+  thisYear: number;
+  lastYear: number;
+  thisYearGoal: number;
+  lastYearActual: number;
+  lastYearGoal: number;
+  progress: number | null; // last year's actual ÷ this year's goal
+  credentials: JobCredential[];
+}
+
+/** Per-job (occupation) North Star: this year's fully-productive goal, last year's
+ *  actual, and the credential (AAS/Diploma/Cert) breakdown that delivers it. */
+export async function getNorthStarHome(currentYear?: number): Promise<JobNorthStar[]> {
+  const thisYear = currentYear ?? new Date().getUTCFullYear();
+  const lastYear = thisYear - 1;
+  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+
+  const families = await prisma.programFamily.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      occupation: { select: { title: true, socCode: true } },
+      institution: { select: { name: true } },
+      programs: {
+        orderBy: { name: "asc" },
+        select: {
+          id: true, name: true, credential: true, _count: { select: { terms: true, cohorts: true } },
+          yearTargets: { select: { year: true, credentialTarget: true } },
+          cohorts: { select: { name: true, status: true, stages: { where: { stageKey: "productive" }, select: { actualNumber: true } } } },
+        },
+      },
+    },
+  });
+
+  return families.map((f) => {
+    const targetFor = (p: (typeof f.programs)[number], y: number) => p.yearTargets.find((t) => t.year === y)?.credentialTarget ?? 0;
+    const lastActualFor = (p: (typeof f.programs)[number]) =>
+      p.cohorts.filter((c) => gradYearOf(c.name) === lastYear).reduce((n, c) => n + (c.stages[0]?.actualNumber ?? 0), 0);
+
+    const credMap = new Map<string, JobCredential>();
+    let thisYearGoal = 0, lastYearActual = 0, lastYearGoal = 0;
+    for (const p of f.programs) {
+      const cred = p.credential || "Other";
+      const exp = targetFor(p, thisYear);
+      thisYearGoal += exp;
+      lastYearGoal += targetFor(p, lastYear);
+      lastYearActual += lastActualFor(p);
+      const running = p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length;
+      const e = credMap.get(cred) ?? { credential: cred, expected: 0, instantiations: 0, programs: [] };
+      e.expected += exp;
+      e.instantiations += running;
+      e.programs.push({ id: p.id, name: p.name, expected: exp, instantiations: running, terms: p._count.terms });
+      credMap.set(cred, e);
+    }
+
+    return {
+      familyId: f.id,
+      job: f.occupation?.title ?? f.name,
+      socCode: f.occupation?.socCode ?? null,
+      institution: f.institution.name,
+      thisYear, lastYear,
+      thisYearGoal, lastYearActual, lastYearGoal,
+      progress: thisYearGoal > 0 ? lastYearActual / thisYearGoal : null,
+      credentials: [...credMap.values()].sort((a, b) => b.expected - a.expected || a.credential.localeCompare(b.credential)),
+    };
+  }).sort((a, b) => b.thisYearGoal - a.thisYearGoal || a.job.localeCompare(b.job));
+}
+
 /** All program families grouped by institution, for the dashboard. */
 export async function getFamilies() {
   return prisma.institution.findMany({

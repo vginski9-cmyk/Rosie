@@ -64,6 +64,24 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   const seedGoalsByYear: Record<number, number> = goalByYear;
   const seedTerms = Math.max(5, ...family.programs.map((p) => p._count.terms));
 
+  // Group the family's delivery-model templates by credential (AAS / Diploma / Cert),
+  // citing how many fully-productive workers each is expected to deliver this year.
+  const homeYear = new Date().getUTCFullYear();
+  const targetFor = (p: (typeof family.programs)[number], y: number) => p.yearTargets.find((t) => t.year === y)?.credentialTarget ?? 0;
+  const credGroups = (() => {
+    const m = new Map<string, { credential: string; expected: number; programs: { p: (typeof family.programs)[number]; running: number; expected: number }[] }>();
+    for (const p of family.programs) {
+      const cred = p.credential || "Other";
+      const running = p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length;
+      const e = m.get(cred) ?? { credential: cred, expected: 0, programs: [] };
+      e.expected += targetFor(p, homeYear);
+      e.programs.push({ p, running, expected: targetFor(p, homeYear) });
+      m.set(cred, e);
+    }
+    return [...m.values()].sort((a, b) => b.expected - a.expected || a.credential.localeCompare(b.credential));
+  })();
+  const CRED_BADGE: Record<string, string> = { AAS: "bg-rose-100 text-rose-700", Diploma: "bg-violet-100 text-violet-700", Certificate: "bg-sky-100 text-sky-700", Cert: "bg-sky-100 text-sky-700", Other: "bg-slate-100 text-slate-600" };
+
   return (
     <div className="space-y-8">
       <div>
@@ -79,27 +97,39 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         </div>
       </div>
 
-      {/* Templates (the program structures) */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">Templates <span className="text-sm font-normal text-slate-400">— the program structures</span></h2>
-        <div className="grid gap-3 lg:grid-cols-2">
-          {family.programs.map((p) => (
-            <div key={p.id} className="rounded-xl border border-slate-200 p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <Link href={`/programs/${p.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{p.name}</Link>
-                  <div className="text-xs text-slate-500">{p.programType} · {p.credential} · {p._count.terms} terms · {p.cohorts.length} offerings</div>
-                </div>
-                <Link href={`/programs/${p.id}/structure`} className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100">Design ↦</Link>
+      {/* Credentials → delivery-model templates → instantiations */}
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold">Credentials &amp; delivery models <span className="text-sm font-normal text-slate-400">— who delivers toward this job ({homeYear})</span></h2>
+        {credGroups.map((g) => (
+          <div key={g.credential} className="rounded-xl border border-slate-200 bg-slate-50/40 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${CRED_BADGE[g.credential] ?? CRED_BADGE.Other}`}>{g.credential}</span>
+                <span className="text-xs text-slate-500">{g.programs.length} delivery model{g.programs.length === 1 ? "" : "s"}</span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {p.cohorts.sort((a, b) => gradYearOf(a.name) - gradYearOf(b.name)).map((co) => (
-                  <Link key={co.id} href={`/programs/${p.id}/offerings/${co.id}`} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[co.status] ?? "bg-slate-100 text-slate-600"}`}>{co.name}</Link>
-                ))}
-              </div>
+              <span className="text-sm tabular-nums text-slate-600"><strong className="text-slate-800">{g.expected}</strong> productive / yr expected</span>
             </div>
-          ))}
-        </div>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {g.programs.map(({ p, running, expected }) => (
+                <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <Link href={`/programs/${p.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{p.name}</Link>
+                      <div className="text-xs text-slate-500">{p._count.terms}-term structure · {expected} productive/yr · {running} running · {p.cohorts.length} total offerings</div>
+                    </div>
+                    <Link href={`/programs/${p.id}/structure`} className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100">Design ↦</Link>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {p.cohorts.sort((a, b) => gradYearOf(a.name) - gradYearOf(b.name)).map((co) => (
+                      <Link key={co.id} href={`/programs/${p.id}/offerings/${co.id}`} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[co.status] ?? "bg-slate-100 text-slate-600"}`}>{co.name}</Link>
+                    ))}
+                    {p.cohorts.length === 0 && <span className="text-[11px] text-slate-400">no instantiations yet</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </section>
 
       {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}
