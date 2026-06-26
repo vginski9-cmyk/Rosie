@@ -1,9 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/queries";
+import { addSessionResource, deleteSessionResource } from "@/lib/actions";
 import { CourseServicePanel, type PanelSession } from "@/components/CourseServicePanel";
 
 export const dynamic = "force-dynamic";
+
+const RES_KINDS = ["HOMEWORK", "ASSIGNMENT", "READING", "VIDEO", "PRACTICE", "MATERIAL"];
+const RES_META: Record<string, { label: string; badge: string }> = {
+  HOMEWORK: { label: "Homework", badge: "bg-rose-100 text-rose-700" },
+  ASSIGNMENT: { label: "Outside assignment", badge: "bg-orange-100 text-orange-700" },
+  READING: { label: "Reading", badge: "bg-sky-100 text-sky-700" },
+  VIDEO: { label: "Watch", badge: "bg-violet-100 text-violet-700" },
+  PRACTICE: { label: "Practice", badge: "bg-emerald-100 text-emerald-700" },
+  MATERIAL: { label: "Material", badge: "bg-slate-100 text-slate-600" },
+};
+const KIND_DOT: Record<string, string> = { CLASS: "bg-sky-500", LAB: "bg-violet-500", CLINICAL: "bg-rose-500" };
 
 const HOUR_TILES = [
   { key: "creditHours", label: "Credit hours" },
@@ -115,6 +127,57 @@ export default async function CoursePage({ params }: { params: { id: string } })
         ) : (
           <p className="text-sm text-slate-400">No sessions defined for this course yet.</p>
         )}
+      </div>
+
+      {/* Course planning — learning resources per session */}
+      <div>
+        <h2 className="mb-1 text-xl font-semibold tracking-tight">Course planning — learning resources</h2>
+        <p className="mb-6 text-sm text-slate-500">
+          For each session, what students should <strong>read, watch, practice</strong> or hand in — homework, outside
+          assignments, readings, and materials. These show up on the student&apos;s schedule.
+        </p>
+        <div className="space-y-4">
+          {course.sessions.map((s) => (
+            <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${KIND_DOT[s.kind] ?? "bg-slate-400"}`} />
+                <span className="text-sm font-semibold text-slate-800">{s.kind} {s.number}{s.title ? ` · ${s.title}` : ""}</span>
+                <span className="text-[11px] text-slate-400">{s.resources.length} resource{s.resources.length === 1 ? "" : "s"}</span>
+              </div>
+
+              {s.homework && <p className="mt-1 text-[12px] text-slate-500"><span className="font-medium text-slate-600">Quick note:</span> {s.homework}</p>}
+
+              {s.resources.length > 0 && (
+                <ul className="mt-2 space-y-1.5">
+                  {s.resources.map((r) => (
+                    <li key={r.id} className="flex items-start justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-1.5 text-[13px]">
+                      <div>
+                        <span className={`mr-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${RES_META[r.kind]?.badge ?? "bg-slate-100 text-slate-600"}`}>{RES_META[r.kind]?.label ?? r.kind}</span>
+                        {r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-medium text-rose-700 hover:underline">{r.title}</a> : <span className="font-medium text-slate-800">{r.title}</span>}
+                        {r.estMinutes != null && <span className="ml-2 text-[11px] text-slate-400">~{r.estMinutes} min</span>}
+                        {r.detail && <span className="block text-[11px] text-slate-400">{r.detail}</span>}
+                      </div>
+                      <form action={deleteSessionResource.bind(null, r.id, course.id)}>
+                        <button className="px-1 text-[11px] text-slate-300 hover:text-rose-600" title="remove">✕</button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <form action={addSessionResource.bind(null, s.id, course.id, program.id)} className="mt-2 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2">
+                <select name="kind" defaultValue="READING" className="rounded-lg border border-slate-300 px-2 py-1 text-sm">
+                  {RES_KINDS.map((k) => <option key={k} value={k}>{RES_META[k].label}</option>)}
+                </select>
+                <input name="title" required placeholder="title (e.g. Bontrager ch. 4)" className="w-56 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+                <input name="url" placeholder="link (optional)" className="w-44 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+                <input name="estMinutes" type="number" min={0} placeholder="min" className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums" />
+                <input name="detail" placeholder="note (optional)" className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+                <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900">+ Add</button>
+              </form>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

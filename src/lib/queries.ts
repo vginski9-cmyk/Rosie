@@ -721,7 +721,7 @@ export async function getCourse(courseId: string) {
   return prisma.course.findUnique({
     where: { id: courseId },
     include: {
-      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] },
+      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { resources: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } } },
       courseSkills: { include: { skill: true } },
       term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },

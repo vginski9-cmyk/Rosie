@@ -281,8 +281,28 @@ model Session {
   skillLinks SessionSkill[]
   instructors SessionInstructor[]
   sectionSchedules SectionSchedule[]
+  resources SessionResource[]
 
   @@index([courseId])
+}
+
+/// A learning resource attached to a session: homework / outside assignment /
+/// reading / video / practice / material — what students read, watch, or practice
+/// for this session. Richer than the legacy Session.homework string.
+model SessionResource {
+  id         String @id @default(cuid())
+  sessionId  String
+  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// HOMEWORK | ASSIGNMENT | READING | VIDEO | PRACTICE | MATERIAL
+  kind       String  @default("READING")
+  title      String
+  url        String?
+  detail     String?
+  estMinutes Int?
+  sortOrder  Int     @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([sessionId])
 }
 
 /// Per-OFFERING scheduling override for ONE section of a session. The template

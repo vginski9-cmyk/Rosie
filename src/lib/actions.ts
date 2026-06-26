@@ -104,6 +104,30 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 }
 
 // ---------------------------------------------------------------------------
+// SESSION RESOURCES — homework / readings / materials (course planning)
+// ---------------------------------------------------------------------------
+
+export async function addSessionResource(sessionId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
+  await prisma.sessionResource.create({
+    data: {
+      sessionId,
+      kind: str(formData.get("kind")) || "READING",
+      title: str(formData.get("title")) || "Untitled",
+      url: str(formData.get("url")) || null,
+      detail: str(formData.get("detail")) || null,
+      estMinutes: optNum(formData.get("estMinutes")),
+    },
+  });
+  revalidatePath(`/courses/${courseId}`);
+  revalidatePath(`/programs/${programId}/structure`);
+}
+
+export async function deleteSessionResource(resourceId: string, courseId: string): Promise<void> {
+  await prisma.sessionResource.delete({ where: { id: resourceId } });
+  revalidatePath(`/courses/${courseId}`);
+}
+
+// ---------------------------------------------------------------------------
 // FACILITIES — classrooms / labs / clinical spaces
 // ---------------------------------------------------------------------------
 

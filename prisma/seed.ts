@@ -932,6 +932,21 @@ async function main() {
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Radiography Faculty 1", role: "instructor" } });
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Clinical Preceptor — Imaging", role: "preceptor", employerId: firstHealth.id } });
 
+  // ----- Session learning resources (course planning sample) --------------
+  {
+    const firstSession = await prisma.session.findFirst({ where: { course: { term: { programId: rad.id } } }, orderBy: { number: "asc" }, select: { id: true } });
+    if (firstSession) {
+      await prisma.sessionResource.createMany({
+        data: [
+          { sessionId: firstSession.id, kind: "READING", title: "Bontrager Ch. 4 — Upper Limb", estMinutes: 45, sortOrder: 0 },
+          { sessionId: firstSession.id, kind: "VIDEO", title: "Positioning demo: PA hand", url: "https://example.edu/video", estMinutes: 12, sortOrder: 1 },
+          { sessionId: firstSession.id, kind: "PRACTICE", title: "Lab: 5 hand positions on phantom", detail: "sign off with preceptor", sortOrder: 2 },
+          { sessionId: firstSession.id, kind: "HOMEWORK", title: "Worksheet 4 — markers & ID", estMinutes: 30, sortOrder: 3 },
+        ],
+      });
+    }
+  }
+
   // ----- Facilities (supply of physical teaching space) -------------------
   await prisma.facility.createMany({
     data: [
