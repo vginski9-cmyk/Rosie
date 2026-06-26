@@ -578,19 +578,40 @@ export async function getFacilitiesDirectory() {
 /** Every staff person across institutions with assignment load, plus the
  *  institution + employer lists for the add/edit form. */
 export async function getPeopleDirectory() {
-  const [people, institutions, employers, studentCount] = await Promise.all([
+  const [raw, institutions, employers, studentCount] = await Promise.all([
     prisma.person.findMany({
       orderBy: { name: "asc" },
       include: {
         institution: { select: { id: true, name: true } },
         employer: { select: { id: true, name: true } },
         _count: { select: { sessionStaff: true, assignments: true } },
+        // Cohort-level assignments (this run), for the time-bound load view.
+        sessionStaff: {
+          where: { cohortId: { not: null } },
+          select: { contactHours: true, cohort: { select: { id: true, name: true, program: { select: { name: true } } } } },
+        },
       },
     }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.employer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, institutionId: true } }),
     prisma.student.count(),
   ]);
+
+  // Roll each person's cohort assignments into a load summary (cohorts + hours).
+  const people = raw.map((p) => {
+    const byCohort = new Map<string, { name: string; program: string; hours: number }>();
+    for (const si of p.sessionStaff) {
+      if (!si.cohort) continue;
+      const cur = byCohort.get(si.cohort.id) ?? { name: si.cohort.name, program: si.cohort.program.name, hours: 0 };
+      cur.hours += si.contactHours;
+      byCohort.set(si.cohort.id, cur);
+    }
+    const cohorts = [...byCohort.values()].sort((a, b) => b.hours - a.hours);
+    const totalHours = cohorts.reduce((n, c) => n + c.hours, 0);
+    const { sessionStaff: _drop, ...rest } = p;
+    return { ...rest, load: { cohorts, totalHours } };
+  });
+
   return { people, institutions, employers, studentCount };
 }
 

@@ -11,6 +11,7 @@ export interface DirPerson {
   institution: { id: string; name: string };
   employer: { id: string; name: string } | null;
   _count: { sessionStaff: number; assignments: number };
+  load: { totalHours: number; cohorts: { name: string; program: string; hours: number }[] };
 }
 export interface InstLite { id: string; name: string }
 export interface EmpLite { id: string; name: string; institutionId: string }
@@ -28,6 +29,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
   const [fRole, setFRole] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [loadOpen, setLoadOpen] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -87,7 +89,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
               <th className="px-3 py-2 text-left font-semibold">Role</th>
               <th className="px-3 py-2 text-left font-semibold">Email</th>
               <th className="px-3 py-2 text-left font-semibold">Employer / institution</th>
-              <th className="px-3 py-2 text-center font-semibold">Assignments</th>
+              <th className="px-3 py-2 text-left font-semibold">Load (cohorts · hrs)</th>
               <th className="px-3 py-2 text-right font-semibold"></th>
             </tr>
           </thead>
@@ -105,12 +107,39 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ROLE_BADGE[p.role] ?? "bg-slate-100 text-slate-600"}`}>{ROLE_LABEL[p.role] ?? p.role}</span></td>
                   <td className="px-3 py-2 text-slate-500">{p.email ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{p.employer?.name ?? p.institution.name}</td>
-                  <td className="px-3 py-2 text-center tabular-nums text-slate-500" title="sessions staffed · program assignments">{p._count.sessionStaff}<span className="text-slate-300"> · {p._count.assignments}</span></td>
+                  <td className="px-3 py-2">
+                    {p.load.cohorts.length === 0 ? (
+                      <span className="text-[12px] text-slate-300">no cohort assignments</span>
+                    ) : (
+                      <button onClick={() => setLoadOpen(loadOpen === p.id ? null : p.id)} className="text-[12px] text-slate-600 hover:text-rose-700">
+                        <span className="font-medium">{p.load.cohorts.length}</span> cohort{p.load.cohorts.length === 1 ? "" : "s"} · <span className="tabular-nums">{Math.round(p.load.totalHours)}h</span>
+                        <span className="ml-1 text-slate-300">{loadOpen === p.id ? "▾" : "▸"}</span>
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => setEditing(p.id)} className="text-xs text-rose-600 hover:underline">edit</button>
                   </td>
                 </tr>
               )
+            ))}
+            {filtered.map((p) => (
+              loadOpen === p.id && editing !== p.id ? (
+                <tr key={p.id + "-load"} className="bg-slate-50/60">
+                  <td colSpan={6} className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{p.name} — assignment load:</span>
+                      {p.load.cohorts.map((c) => (
+                        <span key={c.name} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] ring-1 ring-slate-200">
+                          <span className="text-slate-700">{c.name}</span>
+                          <span className="text-slate-400">{c.program}</span>
+                          <span className="tabular-nums text-rose-600">{Math.round(c.hours)}h</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ) : null
             ))}
             {filtered.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">No people match these filters.</td></tr>}
           </tbody>
