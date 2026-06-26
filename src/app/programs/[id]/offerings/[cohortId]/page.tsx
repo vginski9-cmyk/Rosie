@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering } from "@/lib/queries";
+import { getOffering, getOfferingStaffing } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
+import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 
@@ -19,6 +20,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
+  const staffing = await getOfferingStaffing(params.cohortId);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -84,6 +86,16 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           </table>
         </div>
       </section>
+
+      {/* Per-instantiation staffing + time-bound analytics */}
+      {staffing && (
+        <OfferingStaffing
+          cohortId={offering.id} programId={program.id}
+          terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
+          staff={staffing.staff}
+          people={staffing.people}
+        />
+      )}
 
       {/* This run's funnel */}
       {offering.stages.length > 0 && (

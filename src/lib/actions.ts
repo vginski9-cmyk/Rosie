@@ -104,6 +104,30 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 }
 
 // ---------------------------------------------------------------------------
+// OFFERING STAFFING — assign people to a cohort's course (all its sessions)
+// ---------------------------------------------------------------------------
+
+/** Assign a person to every session of a course FOR THIS COHORT (per-run staffing). */
+export async function assignCourseStaff(cohortId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
+  const personId = str(formData.get("personId"));
+  if (!personId) return;
+  const role = str(formData.get("role")) || "instructor";
+  const sessions = await prisma.session.findMany({ where: { courseId }, select: { id: true, lengthHours: true } });
+  for (const s of sessions) {
+    const exists = await prisma.sessionInstructor.findFirst({ where: { cohortId, sessionId: s.id, personId } });
+    if (exists) continue;
+    await prisma.sessionInstructor.create({ data: { cohortId, sessionId: s.id, personId, role, contactHours: s.lengthHours, segment: role } });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+}
+
+/** Remove a person from all of a course's sessions for this cohort. */
+export async function removeCourseStaff(cohortId: string, courseId: string, personId: string, programId: string): Promise<void> {
+  await prisma.sessionInstructor.deleteMany({ where: { cohortId, personId, session: { courseId } } });
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+}
+
+// ---------------------------------------------------------------------------
 // SESSION RESOURCES — homework / readings / materials (course planning)
 // ---------------------------------------------------------------------------
 

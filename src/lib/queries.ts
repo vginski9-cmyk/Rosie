@@ -691,6 +691,33 @@ export async function getProgramSessionPlan(programId: string) {
 /** Everything the offering scheduler needs: the offering, its program template
  *  (terms → courses → sessions), the planned enrollment that sets section counts,
  *  and any per-section slot overrides already saved for this run. */
+/** Per-offering staffing: the template's terms/courses/sessions, the staff already
+ *  assigned to THIS cohort, and the institution's people pool to assign from. */
+export async function getOfferingStaffing(cohortId: string) {
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      program: {
+        include: {
+          institution: { select: { id: true, name: true } },
+          terms: {
+            orderBy: { index: "asc" },
+            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { id: true, lengthHours: true, kind: true } } } } },
+          },
+        },
+      },
+      sessionStaff: { include: { person: { select: { id: true, name: true, role: true } }, session: { select: { id: true, courseId: true } } } },
+    },
+  });
+  if (!cohort) return null;
+  const people = await prisma.person.findMany({
+    where: { institutionId: cohort.program.institution.id },
+    orderBy: [{ role: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, role: true },
+  });
+  return { cohort, program: cohort.program, staff: cohort.sessionStaff, people };
+}
+
 export async function getOfferingScheduler(cohortId: string) {
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
