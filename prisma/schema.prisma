@@ -464,7 +464,16 @@ model Person {
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
   role          String // instructor | support | preceptor | supervisor | coordinator
+  title         String? // job title, e.g. "Clinical Coordinator", "Lead MRI Tech"
   email         String?
+  /// Whether the person is currently affiliated with the org (employed/contracted).
+  /// Distinct from "currently working" — which is derived from active assignments
+  /// in the term in session today.
+  active        Boolean @default(true)
+  /// Affiliation window. endDate set = departed/inactive.
+  startDate     DateTime?
+  endDate       DateTime?
+  employmentType String? // full-time | part-time | adjunct | contract | preceptor
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id])
   assignments   Assignment[]

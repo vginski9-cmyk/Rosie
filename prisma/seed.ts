@@ -644,6 +644,71 @@ async function seedSessionStaff(
   }
 }
 
+// ---- Generic allied-health program generator (for the data-expansion block) ----
+// Builds a sensibly-structured multi-term program with explicit (small) session
+// counts so session volume stays controlled while term spans stay realistic — the
+// term week-spans drive the cohort-timing engine (current term / expected end / phase).
+function genTerms(prefix: string, spanWeeks: number, nTerms: number, hasClinical: boolean): TermSeed[] {
+  const W = Math.max(8, Math.floor(spanWeeks / nTerms));
+  const labels = ["Fall", "Spring", "Summer"];
+  return Array.from({ length: nTerms }, (_, i) => {
+    const lvl = i + 1;
+    const courses: CourseSeed[] = [
+      {
+        code: `${prefix}-${110 + i * 10}`, name: `${prefix} Theory ${lvl}`,
+        weeklyClassHours: 3, weeklyLabHours: 0, weeklyClinicalHours: 0, credits: 3, semester: "All", type: "CORE",
+        description: `Core didactic instruction for level ${lvl} of the program.`, requisites: "",
+        sessions: [{ kind: "CLASS", count: 10, lengthHours: 3, maxStudents: 32, facultyNeeded: 1, title: `Lecture`, location: "Health Sciences Classroom" }],
+      },
+      {
+        code: `${prefix}-${111 + i * 10}`, name: `${prefix} Skills Lab ${lvl}`,
+        weeklyClassHours: 1, weeklyLabHours: 4, weeklyClinicalHours: 0, credits: 2, semester: "All", type: "CORE",
+        description: `Hands-on skills laboratory for level ${lvl}.`, requisites: "",
+        sessions: [{ kind: "LAB", count: 8, lengthHours: 3, maxStudents: 14, facultyNeeded: 1, title: `Skills Lab`, location: "Skills Lab" }],
+      },
+    ];
+    if (hasClinical && i >= 1) {
+      courses.push({
+        code: `${prefix}-${112 + i * 10}`, name: `${prefix} Clinical ${lvl}`,
+        weeklyClassHours: 0, weeklyLabHours: 0, weeklyClinicalHours: 18, credits: 3, semester: "All", type: "CORE",
+        description: `Supervised clinical practicum at a partner site, level ${lvl}.`, requisites: "",
+        sessions: [{ kind: "CLINICAL", count: 6, lengthHours: 8, maxStudents: 8, facultyNeeded: 0, preceptorsNeeded: 1, title: `Clinical Rotation`, clinicalMode: "Preceptor-led", location: "Partner clinical site" }],
+      });
+    }
+    return { index: lvl, name: `${labels[i % 3]} ${lvl}`, startWeek: i * W + 1, endWeek: i * W + W, courses };
+  });
+}
+
+// Lean per-cohort staffing: assign each course's sessions to a rotating faculty
+// member (clinical sessions to a preceptor), producing per-cohort SessionInstructor
+// rows so workload accrues by cohort → term → year/semester.
+async function seedCohortStaff(
+  cohortId: string, programId: string,
+  faculty: { id: string }[], preceptors: { id: string }[],
+) {
+  if (!faculty.length) return;
+  const courses = await prisma.course.findMany({
+    where: { term: { programId } },
+    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
+    include: { sessions: { select: { id: true, kind: true, lengthHours: true } } },
+  });
+  const rows: { sessionId: string; cohortId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
+  let ci = 0;
+  for (const co of courses) {
+    const primary = faculty[ci % faculty.length];
+    ci += 1;
+    for (const s of co.sessions) {
+      if (s.kind === "CLINICAL" && preceptors.length) {
+        const prec = preceptors[s.id.charCodeAt(s.id.length - 1) % preceptors.length];
+        rows.push({ sessionId: s.id, cohortId, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
+      } else {
+        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
+      }
+    }
+  }
+  if (rows.length) await prisma.sessionInstructor.createMany({ data: rows });
+}
+
 // ---- WBL dated snapshots: per-employer capacity + per-student learner profiles
 type Fac = { layer: string; label: string; detail?: string; weight?: number; binding?: boolean; disclosure?: string; matchKey: string };
 const F = {
@@ -1303,6 +1368,174 @@ async function main() {
     ],
     radWblStudents,
   );
+
+  // ===== DATA EXPANSION: a full allied-health portfolio at Sandhills ==========
+  // More program families (Nursing, Practical Nursing, Medical Assisting, Phlebotomy,
+  // Respiratory Therapy, Pharmacy Tech), each with multi-year cohorts, plus a deep
+  // bench of clinical-partner employers and staff (faculty / preceptors / support)
+  // carrying active-status, titles, employment type, and affiliation windows. Cohort
+  // rosters auto-populate from the roster seeder below (it sees every started cohort).
+  {
+    const AS_OF = new Date("2026-06-26T00:00:00Z");
+    const ex = mulberry32(0x52051e);
+    const pick = <T,>(a: T[]): T => a[Math.floor(ex() * a.length)];
+    const ri = (lo: number, hi: number) => lo + Math.floor(ex() * (hi - lo + 1));
+    const STAFF_FIRST = ["Patricia", "Robert", "Linda", "James", "Barbara", "Michael", "Susan", "David", "Karen", "Richard", "Nancy", "Joseph", "Lisa", "Thomas", "Sandra", "Charles", "Donna", "Mark", "Carol", "Paul", "Michelle", "Steven", "Deborah", "Kenneth", "Angela", "Brian", "Melissa", "Anthony", "Rebecca", "Kevin"];
+    const STAFF_LAST = LAST_NAMES;
+    const statusFromStart = (start: Date, terms: TimingTerm[]): string => {
+      const tm = computeCohortTiming(start, terms, AS_OF);
+      return tm.phase === "graduated" ? "completed" : tm.phase === "recruiting" ? "planned" : "active";
+    };
+
+    // -- More clinical-partner employers across the Sandhills region ----------
+    const EMP = [
+      { name: "Cape Fear Valley — Hoke Hospital", setting: "Acute-care Hospital / Health System", city: "Raeford", status: "active" },
+      { name: "Moore Regional Hospital — Richmond", setting: "Acute-care Hospital / Health System", city: "Rockingham", status: "active" },
+      { name: "Sandhills Regional Medical Center", setting: "Acute-care Hospital / Health System", city: "Hamlet", status: "active" },
+      { name: "Carolina Imaging Partners", setting: "Outpatient Imaging Center", city: "Southern Pines", status: "active" },
+      { name: "Pinehurst Radiology Associates", setting: "Outpatient Imaging Center", city: "Pinehurst", status: "active" },
+      { name: "Sandhills Surgery Center", setting: "Ambulatory Surgical Center", city: "Pinehurst", status: "active" },
+      { name: "FirstHealth Outpatient Surgery", setting: "Ambulatory Surgical Center", city: "Raeford", status: "active" },
+      { name: "Quail Haven Skilled Nursing", setting: "Skilled Nursing Facility", city: "Pinehurst", status: "active" },
+      { name: "Pinelake Health & Rehab", setting: "Skilled Nursing Facility", city: "Carthage", status: "active" },
+      { name: "Sandhills Family Practice", setting: "Physician Practice / Clinic", city: "Aberdeen", status: "active" },
+      { name: "Moore County Health Department", setting: "Public Health Clinic", city: "Carthage", status: "active" },
+      { name: "AccessCare Urgent Care — Pinehurst", setting: "Urgent Care", city: "Pinehurst", status: "active" },
+      { name: "FastMed Urgent Care — Aberdeen", setting: "Urgent Care", city: "Aberdeen", status: "active" },
+      { name: "CVS Pharmacy #4821", setting: "Retail Pharmacy", city: "Southern Pines", status: "active" },
+      { name: "FirstHealth Inpatient Pharmacy", setting: "Hospital Pharmacy", city: "Pinehurst", status: "active" },
+      { name: "Walgreens — Sandhills", setting: "Retail Pharmacy", city: "Aberdeen", status: "active" },
+      { name: "Sandhills Pediatrics", setting: "Physician Practice / Clinic", city: "Southern Pines", status: "active" },
+      { name: "Carolina Cardiology — Sandhills", setting: "Specialty Clinic", city: "Pinehurst", status: "active" },
+      { name: "Pinehurst Medical Clinic", setting: "Multispecialty Clinic", city: "Pinehurst", status: "active" },
+      { name: "Hospice of the Sandhills", setting: "Hospice / Home Health", city: "Pinehurst", status: "active" },
+      { name: "Liberty Home Care — Moore", setting: "Hospice / Home Health", city: "Aberdeen", status: "active" },
+      { name: "Womack Army Medical Center", setting: "Acute-care Hospital / Health System", city: "Fort Liberty", status: "prospect" },
+      { name: "Scotland Surgical Associates", setting: "Ambulatory Surgical Center", city: "Laurinburg", status: "paused" },
+      { name: "Old North State Imaging (closed)", setting: "Outpatient Imaging Center", city: "Rockingham", status: "archived" },
+    ];
+    const expandedEmployers: { id: string; name: string; setting: string }[] = [];
+    for (const e of EMP) {
+      const rec = await prisma.employer.create({ data: { institutionId: sandhills.id, name: e.name, setting: e.setting, city: e.city, status: e.status } });
+      expandedEmployers.push({ id: rec.id, name: rec.name, setting: e.setting });
+    }
+    // Preceptor-eligible sites (everything active that hosts learners on-site).
+    const preceptorSites = [
+      { id: firstHealth.id, name: firstHealth.name }, { id: scotland.id, name: scotland.name }, { id: pinehurstOutpatient.id, name: pinehurstOutpatient.name },
+      ...expandedEmployers.filter((e) => !e.name.includes("closed")),
+    ];
+
+    // -- Preceptors at partner sites (1–3 each) ------------------------------
+    const PRECEPTOR_TITLES = ["Lead Clinical Preceptor", "Clinical Preceptor", "Staff Preceptor", "Charge Nurse / Preceptor", "Lead Technologist"];
+    const allPreceptors: { id: string }[] = [];
+    for (const site of preceptorSites) {
+      const n = ri(1, 3);
+      for (let i = 0; i < n; i++) {
+        const active = ex() > 0.12;
+        const startYr = ri(2017, 2024);
+        const p = await prisma.person.create({
+          data: {
+            institutionId: sandhills.id, name: `${pick(STAFF_FIRST)} ${pick(STAFF_LAST)}`,
+            role: "preceptor", title: pick(PRECEPTOR_TITLES), employerId: site.id,
+            employmentType: "preceptor", active,
+            startDate: new Date(`${startYr}-01-15`), endDate: active ? null : new Date(`${ri(startYr + 1, 2025)}-06-30`),
+            email: `precept.${pick(STAFF_LAST).toLowerCase()}.${i}.${site.id.slice(-4)}@example.org`,
+          },
+        });
+        allPreceptors.push({ id: p.id });
+      }
+    }
+
+    // -- Support staff (advising, admin, sim, clinical placement) ------------
+    const SUPPORT = [
+      { title: "Health Sciences Academic Advisor", type: "full-time" }, { title: "Admissions & Enrollment Specialist", type: "full-time" },
+      { title: "Clinical Placement Coordinator", type: "full-time" }, { title: "Simulation Lab Technician", type: "full-time" },
+      { title: "Administrative Assistant", type: "full-time" }, { title: "Retention & Success Coach", type: "part-time" },
+      { title: "Skills Lab Aide", type: "part-time" }, { title: "Health Sciences Dean (Office)", type: "full-time" },
+    ];
+    for (const s of SUPPORT) {
+      const active = ex() > 0.1;
+      const startYr = ri(2015, 2024);
+      await prisma.person.create({
+        data: {
+          institutionId: sandhills.id, name: `${pick(STAFF_FIRST)} ${pick(STAFF_LAST)}`,
+          role: "support", title: s.title, employmentType: s.type, active,
+          startDate: new Date(`${startYr}-08-01`), endDate: active ? null : new Date(`${ri(startYr + 1, 2025)}-12-15`),
+        },
+      });
+    }
+
+    // -- Allied-health families: occupation → family → template → cohorts -----
+    type FamCfg = { soc: string; occ: string; fam: string; prog: string; ptype: string; cred: string; prefix: string; spanWeeks: number; nTerms: number; seats: number; goal: number; grads: number[] };
+    const FAMILIES: FamCfg[] = [
+      { soc: "29-1141", occ: "Registered Nurses", fam: "Associate Degree Nursing", prog: "Associate Degree Nursing", ptype: "Traditional Full Time", cred: "AAS", prefix: "NUR", spanWeeks: 104, nTerms: 4, seats: 40, goal: 48, grads: [2024, 2025, 2026, 2027, 2028, 2029] },
+      { soc: "29-2061", occ: "Licensed Practical & Vocational Nurses", fam: "Practical Nursing", prog: "Practical Nursing", ptype: "Traditional Full Time", cred: "Diploma", prefix: "PNU", spanWeeks: 51, nTerms: 3, seats: 30, goal: 34, grads: [2024, 2025, 2026, 2027, 2028] },
+      { soc: "31-9092", occ: "Medical Assistants", fam: "Medical Assisting", prog: "Medical Assisting", ptype: "Traditional Full Time", cred: "Diploma", prefix: "MED", spanWeeks: 52, nTerms: 2, seats: 28, goal: 30, grads: [2024, 2025, 2026, 2027, 2028] },
+      { soc: "31-9097", occ: "Phlebotomists", fam: "Phlebotomy", prog: "Phlebotomy Certificate", ptype: "Accelerated", cred: "Certificate", prefix: "PBT", spanWeeks: 24, nTerms: 1, seats: 20, goal: 24, grads: [2024, 2025, 2026, 2027] },
+      { soc: "29-1126", occ: "Respiratory Therapists", fam: "Respiratory Therapy", prog: "Respiratory Therapy", ptype: "Traditional Full Time", cred: "AAS", prefix: "RCP", spanWeeks: 104, nTerms: 4, seats: 24, goal: 26, grads: [2025, 2026, 2027, 2028, 2029] },
+      { soc: "29-2052", occ: "Pharmacy Technicians", fam: "Pharmacy Technology", prog: "Pharmacy Technology", ptype: "Traditional Full Time", cred: "Diploma", prefix: "PHM", spanWeeks: 52, nTerms: 2, seats: 24, goal: 28, grads: [2025, 2026, 2027, 2028] },
+    ];
+    const FAC_TITLES = ["Program Director", "Lead Instructor", "Clinical Coordinator", "Instructor"];
+    const FAC_TYPES = ["full-time", "full-time", "full-time", "adjunct"];
+
+    for (const fc of FAMILIES) {
+      const occ = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: fc.soc, title: fc.occ } });
+      const prog = await createProgram({ institutionId: sandhills.id, occupationId: occ.id, name: fc.prog, programType: fc.ptype, credential: fc.cred, terms: genTerms(fc.prefix, fc.spanWeeks, fc.nTerms, true) });
+      const progYears = Math.max(0, Math.round(fc.spanWeeks / 52));
+      await prisma.program.update({ where: { id: prog.id }, data: { defaultCohortSeats: fc.seats, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER" } });
+      const fam = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: occ.id, name: fc.fam, description: `${fc.fam} program templates producing ${fc.occ.toLowerCase()} for the Sandhills region.` } });
+      await prisma.program.update({ where: { id: prog.id }, data: { familyId: fam.id } });
+      // Service-area demand so the family has a workforce anchor + North-Star math.
+      const saRegion = regions["SERVICE_AREA"];
+      for (const y of [2025, 2026, 2027, 2028, 2029, 2030]) {
+        await prisma.demandProjection.create({ data: { institutionId: sandhills.id, occupationId: occ.id, regionId: saRegion, year: y, jobs: fc.goal * 8, openings: fc.goal, growthPct: 0.12, replacementPct: 0.88, turnoverPct: 0.2 } });
+        await prisma.programYearTarget.create({ data: { programId: prog.id, year: y, credentialTarget: fc.goal, cohortCapacity: Math.round(fc.seats * 1.2) } });
+      }
+
+      // This family's faculty (with active-status + employment window).
+      const faculty: { id: string }[] = [];
+      for (let i = 0; i < FAC_TITLES.length; i++) {
+        const active = ex() > 0.12;
+        const startYr = ri(2014, 2023);
+        const p = await prisma.person.create({
+          data: {
+            institutionId: sandhills.id, name: `${pick(STAFF_FIRST)} ${pick(STAFF_LAST)}`,
+            role: "instructor", title: `${fc.fam} ${FAC_TITLES[i]}`, employmentType: FAC_TYPES[i], active,
+            startDate: new Date(`${startYr}-08-01`), endDate: active ? null : new Date(`${ri(startYr + 1, 2025)}-05-31`),
+            email: `fac.${fc.prefix.toLowerCase()}.${i}@sandhills.edu`,
+          },
+        });
+        faculty.push({ id: p.id });
+      }
+      const timingTerms: TimingTerm[] = (await prisma.term.findMany({ where: { programId: prog.id }, orderBy: { index: "asc" }, select: { index: true, name: true, startWeek: true, endWeek: true } }));
+
+      // Cohorts across grad years, sized + staged with a funnel; rosters auto-seed.
+      for (const gy of fc.grads) {
+        const enrolled = Math.round(fc.seats * (0.55 + ex() * 0.45));
+        const produced = Math.round(enrolled * (0.68 + ex() * 0.18));
+        const co = await createFunnel(prog.id, `Class of ${gy}`, gy, {
+          interested: { target: Math.round(fc.seats * 2.0), actual: Math.round(enrolled * 3.4) },
+          qualified: { target: Math.round(fc.seats * 1.5), actual: Math.round(enrolled * 1.7) },
+          offered: { target: Math.round(fc.seats * 1.25), actual: Math.round(enrolled * 1.2) },
+          enrolled: { target: fc.seats, actual: enrolled },
+          completing: { target: Math.round(fc.seats * 0.85), actual: produced },
+          licensed: { target: Math.round(fc.goal * 1.05), actual: Math.round(produced * 0.92) },
+          placed: { target: fc.goal, actual: Math.round(produced * 0.86) },
+          productive: { target: fc.goal, actual: Math.round(produced * 0.8) },
+        });
+        const startDate = new Date(`${gy - progYears}-08-15`);
+        await prisma.cohort.update({ where: { id: co.id }, data: { startDate, status: statusFromStart(startDate, timingTerms), plannedSeats: enrolled } });
+        await seedCohortStaff(co.id, prog.id, faculty, allPreceptors);
+      }
+    }
+
+    // -- Backfill the original Sandhills people with the new descriptive fields.
+    await prisma.person.updateMany({ where: { name: "Lindsey (Program Lead)" }, data: { title: "Radiography Program Director", employmentType: "full-time", startDate: new Date("2016-08-01") } });
+    await prisma.person.updateMany({ where: { name: "Radiography Faculty 1" }, data: { title: "Radiography Lead Instructor", employmentType: "full-time", startDate: new Date("2019-08-01") } });
+    await prisma.person.updateMany({ where: { name: "Clinical Preceptor — Imaging" }, data: { title: "Lead Clinical Preceptor", employmentType: "preceptor", startDate: new Date("2018-01-15") } });
+
+    console.log(`Expansion: +${EMP.length} employers, +${FAMILIES.length} families/programs, +${allPreceptors.length} preceptors.`);
+  }
 
   // ----- Real student rosters for every started / recruiting cohort ----------
   // Each past/present instantiation gets a roster sized + staged to where it is in
