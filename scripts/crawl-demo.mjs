@@ -24,7 +24,7 @@ async function routes() {
   ]);
   const families = await prisma.programFamily.findMany({ select: { id: true } });
   const employers = await prisma.employer.findMany({ select: { id: true } });
-  const r = ["/", "/insights", "/semester", "/students", "/people", "/employers", "/skills", "/wbl", "/programs/new"];
+  const r = ["/", "/insights", "/semester", "/students", "/people", "/employers", "/facilities", "/skills", "/wbl", "/programs/new"];
   for (const f of families) r.push(`/families/${f.id}`);
   for (const e of employers) r.push(`/employers/${e.id}`);
   for (const p of programs) {

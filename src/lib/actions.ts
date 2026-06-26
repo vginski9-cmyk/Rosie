@@ -104,6 +104,53 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 }
 
 // ---------------------------------------------------------------------------
+// FACILITIES — classrooms / labs / clinical spaces
+// ---------------------------------------------------------------------------
+
+export async function createFacility(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  await prisma.facility.create({
+    data: {
+      institutionId,
+      name: str(formData.get("name")) || "New facility",
+      kind: str(formData.get("kind")) || "CLASSROOM",
+      building: str(formData.get("building")) || null,
+      capacity: optNum(formData.get("capacity")),
+      areaSqft: optNum(formData.get("areaSqft")),
+      hours: str(formData.get("hours")) || null,
+      availability: str(formData.get("availability")) || null,
+      equipment: str(formData.get("equipment")) || null,
+      status: str(formData.get("status")) || "active",
+    },
+  });
+  revalidatePath("/facilities");
+}
+
+export async function updateFacility(facilityId: string, formData: FormData): Promise<void> {
+  await prisma.facility.update({
+    where: { id: facilityId },
+    data: {
+      name: str(formData.get("name")) || "Facility",
+      kind: str(formData.get("kind")) || "CLASSROOM",
+      building: str(formData.get("building")) || null,
+      capacity: optNum(formData.get("capacity")),
+      areaSqft: optNum(formData.get("areaSqft")),
+      hours: str(formData.get("hours")) || null,
+      availability: str(formData.get("availability")) || null,
+      equipment: str(formData.get("equipment")) || null,
+      status: str(formData.get("status")) || "active",
+    },
+  });
+  revalidatePath("/facilities");
+}
+
+export async function deleteFacility(facilityId: string): Promise<void> {
+  await prisma.facility.delete({ where: { id: facilityId } });
+  revalidatePath("/facilities");
+}
+
+// ---------------------------------------------------------------------------
 // PEOPLE — faculty / preceptors / support staff
 // ---------------------------------------------------------------------------
 

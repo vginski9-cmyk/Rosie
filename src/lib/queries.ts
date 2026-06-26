@@ -560,6 +560,18 @@ export async function getStudent(studentId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// FACILITIES WORKSPACE — classrooms / labs / clinical spaces (supply side)
+// ---------------------------------------------------------------------------
+
+export async function getFacilitiesDirectory() {
+  const [facilities, institutions] = await Promise.all([
+    prisma.facility.findMany({ orderBy: [{ kind: "asc" }, { name: "asc" }], include: { institution: { select: { id: true, name: true } } } }),
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+  return { facilities, institutions };
+}
+
+// ---------------------------------------------------------------------------
 // PEOPLE WORKSPACE — faculty / preceptors / support staff directory
 // ---------------------------------------------------------------------------
 

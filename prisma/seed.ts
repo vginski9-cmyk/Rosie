@@ -932,6 +932,17 @@ async function main() {
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Radiography Faculty 1", role: "instructor" } });
   await prisma.person.create({ data: { institutionId: sandhills.id, name: "Clinical Preceptor — Imaging", role: "preceptor", employerId: firstHealth.id } });
 
+  // ----- Facilities (supply of physical teaching space) -------------------
+  await prisma.facility.createMany({
+    data: [
+      { institutionId: sandhills.id, name: "Health Sciences 104", kind: "CLASSROOM", building: "Health Sciences", capacity: 36, areaSqft: 900, hours: "Mon–Fri 8a–9p", availability: "open evenings", equipment: "projector, 36 desks, 2 viewboxes" },
+      { institutionId: sandhills.id, name: "Health Sciences 106", kind: "CLASSROOM", building: "Health Sciences", capacity: 30, areaSqft: 820, hours: "Mon–Fri 8a–5p", equipment: "projector, 30 desks" },
+      { institutionId: sandhills.id, name: "Radiography Energized Lab", kind: "LAB", building: "Health Sciences", capacity: 12, areaSqft: 1400, hours: "Mon–Fri 8a–6p", availability: "by section schedule", equipment: "DR room, CR reader, energized X-ray, positioning sponges, phantoms" },
+      { institutionId: sandhills.id, name: "Imaging Sim Suite", kind: "SIM", building: "Health Sciences", capacity: 8, areaSqft: 700, hours: "Mon–Fri 9a–4p", equipment: "VR positioning sim, 2 workstations" },
+      { institutionId: sandhills.id, name: "FirstHealth Imaging — Clinical", kind: "CLINICAL", building: "FirstHealth Moore Regional", capacity: 12, hours: "Mon–Sun (rotations)", availability: "day + evening rotations", equipment: "live DR/CT/MRI suites" },
+    ],
+  });
+
   // ----- Cape Fear Community College (multi-tenant demo) -------------------
   const capeFear = await prisma.institution.create({
     data: { name: "Cape Fear Community College", shortName: "Cape Fear CC", serviceArea: "New Hanover County, NC" },

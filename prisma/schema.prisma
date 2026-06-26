@@ -40,6 +40,30 @@ model Institution {
   wblProfiles    WblProfile[]
   wblSnapshots   WblSnapshot[]
   assignments    Assignment[]
+  facilities     Facility[]
+}
+
+/// A physical teaching space: classroom, lab, clinical/sim facility. Captures the
+/// supply side — size/capacity, hours, availability, and equipment — so delivery
+/// (sections, labs, clinicals) can be mapped onto real rooms.
+model Facility {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  /// CLASSROOM | LAB | CLINICAL | SIM | OTHER
+  kind          String  @default("CLASSROOM")
+  building      String?
+  capacity      Int?    // seats / stations
+  areaSqft      Int?    // floor area
+  hours         String? // operating hours, e.g. "Mon–Fri 8a–9p"
+  availability  String? // availability notes / open days
+  equipment     String? // equipment list (freeform / comma-separated)
+  notes         String?
+  status        String  @default("active") // active | inactive
+  createdAt     DateTime @default(now())
+
+  @@index([institutionId])
 }
 
 // ---------------------------------------------------------------------------
