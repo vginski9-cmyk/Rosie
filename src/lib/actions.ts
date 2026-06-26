@@ -256,11 +256,18 @@ export async function deleteFacility(facilityId: string): Promise<void> {
 export async function createPerson(formData: FormData): Promise<void> {
   const institutionId = str(formData.get("institutionId"));
   if (!institutionId) return;
+  const startRaw = str(formData.get("startDate"));
+  const endRaw = str(formData.get("endDate"));
   await prisma.person.create({
     data: {
       institutionId,
       name: str(formData.get("name")) || "New person",
       role: str(formData.get("role")) || "instructor",
+      title: str(formData.get("title")) || null,
+      employmentType: str(formData.get("employmentType")) || null,
+      active: formData.get("active") != null,
+      startDate: startRaw ? new Date(startRaw) : null,
+      endDate: endRaw ? new Date(endRaw) : null,
       email: str(formData.get("email")) || null,
       employerId: str(formData.get("employerId")) || null,
     },
@@ -269,11 +276,18 @@ export async function createPerson(formData: FormData): Promise<void> {
 }
 
 export async function updatePerson(personId: string, formData: FormData): Promise<void> {
+  const startRaw = str(formData.get("startDate"));
+  const endRaw = str(formData.get("endDate"));
   await prisma.person.update({
     where: { id: personId },
     data: {
       name: str(formData.get("name")) || "Person",
       role: str(formData.get("role")) || "instructor",
+      title: str(formData.get("title")) || null,
+      employmentType: str(formData.get("employmentType")) || null,
+      active: formData.get("active") != null,
+      startDate: startRaw ? new Date(startRaw) : null,
+      endDate: endRaw ? new Date(endRaw) : null,
       email: str(formData.get("email")) || null,
       employerId: str(formData.get("employerId")) || null,
     },

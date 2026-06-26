@@ -590,10 +590,16 @@ export async function getPeopleDirectory() {
         institution: { select: { id: true, name: true } },
         employer: { select: { id: true, name: true } },
         _count: { select: { sessionStaff: true, assignments: true } },
-        // Cohort-level assignments (this run), for the time-bound load view.
+        // Cohort-level assignments (this run), for the time-bound load view. Pull
+        // the cohort start date + the session's term so each assignment can be
+        // bucketed to a real calendar year + semester (and flagged "in session now").
         sessionStaff: {
           where: { cohortId: { not: null } },
-          select: { contactHours: true, cohort: { select: { id: true, name: true, program: { select: { name: true } } } } },
+          select: {
+            contactHours: true,
+            cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } } } },
+            session: { select: { course: { select: { term: { select: { name: true, startWeek: true, endWeek: true } } } } } },
+          },
         },
       },
     }),
@@ -602,19 +608,50 @@ export async function getPeopleDirectory() {
     prisma.student.count(),
   ]);
 
-  // Roll each person's cohort assignments into a load summary (cohorts + hours).
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+  const today = new Date();
+  const seasonOf = (d: Date) => { const m = d.getUTCMonth(); return m >= 7 ? "Fall" : m >= 5 ? "Summer" : "Spring"; };
+
+  // Roll each person's cohort assignments into a time-bound load summary: total
+  // hours, per calendar year, per semester (year+season), per cohort, and whether
+  // any assignment falls in a term that is in session today ("currently working").
   const people = raw.map((p) => {
-    const byCohort = new Map<string, { name: string; program: string; hours: number }>();
+    type Bucket = { cohortId: string; name: string; program: string; hours: number; year: number | null; season: string | null };
+    const buckets: Bucket[] = [];
+    const byYear: Record<number, number> = {};
+    const bySemester: Record<string, { year: number; season: string; hours: number }> = {};
+    let totalHours = 0;
+    let workingNow = false;
+    let currentHours = 0;
     for (const si of p.sessionStaff) {
       if (!si.cohort) continue;
-      const cur = byCohort.get(si.cohort.id) ?? { name: si.cohort.name, program: si.cohort.program.name, hours: 0 };
-      cur.hours += si.contactHours;
-      byCohort.set(si.cohort.id, cur);
+      const start = si.cohort.startDate;
+      const term = si.session?.course?.term ?? null;
+      let year: number | null = null, season: string | null = null;
+      if (start) {
+        const td = new Date(start.getTime() + (((term?.startWeek ?? 1) - 1) * WEEK_MS));
+        year = td.getUTCFullYear();
+        season = seasonOf(td);
+        const termEnd = new Date(start.getTime() + (((term?.endWeek ?? 16)) * WEEK_MS));
+        if (today >= td && today < termEnd) { workingNow = true; currentHours += si.contactHours; }
+      }
+      totalHours += si.contactHours;
+      if (year != null) byYear[year] = (byYear[year] ?? 0) + si.contactHours;
+      if (year != null && season) {
+        const key = `${year} ${season}`;
+        const b = bySemester[key] ?? { year, season, hours: 0 };
+        b.hours += si.contactHours; bySemester[key] = b;
+      }
+      // Aggregate into per-cohort+season buckets so the same cohort across terms
+      // still rolls up sensibly while keeping the period dimension.
+      const bk = buckets.find((x) => x.cohortId === si.cohort!.id && x.year === year && x.season === season);
+      if (bk) bk.hours += si.contactHours;
+      else buckets.push({ cohortId: si.cohort.id, name: si.cohort.name, program: si.cohort.program.name, hours: si.contactHours, year, season });
     }
-    const cohorts = [...byCohort.values()].sort((a, b) => b.hours - a.hours);
-    const totalHours = cohorts.reduce((n, c) => n + c.hours, 0);
+    buckets.sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || b.hours - a.hours);
+    const semesters = Object.values(bySemester).sort((a, b) => b.year - a.year || a.season.localeCompare(b.season));
     const { sessionStaff: _drop, ...rest } = p;
-    return { ...rest, load: { cohorts, totalHours } };
+    return { ...rest, workingNow, currentHours, load: { cohorts: buckets, byYear, semesters, totalHours } };
   });
 
   return { people, institutions, employers, studentCount };
