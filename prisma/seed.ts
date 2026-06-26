@@ -801,6 +801,7 @@ async function seedWblSnapshots(
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
+  await prisma.wblPlacement.deleteMany();
   await prisma.wblSnapshotFactor.deleteMany();
   await prisma.wblSnapshot.deleteMany();
   await prisma.studentAbsence.deleteMany();
@@ -1599,6 +1600,57 @@ async function main() {
     console.log(`Seeded ${made} students across started/recruiting cohorts.`);
   }
 
+  // ----- WBL placements: the "secured" record behind asked-vs-secured ---------
+  // Source each placement from real instantiation data: clinical-eligible students
+  // in started cohorts get hosted at a partner site, dated into the cohort's clinical
+  // window, with a status that reflects whether that rotation is past (completed),
+  // current (active), or upcoming (planned — the "asked but not yet secured" gap).
+  {
+    const AS_OF = new Date("2026-06-26T00:00:00Z");
+    const WEEK_MS = 7 * 24 * 3600 * 1000;
+    const wr = mulberry32(0x91ace5);
+    const wpick = <T,>(a: T[]): T => a[Math.floor(wr() * a.length)];
+    const hostable = (await prisma.employer.findMany({
+      where: { institutionId: sandhills.id, status: { in: ["active", "paused"] } },
+      select: { id: true, setting: true },
+    })).filter((e) => !/closed|retail pharmacy/i.test(e.setting ?? ""));
+    const MODALITIES = ["General", "CT", "MRI", "Mammography", "OR / Surgical", "Med-Surg", "ICU", "Outpatient", "Emergency"];
+    const cohorts = await prisma.cohort.findMany({
+      where: { program: { institutionId: sandhills.id }, startDate: { not: null } },
+      include: {
+        program: { select: { terms: { select: { index: true, startWeek: true, endWeek: true }, orderBy: { index: "asc" } } } },
+        students: { where: { status: { in: ["enrolled", "completed", "licensed", "placed", "productive"] } }, select: { id: true } },
+      },
+    });
+    const rows: { studentId: string; employerId: string; cohortId: string; startDate: Date; endDate: Date; hoursPerWeek: number; modality: string; status: string }[] = [];
+    for (const co of cohorts) {
+      if (!co.startDate || !hostable.length) continue;
+      // Clinical terms = term index >= 2 (first term is pre-clinical foundations).
+      const clinTerms = co.program.terms.filter((t) => t.index >= 2);
+      if (!clinTerms.length) continue;
+      for (const st of co.students) {
+        // 1–2 rotations per eligible student across the clinical terms.
+        const nRot = 1 + (wr() < 0.5 ? 1 : 0);
+        const chosen = [...clinTerms].sort(() => wr() - 0.5).slice(0, nRot);
+        for (const t of chosen) {
+          const start = new Date(co.startDate.getTime() + ((t.startWeek ?? 1) - 1) * WEEK_MS);
+          const end = new Date(co.startDate.getTime() + ((t.endWeek ?? 16)) * WEEK_MS);
+          const status = end < AS_OF ? "completed" : start > AS_OF ? "planned" : "active";
+          rows.push({
+            studentId: st.id, employerId: wpick(hostable).id, cohortId: co.id,
+            startDate: start, endDate: end, hoursPerWeek: wpick([16, 20, 24, 24, 32]),
+            modality: wpick(MODALITIES), status,
+          });
+        }
+      }
+    }
+    if (rows.length) {
+      for (let i = 0; i < rows.length; i += 500) await prisma.wblPlacement.createMany({ data: rows.slice(i, i + 500) });
+    }
+    const secured = rows.filter((r) => r.status !== "planned").length;
+    console.log(`Seeded ${rows.length} WBL placements (${secured} secured, ${rows.length - secured} planned/asked).`);
+  }
+
   const counts = {
     institutions: await prisma.institution.count(),
     skills: await prisma.skill.count(),
@@ -1615,6 +1667,7 @@ async function main() {
     studentAssessments: await prisma.studentSkillAssessment.count(),
     sessionInstructors: await prisma.sessionInstructor.count(),
     wblSnapshots: await prisma.wblSnapshot.count(),
+    wblPlacements: await prisma.wblPlacement.count(),
     demand: await prisma.demandProjection.count(),
     calendarBlocks: await prisma.calendarBlock.count(),
   };

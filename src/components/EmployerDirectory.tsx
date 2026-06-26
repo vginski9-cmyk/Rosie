@@ -4,17 +4,17 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createEmployer } from "@/lib/actions";
 
+export interface WblPeriod { year: number; season: string; asked: number; secured: number }
 export interface DirEmployer {
   id: string;
   name: string;
   setting: string | null;
   city: string | null;
-  wblSlots: number | null;
   status: string;
   contactName: string | null;
   institution: { id: string; name: string };
   _count: { people: number };
-  placements: { status: string }[];
+  wbl: { asked: number; secured: number; periods: WblPeriod[] };
 }
 export interface InstLite { id: string; name: string }
 
@@ -23,13 +23,34 @@ const STATUS_BADGE: Record<string, string> = {
   prospect: "bg-sky-100 text-sky-700", active: "bg-emerald-100 text-emerald-700",
   paused: "bg-amber-100 text-amber-700", archived: "bg-slate-100 text-slate-400",
 };
-const activeCount = (e: DirEmployer) => e.placements.filter((p) => p.status === "planned" || p.status === "active").length;
+const SEASONS = ["Fall", "Spring", "Summer"];
 
 export function EmployerDirectory({ employers, institutions }: { employers: DirEmployer[]; institutions: InstLite[] }) {
   const [q, setQ] = useState("");
   const [fInst, setFInst] = useState("");
   const [fStatus, setFStatus] = useState("");
+  const [fYear, setFYear] = useState("");
+  const [fSeason, setFSeason] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+
+  const years = useMemo(() => {
+    const s = new Set<number>();
+    for (const e of employers) for (const p of e.wbl.periods) s.add(p.year);
+    return [...s].sort((a, b) => b - a);
+  }, [employers]);
+
+  const periodActive = fYear !== "" || fSeason !== "";
+  // Asked / secured for an employer scoped to the selected period (or all-time).
+  const scoped = (e: DirEmployer): { asked: number; secured: number } => {
+    if (!periodActive) return { asked: e.wbl.asked, secured: e.wbl.secured };
+    let asked = 0, secured = 0;
+    for (const p of e.wbl.periods) {
+      if (fYear && String(p.year) !== fYear) continue;
+      if (fSeason && p.season !== fSeason) continue;
+      asked += p.asked; secured += p.secured;
+    }
+    return { asked, secured };
+  };
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -41,14 +62,17 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
     });
   }, [employers, q, fInst, fStatus]);
 
-  const totals = filtered.reduce((acc, e) => ({ slots: acc.slots + (e.wblSlots ?? 0), used: acc.used + activeCount(e) }), { slots: 0, used: 0 });
+  const totals = filtered.reduce((acc, e) => { const s = scoped(e); return { asked: acc.asked + s.asked, secured: acc.secured + s.secured }; }, { asked: 0, secured: 0 });
+  const fillRate = totals.asked > 0 ? Math.round((totals.secured / totals.asked) * 100) : 0;
+  const periodLabel = periodActive ? `${fSeason || "all"} ${fYear || "years"}`.trim() : "all-time";
+  const anyFilter = q || fInst || fStatus || periodActive;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Search</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="name, city, setting…" className="w-56 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="name, city, setting…" className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
         </label>
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Institution</span>
@@ -64,7 +88,21 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
             {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        {(q || fInst || fStatus) && <button onClick={() => { setQ(""); setFInst(""); setFStatus(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Year</span>
+          <select value={fYear} onChange={(e) => setFYear(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+            <option value="">All</option>
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Semester</span>
+          <select value={fSeason} onChange={(e) => setFSeason(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+            <option value="">All</option>
+            {SEASONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        {anyFilter && <button onClick={() => { setQ(""); setFInst(""); setFStatus(""); setFYear(""); setFSeason(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
         <button onClick={() => setShowAdd((v) => !v)} className="ml-auto rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{showAdd ? "Close" : "+ Add partner"}</button>
       </div>
 
@@ -72,7 +110,10 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span><span className="font-medium text-slate-700">{filtered.length}</span> partners</span>
-        <span>· capacity <span className="font-medium text-slate-700">{totals.used}</span> / {totals.slots} WBL slots in use</span>
+        <span className="text-slate-300">·</span>
+        <span>WBL rotations ({periodLabel}): <span className="font-medium text-slate-700 tabular-nums">{totals.secured}</span> secured of <span className="font-medium text-slate-700 tabular-nums">{totals.asked}</span> asked</span>
+        <span className={`rounded-full px-2 py-0.5 font-medium ${fillRate >= 90 ? "bg-emerald-100 text-emerald-700" : fillRate >= 70 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{fillRate}% filled</span>
+        <span className="text-slate-400">slots are sourced from real placement records, not a static count</span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -82,15 +123,15 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
               <th className="px-3 py-2 text-left font-semibold">Partner</th>
               <th className="px-3 py-2 text-left font-semibold">Setting</th>
               <th className="px-3 py-2 text-left font-semibold">Institution</th>
-              <th className="px-3 py-2 text-center font-semibold">WBL slots</th>
-              <th className="px-3 py-2 text-center font-semibold">In use</th>
+              <th className="px-3 py-2 text-center font-semibold">Asked</th>
+              <th className="px-3 py-2 text-center font-semibold">Secured</th>
               <th className="px-3 py-2 text-left font-semibold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map((e) => {
-              const used = activeCount(e);
-              const full = e.wblSlots != null && used >= e.wblSlots;
+              const s = scoped(e);
+              const gap = s.asked > s.secured;
               return (
                 <tr key={e.id} className="hover:bg-slate-50/60">
                   <td className="px-3 py-2">
@@ -99,8 +140,8 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                   </td>
                   <td className="px-3 py-2 text-slate-500">{e.setting ?? "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{e.institution.name}</td>
-                  <td className="px-3 py-2 text-center tabular-nums text-slate-600">{e.wblSlots ?? "—"}</td>
-                  <td className={`px-3 py-2 text-center tabular-nums ${full ? "font-semibold text-rose-600" : "text-slate-500"}`}>{used}</td>
+                  <td className="px-3 py-2 text-center tabular-nums text-slate-600">{s.asked || "—"}</td>
+                  <td className={`px-3 py-2 text-center tabular-nums ${gap ? "font-semibold text-amber-600" : s.secured ? "text-emerald-600" : "text-slate-400"}`}>{s.secured || "—"}</td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[e.status] ?? "bg-slate-100 text-slate-600"}`}>{e.status}</span></td>
                 </tr>
               );
@@ -133,10 +174,6 @@ function AddForm({ institutions, onDone }: { institutions: InstLite[]; onDone: (
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">City</span>
         <input name="city" placeholder="Fayetteville" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">WBL slots</span>
-        <input name="wblSlots" type="number" min={0} placeholder="6" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm tabular-nums" />
       </label>
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Status</span>

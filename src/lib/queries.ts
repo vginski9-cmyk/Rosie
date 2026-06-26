@@ -661,7 +661,9 @@ export async function getPeopleDirectory() {
 // EMPLOYERS WORKSPACE — partner directory, detail, and placement context
 // ---------------------------------------------------------------------------
 
-/** Every employer partner across institutions + the institution list for intake. */
+/** Every employer partner across institutions + the institution list for intake.
+ *  WBL capacity is sourced from actual placement records (asked vs secured) rather
+ *  than a static slot count, bucketed by calendar year + semester. */
 export async function getEmployersDirectory() {
   const [employers, institutions] = await Promise.all([
     prisma.employer.findMany({
@@ -669,12 +671,36 @@ export async function getEmployersDirectory() {
       include: {
         institution: { select: { id: true, name: true } },
         _count: { select: { people: true } },
-        placements: { select: { status: true } },
+        placements: { select: { status: true, startDate: true } },
       },
     }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
-  return { employers, institutions };
+
+  const seasonOf = (d: Date) => { const m = d.getUTCMonth(); return m >= 7 ? "Fall" : m >= 5 ? "Summer" : "Spring"; };
+  // Roll each partner's placements into asked (all non-cancelled) vs secured
+  // (active + completed) totals, plus a per-period (year + semester) breakdown.
+  const withWbl = employers.map((e) => {
+    const byPeriod: Record<string, { year: number; season: string; asked: number; secured: number }> = {};
+    let asked = 0, secured = 0;
+    for (const pl of e.placements) {
+      if (pl.status === "cancelled") continue;
+      asked += 1;
+      const isSecured = pl.status === "active" || pl.status === "completed";
+      if (isSecured) secured += 1;
+      if (pl.startDate) {
+        const y = pl.startDate.getUTCFullYear();
+        const s = seasonOf(pl.startDate);
+        const key = `${y} ${s}`;
+        const b = byPeriod[key] ?? { year: y, season: s, asked: 0, secured: 0 };
+        b.asked += 1; if (isSecured) b.secured += 1; byPeriod[key] = b;
+      }
+    }
+    const periods = Object.values(byPeriod).sort((a, b) => b.year - a.year || a.season.localeCompare(b.season));
+    const { placements: _drop, ...rest } = e;
+    return { ...rest, wbl: { asked, secured, periods } };
+  });
+  return { employers: withWbl, institutions };
 }
 
 /** One employer partner with its placements (the hosted students). */
