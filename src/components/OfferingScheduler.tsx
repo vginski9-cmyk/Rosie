@@ -21,18 +21,21 @@ export interface SchedSession {
 export interface SchedCourse { id: string; code: string | null; name: string; sessions: SchedSession[] }
 export interface SchedTerm { id: string; name: string; index: number; courses: SchedCourse[] }
 
-interface Slot { day: string | null; time: string | null; location: string | null }
+interface Slot { day: string | null; time: string | null; location: string | null; facilityId: string | null }
 interface SectionRow {
   key: string; sessionId: string; sectionIndex: number; sections: number;
   courseCode: string; title: string; kind: Kind; lengthHours: number;
 }
+export interface SchedFacility { id: string; name: string; kind: string; capacity: number | null }
 
 export function OfferingScheduler({
-  cohortId, programId, offeringName, enrollment, terms, overrides,
+  cohortId, programId, offeringName, enrollment, terms, overrides, facilities = [],
 }: {
   cohortId: string; programId: string; offeringName: string; enrollment: number; terms: SchedTerm[];
-  overrides: Record<string, { dayOfWeek: string | null; startTime: string | null; location: string | null }>;
+  overrides: Record<string, { dayOfWeek: string | null; startTime: string | null; location: string | null; facilityId: string | null }>;
+  facilities?: SchedFacility[];
 }) {
+  const facById = useMemo(() => new Map(facilities.map((f) => [f.id, f])), [facilities]);
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -49,7 +52,7 @@ export function OfferingScheduler({
         const key = `${s.id}#${i}`;
         rows.push({ key, sessionId: s.id, sectionIndex: i, sections, courseCode: c.code ?? c.name, title: s.title ?? `${c.code} ${s.kind.toLowerCase()}`, kind: s.kind, lengthHours: s.lengthHours });
         termOf[key] = t.id;
-        defaults[key] = { day: s.dayOfWeek, time: s.startTime, location: s.location };
+        defaults[key] = { day: s.dayOfWeek, time: s.startTime, location: s.location, facilityId: null };
       }
     }
     return { rows, termOf, defaults };
@@ -59,7 +62,7 @@ export function OfferingScheduler({
     const init: Record<string, Slot> = {};
     for (const r of allRows.rows) {
       const o = overrides[r.key];
-      init[r.key] = o ? { day: o.dayOfWeek, time: o.startTime, location: o.location } : { ...allRows.defaults[r.key] };
+      init[r.key] = o ? { day: o.dayOfWeek, time: o.startTime, location: o.location, facilityId: o.facilityId } : { ...allRows.defaults[r.key] };
     }
     return init;
   });
@@ -98,7 +101,7 @@ export function OfferingScheduler({
         for (const r of list) {
           if (mins + r.lengthHours * 60 > 20 * 60) { dayIdx = (dayIdx + 1) % 5; mins = bh * 60 + bm; }
           const hh = Math.floor(mins / 60), mm = mins % 60;
-          next[r.key] = { day: DAYS[dayIdx], time: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`, location: next[r.key]?.location ?? base.location ?? null };
+          next[r.key] = { day: DAYS[dayIdx], time: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`, location: next[r.key]?.location ?? base.location ?? null, facilityId: next[r.key]?.facilityId ?? base.facilityId ?? null };
           mins += r.lengthHours * 60;
         }
       }
@@ -115,7 +118,7 @@ export function OfferingScheduler({
   async function save() {
     setSaving(true);
     try {
-      const items = allRows.rows.map((r) => ({ sessionId: r.sessionId, sectionIndex: r.sectionIndex, dayOfWeek: slots[r.key]?.day ?? null, startTime: slots[r.key]?.time ?? null, location: slots[r.key]?.location ?? null }));
+      const items = allRows.rows.map((r) => ({ sessionId: r.sessionId, sectionIndex: r.sectionIndex, dayOfWeek: slots[r.key]?.day ?? null, startTime: slots[r.key]?.time ?? null, location: slots[r.key]?.location ?? null, facilityId: slots[r.key]?.facilityId ?? null }));
       await saveSectionSchedules(cohortId, programId, items);
       setDirty(false);
       setSavedAt(new Date().toLocaleTimeString());
@@ -189,8 +192,22 @@ export function OfferingScheduler({
                           {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
                         </select>
                         <input type="time" value={sl.time ?? ""} onChange={(e) => setSlot(r.key, { time: e.target.value })} className="w-[88px] rounded border border-slate-300 px-0.5 text-[10px]" />
-                        <input value={sl.location ?? ""} onChange={(e) => setSlot(r.key, { location: e.target.value })} placeholder="room" className="w-full rounded border border-slate-300 px-0.5 text-[10px]" />
+                        {facilities.length > 0 ? (
+                          <select
+                            value={sl.facilityId ?? ""}
+                            onChange={(e) => { const f = facById.get(e.target.value); setSlot(r.key, { facilityId: e.target.value || null, location: f ? f.name : sl.location }); }}
+                            className="w-full rounded border border-slate-300 px-0.5 text-[10px]"
+                          >
+                            <option value="">{sl.location || "room…"}</option>
+                            {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}{f.capacity != null ? ` (${f.capacity})` : ""}</option>)}
+                          </select>
+                        ) : (
+                          <input value={sl.location ?? ""} onChange={(e) => setSlot(r.key, { location: e.target.value })} placeholder="room" className="w-full rounded border border-slate-300 px-0.5 text-[10px]" />
+                        )}
                       </div>
+                      {sl.facilityId && facById.get(sl.facilityId)?.capacity != null && r.kind !== "CLINICAL" && (
+                        (() => { const cap = facById.get(sl.facilityId!)!.capacity!; const over = enrollment > 0 && r.sections > 0 ? Math.ceil(enrollment / r.sections) : 0; return over > cap ? <div className="text-[9px] font-medium text-amber-600">section ~{over} &gt; room cap {cap}</div> : null; })()
+                      )}
                     </div>
                   );
                 })}

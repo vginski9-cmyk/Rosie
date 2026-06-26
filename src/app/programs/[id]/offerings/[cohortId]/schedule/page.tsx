@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function OfferingSchedulePage({ params }: { params: { id: string; cohortId: string } }) {
   const data = await getOfferingScheduler(params.cohortId);
   if (!data || data.program.id !== params.id) notFound();
-  const { cohort, program, enrollment, overrides } = data;
+  const { cohort, program, enrollment, overrides, facilities } = data;
 
   const terms: SchedTerm[] = program.terms.map((t) => ({
     id: t.id, name: t.name, index: t.index,
@@ -36,7 +36,7 @@ export default async function OfferingSchedulePage({ params }: { params: { id: s
 
       <OfferingScheduler
         cohortId={cohort.id} programId={program.id} offeringName={cohort.name}
-        enrollment={enrollment} terms={terms} overrides={overrides}
+        enrollment={enrollment} terms={terms} overrides={overrides} facilities={facilities}
       />
     </div>
   );

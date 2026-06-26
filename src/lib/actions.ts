@@ -493,16 +493,18 @@ export async function createOffering(programId: string, formData: FormData) {
 export async function saveSectionSchedules(
   cohortId: string,
   programId: string,
-  items: { sessionId: string; sectionIndex: number; dayOfWeek: string | null; startTime: string | null; location: string | null }[],
+  items: { sessionId: string; sectionIndex: number; dayOfWeek: string | null; startTime: string | null; location: string | null; facilityId?: string | null }[],
 ) {
   for (const it of items) {
+    const facilityId = it.facilityId || null;
     await prisma.sectionSchedule.upsert({
       where: { cohortId_sessionId_sectionIndex: { cohortId, sessionId: it.sessionId, sectionIndex: it.sectionIndex } },
-      create: { cohortId, sessionId: it.sessionId, sectionIndex: it.sectionIndex, dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null },
-      update: { dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null },
+      create: { cohortId, sessionId: it.sessionId, sectionIndex: it.sectionIndex, dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null, facilityId },
+      update: { dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null, facilityId },
     });
   }
   revalidatePath(`/programs/${programId}/offerings/${cohortId}/schedule`);
+  revalidatePath(`/programs/${programId}/schedule`);
 }
 
 export async function addTerm(programId: string) {

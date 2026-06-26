@@ -697,6 +697,7 @@ export async function getOfferingScheduler(cohortId: string) {
     include: {
       program: {
         include: {
+          institution: { select: { id: true } },
           yearTargets: true,
           terms: {
             orderBy: { index: "asc" },
@@ -709,9 +710,14 @@ export async function getOfferingScheduler(cohortId: string) {
   });
   if (!cohort) return null;
   const enrollment = Math.round(cohort.plannedSeats ?? cohort.program.defaultCohortSeats ?? Math.max(0, ...cohort.program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
-  const overrides: Record<string, { dayOfWeek: string | null; startTime: string | null; location: string | null }> = {};
-  for (const o of cohort.sectionSchedules) overrides[`${o.sessionId}#${o.sectionIndex}`] = { dayOfWeek: o.dayOfWeek, startTime: o.startTime, location: o.location };
-  return { cohort, program: cohort.program, enrollment, overrides };
+  const overrides: Record<string, { dayOfWeek: string | null; startTime: string | null; location: string | null; facilityId: string | null }> = {};
+  for (const o of cohort.sectionSchedules) overrides[`${o.sessionId}#${o.sectionIndex}`] = { dayOfWeek: o.dayOfWeek, startTime: o.startTime, location: o.location, facilityId: o.facilityId };
+  const facilities = await prisma.facility.findMany({
+    where: { institutionId: cohort.program.institutionId, status: "active" },
+    orderBy: [{ kind: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, kind: true, capacity: true },
+  });
+  return { cohort, program: cohort.program, enrollment, overrides, facilities };
 }
 
 /** A single course with its full catalog detail + session-by-session schedule. */

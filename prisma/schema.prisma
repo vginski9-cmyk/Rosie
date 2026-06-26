@@ -63,6 +63,8 @@ model Facility {
   status        String  @default("active") // active | inactive
   createdAt     DateTime @default(now())
 
+  sectionSchedules SectionSchedule[]
+
   @@index([institutionId])
 }
 
@@ -319,6 +321,10 @@ model SectionSchedule {
   dayOfWeek    String?
   startTime    String? // "HH:MM"
   location     String?
+  /// The assigned room (a Facility). `location` mirrors its name so the calendar
+  /// and clash engine (which key on the room string) keep working unchanged.
+  facilityId   String?
+  facility     Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
 
   @@unique([cohortId, sessionId, sectionIndex])
   @@index([cohortId])
