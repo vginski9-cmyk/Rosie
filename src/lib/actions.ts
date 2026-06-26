@@ -48,6 +48,57 @@ export async function createProgram(formData: FormData) {
 }
 
 // ---------------------------------------------------------------------------
+// NORTH-STAR GOALS — a program family anchored to a target job (create/delete)
+// ---------------------------------------------------------------------------
+
+export async function createNorthStarGoal(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  const name = str(formData.get("name")) || "New goal";
+  const socCode = str(formData.get("socCode"));
+  let occupationId: string | null = null;
+  if (socCode) {
+    const occ = await prisma.occupation.upsert({
+      where: { institutionId_socCode: { institutionId, socCode } },
+      create: { institutionId, socCode, title: name },
+      update: {},
+    });
+    occupationId = occ.id;
+  }
+  const fam = await prisma.programFamily.create({ data: { institutionId, occupationId, name } });
+  revalidatePath("/");
+  redirect(`/families/${fam.id}`);
+}
+
+export async function deleteNorthStarGoal(familyId: string): Promise<void> {
+  await prisma.program.updateMany({ where: { familyId }, data: { familyId: null } });
+  await prisma.programFamily.delete({ where: { id: familyId } });
+  revalidatePath("/");
+}
+
+/** Create a new delivery-model template under a family (a credential + N-term structure). */
+export async function createFamilyProgram(familyId: string, formData: FormData): Promise<void> {
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { institutionId: true, occupationId: true } });
+  if (!fam) return;
+  const program = await prisma.program.create({
+    data: {
+      institutionId: fam.institutionId, familyId, occupationId: fam.occupationId,
+      name: str(formData.get("name")) || "New delivery model",
+      programType: str(formData.get("programType")) || "Traditional Full Time",
+      credential: str(formData.get("credential")) || null,
+    },
+  });
+  const termCount = Math.max(1, Math.min(12, numOr(formData.get("terms"), 4)));
+  for (let i = 1; i <= termCount; i++) {
+    await prisma.term.create({ data: { programId: program.id, index: i, name: `Term ${i}`, startWeek: 1, endWeek: 16 } });
+  }
+  const cohort = await prisma.cohort.create({ data: { programId: program.id, name: "First Cohort" } });
+  await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
+  revalidatePath(`/families/${familyId}`);
+  redirect(`/programs/${program.id}/structure`);
+}
+
+// ---------------------------------------------------------------------------
 // PROGRAM FAMILY — North-Star goal plan
 // ---------------------------------------------------------------------------
 

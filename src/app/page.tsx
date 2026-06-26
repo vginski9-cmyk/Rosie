@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { getNorthStarHome } from "@/lib/queries";
+import { getNorthStarHome, getInstitutionsLite } from "@/lib/queries";
+import { deleteNorthStarGoal } from "@/lib/actions";
+import { NewGoalForm } from "@/components/NewGoalForm";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -10,18 +12,21 @@ const CRED_BADGE: Record<string, string> = {
 };
 
 export default async function HomePage() {
-  const jobs = await getNorthStarHome();
+  const [jobs, institutions] = await Promise.all([getNorthStarHome(), getInstitutionsLite()]);
   const thisYear = jobs[0]?.thisYear ?? new Date().getUTCFullYear();
   const lastYear = thisYear - 1;
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">North Star goals</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          For every target job: the fully-productive workers the region needs this year ({thisYear}), what was delivered last
-          year ({lastYear}), and progress toward the goal. Open a job to see the program families delivering toward it.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">North Star goals</h1>
+          <p className="mt-1 max-w-3xl text-sm text-slate-500">
+            For every target job: the fully-productive workers the region needs this year ({thisYear}), what was delivered last
+            year ({lastYear}), and progress toward the goal. Open a job to see the program families delivering toward it.
+          </p>
+        </div>
+        <NewGoalForm institutions={institutions} />
       </div>
 
       {jobs.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No jobs with goals yet.</p>}
@@ -37,9 +42,14 @@ export default async function HomePage() {
                   <Link href={`/families/${j.familyId}`} className="text-lg font-semibold text-slate-800 hover:text-rose-700 hover:underline">{j.job} ↦</Link>
                   <p className="text-xs text-slate-500">{j.socCode ? `SOC ${j.socCode} · ` : ""}{j.institution}</p>
                 </div>
-                <div className="text-right">
-                  <div className="text-3xl font-bold tabular-nums text-slate-900">{fmt.num(j.thisYearGoal)}</div>
-                  <div className="text-[11px] uppercase tracking-wide text-slate-400">{thisYear} goal · productive</div>
+                <div className="flex items-start gap-2">
+                  <div className="text-right">
+                    <div className="text-3xl font-bold tabular-nums text-slate-900">{fmt.num(j.thisYearGoal)}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{thisYear} goal · productive</div>
+                  </div>
+                  <form action={deleteNorthStarGoal.bind(null, j.familyId)}>
+                    <button className="rounded p-1 text-xs text-slate-300 hover:text-rose-600" title="delete this North Star goal">✕</button>
+                  </form>
                 </div>
               </div>
 

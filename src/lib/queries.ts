@@ -279,6 +279,11 @@ export async function getNorthStarHome(currentYear?: number): Promise<JobNorthSt
   }).sort((a, b) => b.thisYearGoal - a.thisYearGoal || a.job.localeCompare(b.job));
 }
 
+/** Minimal institution list (for create forms). */
+export async function getInstitutionsLite() {
+  return prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+}
+
 /** All program families grouped by institution, for the dashboard. */
 export async function getFamilies() {
   return prisma.institution.findMany({
