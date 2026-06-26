@@ -5,6 +5,7 @@ import { FunnelChart } from "@/components/FunnelChart";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
+import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,11 @@ const STATUS: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700",
   completed: "bg-slate-200 text-slate-600", archived: "bg-slate-100 text-slate-400",
 };
+const PHASE_LABEL: Record<string, string> = { recruiting: "Recruiting", "in-program": "In program", graduated: "Graduated", unscheduled: "Unscheduled" };
+const PHASE_BADGE: Record<string, string> = {
+  recruiting: "bg-sky-100 text-sky-700", "in-program": "bg-emerald-100 text-emerald-700",
+  graduated: "bg-slate-200 text-slate-600", unscheduled: "bg-slate-100 text-slate-400",
+};
 
 export default async function OfferingPage({ params }: { params: { id: string; cohortId: string } }) {
   const offering = await getOffering(params.cohortId);
@@ -24,6 +30,13 @@ export default async function OfferingPage({ params }: { params: { id: string; c
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+
+  // Where this offering sits in its lifecycle right now (vs today): current term,
+  // expected end, and phase — derived from the template's actual term structure.
+  const today = new Date();
+  const timingTerms: TimingTerm[] = program.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+  const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today);
+  const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—");
 
   return (
     <div className="mx-auto max-w-5xl space-y-8">
@@ -36,8 +49,22 @@ export default async function OfferingPage({ params }: { params: { id: string; c
               A scheduled offering of <Link href={`/programs/${program.id}`} className="text-rose-700 hover:underline">{program.name}</Link> · {program.institution.name}
             </p>
           </div>
-          <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[offering.status] ?? "bg-slate-100 text-slate-600"}`}>{offering.status}</span>
+          <div className="flex items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${PHASE_BADGE[timing.phase]}`}>{PHASE_LABEL[timing.phase]}</span>
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[offering.status] ?? "bg-slate-100 text-slate-600"}`}>{offering.status}</span>
+          </div>
         </div>
+        {timing.phase === "in-program" && timing.currentTermName && (
+          <p className="mt-1 text-sm text-emerald-700">
+            Now in <strong>{timing.currentTermName}</strong> · week {(timing.weeksElapsed ?? 0) + 1} of {timing.totalWeeks} · expected to finish {monthYear(timing.endDate)}
+          </p>
+        )}
+        {timing.phase === "recruiting" && (
+          <p className="mt-1 text-sm text-sky-700">Starts {monthYear(timing.startDate)} · runs {timing.totalWeeks} weeks · expected to finish {monthYear(timing.endDate)}</p>
+        )}
+        {timing.phase === "graduated" && (
+          <p className="mt-1 text-sm text-slate-500">Ran {monthYear(timing.startDate)} – {monthYear(timing.endDate)} · completed</p>
+        )}
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 text-sm text-slate-600">
@@ -45,9 +72,11 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         structure to a real calendar, a specific roster of instructors, and the enrolled students below.
       </div>
 
-      {/* Counts */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      {/* Counts + timing */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
         <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
+        <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
+        <Tile label="Expected end" value={timing.endDate ? monthYear(timing.endDate) : "—"} sub={`${timing.totalWeeks}-week program`} />
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
         <Tile label="Students" value={fmt.num(offering._count.students)} />
         <Tile label="Staff assignments" value={fmt.num(offering._count.sessionStaff)} sub="per-session, this run" />

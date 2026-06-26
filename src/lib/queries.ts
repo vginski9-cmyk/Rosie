@@ -900,11 +900,14 @@ export interface SemesterOffering {
   preceptorFte: number;
   spaceHours: number;
   sections: number;
+  startDate: Date | null;
+  endDate: Date | null;
+  inSessionNow: boolean;
   courses: { id: string; name: string; sessions: number }[];
 }
 
 export interface SemesterView {
-  options: { sem: string; year: number; count: number }[];
+  options: { sem: string; year: number; count: number; current: boolean }[];
   selected: { sem: string; year: number } | null;
   offerings: SemesterOffering[];
 }
@@ -932,6 +935,8 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     },
   });
 
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+  const today = new Date();
   type Row = SemesterOffering & { sem: string; year: number };
   const rows: Row[] = [];
   for (const ct of cts) {
@@ -943,6 +948,10 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     const sessions = ct.term.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
     const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
     const t = sessions.length ? courseService(sessions, enrollment, DEFAULT_SERVICE).totals : null;
+    // Term date window: real start (from the CohortTerm) + its instructional span.
+    const termWeeks = ct.term.startWeek != null && ct.term.endWeek != null && ct.term.endWeek >= ct.term.startWeek ? ct.term.endWeek - ct.term.startWeek + 1 : 16;
+    const endDate = ct.startDate ? new Date(ct.startDate.getTime() + termWeeks * WEEK_MS) : null;
+    const inSessionNow = !!(ct.startDate && endDate && today >= ct.startDate && today < endDate);
     rows.push({
       sem: season, year: yr,
       cohortId: co.id, cohortName: co.name, programId: p.id, programName: p.name,
@@ -952,23 +961,27 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
       preceptorFte: t ? Math.round(t.preceptorFte * 100) / 100 : 0,
       spaceHours: t ? Math.round(t.spaceHours) : 0,
       sections: t ? t.sections : 0,
+      startDate: ct.startDate ?? null, endDate, inSessionNow,
       courses: ct.term.courses.map((c) => ({ id: c.id, name: c.name, sessions: c.sessions.length })),
     });
   }
 
-  // Distinct semester options, chronological.
-  const optMap = new Map<string, { sem: string; year: number; count: number }>();
+  // Distinct semester options, chronological. Mark the one in session today.
+  const optMap = new Map<string, { sem: string; year: number; count: number; current: boolean }>();
   const SEASON_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
   for (const r of rows) {
     const k = `${r.year}-${r.sem}`;
-    const e = optMap.get(k) ?? { sem: r.sem, year: r.year, count: 0 };
+    const e = optMap.get(k) ?? { sem: r.sem, year: r.year, count: 0, current: false };
     e.count += 1;
+    if (r.inSessionNow) e.current = true;
     optMap.set(k, e);
   }
   const options = [...optMap.values()].sort((a, b) => a.year - b.year || SEASON_ORDER[a.sem] - SEASON_ORDER[b.sem]);
+  const currentOpt = options.find((o) => o.current);
 
   const selected = sem && year != null && optMap.has(`${year}-${sem}`)
     ? { sem, year }
+    : currentOpt ? { sem: currentOpt.sem, year: currentOpt.year }
     : options[0] ? { sem: options[0].sem, year: options[0].year } : null;
 
   const offerings = selected

@@ -10,6 +10,7 @@ const SEM_BADGE: Record<string, string> = {
   Summer: "bg-amber-100 text-amber-700",
   Fall: "bg-orange-100 text-orange-700",
 };
+const md = (d: Date | null) => (d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : null);
 
 export default async function SemesterPage({ searchParams }: { searchParams: { sem?: string; year?: string } }) {
   const { options, selected, offerings } = await getSemesterView(searchParams.sem, searchParams.year ? Number(searchParams.year) : undefined);
@@ -53,8 +54,10 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
             <Link
               key={`${o.year}-${o.sem}`}
               href={`/semester?sem=${o.sem}&year=${o.year}`}
-              className={`rounded-full px-3 py-1.5 text-sm font-medium ${active ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
+              className={`rounded-full px-3 py-1.5 text-sm font-medium ${active ? "bg-rose-600 text-white" : o.current ? "bg-white text-slate-700 ring-2 ring-rose-300 hover:bg-slate-50" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}
+              title={o.current ? "In session now" : undefined}
             >
+              {o.current && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-rose-500 align-middle" />}
               {o.sem} {o.year} <span className={active ? "text-rose-100" : "text-slate-400"}>· {o.count}</span>
             </Link>
           );
@@ -93,8 +96,14 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
                               <Link href={`/programs/${o.programId}/offerings/${o.cohortId}`} className="text-sm font-semibold text-slate-800 hover:text-rose-700 hover:underline">{o.cohortName}</Link>
                               <div className="text-[11px] text-slate-500">{o.programName}</div>
                             </div>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${SEM_BADGE[selected.sem]}`}>{o.termName}</span>
+                            <div className="flex shrink-0 flex-col items-end gap-0.5">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SEM_BADGE[selected.sem]}`}>{o.termName}</span>
+                              {o.inSessionNow && <span className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-medium text-white"><span className="h-1 w-1 rounded-full bg-white" />in session</span>}
+                            </div>
                           </div>
+                          {(md(o.startDate) || md(o.endDate)) && (
+                            <div className="mt-1 text-[10px] text-slate-400">{md(o.startDate) ?? "?"} – {md(o.endDate) ?? "?"}</div>
+                          )}
                           <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                             <Mini label="Seats" value={String(o.enrollment)} />
                             <Mini label="Fac FTE" value={o.facultyFte.toFixed(2)} />

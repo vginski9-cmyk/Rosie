@@ -1508,7 +1508,9 @@ async function main() {
         });
         faculty.push({ id: p.id });
       }
-      const timingTerms: TimingTerm[] = (await prisma.term.findMany({ where: { programId: prog.id }, orderBy: { index: "asc" }, select: { index: true, name: true, startWeek: true, endWeek: true } }));
+      const progTerms = await prisma.term.findMany({ where: { programId: prog.id }, orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true } });
+      const timingTerms: TimingTerm[] = progTerms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+      const WK_MS = 7 * 24 * 3600 * 1000;
 
       // Cohorts across grad years, sized + staged with a funnel; rosters auto-seed.
       for (const gy of fc.grads) {
@@ -1526,6 +1528,11 @@ async function main() {
         });
         const startDate = new Date(`${gy - progYears}-08-15`);
         await prisma.cohort.update({ where: { id: co.id }, data: { startDate, status: statusFromStart(startDate, timingTerms), plannedSeats: enrolled } });
+        // Bind each template term to a real calendar date for this offering, so the
+        // semester view can place it on a timeline (current term / expected end).
+        await prisma.cohortTerm.createMany({
+          data: progTerms.map((t) => ({ cohortId: co.id, termId: t.id, startDate: new Date(startDate.getTime() + ((t.startWeek ?? 1) - 1) * WK_MS) })),
+        });
         await seedCohortStaff(co.id, prog.id, faculty, allPreceptors);
       }
     }
