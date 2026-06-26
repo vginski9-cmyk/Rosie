@@ -1,35 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   BENCHMARK_RATES, RATE_DEFS, UTILIZATION_BENCHMARK,
-  buildLadder, capacityFromNorthStar, utilization, roundLadder, defaultTermRetention,
+  buildLadder, capacityFromNorthStar, utilization, roundLadder,
   type LadderRates,
 } from "@/lib/northstar";
 import { saveFamilyGoalPlan } from "@/lib/actions";
 
-// The North-Star goal surface. Set a MULTI-YEAR goal — one box per year, so a
-// program can stairstep up, hold, or shrink — then adjust every health-metric
-// PERCENTAGE in a row (goal % + actual %) and the whole cohort-metrics ladder
-// (interested → fully productive, plus term-by-term enrollment) autocalculates
-// for the selected year. Two tables, side by side, exactly like the institutions
-// workbook. Edits persist to the family's plan in the database.
+// The North-Star goal surface. Set a multi-year goal — one clean number per year,
+// stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
+// graduating that year, with the goal already set and the ACTUAL sourced live from
+// the student database. Click a year to plan its full pipeline below.
 
 type Anchor = "northstar" | "capacity";
+
+export interface Instantiation {
+  id: string;
+  name: string;
+  programId: string;
+  program: string;
+  goalProductive: number;
+  students: number;
+  enrolled: number;
+  completed: number;
+  placed: number;
+  status: string;
+}
 
 interface Persisted {
   anchor: Anchor;
   years: number[];
-  /** North-Star (fully-productive) goal per year, keyed by year string. */
   goalsByYear: Record<string, number>;
-  /** Enrollment capacity per year (when anchoring on capacity), keyed by year string. */
   capByYear: Record<string, number>;
   selectedYear: number;
   goal: LadderRates;
   actual: LadderRates;
-  termCount: number;
-  termGoal: number[];
-  termActual: number[];
 }
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -44,58 +51,41 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, seedTerms, savedPlan,
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {},
 }: {
   familyId: string;
   familyName: string;
   seedYears: number[];
   seedGoalsByYear: Record<number, number>;
-  seedTerms: number;
-  /** Previously-saved plan from the database (JSON string), if any. */
   savedPlan: string | null;
+  instantiationsByYear?: Record<number, Instantiation[]>;
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
-    const terms = Math.max(1, seedTerms || 5);
-    // Per-year North Star: use the family's target where known, else carry forward.
     const goalsByYear: Record<string, number> = {};
     let last = 25;
-    for (const y of years) {
-      const g = Math.round(seedGoalsByYear[y] ?? 0) || last;
-      goalsByYear[String(y)] = g;
-      last = g;
-    }
+    for (const y of years) { const g = Math.round(seedGoalsByYear[y] ?? 0) || last; goalsByYear[String(y)] = g; last = g; }
     const capByYear: Record<string, number> = {};
     for (const y of years) capByYear[String(y)] = Math.round(capacityFromNorthStar(goalsByYear[String(y)], BENCHMARK_RATES));
     const base: Persisted = {
-      anchor: "northstar",
-      years,
-      goalsByYear,
-      capByYear,
+      anchor: "northstar", years, goalsByYear, capByYear,
       selectedYear: years[years.length - 1],
-      goal: { ...BENCHMARK_RATES },
-      actual: { ...BENCHMARK_RATES },
-      termCount: terms,
-      termGoal: defaultTermRetention(terms),
-      termActual: defaultTermRetention(terms, 0.92),
+      goal: { ...BENCHMARK_RATES }, actual: { ...BENCHMARK_RATES },
     };
     if (savedPlan) {
       try {
         const saved = JSON.parse(savedPlan) as Partial<Persisted>;
         const merged: Persisted = {
           ...base, ...saved,
-          goal: { ...base.goal, ...saved.goal },
-          actual: { ...base.actual, ...saved.actual },
-          goalsByYear: { ...base.goalsByYear, ...saved.goalsByYear },
-          capByYear: { ...base.capByYear, ...saved.capByYear },
+          goal: { ...base.goal, ...saved.goal }, actual: { ...base.actual, ...saved.actual },
+          goalsByYear: { ...base.goalsByYear, ...saved.goalsByYear }, capByYear: { ...base.capByYear, ...saved.capByYear },
         };
-        // Guard against a saved selectedYear no longer in range.
         if (!merged.years.includes(merged.selectedYear)) merged.selectedYear = merged.years[merged.years.length - 1];
         return merged;
-      } catch { /* fall through to base */ }
+      } catch { /* fall through */ }
     }
     return base;
-  }, [seedYears, seedGoalsByYear, seedTerms, savedPlan]);
+  }, [seedYears, seedGoalsByYear, savedPlan]);
 
   const [s, setS] = useState<Persisted>(initial);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
@@ -110,18 +100,13 @@ export function GoalPlanner({
     return () => clearTimeout(t);
   }, [s, familyId]);
 
-  // Capacity for any given year (the anchor for that year's ladder).
-  const capacityForYear = (year: number): number => {
-    if (s.anchor === "northstar") return capacityFromNorthStar(s.goalsByYear[String(year)] ?? 0, s.goal);
-    return s.capByYear[String(year)] ?? 0;
-  };
+  const capacityForYear = (year: number): number =>
+    s.anchor === "northstar" ? capacityFromNorthStar(s.goalsByYear[String(year)] ?? 0, s.goal) : (s.capByYear[String(year)] ?? 0);
   const productiveForYear = (year: number): number => buildLadder(capacityForYear(year), s.goal).productive;
 
   const goalCapacity = capacityForYear(s.selectedYear);
-  const goalLadder = roundLadder(buildLadder(goalCapacity, s.goal, s.termGoal.slice(0, s.termCount)));
-  const actualLadder = roundLadder(buildLadder(goalCapacity, s.actual, s.termActual.slice(0, s.termCount)));
-
-  // Utilization — productive ÷ enrollment capacity.
+  const goalLadder = roundLadder(buildLadder(goalCapacity, s.goal));
+  const actualLadder = roundLadder(buildLadder(goalCapacity, s.actual));
   const goalUtil = utilization(goalLadder.productive, goalCapacity);
   const actualUtil = utilization(actualLadder.productive, goalCapacity);
 
@@ -146,181 +131,166 @@ export function GoalPlanner({
 
   const setGoalRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, goal: { ...p.goal, [k]: vPct / 100 } }));
   const setActualRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, actual: { ...p.actual, [k]: vPct / 100 } }));
-  const setTermGoal = (i: number, vPct: number) => setS((p) => { const t = [...p.termGoal]; t[i] = vPct / 100; return { ...p, termGoal: t }; });
-  const setTermActual = (i: number, vPct: number) => setS((p) => { const t = [...p.termActual]; t[i] = vPct / 100; return { ...p, termActual: t }; });
-  const setTermCount = (n: number) => setS((p) => {
-    const c = Math.max(1, Math.min(12, n));
-    const grow = (arr: number[], def: number) => Array.from({ length: c }, (_, i) => arr[i] ?? (i === 0 ? 1 : def));
-    return { ...p, termCount: c, termGoal: grow(p.termGoal, 0.94), termActual: grow(p.termActual, 0.92) };
-  });
-  const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES }, actual: { ...BENCHMARK_RATES }, termGoal: defaultTermRetention(p.termCount), termActual: defaultTermRetention(p.termCount, 0.92) }));
-
+  const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES }, actual: { ...BENCHMARK_RATES } }));
   const attain = (g: number, a: number) => (g > 0 ? a / g : null);
 
-  // Per-year bars (north-star or capacity) for the stairstep visual.
-  const yearVals = s.years.map((y) => ({ year: y, val: s.anchor === "northstar" ? (s.goalsByYear[String(y)] ?? 0) : (s.capByYear[String(y)] ?? 0) }));
-  const maxYearVal = Math.max(1, ...yearVals.map((v) => v.val));
-
-  const ladderRows: { label: string; g: number; a: number; strong?: boolean; sub?: boolean }[] = [
+  const ladderRows: { label: string; g: number; a: number; strong?: boolean }[] = [
     { label: "Interested candidates", g: goalLadder.interested, a: actualLadder.interested },
     { label: "Qualified applicants", g: goalLadder.qualified, a: actualLadder.qualified },
     { label: "Offered admission", g: goalLadder.offered, a: actualLadder.offered },
-    { label: "Actual cohort enrollment capacity", g: goalLadder.enrolled, a: actualLadder.enrolled, strong: true },
-    ...goalLadder.terms.map((g, i) => ({ label: `Term ${i + 1}`, g, a: actualLadder.terms[i] ?? 0, sub: true })),
-    { label: "Students completing on time", g: goalLadder.completing, a: actualLadder.completing },
+    { label: "Enrollment capacity", g: goalLadder.enrolled, a: actualLadder.enrolled, strong: true },
+    { label: "Completing on time", g: goalLadder.completing, a: actualLadder.completing },
     { label: "Passing licensure (first time)", g: goalLadder.licensed, a: actualLadder.licensed },
-    { label: "Credentialed graduates retained & placed", g: goalLadder.placed, a: actualLadder.placed },
-    { label: "Reaching full productivity in region", g: goalLadder.productive, a: actualLadder.productive, strong: true },
+    { label: "Retained & placed regionally", g: goalLadder.placed, a: actualLadder.placed },
+    { label: "Reaching full productivity", g: goalLadder.productive, a: actualLadder.productive, strong: true },
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Anchor + global controls */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="space-y-5">
+      {/* Anchor + save */}
+      <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
           <button onClick={() => setS((p) => ({ ...p, anchor: "northstar" }))} className={`px-3 py-1.5 ${s.anchor === "northstar" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: North Star</button>
           <button onClick={() => setS((p) => ({ ...p, anchor: "capacity" }))} className={`px-3 py-1.5 ${s.anchor === "capacity" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: Capacity</button>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-slate-500">Terms</span>
-          <input type="number" min={1} max={12} value={s.termCount} onChange={(e) => setTermCount(Number(e.target.value) || 1)} className="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-right tabular-nums" />
-        </label>
         <span className="ml-auto text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
-        <button onClick={resetBenchmark} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
+        <button onClick={resetBenchmark} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset rates to benchmark</button>
       </div>
 
-      {/* Multi-year North-Star goals — one box per year (stairstep) */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700">{s.anchor === "northstar" ? "North-Star goal by year" : "Enrollment capacity by year"}</h3>
-            <p className="text-[11px] text-slate-400">{s.anchor === "northstar" ? "Fully-productive workers each year — stairstep up, hold, or shrink. Click a year to plan its full pipeline below." : "Enrolled seats each year. Click a year to plan its full pipeline below."}</p>
-          </div>
+      {/* Multi-year goals — clean numbers, instantiations under each year */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400">{s.anchor === "northstar" ? "Fully-productive workers each year — set the goal; the class delivering it sits underneath." : "Enrollment capacity each year."} Click a year to plan its full pipeline below.</p>
           <div className="flex items-center gap-1">
             <button onClick={removeYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="remove last year">−</button>
             <button onClick={addYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="add a year">+ year</button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {yearVals.map(({ year, val }) => {
-            const selected = year === s.selectedYear;
-            const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
-            return (
-              <div key={year} className={`flex w-28 flex-col rounded-lg border p-2 ${selected ? "border-rose-400 bg-rose-50/60 ring-1 ring-rose-200" : "border-slate-200"}`}>
-                <button onClick={() => selectYear(year)} className={`mb-1 text-left text-xs font-semibold ${selected ? "text-rose-700" : "text-slate-600 hover:text-rose-600"}`}>{year}{selected ? " ●" : ""}</button>
-                {/* stairstep bar */}
-                <span className="mb-1 flex h-8 items-end">
-                  <span className="block w-full rounded-t bg-rose-300" style={{ height: `${Math.max(6, (val / maxYearVal) * 32)}px` }} />
-                </span>
-                <input type="number" min={0} value={Math.round(val)} onChange={(e) => setYearValue(year, Number(e.target.value) || 0)} className="w-full rounded border border-slate-300 px-1.5 py-1 text-right text-sm tabular-nums focus:border-rose-400 focus:outline-none" />
-                <span className="mt-0.5 text-[10px] text-slate-400">{s.anchor === "northstar" ? `cap ${derived}` : `prod ${derived}`}</span>
+
+        {s.years.map((year) => {
+          const selected = year === s.selectedYear;
+          const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
+          const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
+          const insts = instantiationsByYear[year] ?? [];
+          const actualProductive = insts.reduce((n, i) => n + i.placed, 0);
+          return (
+            <div key={year} className={`rounded-xl border ${selected ? "border-rose-300 ring-1 ring-rose-200" : "border-slate-200"} bg-white`}>
+              <div className="flex flex-wrap items-center gap-4 p-4">
+                <button onClick={() => selectYear(year)} className={`text-xl font-bold tabular-nums ${selected ? "text-rose-700" : "text-slate-700 hover:text-rose-600"}`}>{year}</button>
+                <label className="flex items-center gap-2 text-sm">
+                  <span className="text-[11px] uppercase tracking-wide text-slate-400">{s.anchor === "northstar" ? "Goal · productive" : "Capacity"}</span>
+                  <input type="number" min={0} value={Math.round(goalVal)} onChange={(e) => setYearValue(year, Number(e.target.value) || 0)} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-lg font-semibold tabular-nums focus:border-rose-400 focus:outline-none" />
+                </label>
+                <span className="text-xs text-slate-400">{s.anchor === "northstar" ? `needs ~${derived} enrolled` : `→ ~${derived} productive`}</span>
+                {insts.length > 0 && (
+                  <span className="ml-auto text-xs text-slate-500">actual to date: <strong className={attainColor(attain(Math.round(goalVal), actualProductive))}>{actualProductive}</strong> placed</span>
+                )}
               </div>
-            );
-          })}
-        </div>
+
+              {/* Instantiations graduating this year */}
+              <div className="border-t border-slate-100 px-4 py-3">
+                {insts.length === 0 ? (
+                  <p className="text-xs text-slate-300">No instantiations graduating in {year} yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {insts.map((c) => (
+                      <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40">
+                        <span className="font-medium text-slate-800">{c.name} <span className="font-normal text-slate-400">· {c.program}</span></span>
+                        <span className="flex flex-wrap items-center gap-3 tabular-nums text-slate-500">
+                          <span>goal <strong className="text-slate-700">{c.goalProductive || "—"}</strong></span>
+                          <span className="text-slate-300">·</span>
+                          <span title="live from student data">{c.students} students</span>
+                          <span className="text-emerald-600">{c.enrolled} enrolled</span>
+                          <span className="text-lime-600">{c.completed} completed</span>
+                          <span className="text-rose-600">{c.placed} placed</span>
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      <p className="text-[11px] text-slate-400">
-        Planning <strong className="text-slate-600">{s.selectedYear}</strong> — {s.anchor === "northstar"
-          ? "capacity is sized backward from that year's North Star through the goal yields."
-          : "that year's enrollment capacity anchors the ladder."}
-        {" "}Type any percentage — goal or actual — and the ladder recomputes. Saved to {familyName}&apos;s plan automatically.
-      </p>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Table 1 — health-metric percentages (editable) */}
-        <div className="overflow-hidden rounded-xl border border-slate-200">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-            <h3 className="text-sm font-semibold text-slate-700">Talent-pipeline health metrics</h3>
-            <p className="text-[11px] text-slate-400">Editable — goal % and actual %. Anchored on enrollment capacity or chained off the stage above.</p>
-          </div>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="px-4 py-2 text-left font-medium">Metric</th>
-                <th className="px-2 py-2 text-right font-medium">Goal</th>
-                <th className="px-2 py-2 text-right font-medium">Actual</th>
-                <th className="px-3 py-2 text-right font-medium">Bench</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {RATE_DEFS.map((d) => {
-                const gv = s.goal[d.key], av = s.actual[d.key];
-                const healthy = av >= d.benchmark;
-                return (
-                  <tr key={d.key} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-1.5">
-                      <span className="block font-medium text-slate-700">{d.label}</span>
-                      <span className="block text-[10px] text-slate-400">{d.of}{d.anchor === "capacity" ? " · surplus" : " · yield"}</span>
-                    </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <input type="number" value={Math.round(gv * 1000) / 10} step={1} onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" />
-                      <span className="ml-0.5 text-slate-400">%</span>
-                    </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <input type="number" value={Math.round(av * 1000) / 10} step={1} onChange={(e) => setActualRate(d.key, Number(e.target.value) || 0)} className={`w-16 rounded border px-1.5 py-1 text-right tabular-nums focus:outline-none ${healthy ? "border-slate-200 focus:border-emerald-400" : "border-amber-300 bg-amber-50 focus:border-amber-400"}`} />
-                      <span className="ml-0.5 text-slate-400">%</span>
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(d.benchmark)}</td>
-                  </tr>
-                );
-              })}
-              <tr className="bg-slate-50/60">
-                <td className="px-4 py-1.5">
-                  <span className="block font-medium text-slate-700">Regional pipeline utilization</span>
-                  <span className="block text-[10px] text-slate-400">productive ÷ enrollment capacity</span>
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{pctOf(goalUtil)}</td>
-                <td className={`px-2 py-1.5 text-right tabular-nums ${actualUtil != null && actualUtil >= UTILIZATION_BENCHMARK ? "text-emerald-600" : "text-amber-600"}`}>{pctOf(actualUtil)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(UTILIZATION_BENCHMARK)}</td>
-              </tr>
-            </tbody>
-          </table>
-          {/* Per-term retention editor */}
-          <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-3">
-            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Term-by-term retention (% of prior term)</div>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: s.termCount }, (_, i) => (
-                <label key={i} className="flex items-center gap-1 text-xs">
-                  <span className="text-slate-500">T{i + 1}</span>
-                  <input type="number" value={Math.round((s.termGoal[i] ?? 1) * 1000) / 10} step={1} disabled={i === 0} onChange={(e) => setTermGoal(i, Number(e.target.value) || 0)} className="w-14 rounded border border-slate-200 px-1 py-0.5 text-right tabular-nums disabled:bg-slate-100 disabled:text-slate-400" title={i === 0 ? "Term 1 = enrolled" : "goal retention"} />
-                  <input type="number" value={Math.round((s.termActual[i] ?? 1) * 1000) / 10} step={1} disabled={i === 0} onChange={(e) => setTermActual(i, Number(e.target.value) || 0)} className="w-14 rounded border border-amber-200 bg-amber-50/50 px-1 py-0.5 text-right tabular-nums disabled:bg-slate-100 disabled:text-slate-400" title={i === 0 ? "Term 1 = enrolled" : "actual retention"} />
-                </label>
-              ))}
+      {/* Selected year's full pipeline — two tables */}
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">{s.selectedYear} pipeline plan <span className="font-normal text-slate-400">— set the health-metric rates; the ladder autocalculates</span></h3>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <div className="text-sm font-semibold text-slate-700">Talent-pipeline health metrics</div>
+              <p className="text-[11px] text-slate-400">Goal % and actual %. Capacity-anchored surpluses or chained yields.</p>
             </div>
-            <div className="mt-1 text-[10px] text-slate-400">left = goal · right = actual · T1 fixed at enrolled</div>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                  <th className="px-4 py-2 text-left font-medium">Metric</th>
+                  <th className="px-2 py-2 text-right font-medium">Goal</th>
+                  <th className="px-2 py-2 text-right font-medium">Actual</th>
+                  <th className="px-3 py-2 text-right font-medium">Bench</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {RATE_DEFS.map((d) => {
+                  const gv = s.goal[d.key], av = s.actual[d.key];
+                  const healthy = av >= d.benchmark;
+                  return (
+                    <tr key={d.key} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-1.5">
+                        <span className="block font-medium text-slate-700">{d.label}</span>
+                        <span className="block text-[10px] text-slate-400">{d.of}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input type="number" value={Math.round(gv * 1000) / 10} step={1} onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <input type="number" value={Math.round(av * 1000) / 10} step={1} onChange={(e) => setActualRate(d.key, Number(e.target.value) || 0)} className={`w-16 rounded border px-1.5 py-1 text-right tabular-nums focus:outline-none ${healthy ? "border-slate-200 focus:border-emerald-400" : "border-amber-300 bg-amber-50 focus:border-amber-400"}`} /><span className="ml-0.5 text-slate-400">%</span>
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(d.benchmark)}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-slate-50/60">
+                  <td className="px-4 py-1.5"><span className="block font-medium text-slate-700">Regional pipeline utilization</span><span className="block text-[10px] text-slate-400">productive ÷ enrollment capacity</span></td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{pctOf(goalUtil)}</td>
+                  <td className={`px-2 py-1.5 text-right tabular-nums ${actualUtil != null && actualUtil >= UTILIZATION_BENCHMARK ? "text-emerald-600" : "text-amber-600"}`}>{pctOf(actualUtil)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(UTILIZATION_BENCHMARK)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </div>
 
-        {/* Table 2 — autocalculated cohort metrics (sequential, interested → productive) */}
-        <div className="overflow-hidden rounded-xl border border-slate-200">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-            <h3 className="text-sm font-semibold text-slate-700">Talent-pipeline metrics — cohort ending {s.selectedYear}</h3>
-            <p className="text-[11px] text-slate-400">Autocalculated from the percentages, in funnel order. Goal vs actual vs attainment.</p>
+          <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
+              <div className="text-sm font-semibold text-slate-700">Talent-pipeline metrics — cohort ending {s.selectedYear}</div>
+              <p className="text-[11px] text-slate-400">Autocalculated, in funnel order. Goal vs actual vs attainment.</p>
+            </div>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
+                  <th className="px-4 py-2 text-left font-medium">Metric</th>
+                  <th className="px-3 py-2 text-right font-medium">Goal</th>
+                  <th className="px-3 py-2 text-right font-medium">Actual</th>
+                  <th className="px-3 py-2 text-right font-medium">Attain</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {ladderRows.map((r) => {
+                  const a = attain(r.g, r.a);
+                  return (
+                    <tr key={r.label} className={r.strong ? "bg-rose-50/40" : "hover:bg-slate-50/60"}>
+                      <td className={`px-4 py-1.5 ${r.strong ? "font-semibold text-slate-800" : "text-slate-700"}`}>{r.label}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{num(r.g)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{num(r.a)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${attainColor(a)}`}>{pctOf(a)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="px-4 py-2 text-left font-medium">Metric</th>
-                <th className="px-3 py-2 text-right font-medium">Goal</th>
-                <th className="px-3 py-2 text-right font-medium">Actual</th>
-                <th className="px-3 py-2 text-right font-medium">Attain</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {ladderRows.map((r) => {
-                const a = attain(r.g, r.a);
-                return (
-                  <tr key={r.label} className={r.strong ? "bg-rose-50/40" : r.sub ? "bg-slate-50/40" : "hover:bg-slate-50/60"}>
-                    <td className={`px-4 py-1.5 ${r.strong ? "font-semibold text-slate-800" : r.sub ? "pl-7 text-slate-500" : "text-slate-700"}`}>{r.label}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{num(r.g)}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{num(r.a)}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${attainColor(a)}`}>{pctOf(a)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

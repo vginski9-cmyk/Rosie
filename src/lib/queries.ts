@@ -311,7 +311,7 @@ export async function getFamily(familyId: string) {
           terms: { include: { courses: { include: { sessions: true } } } },
           cohorts: {
             orderBy: { name: "asc" },
-            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } } },
+            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } } },
           },
         },
       },

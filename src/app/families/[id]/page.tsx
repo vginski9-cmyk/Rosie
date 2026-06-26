@@ -62,7 +62,30 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   const yearSet = new Set<number>([...Object.keys(goalByYear).map(Number), ...Object.keys(demandByYear).map(Number), ...cohortYears]);
   const seedYears = [...yearSet].sort((a, b) => a - b);
   const seedGoalsByYear: Record<number, number> = goalByYear;
-  const seedTerms = Math.max(5, ...family.programs.map((p) => p._count.terms));
+
+  // Instantiations (cohorts) grouped by graduation year, with ACTUALS sourced live
+  // from the student database (counts by lifecycle status).
+  const STATUS_RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
+  const instantiationsByYear: Record<number, import("@/components/GoalPlanner").Instantiation[]> = {};
+  for (const p of family.programs) {
+    for (const co of p.cohorts) {
+      const gy = gradYearOf(co.name) || co.entryYear || 0;
+      if (!gy) continue;
+      let enrolled = 0, completed = 0, placed = 0;
+      for (const st of co.students) {
+        if (st.status === "withdrawn") continue;
+        const r = STATUS_RANK[st.status] ?? -1;
+        if (r >= 3) enrolled++;
+        if (r >= 4) completed++;
+        if (r >= 6) placed++;
+      }
+      const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
+      (instantiationsByYear[gy] ??= []).push({
+        id: co.id, name: co.name, programId: p.id, program: p.name,
+        goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
+      });
+    }
+  }
 
   // Group the family's delivery-model templates by credential (AAS / Diploma / Cert),
   // citing how many fully-productive workers each is expected to deliver this year.
@@ -142,7 +165,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} seedTerms={seedTerms} savedPlan={family.goalPlan ?? null} />
+        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} />
       </section>
 
       {/* Multi-year goals, trajectory, constellation, health — interactive */}
