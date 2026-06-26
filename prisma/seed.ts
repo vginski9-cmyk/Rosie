@@ -1303,6 +1303,63 @@ async function main() {
     radWblStudents,
   );
 
+  // ----- Real student rosters for every started / recruiting cohort ----------
+  // Each past/present instantiation gets a roster sized + staged to where it is in
+  // the pipeline: graduated → completed/licensed/placed/productive (from its funnel
+  // actuals); in-program → enrolled (+ some completing in the final year); recruiting
+  // (entry next year) → prospects/applicants/admitted. Not-yet-started cohorts get
+  // goals only (no students). The detailed Class of 2029 already has its own roster.
+  {
+    const NOW = 2026;
+    const STATUS_STAGE: Record<string, string | null> = { prospect: "interested", applicant: "qualified", admitted: "offered", enrolled: "enrolled", completed: "completing", licensed: "licensed", placed: "placed", productive: "productive" };
+    const gradYearOf = (n: string): number => { const m = n.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
+    const cohortsAll = await prisma.cohort.findMany({ include: { _count: { select: { students: true } }, stages: true, program: { select: { id: true, defaultCohortSeats: true } } } });
+    let made = 0;
+    for (const co of cohortsAll) {
+      if (co._count.students > 0) continue; // already seeded (e.g. rad Class of 2029)
+      const gradYear = gradYearOf(co.name) || co.entryYear || 0;
+      if (!gradYear) continue;
+      const ytg = gradYear - NOW; // years to graduation (2-year program assumed)
+      if (ytg >= 4) continue; // not started yet → goals only, no students
+      const E = Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 40);
+      const sa = (k: string): number | null => { const s = co.stages.find((x) => x.stageKey === k); return s?.actualNumber != null ? Math.round(s.actualNumber) : null; };
+      const statuses: string[] = [];
+      const pushN = (st: string, n: number) => { for (let i = 0; i < Math.max(0, n); i++) statuses.push(st); };
+      if (ytg === 3) {
+        const I = sa("interested") ?? Math.round(E * 1.5);
+        const Q = sa("qualified") ?? Math.round(E * 1.25);
+        const O = sa("offered") ?? Math.round(E * 1.1);
+        pushN("prospect", I - Q); pushN("applicant", Q - O); pushN("admitted", O);
+      } else if (ytg <= 0) {
+        const C = sa("completing") ?? Math.round(E * 0.7);
+        const L = sa("licensed") ?? Math.round(C * 0.9);
+        const P = sa("placed") ?? Math.round(L * 0.9);
+        const Pr = sa("productive") ?? Math.round(P * 0.9);
+        pushN("productive", Pr); pushN("placed", P - Pr); pushN("licensed", L - P); pushN("completed", C - L); pushN("enrolled", E - C);
+      } else if (ytg === 1) {
+        const C = Math.round(E * 0.4);
+        pushN("completed", C); pushN("enrolled", E - C);
+      } else {
+        pushN("enrolled", E);
+      }
+      if (statuses.length === 0) continue;
+      const rng = mulberry32(gradYear * 131 + E * 7 + statuses.length);
+      const pick = <T,>(arr: T[]) => arr[Math.floor(rng() * arr.length)];
+      const sections = Math.max(1, Math.ceil(E / 12));
+      const entryYear = co.entryYear ?? gradYear - 2;
+      const data = statuses.map((st, i) => ({
+        programId: co.program.id, cohortId: co.id,
+        name: `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`,
+        email: `s${gradYear}.${i}.${co.id.slice(-4)}@example.edu`,
+        status: st, stageKey: STATUS_STAGE[st] ?? null, entryYear,
+        sectionIndex: (i % sections) + 1,
+      }));
+      await prisma.student.createMany({ data });
+      made += data.length;
+    }
+    console.log(`Seeded ${made} students across started/recruiting cohorts.`);
+  }
+
   const counts = {
     institutions: await prisma.institution.count(),
     skills: await prisma.skill.count(),
