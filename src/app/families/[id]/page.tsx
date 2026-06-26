@@ -6,8 +6,11 @@ import { GoalPlanner } from "@/components/GoalPlanner";
 import { PivotExplorer } from "@/components/PivotExplorer";
 import type { StageKey } from "@/lib/funnel";
 import { courseService, DEFAULT_SERVICE, type ServiceSession } from "@/lib/service";
+import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
+
+const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : null);
 
 const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
 
@@ -63,8 +66,11 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   // Instantiations (cohorts) grouped by graduation year, with ACTUALS sourced live
   // from the student database (counts by lifecycle status).
   const STATUS_RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
+  const today = new Date();
+  const nowYear = today.getUTCFullYear();
   const instantiationsByYear: Record<number, import("@/components/GoalPlanner").Instantiation[]> = {};
   for (const p of family.programs) {
+    const timingTerms: TimingTerm[] = p.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
     for (const co of p.cohorts) {
       const gy = gradYearOf(co.name) || co.entryYear || 0;
       if (!gy) continue;
@@ -77,9 +83,12 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         if (r >= 6) placed++;
       }
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
+      const tm = computeCohortTiming(co.startDate, timingTerms, today);
       (instantiationsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
+        phase: tm.phase, currentTerm: tm.currentTermName,
+        endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
       });
     }
   }
@@ -159,7 +168,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} />
+        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear} />
       </section>
 
       {/* Multi-year goals, trajectory, constellation, health — interactive */}

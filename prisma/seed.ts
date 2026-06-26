@@ -16,6 +16,7 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
 
 const prisma = new PrismaClient();
 
@@ -1310,43 +1311,48 @@ async function main() {
   // (entry next year) → prospects/applicants/admitted. Not-yet-started cohorts get
   // goals only (no students). The detailed Class of 2029 already has its own roster.
   {
-    const NOW = 2026;
+    const AS_OF = new Date("2026-06-26T00:00:00Z"); // deterministic "today" for the seed
     const STATUS_STAGE: Record<string, string | null> = { prospect: "interested", applicant: "qualified", admitted: "offered", enrolled: "enrolled", completed: "completing", licensed: "licensed", placed: "placed", productive: "productive" };
-    const gradYearOf = (n: string): number => { const m = n.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
-    const cohortsAll = await prisma.cohort.findMany({ include: { _count: { select: { students: true } }, stages: true, program: { select: { id: true, defaultCohortSeats: true } } } });
+    const cohortsAll = await prisma.cohort.findMany({ include: { _count: { select: { students: true } }, stages: true, program: { select: { id: true, defaultCohortSeats: true, terms: { select: { index: true, name: true, startWeek: true, endWeek: true } } } } } });
     let made = 0;
     for (const co of cohortsAll) {
       if (co._count.students > 0) continue; // already seeded (e.g. rad Class of 2029)
-      const gradYear = gradYearOf(co.name) || co.entryYear || 0;
-      if (!gradYear) continue;
-      const ytg = gradYear - NOW; // years to graduation (2-year program assumed)
-      if (ytg >= 4) continue; // not started yet → goals only, no students
+      // Phase is derived from the program's ACTUAL structure + the cohort's real
+      // start date (no fixed program-length assumption).
+      const terms: TimingTerm[] = co.program.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+      const tm = computeCohortTiming(co.startDate, terms, AS_OF);
+      if (tm.phase === "unscheduled") continue; // no start date → goals only
       const E = Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 40);
       const sa = (k: string): number | null => { const s = co.stages.find((x) => x.stageKey === k); return s?.actualNumber != null ? Math.round(s.actualNumber) : null; };
       const statuses: string[] = [];
       const pushN = (st: string, n: number) => { for (let i = 0; i < Math.max(0, n); i++) statuses.push(st); };
-      if (ytg === 3) {
+      if (tm.phase === "recruiting") {
+        // Only the cohort entering NEXT (within ~1 year) is actively recruiting;
+        // anything further out is goals-only.
+        const monthsOut = tm.startDate ? (tm.startDate.getTime() - AS_OF.getTime()) / (30 * 24 * 3600 * 1000) : 99;
+        if (monthsOut > 14) continue;
         const I = sa("interested") ?? Math.round(E * 1.5);
         const Q = sa("qualified") ?? Math.round(E * 1.25);
         const O = sa("offered") ?? Math.round(E * 1.1);
         pushN("prospect", I - Q); pushN("applicant", Q - O); pushN("admitted", O);
-      } else if (ytg <= 0) {
+      } else if (tm.phase === "graduated") {
         const C = sa("completing") ?? Math.round(E * 0.7);
         const L = sa("licensed") ?? Math.round(C * 0.9);
         const P = sa("placed") ?? Math.round(L * 0.9);
         const Pr = sa("productive") ?? Math.round(P * 0.9);
         pushN("productive", Pr); pushN("placed", P - Pr); pushN("licensed", L - P); pushN("completed", C - L); pushN("enrolled", E - C);
-      } else if (ytg === 1) {
-        const C = Math.round(E * 0.4);
-        pushN("completed", C); pushN("enrolled", E - C);
       } else {
-        pushN("enrolled", E);
+        // in-program — completion ramps with how far along the cohort is.
+        const pct = tm.pctElapsed ?? 0.3;
+        const C = pct > 0.75 ? Math.round(E * 0.5) : pct > 0.5 ? Math.round(E * 0.2) : 0;
+        pushN("completed", C); pushN("enrolled", E - C);
       }
       if (statuses.length === 0) continue;
+      const gradYear = co.startDate ? co.startDate.getUTCFullYear() + Math.round(tm.totalWeeks / 52) : (co.entryYear ?? 0);
       const rng = mulberry32(gradYear * 131 + E * 7 + statuses.length);
       const pick = <T,>(arr: T[]) => arr[Math.floor(rng() * arr.length)];
       const sections = Math.max(1, Math.ceil(E / 12));
-      const entryYear = co.entryYear ?? gradYear - 2;
+      const entryYear = co.startDate ? co.startDate.getUTCFullYear() : (co.entryYear ?? gradYear - 2);
       const data = statuses.map((st, i) => ({
         programId: co.program.id, cohortId: co.id,
         name: `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`,

@@ -27,7 +27,18 @@ export interface Instantiation {
   completed: number;
   placed: number;
   status: string;
+  phase: string;              // recruiting | in-program | graduated | unscheduled
+  currentTerm: string | null; // current term name (when in-program)
+  endLabel: string | null;    // expected-end label, e.g. "ends May 2026"
 }
+
+const PHASE_BADGE: Record<string, string> = {
+  recruiting: "bg-sky-100 text-sky-700", "in-program": "bg-emerald-100 text-emerald-700",
+  graduated: "bg-slate-200 text-slate-600", unscheduled: "bg-slate-100 text-slate-400",
+};
+const PHASE_LABEL: Record<string, string> = {
+  recruiting: "recruiting", "in-program": "in program", graduated: "graduated", unscheduled: "unscheduled",
+};
 
 /** Live actual funnel for a year, summed from the student database (cumulative). */
 export interface ActualFunnel {
@@ -71,7 +82,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {},
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {}, nowYear,
 }: {
   familyId: string;
   familyName: string;
@@ -80,6 +91,7 @@ export function GoalPlanner({
   savedPlan: string | null;
   instantiationsByYear?: Record<number, Instantiation[]>;
   actualByYear?: Record<number, ActualFunnel>;
+  nowYear: number;
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -218,20 +230,33 @@ export function GoalPlanner({
               {/* Instantiations graduating this year */}
               <div className="border-t border-slate-100 px-4 py-3">
                 {insts.length === 0 ? (
-                  <p className="text-xs text-slate-300">No instantiations graduating in {year} yet.</p>
+                  <p className="text-xs text-slate-300">
+                    {year < nowYear ? `No instantiations graduated in ${year}.` : year === nowYear ? `No instantiations graduating in ${year}.` : `No instantiations planned for ${year} yet.`}
+                  </p>
                 ) : (
                   <div className="space-y-1.5">
                     {insts.map((c) => (
-                      <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40">
-                        <span className="font-medium text-slate-800">{c.name} <span className="font-normal text-slate-400">· {c.program}</span></span>
-                        <span className="flex flex-wrap items-center gap-3 tabular-nums text-slate-500">
-                          <span>goal <strong className="text-slate-700">{c.goalProductive || "—"}</strong></span>
-                          <span className="text-slate-300">·</span>
-                          <span title="live from student data">{c.students} students</span>
-                          <span className="text-emerald-600">{c.enrolled} enrolled</span>
-                          <span className="text-lime-600">{c.completed} completed</span>
-                          <span className="text-rose-600">{c.placed} placed</span>
+                      <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
+                        <span className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-medium text-slate-800">
+                            {c.name} <span className="font-normal text-slate-400">· {c.program}</span>
+                            <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${PHASE_BADGE[c.phase] ?? PHASE_BADGE.unscheduled}`}>{PHASE_LABEL[c.phase] ?? c.phase}</span>
+                          </span>
+                          <span className="flex flex-wrap items-center gap-3 tabular-nums text-slate-500">
+                            <span>goal <strong className="text-slate-700">{c.goalProductive || "—"}</strong></span>
+                            <span className="text-slate-300">·</span>
+                            <span title="live from student data">{c.students} students</span>
+                            <span className="text-emerald-600">{c.enrolled} enrolled</span>
+                            <span className="text-lime-600">{c.completed} completed</span>
+                            <span className="text-rose-600">{c.placed} placed</span>
+                          </span>
                         </span>
+                        {(c.currentTerm || c.endLabel) && (
+                          <span className="mt-0.5 block text-[11px] text-slate-400">
+                            {c.phase === "in-program" && c.currentTerm ? `Now in ${c.currentTerm}` : c.phase === "recruiting" ? "Starts soon" : ""}
+                            {c.currentTerm && c.endLabel ? " · " : ""}{c.endLabel ?? ""}
+                          </span>
+                        )}
                       </Link>
                     ))}
                   </div>
@@ -249,7 +274,7 @@ export function GoalPlanner({
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5">
               <div className="text-sm font-semibold text-slate-700">Talent-pipeline health metrics</div>
-              <p className="text-[11px] text-slate-400">Goal % is editable. <strong>Actual % is live from the student database{hasActual ? "" : " — no students for this year yet"}.</strong></p>
+              <p className="text-[11px] text-slate-400">Goal % is editable. <strong>Actual % is live from the student database{hasActual ? "" : s.selectedYear > nowYear ? ` — ${s.selectedYear} hasn't started` : ` — no student records for ${s.selectedYear}`}.</strong></p>
             </div>
             <table className="w-full border-collapse text-sm">
               <thead>
