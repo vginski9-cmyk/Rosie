@@ -992,3 +992,123 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
 
   return { options, selected, offerings };
 }
+
+// ---------------------------------------------------------------------------
+// MASTER SPACE CALENDAR — every booked meeting across all programs, with room
+// utilization and conflict detection, on a real weekly timeline.
+// ---------------------------------------------------------------------------
+
+export interface MasterMeeting {
+  id: string;
+  cohortId: string; cohortName: string;
+  programId: string; programName: string; family: string | null;
+  courseId: string; courseCode: string | null; courseName: string;
+  kind: string; sectionIndex: number; sectionCount: number; seats: number;
+  dayOfWeek: string; startTime: string; endTime: string; lengthHours: number;
+  facilityId: string | null; facilityName: string | null; facilityKind: string | null;
+  staffPersonId: string | null; staffName: string | null;
+  termIndex: number; weekStartMs: number; weekEndMs: number;
+  startLabel: string; endLabel: string;
+}
+
+export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?: number }) {
+  const { detectConflicts, roomUtilization, toMin, toHHMM } = await import("./space");
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  // Default to the institution that actually has scheduled meetings, so the calendar
+  // opens on real data rather than an empty alphabetical-first tenant.
+  let institutionId = opts?.institutionId;
+  if (!institutionId) {
+    const grouped = await prisma.meetingPattern.groupBy({ by: ["cohortId"], _count: true });
+    if (grouped.length) {
+      const cohortInst = await prisma.cohort.findMany({ where: { id: { in: grouped.map((g) => g.cohortId) } }, select: { id: true, program: { select: { institutionId: true } } } });
+      const instOf = new Map(cohortInst.map((c) => [c.id, c.program.institutionId]));
+      const counts = new Map<string, number>();
+      for (const g of grouped) { const inst = instOf.get(g.cohortId); if (inst) counts.set(inst, (counts.get(inst) ?? 0) + g._count); }
+      institutionId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    }
+    institutionId = institutionId ?? institutions[0]?.id;
+  }
+  if (!institutionId) return { institutions, institutionId: null, rooms: [], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
+
+  const [rooms, raw] = await Promise.all([
+    prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
+    prisma.meetingPattern.findMany({
+      where: { cohort: { program: { institutionId } } },
+      include: {
+        facility: { select: { id: true, name: true, kind: true } },
+        staff: { select: { id: true, name: true } },
+        course: { select: { id: true, code: true, name: true } },
+        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } },
+      },
+    }),
+  ]);
+
+  const dlabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const meetings: MasterMeeting[] = raw.map((m) => {
+    const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex);
+    const startMs = ct?.startDate ? ct.startDate.getTime() : 0;
+    const tw = Math.max(1, m.endWeek - m.startWeek + 1);
+    const weekStartMs = startMs;
+    const weekEndMs = startMs + tw * WEEK_MS;
+    const endMin = toMin(m.startTime) + m.lengthHours * 60;
+    return {
+      id: m.id,
+      cohortId: m.cohortId, cohortName: m.cohort.name,
+      programId: m.cohort.program.id, programName: m.cohort.program.name, family: m.cohort.program.family?.name ?? null,
+      courseId: m.courseId, courseCode: m.course.code, courseName: m.course.name,
+      kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
+      dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(Math.round(endMin)), lengthHours: m.lengthHours,
+      facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
+      staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
+      termIndex: m.termIndex, weekStartMs, weekEndMs,
+      startLabel: startMs ? dlabel(weekStartMs) : "—", endLabel: startMs ? dlabel(weekEndMs) : "—",
+    };
+  });
+
+  // Engine inputs.
+  const bookings = meetings.map((m) => ({
+    id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats,
+    lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime),
+    weekStartMs: m.weekStartMs, weekEndMs: m.weekEndMs, facilityId: m.facilityId, staffPersonId: m.staffPersonId,
+  }));
+  const conflicts = detectConflicts(bookings);
+  const roomUse = roomUtilization(bookings, rooms.map((r) => ({ id: r.id, name: r.name, kind: r.kind, capacity: r.capacity })));
+  const roomsOut = roomUse.map((u) => ({ ...u, building: rooms.find((r) => r.id === u.facilityId)?.building ?? null }));
+
+  // Weekly timeline: span of all meetings, weekly steps; default to the week of today.
+  const starts = meetings.map((m) => m.weekStartMs).filter(Boolean);
+  const ends = meetings.map((m) => m.weekEndMs).filter(Boolean);
+  const weeks: { ms: number; label: string }[] = [];
+  let currentWeekMs: number | null = null;
+  if (starts.length) {
+    const mondayOf = (ms: number) => { const d = new Date(ms); const day = (d.getUTCDay() + 6) % 7; return ms - day * 24 * 3600 * 1000; };
+    const lo = mondayOf(Math.min(...starts));
+    const hi = mondayOf(Math.max(...ends));
+    for (let w = lo; w <= hi; w += WEEK_MS) weeks.push({ ms: w, label: dlabel(w) });
+    const todayMonday = mondayOf(Date.now());
+    currentWeekMs = opts?.weekMs ?? (todayMonday >= lo && todayMonday <= hi ? todayMonday : weeks[Math.floor(weeks.length / 2)]?.ms ?? lo);
+  }
+
+  const programs = [...new Map(meetings.map((m) => [m.programId, m.programName])).entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  const summary = {
+    roomed: meetings.filter((m) => m.facilityId).length,
+    unroomed: meetings.filter((m) => !m.facilityId && m.kind !== "CLINICAL").length,
+    clinical: meetings.filter((m) => m.kind === "CLINICAL").length,
+    peakUtil: roomsOut.reduce((n, r) => Math.max(n, r.utilization), 0),
+  };
+
+  return { institutions, institutionId, rooms: roomsOut, meetings, conflicts, weeks, currentWeekMs, programs, summary };
+}
+
+/** One meeting's full editing context (for the move/reassign editor). */
+export async function getMeetingForEdit(meetingId: string) {
+  const m = await prisma.meetingPattern.findUnique({
+    where: { id: meetingId },
+    include: { cohort: { select: { program: { select: { institutionId: true } } } } },
+  });
+  if (!m) return null;
+  const facilities = await prisma.facility.findMany({ where: { institutionId: m.cohort.program.institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } });
+  return { meeting: m, facilities };
+}

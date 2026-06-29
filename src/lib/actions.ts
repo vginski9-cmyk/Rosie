@@ -983,3 +983,25 @@ export async function untagCourseSessions(courseId: string, programId: string, s
   await prisma.sessionSkill.deleteMany({ where: { sessionId: { in: sessions.map((s) => s.id) }, skillId } });
   revalidatePath(`/programs/${programId}/structure`);
 }
+
+// ---------------------------------------------------------------------------
+// MASTER SCHEDULE — move / reassign a bookable meeting
+// ---------------------------------------------------------------------------
+
+/** Move a meeting to a new day / time / room (and optionally staff). Used by the
+ *  master space calendar and the offering calendar — both read MeetingPattern, so
+ *  a change here shows up in every surface. */
+export async function moveMeeting(
+  meetingId: string,
+  patch: { dayOfWeek?: string; startTime?: string; lengthHours?: number; facilityId?: string | null; staffPersonId?: string | null },
+): Promise<void> {
+  const data: Record<string, unknown> = {};
+  if (patch.dayOfWeek) data.dayOfWeek = patch.dayOfWeek;
+  if (patch.startTime) data.startTime = patch.startTime;
+  if (patch.lengthHours != null) data.lengthHours = patch.lengthHours;
+  if (patch.facilityId !== undefined) data.facilityId = patch.facilityId || null;
+  if (patch.staffPersonId !== undefined) data.staffPersonId = patch.staffPersonId || null;
+  const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data, include: { cohort: { select: { id: true, programId: true } } } });
+  revalidatePath("/calendar");
+  revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
+}

@@ -39,6 +39,7 @@ export function MainNav() {
   return (
     <nav ref={ref} className="flex items-center gap-1 text-sm">
       <Link href="/" className={`rounded-lg px-3 py-1.5 font-medium ${homeActive ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>North Star</Link>
+      <Link href="/calendar" className={`rounded-lg px-3 py-1.5 font-medium ${pathname === "/calendar" || pathname.startsWith("/calendar/") ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>Calendar</Link>
       {GROUPS.map((g) => {
         const isOpen = open === g.label;
         const active = groupActive(g);
