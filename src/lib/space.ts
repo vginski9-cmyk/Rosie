@@ -174,7 +174,7 @@ export interface ScheduleResult {
 export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { dayStart?: number; dayEnd?: number }): ScheduleResult {
   const dayStart = opts?.dayStart ?? DAY_START_MIN;
   const dayEnd = opts?.dayEnd ?? DAY_END_MIN;
-  const placed: Booking[] = [];
+  const placedByDay = new Map<Weekday, Booking[]>();
   const placements = new Map<string, Placement>();
   const unroomed: string[] = [];
 
@@ -186,8 +186,7 @@ export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { daySt
   const feasible = (cand: Booking): { roomConflict: boolean; otherConflict: boolean } => {
     let roomConflict = false, otherConflict = false;
     const cEnd = cand.startMin + cand.lengthHours * 60;
-    for (const p of placed) {
-      if (p.dayOfWeek !== cand.dayOfWeek) continue;
+    for (const p of placedByDay.get(cand.dayOfWeek) ?? []) {
       if (!timeOverlap(cand.startMin, cEnd, p.startMin, p.startMin + p.lengthHours * 60)) continue;
       if (!weeksOverlap(cand.weekStartMs, cand.weekEndMs, p.weekStartMs, p.weekEndMs)) continue;
       if (cand.facilityId && p.facilityId === cand.facilityId) roomConflict = true;
@@ -235,7 +234,10 @@ export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { daySt
     const final = chosen ?? fallback ?? { dayOfWeek: r.preferDay ?? "Mon", startMin: r.preferStartMin ?? dayStart, facilityId: null };
     if (!offCampus && final.facilityId == null) unroomed.push(r.id);
     placements.set(r.id, final);
-    placed.push({ ...mkBooking(r), ...final });
+    const bk = { ...mkBooking(r), ...final };
+    const arr = placedByDay.get(bk.dayOfWeek) ?? [];
+    arr.push(bk);
+    placedByDay.set(bk.dayOfWeek, arr);
   }
   return { placements, unroomed };
 }

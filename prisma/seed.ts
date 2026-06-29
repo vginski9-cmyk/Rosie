@@ -17,6 +17,7 @@ import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
+import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 
 const prisma = new PrismaClient();
 
@@ -801,6 +802,7 @@ async function seedWblSnapshots(
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
+  await prisma.meetingPattern.deleteMany();
   await prisma.wblPlacement.deleteMany();
   await prisma.wblSnapshotFactor.deleteMany();
   await prisma.wblSnapshot.deleteMany();
@@ -1679,6 +1681,87 @@ async function main() {
     console.log(`Seeded ${rows.length} WBL placements (${secured} secured, ${rows.length - secured} planned/asked).`);
   }
 
+  // ----- Master schedule: real bookable meetings (rooms + staff), auto-placed --
+  // Expand each active cohort's courses into sections (by enrollment vs room size),
+  // attach the cohort's real instructor, then let the space engine place every
+  // meeting on a conflict-free (weekday, time, room) across the whole institution.
+  // This is the shared source of truth behind the offering calendars and the
+  // institution-wide master space calendar.
+  {
+    const WK_MS = 7 * 24 * 3600 * 1000;
+    const insts = await prisma.institution.findMany({ select: { id: true } });
+    let totalMeetings = 0, totalUnroomed = 0;
+    for (const inst of insts) {
+      const rooms = await prisma.facility.findMany({ where: { institutionId: inst.id, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
+      const cohorts = await prisma.cohort.findMany({
+        where: { status: "active", program: { institutionId: inst.id } },
+        include: {
+          cohortTerms: { select: { termId: true, startDate: true } },
+          sessionStaff: { where: { cohortId: { not: null } }, select: { personId: true, contactHours: true, session: { select: { kind: true, courseId: true } } } },
+          program: { select: { defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true } } } } } } } },
+        },
+      });
+      const reqs: PlaceReq[] = [];
+      const meta = new Map<string, { cohortId: string; courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number; lengthHours: number; termIndex: number; startWeek: number; endWeek: number; staffPersonId: string | null }>();
+      for (const co of cohorts) {
+        const E = Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 40);
+        const ctStart = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+        // Primary instructor per (course, kind): the person with the most contact hours.
+        const staffByCK = new Map<string, Map<string, number>>();
+        for (const si of co.sessionStaff) {
+          if (!si.session) continue;
+          const k = `${si.session.courseId}#${si.session.kind}`;
+          const m = staffByCK.get(k) ?? new Map<string, number>();
+          m.set(si.personId, (m.get(si.personId) ?? 0) + si.contactHours);
+          staffByCK.set(k, m);
+        }
+        const pickStaff = (courseId: string, kind: string): string | null => {
+          const m = staffByCK.get(`${courseId}#${kind}`);
+          return m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : null;
+        };
+        for (const t of co.program.terms) {
+          const termStart = ctStart.get(t.id);
+          if (!termStart) continue; // only schedule terms with a real date
+          const tw = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+          const weekStartMs = termStart.getTime();
+          const weekEndMs = termStart.getTime() + tw * WK_MS;
+          for (const c of t.courses) {
+            const kindInfo = new Map<string, { maxStudents: number; lengthHours: number; day: string | null; time: string | null }>();
+            for (const s of c.sessions) {
+              if (!kindInfo.has(s.kind)) kindInfo.set(s.kind, { maxStudents: s.maxStudents, lengthHours: s.lengthHours, day: s.dayOfWeek ?? null, time: s.startTime ?? null });
+            }
+            for (const [kind, info] of kindInfo) {
+              const cap = Math.max(1, info.maxStudents || (kind === "CLINICAL" ? 8 : 30));
+              const sections = Math.max(1, Math.ceil(E / cap));
+              const seatsPer = Math.ceil(E / sections);
+              const staffPersonId = pickStaff(c.id, kind);
+              const lengthHours = info.lengthHours || (kind === "CLINICAL" ? 8 : 2);
+              for (let si = 1; si <= sections; si++) {
+                const id = `${co.id}:${c.id}:${kind}:${si}`;
+                reqs.push({
+                  id, cohortId: co.id, sectionIndex: si, kind, seats: seatsPer, lengthHours,
+                  weekStartMs, weekEndMs, staffPersonId,
+                  preferDay: (info.day as Weekday) || undefined, preferStartMin: info.time ? toMin(info.time) : undefined,
+                });
+                meta.set(id, { cohortId: co.id, courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats: seatsPer, lengthHours, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16, staffPersonId });
+              }
+            }
+          }
+        }
+      }
+      if (!reqs.length) continue;
+      const { placements, unroomed } = autoSchedule(reqs, rooms);
+      const rows = reqs.map((r) => {
+        const m = meta.get(r.id)!;
+        const p = placements.get(r.id)!;
+        return { cohortId: m.cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats, dayOfWeek: p.dayOfWeek, startTime: toHHMM(p.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek, facilityId: p.facilityId, staffPersonId: m.staffPersonId };
+      });
+      for (let i = 0; i < rows.length; i += 500) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 500) });
+      totalMeetings += rows.length; totalUnroomed += unroomed.length;
+    }
+    console.log(`Scheduled ${totalMeetings} meetings (${totalUnroomed} unroomed — space pressure).`);
+  }
+
   const counts = {
     institutions: await prisma.institution.count(),
     skills: await prisma.skill.count(),
@@ -1696,6 +1779,7 @@ async function main() {
     sessionInstructors: await prisma.sessionInstructor.count(),
     wblSnapshots: await prisma.wblSnapshot.count(),
     wblPlacements: await prisma.wblPlacement.count(),
+    meetingPatterns: await prisma.meetingPattern.count(),
     demand: await prisma.demandProjection.count(),
     calendarBlocks: await prisma.calendarBlock.count(),
   };
