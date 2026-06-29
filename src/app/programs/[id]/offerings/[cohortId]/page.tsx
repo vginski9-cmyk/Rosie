@@ -34,8 +34,10 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   // Where this offering sits in its lifecycle right now (vs today): current term,
   // expected end, and phase — derived from the template's actual term structure.
   const today = new Date();
-  const timingTerms: TimingTerm[] = program.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
-  const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today);
+  const orderedTerms = [...program.terms].sort((a, b) => a.index - b.index);
+  const timingTerms: TimingTerm[] = orderedTerms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+  const realTermStarts = orderedTerms.map((t) => termDate.get(t.id) ?? null);
+  const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today, realTermStarts);
   const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—");
 
   return (

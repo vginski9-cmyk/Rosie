@@ -56,8 +56,52 @@ export function programSpanWeeks(terms: TimingTerm[]): number {
   return Math.max(sum, maxEnd) || DEFAULT_TERM_WEEKS;
 }
 
-export function computeCohortTiming(startDate: Date | null, terms: TimingTerm[], today: Date): CohortTiming {
+export function computeCohortTiming(
+  startDate: Date | null,
+  terms: TimingTerm[],
+  today: Date,
+  /** Real calendar start dates per term, aligned to `terms` sorted by index. When
+   *  supplied (from CohortTerm rows), the lifecycle is derived from the ACTUAL
+   *  academic calendar — respecting the real gaps between terms — instead of
+   *  assuming the instructional weeks run back-to-back. This is the accurate path
+   *  and keeps "expected to finish {year}" consistent with the cohort's grad year. */
+  realTermStarts?: (Date | null)[],
+): CohortTiming {
   const ordered = [...terms].sort((a, b) => a.index - b.index);
+
+  // --- Real-calendar path: terms anchored to actual dates (preferred) ----------
+  if (realTermStarts && realTermStarts.length === ordered.length && realTermStarts.some((d) => d)) {
+    const items = ordered
+      .map((t, i) => ({ t, start: realTermStarts[i], weeks: termWeeks(t) }))
+      .filter((x): x is { t: TimingTerm; start: Date; weeks: number } => x.start != null)
+      .sort((a, b) => a.start.getTime() - b.start.getTime());
+    if (items.length) {
+      const first = items[0].start;
+      const lastItem = items[items.length - 1];
+      const endDate = new Date(lastItem.start.getTime() + lastItem.weeks * WEEK_MS);
+      const totalWeeks = Math.max(1, Math.round((endDate.getTime() - first.getTime()) / WEEK_MS));
+      if (today < first) {
+        return { startDate: first, endDate, totalWeeks, currentTermIndex: null, currentTermName: null, weeksElapsed: null, pctElapsed: null, phase: "recruiting" };
+      }
+      if (today >= endDate) {
+        return { startDate: first, endDate, totalWeeks, currentTermIndex: null, currentTermName: null, weeksElapsed: totalWeeks, pctElapsed: 1, phase: "graduated" };
+      }
+      let currentTermIndex: number | null = null;
+      let currentTermName: string | null = null;
+      for (const it of items) {
+        const e = new Date(it.start.getTime() + it.weeks * WEEK_MS);
+        if (today >= it.start && today < e) { currentTermIndex = it.t.index; currentTermName = it.t.name; break; }
+      }
+      if (currentTermName == null) {
+        const next = items.find((it) => it.start > today);
+        currentTermName = next ? `Break before ${next.t.name}` : "Between terms";
+      }
+      const weeksElapsed = Math.floor((today.getTime() - first.getTime()) / WEEK_MS);
+      return { startDate: first, endDate, totalWeeks, currentTermIndex, currentTermName, weeksElapsed, pctElapsed: weeksElapsed / totalWeeks, phase: "in-program" };
+    }
+  }
+
+  // --- Synthetic-weeks fallback (no real per-term dates) ------------------------
   const totalWeeks = programSpanWeeks(ordered);
 
   if (!startDate) {

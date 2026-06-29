@@ -70,7 +70,8 @@ export default async function FamilyPage({ params }: { params: { id: string } })
   const nowYear = today.getUTCFullYear();
   const instantiationsByYear: Record<number, import("@/components/GoalPlanner").Instantiation[]> = {};
   for (const p of family.programs) {
-    const timingTerms: TimingTerm[] = p.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+    const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
+    const timingTerms: TimingTerm[] = orderedTerms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
     for (const co of p.cohorts) {
       const gy = gradYearOf(co.name) || co.entryYear || 0;
       if (!gy) continue;
@@ -83,7 +84,9 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         if (r >= 6) placed++;
       }
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
-      const tm = computeCohortTiming(co.startDate, timingTerms, today);
+      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+      const realStarts = orderedTerms.map((t) => ctById.get(t.id) ?? null);
+      const tm = computeCohortTiming(co.startDate, timingTerms, today, realStarts);
       (instantiationsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,

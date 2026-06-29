@@ -915,8 +915,10 @@ async function main() {
     await prisma.programYearTarget.create({ data: { programId: surg.id, year: y, credentialTarget: 14, cohortCapacity: 19 } });
   }
 
-  // Funnels (target vs ballpark actual from the deck)
-  const radClassOf2029 = await createFunnel(rad.id, "Class of 2029", 2029, {
+  // Funnels (target vs ballpark actual from the deck). This detailed cohort enters
+  // Aug 2025; Radiography is a ~2-year program, so it graduates 2027 (its name, its
+  // term dates, and its expected-end all agree).
+  const radClassOf2029 = await createFunnel(rad.id, "Class of 2027", 2027, {
     interested: { target: 83, actual: 199 }, // strong top-of-funnel (199 declared pre-Rad)
     qualified: { target: 62, actual: 39 }, // leak: only 39 qualified last cohort
     offered: { target: 52, actual: 26 },
@@ -926,7 +928,7 @@ async function main() {
     placed: { target: 29, actual: 12 },
     productive: { target: 29, actual: 12 },
   });
-  const surgClassOf2029 = await createFunnel(surg.id, "Class of 2029", 2029, {
+  const surgClassOf2029 = await createFunnel(surg.id, "Class of 2027", 2027, {
     interested: { target: 39, actual: 31 },
     qualified: { target: 29 },
     offered: { target: 24 },
@@ -946,19 +948,30 @@ async function main() {
     const d = TERM_START_DATES[t.index - 1];
     await prisma.cohortTerm.create({ data: { cohortId: radClassOf2029.id, termId: t.id, startDate: d ? new Date(d) : null } });
   }
-  await prisma.cohort.update({ where: { id: surgClassOf2029.id }, data: { startDate: new Date(TERM_START_DATES[0]), status: "planned" } });
+  // Surg Tech is a ~3-semester program; this detailed cohort enters Aug 2025 and
+  // is in-program now (graduates 2027). Anchor its terms to a real calendar too.
+  await prisma.cohort.update({ where: { id: surgClassOf2029.id }, data: { startDate: new Date(TERM_START_DATES[0]), status: "active" } });
+  const surgTermRows = await prisma.term.findMany({ where: { programId: surg.id }, orderBy: { index: "asc" } });
+  for (const t of surgTermRows) {
+    const d = TERM_START_DATES[t.index - 1];
+    await prisma.cohortTerm.create({ data: { cohortId: surgClassOf2029.id, termId: t.id, startDate: d ? new Date(d) : null } });
+  }
 
   // ----- A constellation of Radiography cohorts across years -----------------
   // Each class enters ~2 years before it graduates; production climbs over time
-  // toward the 29/yr workforce goal. (2029 is the detailed cohort above.)
+  // toward the 29/yr workforce goal. (The detailed 2027 cohort above is in-program.)
   const radClassYears: { grad: number; enrolled: number; produced: number }[] = [
+    { grad: 2025, enrolled: 12, produced: 8 },
     { grad: 2026, enrolled: 14, produced: 9 },
-    { grad: 2027, enrolled: 18, produced: 12 },
     { grad: 2028, enrolled: 24, produced: 16 },
     { grad: 2030, enrolled: 33, produced: 22 },
     { grad: 2031, enrolled: 39, produced: 27 },
   ];
-  const statusFor = (grad: number) => (grad <= 2027 ? "completed" : grad <= 2029 ? "active" : "planned");
+  const statusFor = (grad: number) => (grad <= 2026 ? "completed" : grad <= 2027 ? "active" : "planned");
+  // Real academic-term offsets (ms from entry) derived from the detailed cohort's
+  // term dates, so every RAD cohort places its 5 terms on a real ~2-year calendar.
+  const radEntry0 = new Date(TERM_START_DATES[0]).getTime();
+  const radTermOffsets = TERM_START_DATES.slice(0, radTermRows.length).map((d) => new Date(d).getTime() - radEntry0);
   for (const o of radClassYears) {
     const co = await createFunnel(rad.id, `Class of ${o.grad}`, o.grad, {
       interested: { target: 83, actual: Math.round(o.enrolled * 4.0) },
@@ -970,7 +983,12 @@ async function main() {
       placed: { target: 29, actual: Math.max(0, Math.round(o.produced * 0.85)) },
       productive: { target: 29, actual: Math.max(0, Math.round(o.produced * 0.8)) },
     });
-    await prisma.cohort.update({ where: { id: co.id }, data: { startDate: new Date(`${o.grad - 2}-08-18`), status: statusFor(o.grad), plannedSeats: o.enrolled } });
+    // Enter Aug two years before grad (2-yr program → name = grad year).
+    const start = new Date(`${o.grad - 2}-08-18`);
+    await prisma.cohort.update({ where: { id: co.id }, data: { startDate: start, status: statusFor(o.grad), plannedSeats: o.enrolled } });
+    await prisma.cohortTerm.createMany({
+      data: radTermRows.map((t, i) => ({ cohortId: co.id, termId: t.id, startDate: new Date(start.getTime() + (radTermOffsets[i] ?? 0)) })),
+    });
   }
   // Two Evening-track cohorts (smaller; biennial) under the same family.
   for (const o of [{ grad: 2028, enrolled: 16, produced: 10 }, { grad: 2030, enrolled: 18, produced: 13 }]) {
@@ -1250,7 +1268,7 @@ async function main() {
     data: {
       institutionId: sandhills.id,
       subjectType: "LEARNER",
-      name: "Radiography Cohort — Class of 2029",
+      name: "Radiography Cohort — Class of 2027",
       cohortId: radCohort?.id ?? null,
       tier: "Adult learners + recent HS grads",
       summary: "Typical entering rad-tech cohort in the Sandhills service area.",
@@ -1550,18 +1568,21 @@ async function main() {
   // the pipeline: graduated → completed/licensed/placed/productive (from its funnel
   // actuals); in-program → enrolled (+ some completing in the final year); recruiting
   // (entry next year) → prospects/applicants/admitted. Not-yet-started cohorts get
-  // goals only (no students). The detailed Class of 2029 already has its own roster.
+  // goals only (no students). The detailed Class of 2027 already has its own roster.
   {
     const AS_OF = new Date("2026-06-26T00:00:00Z"); // deterministic "today" for the seed
     const STATUS_STAGE: Record<string, string | null> = { prospect: "interested", applicant: "qualified", admitted: "offered", enrolled: "enrolled", completed: "completing", licensed: "licensed", placed: "placed", productive: "productive" };
-    const cohortsAll = await prisma.cohort.findMany({ include: { _count: { select: { students: true } }, stages: true, program: { select: { id: true, defaultCohortSeats: true, terms: { select: { index: true, name: true, startWeek: true, endWeek: true } } } } } });
+    const cohortsAll = await prisma.cohort.findMany({ include: { _count: { select: { students: true } }, stages: true, cohortTerms: { select: { termId: true, startDate: true } }, program: { select: { id: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, name: true, startWeek: true, endWeek: true } } } } } });
     let made = 0;
     for (const co of cohortsAll) {
-      if (co._count.students > 0) continue; // already seeded (e.g. rad Class of 2029)
-      // Phase is derived from the program's ACTUAL structure + the cohort's real
-      // start date (no fixed program-length assumption).
-      const terms: TimingTerm[] = co.program.terms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
-      const tm = computeCohortTiming(co.startDate, terms, AS_OF);
+      if (co._count.students > 0) continue; // already seeded (e.g. rad Class of 2027)
+      // Phase is derived from the program's ACTUAL structure + the cohort's REAL
+      // per-term calendar dates (no fixed program-length assumption).
+      const ordered = [...co.program.terms].sort((a, b) => a.index - b.index);
+      const terms: TimingTerm[] = ordered.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
+      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+      const realStarts = ordered.map((t) => ctById.get(t.id) ?? null);
+      const tm = computeCohortTiming(co.startDate, terms, AS_OF, realStarts);
       if (tm.phase === "unscheduled") continue; // no start date → goals only
       const E = Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 40);
       const sa = (k: string): number | null => { const s = co.stages.find((x) => x.stageKey === k); return s?.actualNumber != null ? Math.round(s.actualNumber) : null; };

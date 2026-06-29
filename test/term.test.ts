@@ -56,6 +56,30 @@ describe("computeCohortTiming", () => {
   });
 });
 
+describe("computeCohortTiming with real per-term dates", () => {
+  const FIVE: TimingTerm[] = [
+    { index: 1, name: "First Fall", startWeek: 1, endWeek: 16 },
+    { index: 2, name: "First Spring", startWeek: 1, endWeek: 16 },
+    { index: 3, name: "First Summer", startWeek: 1, endWeek: 10 },
+    { index: 4, name: "Second Fall", startWeek: 1, endWeek: 16 },
+    { index: 5, name: "Second Spring", startWeek: 1, endWeek: 16 },
+  ];
+  const realStarts = [
+    new Date("2025-08-18"), new Date("2026-01-12"), new Date("2026-05-18"),
+    new Date("2026-08-17"), new Date("2027-01-11"),
+  ];
+  it("ends in the cohort's grad year (not 74 weeks after start)", () => {
+    const t = computeCohortTiming(realStarts[0], FIVE, new Date("2026-06-26"), realStarts);
+    expect(t.endDate!.getUTCFullYear()).toBe(2027); // last term Jan 2027 + 16wk → ~May 2027
+    expect(t.endDate!.getUTCMonth()).toBeGreaterThanOrEqual(3);
+  });
+  it("reports the real current term from the calendar", () => {
+    const t = computeCohortTiming(realStarts[0], FIVE, new Date("2026-06-26"), realStarts);
+    expect(t.phase).toBe("in-program");
+    expect(t.currentTermName).toBe("First Summer");
+  });
+});
+
 describe("gradVerb", () => {
   const today = new Date("2026-06-26T00:00:00Z");
   it("is tense-aware", () => {

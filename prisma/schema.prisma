@@ -64,6 +64,7 @@ model Facility {
   createdAt     DateTime @default(now())
 
   sectionSchedules SectionSchedule[]
+  meetings MeetingPattern[]
 
   @@index([institutionId])
 }
@@ -251,6 +252,7 @@ model Course {
   sessions Session[]
   courseSkills CourseSkill[]
   grades   StudentCourseGrade[]
+  meetings MeetingPattern[]
 
   @@index([termId])
 }
@@ -418,6 +420,7 @@ model Cohort {
   sessionStaff SessionInstructor[]
   sectionSchedules SectionSchedule[]
   placements  WblPlacement[]
+  meetings    MeetingPattern[]
 
   @@index([programId])
 }
@@ -478,8 +481,43 @@ model Person {
   employer      Employer? @relation(fields: [employerId], references: [id])
   assignments   Assignment[]
   sessionStaff  SessionInstructor[]
+  meetings      MeetingPattern[]
 
   @@index([institutionId])
+}
+
+/// A bookable, recurring weekly meeting — the single source of truth that ties a
+/// cohort's course section to a day/time, a room (Facility), and a staff member.
+/// One row per (cohort, course, kind, section). The offering term-grid/calendar/
+/// staffing views AND the institution-wide master space calendar all read these,
+/// so a move in one surface shows up everywhere. Clinical meetings live off-campus
+/// (facilityId null / a CLINICAL facility) and don't compete for classroom space.
+model MeetingPattern {
+  id           String  @id @default(cuid())
+  cohortId     String
+  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  courseId     String
+  course       Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind         String  // CLASS | LAB | CLINICAL
+  sectionIndex Int     @default(1) // 1-based section number
+  sectionCount Int     @default(1) // total sections for this (course, kind) in this cohort
+  seats        Int     @default(0) // students assigned to THIS section
+  dayOfWeek    String  // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  startTime    String  // HH:MM (24h)
+  lengthHours  Float   @default(1)
+  termIndex    Int     @default(1)
+  startWeek    Int     @default(1) // first instructional week it recurs
+  endWeek      Int     @default(16) // last instructional week
+  facilityId   String?
+  facility     Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  staffPersonId String?
+  staff         Person?  @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([cohortId])
+  @@index([courseId])
+  @@index([facilityId])
+  @@index([staffPersonId])
 }
 
 /// An employer / clinical partner that hires graduates and/or hosts WBL.
