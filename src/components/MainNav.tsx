@@ -11,7 +11,7 @@ type Item = { label: string; href: string };
 type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
-  { label: "Insights", items: [{ label: "Explore", href: "/insights" }, { label: "Semester", href: "/semester" }] },
+  { label: "Insights", items: [{ label: "Explore", href: "/insights" }, { label: "Semester", href: "/semester" }, { label: "Shared course demand", href: "/courses" }] },
   { label: "Directory", items: [
     { label: "Students", href: "/students" },
     { label: "People (faculty & staff)", href: "/people" },

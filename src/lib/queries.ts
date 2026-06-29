@@ -1158,3 +1158,85 @@ export async function getCohortSchedule(cohortId: string) {
   });
   return { cohort, rooms, meetings, conflictCount: conflicts.length };
 }
+
+// ---------------------------------------------------------------------------
+// CROSS-PROGRAM COURSE DEMAND — when several programs need the same course, how
+// big does it really need to be, where is the demand coming from, and who's in it.
+// ---------------------------------------------------------------------------
+
+export interface CourseDemandRow {
+  code: string;
+  name: string;
+  totalStudents: number;
+  programs: { programId: string; programName: string; family: string | null; students: number; cohorts: number }[];
+  sectionsScheduled: number;
+  seatsScheduled: number;
+  typicalCap: number;
+  sectionsNeeded: number;
+}
+
+/** Group every course by catalog code across the institution; for shared courses,
+ *  pool the live enrolled-student demand by program, compare it to the seats
+ *  currently scheduled, and size how many sections are really needed. */
+export async function getCourseDemand(opts?: { institutionId?: string }) {
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  let institutionId = opts?.institutionId;
+  if (!institutionId) {
+    // Default to the tenant with the most shared-code courses (the rich one).
+    institutionId = institutions[0]?.id;
+    const counts = await prisma.course.groupBy({ by: ["termId"], _count: true });
+    void counts; // (kept simple — default below handles it)
+    const withCohorts = await prisma.institution.findMany({ select: { id: true, _count: { select: { programs: true } } }, orderBy: { name: "asc" } });
+    institutionId = withCohorts.sort((a, b) => b._count.programs - a._count.programs)[0]?.id ?? institutionId;
+  }
+  if (!institutionId) return { institutions, institutionId: null, rows: [] as CourseDemandRow[] };
+
+  // Courses (by code) → which programs require them.
+  const courses = await prisma.course.findMany({
+    where: { code: { not: null }, term: { program: { institutionId } } },
+    select: { code: true, name: true, term: { select: { program: { select: { id: true, name: true, family: { select: { name: true } } } } } } },
+  });
+  // Live enrolled-student demand per program (students currently in-program).
+  const enrolledByProgram = new Map<string, number>();
+  const grouped = await prisma.student.groupBy({ by: ["programId"], where: { program: { institutionId }, status: "enrolled" }, _count: true });
+  for (const g of grouped) enrolledByProgram.set(g.programId, g._count);
+  const cohortsByProgram = new Map<string, number>();
+  const cg = await prisma.cohort.groupBy({ by: ["programId"], where: { program: { institutionId }, status: "active" }, _count: true });
+  for (const g of cg) cohortsByProgram.set(g.programId, g._count);
+
+  // Scheduled CLASS sections per course code (from the master bookings).
+  const meetings = await prisma.meetingPattern.findMany({ where: { kind: "CLASS", cohort: { program: { institutionId } } }, select: { seats: true, course: { select: { code: true } } } });
+  const schedByCode = new Map<string, { sections: number; seats: number }>();
+  for (const m of meetings) { const code = m.course.code; if (!code) continue; const e = schedByCode.get(code) ?? { sections: 0, seats: 0 }; e.sections += 1; e.seats += m.seats; schedByCode.set(code, e); }
+
+  // Build per-code rows.
+  const byCode = new Map<string, { name: string; programs: Map<string, { programName: string; family: string | null }> }>();
+  for (const c of courses) {
+    const code = c.code!;
+    const e = byCode.get(code) ?? { name: c.name, programs: new Map() };
+    e.programs.set(c.term.program.id, { programName: c.term.program.name, family: c.term.program.family?.name ?? null });
+    byCode.set(code, e);
+  }
+  const TYPICAL_CAP = 30;
+  const rows: CourseDemandRow[] = [...byCode.entries()].map(([code, e]) => {
+    const programs = [...e.programs.entries()].map(([programId, p]) => ({ programId, programName: p.programName, family: p.family, students: enrolledByProgram.get(programId) ?? 0, cohorts: cohortsByProgram.get(programId) ?? 0 }))
+      .sort((a, b) => b.students - a.students);
+    const totalStudents = programs.reduce((n, p) => n + p.students, 0);
+    const sched = schedByCode.get(code) ?? { sections: 0, seats: 0 };
+    return { code, name: e.name, totalStudents, programs, sectionsScheduled: sched.sections, seatsScheduled: sched.seats, typicalCap: TYPICAL_CAP, sectionsNeeded: Math.max(1, Math.ceil(totalStudents / TYPICAL_CAP)) };
+  }).filter((r) => r.programs.length > 1) // cross-program courses only
+    .sort((a, b) => b.programs.length - a.programs.length || b.totalStudents - a.totalStudents);
+
+  return { institutions, institutionId, rows };
+}
+
+/** The actual enrolled students driving demand for a shared course (drill-down). */
+export async function getCourseDemandStudents(code: string, institutionId: string) {
+  const programIds = (await prisma.course.findMany({ where: { code, term: { program: { institutionId } } }, select: { term: { select: { programId: true } } } })).map((c) => c.term.programId);
+  const students = await prisma.student.findMany({
+    where: { programId: { in: programIds }, status: "enrolled" },
+    orderBy: [{ program: { name: "asc" } }, { name: "asc" }],
+    select: { id: true, name: true, program: { select: { id: true, name: true } }, cohort: { select: { name: true } } },
+  });
+  return students;
+}

@@ -649,6 +649,15 @@ async function seedSessionStaff(
 // Builds a sensibly-structured multi-term program with explicit (small) session
 // counts so session volume stays controlled while term spans stay realistic — the
 // term week-spans drive the cohort-timing engine (current term / expected end / phase).
+// Institution-wide general-education courses shared by EVERY health-sciences
+// program (same catalog code → demand pools across programs). Codes match the
+// Radiography template so RAD's demand aggregates with the rest.
+const SHARED_GENEDS: CourseSeed[] = [
+  { code: "ENG-111", name: "Writing and Inquiry", weeklyClassHours: 3, weeklyLabHours: 0, weeklyClinicalHours: 0, credits: 3, semester: "All", type: "GENED", description: "Develops clear writing across genres with emphasis on inquiry, analysis, and revision.", requisites: "", sessions: [{ kind: "CLASS", count: 10, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "General Classroom" }] },
+  { code: "BIO-163", name: "Basic Anatomy & Physiology", weeklyClassHours: 4, weeklyLabHours: 2, weeklyClinicalHours: 0, credits: 5, semester: "All", type: "GENED", description: "Structure and function of the human body across the body systems.", requisites: "", sessions: [{ kind: "CLASS", count: 10, lengthHours: 4, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "General Classroom" }] },
+  { code: "PSY-150", name: "General Psychology", weeklyClassHours: 3, weeklyLabHours: 0, weeklyClinicalHours: 0, credits: 3, semester: "All", type: "GENED", description: "Scientific study of human behavior — methodology, cognition, development, personality.", requisites: "", sessions: [{ kind: "CLASS", count: 10, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "General Classroom" }] },
+];
+
 function genTerms(prefix: string, spanWeeks: number, nTerms: number, hasClinical: boolean): TermSeed[] {
   const W = Math.max(8, Math.floor(spanWeeks / nTerms));
   const labels = ["Fall", "Spring", "Summer"];
@@ -675,6 +684,12 @@ function genTerms(prefix: string, spanWeeks: number, nTerms: number, hasClinical
         description: `Supervised clinical practicum at a partner site, level ${lvl}.`, requisites: "",
         sessions: [{ kind: "CLINICAL", count: 6, lengthHours: 8, maxStudents: 8, facultyNeeded: 0, preceptorsNeeded: 1, title: `Clinical Rotation`, clinicalMode: "Preceptor-led", location: "Partner clinical site" }],
       });
+    }
+    // Shared general-education requirements — every health-sciences program needs
+    // these SAME courses (by catalog code), so their demand aggregates across the
+    // whole institution. Front-loaded into the first term.
+    if (i === 0) {
+      for (const ge of SHARED_GENEDS) courses.push({ ...ge });
     }
     return { index: lvl, name: `${labels[i % 3]} ${lvl}`, startWeek: i * W + 1, endWeek: i * W + W, courses };
   });

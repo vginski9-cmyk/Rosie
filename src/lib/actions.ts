@@ -1005,3 +1005,12 @@ export async function moveMeeting(
   revalidatePath("/calendar");
   revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
 }
+
+// ---------------------------------------------------------------------------
+// COURSE DEMAND — drill to the students driving a shared course's demand
+// ---------------------------------------------------------------------------
+
+export async function fetchCourseDemandStudents(code: string, institutionId: string) {
+  const { getCourseDemandStudents } = await import("./queries");
+  return getCourseDemandStudents(code, institutionId);
+}
