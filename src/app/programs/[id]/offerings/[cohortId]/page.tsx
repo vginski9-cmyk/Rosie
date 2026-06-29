@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getOfferingStaffing } from "@/lib/queries";
+import { getOffering, getOfferingStaffing, getCohortSchedule } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
+import { CohortSchedule } from "@/components/CohortSchedule";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
@@ -27,6 +28,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
   const staffing = await getOfferingStaffing(params.cohortId);
+  const sched = await getCohortSchedule(params.cohortId);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -92,6 +94,19 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Link href={`/programs/${program.id}/wbl`} className="btn-primary">WBL placement board ↦</Link>
         <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
       </div>
+
+      {/* Schedule, rooms & sections — the real bookings (shared with the master calendar) */}
+      {sched && sched.meetings.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-end justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold">Schedule, rooms &amp; sections</h2>
+              <p className="text-sm text-slate-500">Every section of every course as a real booking — its day, time, room, and instructor. This is the same data the <Link href="/calendar" className="text-rose-700 hover:underline">master space calendar</Link> shows; move a section here and it moves there too.</p>
+            </div>
+          </div>
+          <CohortSchedule meetings={sched.meetings} rooms={sched.rooms} conflictCount={sched.conflictCount} />
+        </section>
+      )}
 
       {/* The run's term calendar */}
       <section>

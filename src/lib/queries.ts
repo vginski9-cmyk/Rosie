@@ -1112,3 +1112,49 @@ export async function getMeetingForEdit(meetingId: string) {
   const facilities = await prisma.facility.findMany({ where: { institutionId: m.cohort.program.institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } });
   return { meeting: m, facilities };
 }
+
+/** One offering's real bookings (MeetingPattern), grouped for the offering page:
+ *  sections-by-course (room + staff + day/time), a staffing rollup, and the
+ *  institution rooms — the same data the master calendar shows, scoped to a cohort,
+ *  with cross-cohort room conflicts flagged. */
+export async function getCohortSchedule(cohortId: string) {
+  const { detectConflicts, toMin, toHHMM } = await import("./space");
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true } }, cohortTerms: { select: { startDate: true, term: { select: { index: true, name: true } } } } },
+  });
+  if (!cohort) return null;
+  const institutionId = cohort.program.institutionId;
+  const [rooms, mine, instMeetings] = await Promise.all([
+    prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
+    prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
+    prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
+  ]);
+
+  const winOf = (cohortTerms: { startDate: Date | null; term: { index: number } }[], termIndex: number, startWeek: number, endWeek: number) => {
+    const ct = cohortTerms.find((c) => c.term.index === termIndex);
+    const s = ct?.startDate ? ct.startDate.getTime() : 0;
+    return { weekStartMs: s, weekEndMs: s + Math.max(1, endWeek - startWeek + 1) * WEEK_MS };
+  };
+  // Institution-wide bookings → conflicts; keep only those touching this cohort.
+  const bookings = instMeetings.map((m) => ({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime), ...winOf(m.cohort.cohortTerms, m.termIndex, m.startWeek, m.endWeek), facilityId: m.facilityId, staffPersonId: m.staffPersonId }));
+  const conflicts = detectConflicts(bookings).filter((c) => { const a = instMeetings.find((m) => m.id === c.aId), b = instMeetings.find((m) => m.id === c.bId); return a?.cohortId === cohortId || b?.cohortId === cohortId; });
+  const conflictIds = new Set<string>();
+  for (const c of conflicts) { if (instMeetings.find((m) => m.id === c.aId)?.cohortId === cohortId) conflictIds.add(c.aId); if (instMeetings.find((m) => m.id === c.bId)?.cohortId === cohortId) conflictIds.add(c.bId); }
+
+  const meetings = mine.map((m) => {
+    const w = winOf(cohort.cohortTerms, m.termIndex, m.startWeek, m.endWeek);
+    return {
+      id: m.id, courseId: m.courseId, courseCode: m.course.code, courseName: m.course.name,
+      termIndex: m.termIndex, termName: m.course.term.name,
+      kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
+      dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(toMin(m.startTime) + m.lengthHours * 60), lengthHours: m.lengthHours,
+      facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
+      staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
+      weekStartMs: w.weekStartMs, weekEndMs: w.weekEndMs,
+      conflict: conflictIds.has(m.id),
+    };
+  });
+  return { cohort, rooms, meetings, conflictCount: conflicts.length };
+}
