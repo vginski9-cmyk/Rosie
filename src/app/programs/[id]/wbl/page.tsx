@@ -48,7 +48,7 @@ export default async function ProgramWblBoardPage({ params }: { params: { id: st
         <Tile label="Students" value={fmt.num(students.length)} sub="with a WBL snapshot" />
         <Tile label="Placeable now" value={fmt.num(placeable)} sub="have ≥1 feasible site" tone="ok" />
         <Tile label="Need support first" value={fmt.num(needSupport)} sub="blocking need unmet" tone={needSupport > 0 ? "warn" : "ok"} />
-        <Tile label="Partner WBL slots" value={fmt.num(totalSlots)} sub={`${employers.length} clinical partners`} />
+        <Tile label="Rotations hosted now/next" value={fmt.num(totalSlots)} sub={`live placements across ${employers.length} partners — capacity is fluid, not a fixed count`} />
       </div>
 
       {/* Cohort need types */}

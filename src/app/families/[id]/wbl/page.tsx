@@ -5,6 +5,7 @@ import {
   cohortRollup, computeQuadrant, recommendModes, pairing,
   type Profile, type Tag,
 } from "@/lib/alignment";
+import { requestPlacement } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -136,6 +137,9 @@ export default async function FamilyWblStudioPage({ params }: { params: { id: st
                     <span className={`mr-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${TONE_BADGE[best.r.tone]}`}>{best.r.tone}</span>
                     <Link href={`/employers/${best.e.employer.id}/alignment`} className="font-medium text-slate-700 hover:text-rose-700 hover:underline">{best.e.employer.name}</Link>
                     <span className="text-slate-500"> — {best.r.headline}</span>
+                    <form action={requestPlacement.bind(null, l.student.id, best.e.employer.id, family.id)} className="mt-1 inline-block">
+                      <button className="rounded-full bg-rose-600 px-2.5 py-0.5 text-[10px] font-medium text-white hover:bg-rose-700" title="creates a PLANNED placement (the ask); the partner confirming it makes it secured">Request placement →</button>
+                    </form>
                     {best.r.gaps.length > 0 && (
                       <ul className="mt-1 space-y-0.5">
                         {best.r.gaps.map((g, i) => <li key={i} className="text-[11px] text-amber-700">⚑ {g}</li>)}

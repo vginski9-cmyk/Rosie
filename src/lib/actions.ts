@@ -1122,3 +1122,16 @@ export async function deleteIntervention(id: string, familyId: string): Promise<
   await prisma.intervention.delete({ where: { id } });
   revalidatePath(`/families/${familyId}/interventions`);
 }
+
+/** The studio's "ask": create a PLANNED placement (learner × partner). The partner
+ *  confirming it (planned → active) is what makes it secured — asked vs secured on
+ *  the employer page reads straight from these statuses. */
+export async function requestPlacement(studentId: string, employerId: string, familyId: string): Promise<void> {
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { cohortId: true } });
+  const dup = await prisma.wblPlacement.findFirst({ where: { studentId, employerId, status: { in: ["planned", "active"] } } });
+  if (!dup) {
+    await prisma.wblPlacement.create({ data: { studentId, employerId, cohortId: student?.cohortId ?? null, status: "planned" } });
+  }
+  revalidatePath(`/families/${familyId}/wbl`);
+  revalidatePath(`/employers/${employerId}`);
+}

@@ -11,7 +11,6 @@ const TABS: { label: string; seg: string; group: string }[] = [
   { label: "Overview", seg: "", group: "" },
   { label: "Design & sequence", seg: "structure", group: "Design" },
   { label: "Curriculum flow", seg: "flow", group: "Design" },
-  { label: "Schedule", seg: "schedule", group: "Operate" },
   { label: "Students", seg: "students", group: "Operate" },
   { label: "WBL", seg: "wbl", group: "Operate" },
   { label: "Operations plan", seg: "plan", group: "Analyze" },

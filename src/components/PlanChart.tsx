@@ -23,12 +23,12 @@ export function PlanChart({ data }: { data: PlanChartRow[] }) {
           <YAxis tick={{ fontSize: 11 }} />
           <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
           <Legend wrapperStyle={{ fontSize: 11 }} />
-          <Bar dataKey="clinicalDemand" name="Clinical/WBL slots needed" radius={[3, 3, 0, 0]}>
+          <Bar dataKey="clinicalDemand" name="Clinical rotations needed" radius={[3, 3, 0, 0]}>
             {data.map((d, i) => (
               <Cell key={i} fill={d.bottleneck ? "#ef4444" : "#34d399"} />
             ))}
           </Bar>
-          <Line dataKey="wblSupply" name="WBL slots available" stroke="#0f172a" strokeWidth={2} dot={false} strokeDasharray="5 4" />
+          <Line dataKey="wblSupply" name="Rotations hosted (live)" stroke="#0f172a" strokeWidth={2} dot={false} strokeDasharray="5 4" />
         </ComposedChart>
       </ResponsiveContainer>
     </div>
