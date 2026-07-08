@@ -56,7 +56,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
     <div className="mx-auto max-w-6xl space-y-10">
       {/* Header */}
       <div>
-        <Link href={`/programs/${program.id}/flow`} className="text-sm text-slate-500 hover:text-slate-700">
+        <Link href={`/programs/${program.id}/structure`} className="text-sm text-slate-500 hover:text-slate-700">
           ← {program.name} curriculum flow
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">

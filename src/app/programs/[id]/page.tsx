@@ -100,10 +100,8 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Overview</Link>
-                    <Link href={`/programs/${program.id}/schedule?offering=${o.id}`} className="btn-ghost text-xs">Calendar &amp; staffing ↦</Link>
+                    <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Schedule &amp; WBL ↦</Link>
                     <Link href={`/programs/${program.id}/students`} className="btn-ghost text-xs">Students ↦</Link>
-                    <Link href={`/programs/${program.id}/wbl`} className="btn-ghost text-xs">WBL board ↦</Link>
-                    <Link href={`/programs/${program.id}/plan`} className="btn-ghost text-xs">Operations plan</Link>
                   </div>
                 </div>
               );
@@ -126,10 +124,10 @@ export default async function ProgramPage({ params }: { params: { id: string } }
       </section>
 
       {bottleneck?.hasBottleneck && (
-        <Link href={`/programs/${program.id}/plan`} className="block rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200 hover:bg-rose-100">
+        <div className="block rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200">
           ⚠ <strong>{bottleneck.bottleneckCount}</strong> capacity bottleneck{bottleneck.bottleneckCount === 1 ? "" : "s"} across the multi-cohort plan —
-          peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE / {fmt.num(bottleneck.peak.clinicalSlots)} clinical slots vs. supply of {fmt.fte(bottleneck.supply.facultyFte)} FTE / {fmt.num(bottleneck.supply.wblSlots)} slots. See the operations plan →
-        </Link>
+          peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE / {fmt.num(bottleneck.peak.clinicalSlots)} clinical rotations vs. supply of {fmt.fte(bottleneck.supply.facultyFte)} FTE / {fmt.num(bottleneck.supply.wblSlots)} hosted. Work it on each offering&apos;s WBL &amp; operations.
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">

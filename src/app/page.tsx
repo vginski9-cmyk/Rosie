@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getNorthStarHome, getInstitutionsLite, getActionQueue } from "@/lib/queries";
+import { getNorthStarHome, getInstitutionsLite } from "@/lib/queries";
 import { deleteNorthStarGoal } from "@/lib/actions";
 import { NewGoalForm } from "@/components/NewGoalForm";
 import { fmt } from "@/lib/format";
@@ -12,7 +12,7 @@ const CRED_BADGE: Record<string, string> = {
 };
 
 export default async function HomePage() {
-  const [jobs, institutions, actions] = await Promise.all([getNorthStarHome(), getInstitutionsLite(), getActionQueue()]);
+  const [jobs, institutions] = await Promise.all([getNorthStarHome(), getInstitutionsLite()]);
   const thisYear = jobs[0]?.thisYear ?? new Date().getUTCFullYear();
   const lastYear = thisYear - 1;
 
@@ -28,28 +28,6 @@ export default async function HomePage() {
         </div>
         <NewGoalForm institutions={institutions} />
       </div>
-
-      {/* Needs attention — every gap the data can see, as a work item with a link */}
-      {actions.length > 0 && (
-        <section className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold text-slate-700">Needs attention</h2>
-            <span className="text-[11px] text-slate-400">{actions.filter((a) => a.severity === "red").length} urgent · {actions.filter((a) => a.severity === "amber").length} soon · {actions.filter((a) => a.severity === "info").length} routine</span>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            {actions.map((a, i) => (
-              <Link key={i} href={a.href} className="flex items-start gap-2.5 rounded-lg border border-slate-100 px-3 py-2 hover:border-rose-200 hover:bg-rose-50/30">
-                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${a.severity === "red" ? "bg-rose-500" : a.severity === "amber" ? "bg-amber-400" : "bg-slate-300"}`} />
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-slate-800">{a.title}{a.family ? <span className="ml-1.5 font-normal text-slate-400">· {a.family}</span> : null}</span>
-                  <span className="block text-[12px] text-slate-500">{a.detail}</span>
-                </span>
-                <span className="ml-auto mt-0.5 shrink-0 text-rose-500">→</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
 
       {jobs.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No jobs with goals yet.</p>}
 

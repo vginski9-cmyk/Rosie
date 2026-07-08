@@ -1047,7 +1047,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         facility: { select: { id: true, name: true, kind: true } },
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
-        course: { select: { id: true, code: true, name: true } },
+        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } } } },
         cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } },
       },
     }),
@@ -1055,9 +1055,14 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
 
   const dlabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const meetings: MasterMeeting[] = raw.map((m) => {
-    const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex);
+    // Derive placement from the LIVE course→term relation, so re-sequencing the
+    // program shifts every calendar (the stored termIndex is only a fallback).
+    const liveIdx = m.course.term?.index ?? m.termIndex;
+    const liveTw = m.course.term?.startWeek != null && m.course.term?.endWeek != null && m.course.term.endWeek >= m.course.term.startWeek
+      ? m.course.term.endWeek - m.course.term.startWeek + 1 : Math.max(1, m.endWeek - m.startWeek + 1);
+    const ct = m.cohort.cohortTerms.find((c) => c.term.index === liveIdx);
     const startMs = ct?.startDate ? ct.startDate.getTime() : 0;
-    const tw = Math.max(1, m.endWeek - m.startWeek + 1);
+    const tw = liveTw;
     const weekStartMs = startMs;
     const weekEndMs = startMs + tw * WEEK_MS;
     const endMin = toMin(m.startTime) + m.lengthHours * 60;
@@ -1071,7 +1076,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
       facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
       employerId: m.employerId, employerName: m.employer?.name ?? null,
       staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
-      termIndex: m.termIndex, weekStartMs, weekEndMs,
+      termIndex: liveIdx, weekStartMs, weekEndMs,
       startLabel: startMs ? dlabel(weekStartMs) : "—", endLabel: startMs ? dlabel(weekEndMs) : "—",
     };
   });
@@ -1138,7 +1143,7 @@ export async function getCohortSchedule(cohortId: string) {
   const [rooms, mine, instMeetings] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
     prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, employer: { select: { id: true, name: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
-    prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
+    prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, course: { select: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
   ]);
 
   const winOf = (cohortTerms: { startDate: Date | null; term: { index: number } }[], termIndex: number, startWeek: number, endWeek: number) => {
@@ -1147,16 +1152,18 @@ export async function getCohortSchedule(cohortId: string) {
     return { weekStartMs: s, weekEndMs: s + Math.max(1, endWeek - startWeek + 1) * WEEK_MS };
   };
   // Institution-wide bookings → conflicts; keep only those touching this cohort.
-  const bookings = instMeetings.map((m) => ({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime), ...winOf(m.cohort.cohortTerms, m.termIndex, m.startWeek, m.endWeek), facilityId: m.facilityId, staffPersonId: m.staffPersonId }));
+  const bookings = instMeetings.map((m) => ({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime), ...winOf(m.cohort.cohortTerms, m.course.term?.index ?? m.termIndex, m.course.term?.startWeek ?? m.startWeek, m.course.term?.endWeek ?? m.endWeek), facilityId: m.facilityId, staffPersonId: m.staffPersonId }));
   const conflicts = detectConflicts(bookings).filter((c) => { const a = instMeetings.find((m) => m.id === c.aId), b = instMeetings.find((m) => m.id === c.bId); return a?.cohortId === cohortId || b?.cohortId === cohortId; });
   const conflictIds = new Set<string>();
   for (const c of conflicts) { if (instMeetings.find((m) => m.id === c.aId)?.cohortId === cohortId) conflictIds.add(c.aId); if (instMeetings.find((m) => m.id === c.bId)?.cohortId === cohortId) conflictIds.add(c.bId); }
 
   const meetings = mine.map((m) => {
-    const w = winOf(cohort.cohortTerms, m.termIndex, m.startWeek, m.endWeek);
+    // Live course→term relation drives placement, so structure edits propagate.
+    const liveIdx = m.course.term.index;
+    const w = winOf(cohort.cohortTerms, liveIdx, m.startWeek, m.endWeek);
     return {
       id: m.id, courseId: m.courseId, courseCode: m.course.code, courseName: m.course.name,
-      termIndex: m.termIndex, termName: m.course.term.name,
+      termIndex: liveIdx, termName: m.course.term.name,
       kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
       dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(toMin(m.startTime) + m.lengthHours * 60), lengthHours: m.lengthHours,
       facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
@@ -1443,4 +1450,18 @@ export async function getActionQueue(): Promise<ActionItem[]> {
 
   const order = { red: 0, amber: 1, info: 2 } as const;
   return items.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+/** This offering's WBL operations: every placement for the cohort's students —
+ *  real learner × partner records with status. Empty until the cohort has data. */
+export async function getCohortPlacements(cohortId: string) {
+  return prisma.wblPlacement.findMany({
+    where: { OR: [{ cohortId }, { student: { cohortId } }] },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    include: {
+      student: { select: { id: true, name: true } },
+      employer: { select: { id: true, name: true } },
+      term: { select: { name: true } },
+    },
+  });
 }

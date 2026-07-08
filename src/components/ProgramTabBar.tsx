@@ -10,10 +10,7 @@ import { usePathname } from "next/navigation";
 const TABS: { label: string; seg: string; group: string }[] = [
   { label: "Overview", seg: "", group: "" },
   { label: "Design & sequence", seg: "structure", group: "Design" },
-  { label: "Curriculum flow", seg: "flow", group: "Design" },
   { label: "Students", seg: "students", group: "Operate" },
-  { label: "WBL", seg: "wbl", group: "Operate" },
-  { label: "Operations plan", seg: "plan", group: "Analyze" },
 ];
 
 export function ProgramTabBar({ programId }: { programId: string }) {
