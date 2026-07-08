@@ -1140,8 +1140,9 @@ export async function getCohortSchedule(cohortId: string) {
   });
   if (!cohort) return null;
   const institutionId = cohort.program.institutionId;
-  const [rooms, mine, instMeetings] = await Promise.all([
+  const [rooms, people, mine, instMeetings] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
     prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, employer: { select: { id: true, name: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
     prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, course: { select: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
   ]);
@@ -1173,7 +1174,7 @@ export async function getCohortSchedule(cohortId: string) {
       conflict: conflictIds.has(m.id),
     };
   });
-  return { cohort, rooms, meetings, conflictCount: conflicts.length };
+  return { cohort, rooms, people, meetings, conflictCount: conflicts.length };
 }
 
 // ---------------------------------------------------------------------------

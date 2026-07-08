@@ -15,13 +15,14 @@ export interface CohortMeeting {
   weekStartMs: number; weekEndMs: number; conflict: boolean;
 }
 export interface SchedRoom { id: string; name: string; kind: string; capacity: number | null }
+export interface SchedPerson { id: string; name: string; role: string }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const KIND_LABEL: Record<string, string> = { CLASS: "Lecture", LAB: "Lab", CLINICAL: "Clinical" };
 const KIND_BADGE: Record<string, string> = { CLASS: "bg-sky-100 text-sky-700", LAB: "bg-violet-100 text-violet-700", CLINICAL: "bg-orange-100 text-orange-700" };
 const fmt = (t: string) => { const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
 
-export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: CohortMeeting[]; rooms: SchedRoom[]; conflictCount: number }) {
+export function CohortSchedule({ meetings, rooms, people = [], conflictCount }: { meetings: CohortMeeting[]; rooms: SchedRoom[]; people?: SchedPerson[]; conflictCount: number }) {
   const router = useRouter();
   const [editing, setEditing] = useState<CohortMeeting | null>(null);
   const [pending, startTransition] = useTransition();
@@ -51,6 +52,7 @@ export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: C
 
   const roomed = meetings.filter((m) => m.facilityId).length;
   const unroomed = meetings.filter((m) => !m.facilityId && m.kind !== "CLINICAL").length;
+  const unstaffedCount = meetings.filter((m) => !m.staffPersonId).length;
 
   if (meetings.length === 0) return <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No scheduled meetings for this offering yet.</p>;
 
@@ -59,6 +61,7 @@ export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: C
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="rounded-full bg-slate-100 px-2 py-0.5">{meetings.length} meetings · {roomed} roomed</span>
         {unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{unroomed} need a room</span>}
+        {unstaffedCount > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{unstaffedCount} unstaffed</span>}
         {conflictCount > 0
           ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictCount} conflicts</span>
           : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">conflict-free</span>}
@@ -83,7 +86,7 @@ export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: C
                           <span className="text-slate-600">{m.dayOfWeek} {fmt(m.startTime)}</span>
                           <span className={m.facilityName || m.employerName ? "text-slate-500" : "text-amber-600"}>{m.facilityName ?? (m.employerName ? `@ ${m.employerName}` : m.kind === "CLINICAL" ? "partner site TBD" : "⚠ no room")}</span>
                           <span className="text-slate-400">{m.seats} seats</span>
-                          {m.staffName && <span className="text-slate-400">· {m.staffName}</span>}
+                          {m.staffName ? <span className="text-slate-400">· {m.staffName}</span> : <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-medium text-amber-700">unstaffed</span>}
                           {m.conflict && <span className="text-rose-600">⚠</span>}
                         </button>
                       ))}
@@ -110,15 +113,17 @@ export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: C
         </div>
       </div>
 
-      {editing && <Editor meeting={editing} rooms={rooms} onClose={() => setEditing(null)} onSave={move} />}
+      {editing && <Editor meeting={editing} rooms={rooms} people={people} onClose={() => setEditing(null)} onSave={move} />}
     </div>
   );
 }
 
-function Editor({ meeting, rooms, onClose, onSave }: { meeting: CohortMeeting; rooms: SchedRoom[]; onClose: () => void; onSave: (id: string, p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null }) => void }) {
+function Editor({ meeting, rooms, people, onClose, onSave }: { meeting: CohortMeeting; rooms: SchedRoom[]; people: SchedPerson[]; onClose: () => void; onSave: (id: string, p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null }) => void }) {
   const [day, setDay] = useState(meeting.dayOfWeek);
   const [time, setTime] = useState(meeting.startTime);
   const [room, setRoom] = useState(meeting.facilityId ?? "");
+  const [staff, setStaff] = useState(meeting.staffPersonId ?? "");
+  const staffPool = meeting.kind === "CLINICAL" ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
   const offCampus = meeting.kind === "CLINICAL";
   const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
   return (
@@ -144,9 +149,16 @@ function Editor({ meeting, rooms, onClose, onSave }: { meeting: CohortMeeting; r
               </select>
             </label>
           )}
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{offCampus ? "Preceptor" : "Instructor"} — assigned to THIS meeting</span>
+            <select value={staff} onChange={(e) => setStaff(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">— unstaffed —</option>
+              {staffPool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
         </div>
         <div className="mt-4 flex items-center gap-2">
-          <button onClick={() => onSave(meeting.id, { dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null) })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
+          <button onClick={() => onSave(meeting.id, { dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), staffPersonId: staff || null })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
           <button onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">Cancel</button>
         </div>
       </div>

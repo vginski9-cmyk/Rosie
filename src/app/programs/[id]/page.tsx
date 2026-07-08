@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getProgramFull, getProgramArchetype, getProficiencyScale, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
-import { CapacityWorkbench } from "@/components/CapacityWorkbench";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { analyzeCoverage, assessmentCoverage, analyzeAssessment, competencyAdjustedCompletion, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
@@ -166,12 +165,6 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           </details>
         </section>
       )}
-
-      {/* Capacity engine */}
-      <section className="card card-pad space-y-3">
-        <h2 className="text-lg font-semibold">Capacity engine</h2>
-        <CapacityWorkbench terms={archetype} defaultEnrollment={defaultEnrollment} />
-      </section>
 
       {/* KSA / curriculum coverage */}
       <section className="card card-pad space-y-4">

@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getOfferingStaffing, getCohortSchedule, getCohortPlacements } from "@/lib/queries";
+import { getOffering, getCohortSchedule } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
-import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { CohortSchedule } from "@/components/CohortSchedule";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
@@ -27,9 +26,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const staffing = await getOfferingStaffing(params.cohortId);
   const sched = await getCohortSchedule(params.cohortId);
-  const placements = await getCohortPlacements(params.cohortId);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -84,7 +81,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Tile label="Expected end" value={timing.endDate ? monthYear(timing.endDate) : "—"} sub={`${timing.totalWeeks}-week program`} />
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
         <Tile label="Students" value={fmt.num(offering._count.students)} />
-        <Tile label="Staff assignments" value={fmt.num(offering._count.sessionStaff)} sub="per-session, this run" />
+        <Tile label="Meetings staffed" value={sched ? `${sched.meetings.filter((m) => m.staffPersonId).length} / ${sched.meetings.length}` : "—"} sub="assigned per meeting" />
       </div>
 
       {/* Quick links */}
@@ -100,82 +97,11 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           <div className="flex items-end justify-between gap-2">
             <div>
               <h2 className="text-lg font-semibold">Schedule, rooms &amp; sections</h2>
-              <p className="text-sm text-slate-500">Every section of every course as a real booking — its day, time, room, and instructor. This is the same data the <Link href="/calendar" className="text-rose-700 hover:underline">master space calendar</Link> shows; move a section here and it moves there too.</p>
+              <p className="text-sm text-slate-500">Every section of every course as a real booking — its day, time, room, and instructor, assigned per meeting (click any chip). This is the same data the <Link href="/calendar" className="text-rose-700 hover:underline">master space calendar</Link> shows; move a section here and it moves there too.</p>
             </div>
           </div>
-          <CohortSchedule meetings={sched.meetings} rooms={sched.rooms} conflictCount={sched.conflictCount} />
+          <CohortSchedule meetings={sched.meetings} rooms={sched.rooms} people={sched.people} conflictCount={sched.conflictCount} />
         </section>
-      )}
-
-      {/* WBL & operations — this cohort's real placements at real partners */}
-      <section className="space-y-3">
-        <div className="flex items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">WBL &amp; operations</h2>
-            <p className="text-sm text-slate-500">This offering&apos;s work-based learning as it actually stands: each learner&apos;s placement at a partner site with its status. Asks come from the {program.familyId ? <Link href={`/families/${program.familyId}/wbl`} className="text-rose-700 hover:underline">design studio</Link> : <span>design studio</span>}; partners confirm on their page.</p>
-          </div>
-        </div>
-        {placements.length === 0 ? (
-          <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No placements yet for this offering — run alignment intakes, then request placements from the studio.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-full border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-2 text-left font-semibold">Learner</th>
-                  <th className="px-3 py-2 text-left font-semibold">Partner site</th>
-                  <th className="px-3 py-2 text-left font-semibold">Window</th>
-                  <th className="px-3 py-2 text-left font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {placements.map((pl) => (
-                  <tr key={pl.id} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2"><Link href={`/students/${pl.student.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{pl.student.name}</Link></td>
-                    <td className="px-3 py-2"><Link href={`/employers/${pl.employer.id}`} className="text-slate-600 hover:text-rose-700 hover:underline">{pl.employer.name}</Link></td>
-                    <td className="px-3 py-2 text-slate-500">{pl.term?.name ?? (pl.startDate ? dateFmt(pl.startDate) : "—")}</td>
-                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${pl.status === "active" ? "bg-emerald-100 text-emerald-700" : pl.status === "planned" ? "bg-sky-100 text-sky-700" : pl.status === "completed" ? "bg-slate-200 text-slate-600" : "bg-slate-100 text-slate-400"}`}>{pl.status === "planned" ? "asked — awaiting partner" : pl.status}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* The run's term calendar */}
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Term schedule</h2>
-        <div className="overflow-hidden rounded-xl border border-slate-200">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <th className="px-4 py-3 font-semibold">Template term</th>
-                <th className="px-4 py-3 text-center font-semibold">Courses</th>
-                <th className="px-4 py-3 font-semibold">This offering starts</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {program.terms.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/60">
-                  <td className="px-4 py-3 font-medium text-slate-800">{t.name}</td>
-                  <td className="px-4 py-3 text-center tabular-nums text-slate-500">{t._count.courses}</td>
-                  <td className="px-4 py-3 text-slate-700">{termDate.has(t.id) ? dateFmt(termDate.get(t.id)) : <span className="text-slate-300">not scheduled</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Per-instantiation staffing + time-bound analytics */}
-      {staffing && (
-        <OfferingStaffing
-          cohortId={offering.id} programId={program.id}
-          terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
-          staff={staffing.staff}
-          people={staffing.people}
-        />
       )}
 
       {/* This run's funnel */}
