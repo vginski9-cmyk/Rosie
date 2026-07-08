@@ -32,10 +32,11 @@ const STATUS_BADGE: Record<string, string> = {
 const POP_BADGE = "rounded bg-violet-50 px-1.5 py-0.5 text-[9px] font-medium text-violet-700";
 const cost = (lo: number | null, hi: number | null) => (lo == null && hi == null ? null : `~$${lo != null ? Math.round(lo / 1000) : "?"}–${hi != null ? Math.round(hi / 1000) : "?"}K`);
 
-export function InterventionBoard({ familyId, interventions, funnel }: {
+export function InterventionBoard({ familyId, interventions, funnel, funnelTarget = {} }: {
   familyId: string;
   interventions: InterventionRow[];
   funnel: Record<string, number>;
+  funnelTarget?: Record<string, number>;
 }) {
   const [fLane, setFLane] = useState("");
   const [fPop, setFPop] = useState("");
@@ -98,9 +99,11 @@ export function InterventionBoard({ familyId, interventions, funnel }: {
               {STAGES.map((s) => (
                 <th key={s.key} className="px-2 py-2 text-left font-semibold">
                   {s.label}
-                  {s.funnel != null && funnel[s.funnel] != null && (
-                    <span className="ml-1 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-medium normal-case text-rose-600 ring-1 ring-rose-100">{funnel[s.funnel]} now</span>
-                  )}
+                  {s.funnel != null && funnel[s.funnel] != null && (() => {
+                    const now = funnel[s.funnel!]; const tgt = funnelTarget[s.funnel === "completing" ? "completing" : s.funnel!] ?? null;
+                    const short = tgt != null && now < tgt;
+                    return <span className={`ml-1 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-medium normal-case ring-1 ${short ? "text-rose-600 ring-rose-200" : "text-emerald-600 ring-emerald-100"}`}>{now} now{tgt != null ? ` / ${tgt} target` : ""}</span>;
+                  })()}
                 </th>
               ))}
             </tr>

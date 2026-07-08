@@ -1320,10 +1320,14 @@ export async function getFamilyInterventions(familyId: string) {
     select: { id: true, name: true, institution: { select: { name: true } }, programs: { select: { id: true } } },
   });
   if (!family) return null;
-  const [interventions, students] = await Promise.all([
+  const [interventions, students, stageRows] = await Promise.all([
     prisma.intervention.findMany({ where: { familyId }, orderBy: [{ lane: "asc" }, { sequence: "asc" }, { createdAt: "asc" }] }),
     prisma.student.findMany({ where: { programId: { in: family.programs.map((p) => p.id) } }, select: { status: true } }),
+    prisma.funnelStage.findMany({ where: { cohort: { programId: { in: family.programs.map((p) => p.id) }, status: { in: ["active", "planned"] } } }, select: { stageKey: true, targetNumber: true } }),
   ]);
+  // Per-stage targets: sum across the family's live (active+planned) cohorts.
+  const funnelTarget: Record<string, number> = {};
+  for (const r of stageRows) if (r.targetNumber != null) funnelTarget[r.stageKey] = (funnelTarget[r.stageKey] ?? 0) + Math.round(r.targetNumber);
   // Live cumulative funnel from student statuses (same ranking as elsewhere).
   const RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
   const funnel = { interested: 0, qualified: 0, offered: 0, enrolled: 0, completing: 0, licensed: 0, placed: 0, productive: 0 };
@@ -1333,5 +1337,110 @@ export async function getFamilyInterventions(familyId: string) {
     const r = RANK[s.status] ?? -1;
     keys.forEach((k, i) => { if (r >= i) funnel[k] += 1; });
   }
-  return { family, interventions, funnel };
+  return { family, interventions, funnel, funnelTarget };
+}
+
+// ---------------------------------------------------------------------------
+// ACTION CENTER — the connective organ. Every gap the data can see, expressed
+// as a work item with a deep link to the surface that fixes it. This is what
+// makes the platform actionable instead of a set of pages.
+// ---------------------------------------------------------------------------
+
+export interface ActionItem {
+  severity: "red" | "amber" | "info";
+  kind: string;
+  family: string | null;
+  title: string;
+  detail: string;
+  href: string;
+}
+
+export async function getActionQueue(): Promise<ActionItem[]> {
+  const { detectConflicts, toMin } = await import("./space");
+  const WEEK_MS = 7 * 24 * 3600 * 1000;
+  const today = new Date();
+  const nowYear = today.getUTCFullYear();
+  const items: ActionItem[] = [];
+
+  const families = await prisma.programFamily.findMany({
+    include: {
+      programs: {
+        include: {
+          yearTargets: true,
+          cohorts: { include: { students: { select: { status: true } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } }, _count: { select: { students: true } } } },
+        },
+      },
+    },
+  });
+  const RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
+  const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
+
+  for (const fam of families) {
+    // 1) GOAL GAP — this year's goal vs live placed across cohorts graduating now.
+    const goalNow = fam.programs.reduce((n, p) => n + (p.yearTargets.find((t) => t.year === nowYear)?.credentialTarget ?? 0), 0);
+    if (goalNow > 0) {
+      const placedNow = fam.programs.reduce((n, p) => n + p.cohorts.filter((c) => gradYearOf(c.name) === nowYear).reduce((m, c) => m + c.students.filter((s) => (RANK[s.status] ?? -1) >= 6).length, 0), 0);
+      if (placedNow < goalNow) {
+        items.push({ severity: placedNow < goalNow * 0.5 ? "red" : "amber", kind: "goal-gap", family: fam.name, title: `${nowYear} goal at risk: ${placedNow} placed of ${goalNow}`, detail: `The ${nowYear} North-Star goal is ${goalNow} placed; live student data shows ${placedNow}. Work the graduating cohorts and placement pipeline.`, href: `/families/${fam.id}` });
+      }
+    }
+    // 2) RECRUITING SHORTFALL — recruiting cohorts under seat target.
+    for (const p of fam.programs) {
+      for (const c of p.cohorts) {
+        const start = c.cohortTerms.find((ct) => ct.term.index === 1)?.startDate ?? null;
+        if (!start || start <= today) continue;
+        const seats = Math.round(c.plannedSeats ?? p.defaultCohortSeats ?? 0);
+        const admitted = c.students.filter((s) => (RANK[s.status] ?? -1) >= 2).length;
+        if (seats > 0 && admitted < seats * 0.8) {
+          items.push({ severity: admitted < seats * 0.5 ? "red" : "amber", kind: "recruiting", family: fam.name, title: `${c.name} recruiting behind: ${admitted} admitted of ${seats} seats`, detail: `Starts ${start.toLocaleDateString(undefined, { month: "short", year: "numeric" })}. Interventions targeting qualified/enrolled are the lever.`, href: `/families/${fam.id}/design` });
+        }
+      }
+    }
+    // 3) NO NEXT LAUNCH — nothing recruiting or planned after the newest running cohort.
+    const anyFuture = fam.programs.some((p) => p.cohorts.some((c) => { const s = c.cohortTerms.find((ct) => ct.term.index === 1)?.startDate; return s && s > today; }));
+    const anyActive = fam.programs.some((p) => p.cohorts.length > 0);
+    if (anyActive && !anyFuture) {
+      items.push({ severity: "amber", kind: "no-next-launch", family: fam.name, title: "No next cohort scheduled", detail: "Every instantiation has already started — there is no future intake on the calendar. Plan the next launch.", href: `/families/${fam.id}/design` });
+    }
+  }
+
+  // 4) SCHEDULE HEALTH — unstaffed / unroomed / conflicting bookings (live weeks only).
+  const meetings = await prisma.meetingPattern.findMany({
+    include: { cohort: { select: { name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } },
+  });
+  const live = meetings.map((m) => {
+    const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex);
+    const s = ct?.startDate ? ct.startDate.getTime() : 0;
+    return { m, weekStartMs: s, weekEndMs: s + Math.max(1, m.endWeek - m.startWeek + 1) * WEEK_MS };
+  }).filter((x) => x.weekStartMs && x.weekEndMs > today.getTime());
+  const unstaffed = live.filter((x) => !x.m.staffPersonId);
+  if (unstaffed.length) {
+    const fams = [...new Set(unstaffed.map((x) => x.m.cohort.program.family?.name ?? x.m.cohort.program.name))].join(", ");
+    items.push({ severity: "red", kind: "unstaffed", family: null, title: `${unstaffed.length} current/upcoming meetings have no instructor`, detail: `Across ${fams}. Assign staff from each offering's schedule panel.`, href: `/programs/${unstaffed[0].m.cohort.program.id}/offerings/${unstaffed[0].m.cohortId}`
+    });
+  }
+  const unroomed = live.filter((x) => !x.m.facilityId && x.m.kind !== "CLINICAL");
+  if (unroomed.length) items.push({ severity: "amber", kind: "unroomed", family: null, title: `${unroomed.length} campus meetings have no room`, detail: "Space pressure — resolve on the master calendar (idle rooms are visible in the utilization rail).", href: "/calendar" });
+  const conflicts = detectConflicts(live.map((x) => ({ id: x.m.id, cohortId: x.m.cohortId, sectionIndex: x.m.sectionIndex, kind: x.m.kind, seats: x.m.seats, lengthHours: x.m.lengthHours, dayOfWeek: x.m.dayOfWeek as import("./space").Weekday, startMin: toMin(x.m.startTime), weekStartMs: x.weekStartMs, weekEndMs: x.weekEndMs, facilityId: x.m.facilityId, staffPersonId: x.m.staffPersonId })));
+  if (conflicts.length) items.push({ severity: "red", kind: "conflicts", family: null, title: `${conflicts.length} scheduling conflicts on live weeks`, detail: `${conflicts.filter((c) => c.kind === "room").length} room · ${conflicts.filter((c) => c.kind === "staff").length} staff · ${conflicts.filter((c) => c.kind === "section").length} section double-bookings.`, href: "/calendar" });
+
+  // 5) ASKS AWAITING PARTNER CONFIRMATION — planned placements sitting unconfirmed.
+  const pendingAsks = await prisma.wblPlacement.groupBy({ by: ["employerId"], where: { status: "planned" }, _count: true });
+  if (pendingAsks.length) {
+    const emps = await prisma.employer.findMany({ where: { id: { in: pendingAsks.map((a) => a.employerId) } }, select: { id: true, name: true } });
+    for (const a of pendingAsks) {
+      const e = emps.find((x) => x.id === a.employerId);
+      if (e) items.push({ severity: "info", kind: "ask-pending", family: null, title: `${a._count} placement ask${a._count === 1 ? "" : "s"} awaiting ${e.name}`, detail: "Planned placements the partner hasn't confirmed. Confirming (→ active) is what makes them secured.", href: `/employers/${a.employerId}` });
+    }
+  }
+
+  // 6) INTAKE COVERAGE — enrolled learners in started cohorts without an alignment intake.
+  const noIntake = await prisma.student.count({ where: { status: "enrolled", alignmentProfiles: { none: {} }, cohort: { startDate: { lte: today } } } });
+  if (noIntake > 0) {
+    const firstFam = families[0];
+    items.push({ severity: "info", kind: "intake", family: null, title: `${noIntake} enrolled learners have no alignment intake`, detail: "Placement design runs on intake profiles — motivations, constraints, capacities. Work the intake worklist.", href: firstFam ? `/families/${firstFam.id}/wbl` : "/students" });
+  }
+
+  const order = { red: 0, amber: 1, info: 2 } as const;
+  return items.sort((a, b) => order[a.severity] - order[b.severity]);
 }

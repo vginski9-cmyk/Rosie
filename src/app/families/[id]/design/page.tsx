@@ -121,6 +121,7 @@ export default async function FamilyDesignPage({ params }: { params: { id: strin
             estCostLow: i.estCostLow, estCostHigh: i.estCostHigh, targetStageKey: i.targetStageKey,
           }))}
           funnel={iv.funnel}
+          funnelTarget={iv.funnelTarget}
         />
       </section>
     </div>
