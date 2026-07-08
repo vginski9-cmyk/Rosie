@@ -734,12 +734,18 @@ export async function getProgramTermsLite(programId: string) {
 /** Employers with their LATEST WBL capacity snapshot — the employer side of the
  *  per-student placement recommendation. */
 export async function getEmployerWblSlots(institutionId: string) {
+  // Capacity is FLUID — no partner "always has 5 slots." A partner's working
+  // capacity = rotations they are actually hosting now or have agreed to next
+  // (active + planned placements), which shifts week to week as reality does.
   const employers = await prisma.employer.findMany({
     where: { institutionId },
     orderBy: { name: "asc" },
-    include: { wblSnapshots: { orderBy: { asOfDate: "desc" }, take: 1, include: { factors: true } } },
+    include: {
+      wblSnapshots: { orderBy: { asOfDate: "desc" }, take: 1, include: { factors: true } },
+      placements: { where: { status: { in: ["active", "planned"] } }, select: { id: true } },
+    },
   });
-  return employers.map((e) => ({ employerId: e.id, name: e.name, slots: e.wblSlots ?? 0, snapshot: e.wblSnapshots[0] ?? null }));
+  return employers.map((e) => ({ employerId: e.id, name: e.name, slots: e.placements.length, snapshot: e.wblSnapshots[0] ?? null }));
 }
 
 /** The cohort-wide WBL placement board: every enrolled-and-beyond student with

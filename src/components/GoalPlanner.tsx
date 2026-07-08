@@ -207,64 +207,73 @@ export function GoalPlanner({
           </div>
         </div>
 
-        {s.years.map((year) => {
-          const selected = year === s.selectedYear;
-          const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
-          const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
-          const insts = instantiationsByYear[year] ?? [];
-          const actualProductive = insts.reduce((n, i) => n + i.placed, 0);
-          return (
-            <div key={year} className={`rounded-xl border ${selected ? "border-rose-300 ring-1 ring-rose-200" : "border-slate-200"} bg-white`}>
-              <div className="flex flex-wrap items-center gap-4 p-4">
-                <button onClick={() => selectYear(year)} className={`text-xl font-bold tabular-nums ${selected ? "text-rose-700" : "text-slate-700 hover:text-rose-600"}`}>{year}</button>
-                <label className="flex items-center gap-2 text-sm">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400">{s.anchor === "northstar" ? "Goal · productive" : "Capacity"}</span>
-                  <input type="number" min={0} value={Math.round(goalVal)} onChange={(e) => setYearValue(year, Number(e.target.value) || 0)} className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-lg font-semibold tabular-nums focus:border-rose-400 focus:outline-none" />
-                </label>
-                <span className="text-xs text-slate-400">{s.anchor === "northstar" ? `needs ~${derived} enrolled` : `→ ~${derived} productive`}</span>
-                {insts.length > 0 && (
-                  <span className="ml-auto text-xs text-slate-500">actual to date: <strong className={attainColor(attain(Math.round(goalVal), actualProductive))}>{actualProductive}</strong> placed</span>
-                )}
-              </div>
+        {/* The stairstep: one goal box per year, reading left → right. */}
+        <div className="overflow-x-auto pb-1">
+          <div className="flex items-stretch gap-2">
+            {s.years.map((year) => {
+              const selected = year === s.selectedYear;
+              const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
+              const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
+              const insts = instantiationsByYear[year] ?? [];
+              const actualProductive = insts.reduce((n, i) => n + i.placed, 0);
+              return (
+                <button key={year} onClick={() => selectYear(year)}
+                  className={`min-w-[128px] shrink-0 rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
+                  <span className={`block text-sm font-bold tabular-nums ${selected ? "text-rose-700" : "text-slate-700"}`}>{year}{year === nowYear ? " · now" : ""}</span>
+                  <input
+                    type="number" min={0} value={Math.round(goalVal)}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setYearValue(year, Number(e.target.value) || 0)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
+                  />
+                  <span className="mt-0.5 block text-[10px] text-slate-400">{s.anchor === "northstar" ? `needs ~${derived} enrolled` : `→ ~${derived} productive`}</span>
+                  <span className="mt-0.5 block text-[10px] tabular-nums">
+                    {insts.length > 0
+                      ? <><strong className={attainColor(attain(Math.round(goalVal), actualProductive))}>{actualProductive}</strong> <span className="text-slate-400">placed · {insts.length} class{insts.length === 1 ? "" : "es"}</span></>
+                      : <span className="text-slate-300">{year < nowYear ? "none graduated" : year === nowYear ? "none graduating" : "not planned"}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-              {/* Instantiations graduating this year */}
-              <div className="border-t border-slate-100 px-4 py-3">
-                {insts.length === 0 ? (
-                  <p className="text-xs text-slate-300">
-                    {year < nowYear ? `No instantiations graduated in ${year}.` : year === nowYear ? `No instantiations graduating in ${year}.` : `No instantiations planned for ${year} yet.`}
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {insts.map((c) => (
-                      <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
-                        <span className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-medium text-slate-800">
-                            {c.name} <span className="font-normal text-slate-400">· {c.program}</span>
-                            <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${PHASE_BADGE[c.phase] ?? PHASE_BADGE.unscheduled}`}>{PHASE_LABEL[c.phase] ?? c.phase}</span>
-                          </span>
-                          <span className="flex flex-wrap items-center gap-3 tabular-nums text-slate-500">
-                            <span>goal <strong className="text-slate-700">{c.goalProductive || "—"}</strong></span>
-                            <span className="text-slate-300">·</span>
-                            <span title="live from student data">{c.students} students</span>
-                            <span className="text-emerald-600">{c.enrolled} enrolled</span>
-                            <span className="text-lime-600">{c.completed} completed</span>
-                            <span className="text-rose-600">{c.placed} placed</span>
-                          </span>
-                        </span>
-                        {(c.currentTerm || c.endLabel) && (
-                          <span className="mt-0.5 block text-[11px] text-slate-400">
-                            {c.phase === "in-program" && c.currentTerm ? `Now in ${c.currentTerm}` : c.phase === "recruiting" ? "Starts soon" : ""}
-                            {c.currentTerm && c.endLabel ? " · " : ""}{c.endLabel ?? ""}
-                          </span>
-                        )}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
+        {/* The selected year's instantiations — the classes delivering that goal. */}
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{s.selectedYear} — instantiations delivering this goal</div>
+          {(instantiationsByYear[s.selectedYear] ?? []).length === 0 ? (
+            <p className="text-xs text-slate-300">
+              {s.selectedYear < nowYear ? `No instantiations graduated in ${s.selectedYear}.` : s.selectedYear === nowYear ? `No instantiations graduating in ${s.selectedYear}.` : `No instantiations planned for ${s.selectedYear} yet.`}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {(instantiationsByYear[s.selectedYear] ?? []).map((c) => (
+                <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
+                  <span className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium text-slate-800">
+                      {c.name} <span className="font-normal text-slate-400">· {c.program}</span>
+                      <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${PHASE_BADGE[c.phase] ?? PHASE_BADGE.unscheduled}`}>{PHASE_LABEL[c.phase] ?? c.phase}</span>
+                    </span>
+                    <span className="flex flex-wrap items-center gap-3 tabular-nums text-slate-500">
+                      <span>goal <strong className="text-slate-700">{c.goalProductive || "—"}</strong></span>
+                      <span className="text-slate-300">·</span>
+                      <span title="live from student data">{c.students} students</span>
+                      <span className="text-emerald-600">{c.enrolled} enrolled</span>
+                      <span className="text-lime-600">{c.completed} completed</span>
+                      <span className="text-rose-600">{c.placed} placed</span>
+                    </span>
+                  </span>
+                  {(c.currentTerm || c.endLabel) && (
+                    <span className="mt-0.5 block text-[11px] text-slate-400">
+                      {c.phase === "in-program" && c.currentTerm ? `Now in ${c.currentTerm}` : c.phase === "recruiting" ? "Starts soon" : ""}
+                      {c.currentTerm && c.endLabel ? " · " : ""}{c.endLabel ?? ""}
+                    </span>
+                  )}
+                </Link>
+              ))}
             </div>
-          );
-        })}
+          )}
+        </div>
       </div>
 
       {/* Selected year's full pipeline — two tables */}

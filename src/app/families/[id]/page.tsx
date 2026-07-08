@@ -1,11 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getFamily, getInsightsFacts } from "@/lib/queries";
-import { FamilyAnalytics, type FamCohort } from "@/components/FamilyAnalytics";
+import { getFamily } from "@/lib/queries";
 import { GoalPlanner } from "@/components/GoalPlanner";
-import { PivotExplorer } from "@/components/PivotExplorer";
-import type { StageKey } from "@/lib/funnel";
-import { courseService, DEFAULT_SERVICE, type ServiceSession } from "@/lib/service";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
@@ -15,51 +11,25 @@ const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { mon
 const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
 
 export default async function FamilyPage({ params }: { params: { id: string } }) {
-  const [data, allFacts] = await Promise.all([getFamily(params.id), getInsightsFacts()]);
+  const data = await getFamily(params.id);
   if (!data) notFound();
   const { family, demand } = data;
-  // Same tidy fact table as the Insights explorer, scoped to this family.
-  const familyFacts = allFacts.filter((f) => f.family === family.name && f.institution === family.institution.name);
 
-  // Flatten cohorts across the family's templates into analytics rows, computing
-  // each cohort's delivery footprint (FTE / contact hours) at its enrollment.
-  const cohorts: FamCohort[] = family.programs.flatMap((p) => {
-    const sessions: ServiceSession[] = p.terms.flatMap((t) => t.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded }))));
-    return p.cohorts.map((co) => {
-      const actual: Partial<Record<StageKey, number>> = {};
-      for (const s of co.stages) if (s.actualNumber != null) actual[s.stageKey as StageKey] = s.actualNumber;
-      const gradYear = gradYearOf(co.name) || co.entryYear || 0;
-      const enrolled = actual.enrolled ?? Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 0);
-      const d = sessions.length ? courseService(sessions, Math.max(1, enrolled), DEFAULT_SERVICE).totals : null;
-      return {
-        id: co.id, name: co.name, programId: p.id, programName: p.name,
-        gradYear, entryYear: co.startDate ? co.startDate.getUTCFullYear() : (gradYear ? gradYear - 2 : null),
-        status: co.status,
-        enrolled,
-        completers: actual.completing ?? 0,
-        stagesActual: actual,
-        facultyFte: d ? Math.round(d.facultyFte * 1000) / 1000 : 0,
-        preceptorFte: d ? Math.round(d.preceptorFte * 1000) / 1000 : 0,
-        facultyHours: d ? Math.round(d.facultyContactHours) : 0,
-        preceptorHours: d ? Math.round(d.preceptorContactHours) : 0,
-      };
-    });
-  }).filter((c) => c.gradYear > 0);
+  // Grad years across all templates (drives the goal planner's year span).
+  const cohortGradYears = family.programs.flatMap((p) => p.cohorts.map((co) => gradYearOf(co.name) || co.entryYear || 0)).filter((y) => y > 0);
 
   const demandByYear: Record<number, number> = {};
   for (const d of demand) if (d.openings != null) demandByYear[d.year] = d.openings;
   const goalByYear: Record<number, number> = {};
   for (const p of family.programs) for (const t of p.yearTargets) if (t.credentialTarget != null) goalByYear[t.year] = (goalByYear[t.year] ?? 0) + t.credentialTarget;
 
-  const templates = family.programs.map((p) => ({ id: p.id, name: p.name }));
-  const totalCohorts = cohorts.length;
+  const totalCohorts = cohortGradYears.length;
   const totalStudents = family.programs.reduce((n, p) => n + p.cohorts.reduce((m, c) => m + c._count.students, 0), 0);
 
   // Seeds for the multi-year North-Star goal planner: the span of years the
   // family is planning for (its target years ∪ cohort grad years), and the
   // per-year goals from the family's credential targets.
-  const cohortYears = cohorts.map((c) => c.gradYear).filter((y) => y > 0);
-  const yearSet = new Set<number>([...Object.keys(goalByYear).map(Number), ...Object.keys(demandByYear).map(Number), ...cohortYears]);
+  const yearSet = new Set<number>([...Object.keys(goalByYear).map(Number), ...Object.keys(demandByYear).map(Number), ...cohortGradYears]);
   const seedYears = [...yearSet].sort((a, b) => a - b);
   const seedGoalsByYear: Record<number, number> = goalByYear;
 
@@ -143,39 +113,23 @@ export default async function FamilyPage({ params }: { params: { id: string } })
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{family.name}</h1>
             <p className="text-sm text-slate-500">
-              Program family{family.occupation ? <> · {family.occupation.title} · SOC {family.occupation.socCode}</> : null} · {templates.length} template{templates.length === 1 ? "" : "s"} · {totalCohorts} cohorts · {totalStudents} students
+              Program family{family.occupation ? <> · {family.occupation.title} · SOC {family.occupation.socCode}</> : null} · {family.programs.length} template{family.programs.length === 1 ? "" : "s"} · {totalCohorts} cohorts · {totalStudents} students
             </p>
             {family.description && <p className="mt-1 max-w-3xl text-xs text-slate-400">{family.description}</p>}
           </div>
         </div>
       </div>
 
-      {/* Credentials & delivery models — managed on their own page */}
-      <div className="grid gap-3 md:grid-cols-3">
-        <Link href={`/families/${family.id}/programs`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-          <div>
-            <div className="text-sm font-semibold text-slate-800">Credentials &amp; delivery models ↦</div>
-            <div className="text-xs text-slate-500">
-              {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")}
-            </div>
+      {/* Design & pathways — delivery models + interventions per target population */}
+      <Link href={`/families/${family.id}/design`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Program design &amp; pathways ↦</div>
+          <div className="text-xs text-slate-500">
+            {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")} · delivery models + pipeline interventions per target population
           </div>
-          <span className="text-rose-600">→</span>
-        </Link>
-        <Link href={`/families/${family.id}/wbl`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-          <div>
-            <div className="text-sm font-semibold text-slate-800">WBL design studio ↦</div>
-            <div className="text-xs text-slate-500">alignment intakes pooled → clinical design, employer asks, supports</div>
-          </div>
-          <span className="text-rose-600">→</span>
-        </Link>
-        <Link href={`/families/${family.id}/interventions`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-          <div>
-            <div className="text-sm font-semibold text-slate-800">Pipeline interventions ↦</div>
-            <div className="text-xs text-slate-500">lanes × stages canvas — sequence, owners, priority populations</div>
-          </div>
-          <span className="text-rose-600">→</span>
-        </Link>
-      </div>
+        </div>
+        <span className="text-rose-600">→</span>
+      </Link>
 
       {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}
       <section className="space-y-3">
@@ -190,36 +144,6 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear} />
       </section>
 
-      {/* Multi-year goals, trajectory, constellation, health — interactive */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Workforce goals &amp; trajectory</h2>
-          <p className="text-sm text-slate-500">
-            Anchored to regional demand. The whole family — every template&apos;s cohorts — works toward the multi-year goal.
-            Disaggregate by template, switch between the time-series and per-cohort views, and click a year or bar to drill in.
-          </p>
-        </div>
-        {cohorts.length === 0 ? (
-          <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No cohorts yet. Create offerings of the templates above to populate the trajectory.</p>
-        ) : (
-          <FamilyAnalytics cohorts={cohorts} demandByYear={demandByYear} goalByYear={goalByYear} templates={templates} />
-        )}
-      </section>
-
-      {/* Family-scoped pivot — all this family's data, aggregate or disaggregate */}
-      {familyFacts.length > 0 && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">Explore this family&apos;s data</h2>
-            <p className="text-sm text-slate-500">
-              Every offering&apos;s pipeline and delivery footprint in one tidy table — disaggregate by cohort, term, semester,
-              year or metric. Click a header to filter, a cell to drill into the underlying facts. Want a specific class? Pick
-              the cohort. Want Spring 2026? Pick the semester.
-            </p>
-          </div>
-          <PivotExplorer facts={familyFacts} hideDims={["institution", "family"]} defaultRowDim="cohort" defaultColDim="metric" defaultMetric="All" />
-        </section>
-      )}
     </div>
   );
 }

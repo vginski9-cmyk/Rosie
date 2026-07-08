@@ -90,7 +90,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       <div className="flex flex-wrap gap-2">
         <Link href="/calendar" className="btn-primary">Master calendar ↦</Link>
         <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
-        <Link href={`/programs/${program.id}/wbl`} className="btn-primary">WBL placement board ↦</Link>
+        <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>
         <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>
       </div>
 
