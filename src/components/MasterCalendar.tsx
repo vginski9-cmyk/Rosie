@@ -13,6 +13,7 @@ export interface CalMeeting {
   kind: string; sectionIndex: number; sectionCount: number; seats: number;
   dayOfWeek: string; startTime: string; endTime: string; lengthHours: number;
   facilityId: string | null; facilityName: string | null; facilityKind: string | null;
+  employerId: string | null; employerName: string | null;
   staffPersonId: string | null; staffName: string | null;
   termIndex: number; weekStartMs: number; weekEndMs: number; startLabel: string; endLabel: string;
 }
@@ -198,7 +199,7 @@ export function MasterCalendar({
               <div className="flex flex-wrap gap-1.5">
                 {clinical.map((m) => (
                   <button key={m.id} onClick={() => setEditing(m)} className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] text-orange-700 hover:bg-orange-200">
-                    {m.dayOfWeek} {fmtTime(m.startTime)} · {m.courseCode ?? m.courseName} · {m.cohortName}
+                    {m.dayOfWeek} {fmtTime(m.startTime)} · {m.courseCode ?? m.courseName} · {m.cohortName}{m.employerName ? ` @ ${m.employerName}` : ""}
                   </button>
                 ))}
               </div>

@@ -18,7 +18,7 @@ const GROUPS: Group[] = [
     { label: "Employers & clinical sites", href: "/employers" },
     { label: "Facilities", href: "/facilities" },
   ] },
-  { label: "Library", items: [{ label: "Skill library", href: "/skills" }, { label: "WBL alignment", href: "/wbl" }] },
+  { label: "Library", items: [{ label: "Skill library", href: "/skills" }] },
 ];
 
 export function MainNav() {

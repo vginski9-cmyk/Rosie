@@ -88,8 +88,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-2">
-        <Link href={`/programs/${program.id}/offerings/${offering.id}/schedule`} className="btn-primary">Section scheduler ↦</Link>
-        <Link href={`/programs/${program.id}/schedule?offering=${offering.id}`} className="btn-primary">Calendar &amp; staffing ↦</Link>
+        <Link href="/calendar" className="btn-primary">Master calendar ↦</Link>
         <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
         <Link href={`/programs/${program.id}/wbl`} className="btn-primary">WBL placement board ↦</Link>
         <Link href={`/programs/${program.id}/plan`} className="btn-ghost">Operations plan</Link>

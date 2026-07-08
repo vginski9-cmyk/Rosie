@@ -511,6 +511,10 @@ model MeetingPattern {
   endWeek      Int     @default(16) // last instructional week
   facilityId   String?
   facility     Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  /// CLINICAL meetings are hosted at a partner site rather than a campus room —
+  /// this puts the rotation on the same master calendar, attributed to the partner.
+  employerId   String?
+  employer     Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
   staffPersonId String?
   staff         Person?  @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
@@ -519,6 +523,7 @@ model MeetingPattern {
   @@index([courseId])
   @@index([facilityId])
   @@index([staffPersonId])
+  @@index([employerId])
 }
 
 /// An employer / clinical partner that hires graduates and/or hosts WBL.
@@ -541,6 +546,7 @@ model Employer {
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
   alignmentProfiles AlignmentProfile[]
+  meetings MeetingPattern[]
 
   @@index([institutionId])
 }

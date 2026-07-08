@@ -1025,6 +1025,28 @@ async function main() {
     await prisma.cohort.update({ where: { id: co.id }, data: { startDate: new Date(`${o.grad - 2}-08-18`), status: statusFor(o.grad), plannedSeats: o.enrolled } });
   }
 
+  // Surgical Tech constellation (biennial: one completed, one planned besides the
+  // detailed in-program 2027 cohort) — each with real per-term dates.
+  const surgEntry0 = new Date(TERM_START_DATES[0]).getTime();
+  const surgTermOffsets = TERM_START_DATES.slice(0, surgTermRows.length).map((d) => new Date(d).getTime() - surgEntry0);
+  for (const o of [{ grad: 2025, enrolled: 15, produced: 11 }, { grad: 2029, enrolled: 18, produced: 0 }]) {
+    const co = await createFunnel(surg.id, `Class of ${o.grad}`, o.grad, {
+      interested: { target: 39, actual: Math.round(o.enrolled * 2.5) },
+      qualified: { target: 29, actual: Math.round(o.enrolled * 1.5) },
+      offered: { target: 24, actual: Math.round(o.enrolled * 1.2) },
+      enrolled: { target: 19, actual: o.enrolled },
+      completing: { target: 16, actual: o.produced || undefined },
+      licensed: { target: 15, actual: o.produced ? Math.round(o.produced * 0.9) : undefined },
+      placed: { target: 14, actual: o.produced ? Math.round(o.produced * 0.85) : undefined },
+      productive: { target: 14, actual: o.produced ? Math.round(o.produced * 0.8) : undefined },
+    });
+    const start = new Date(`${o.grad - 2}-08-18`);
+    await prisma.cohort.update({ where: { id: co.id }, data: { startDate: start, status: statusFor(o.grad), plannedSeats: o.enrolled } });
+    await prisma.cohortTerm.createMany({
+      data: surgTermRows.map((t, i) => ({ cohortId: co.id, termId: t.id, startDate: new Date(start.getTime() + (surgTermOffsets[i] ?? 0)) })),
+    });
+  }
+
   // Employers & people (clinical partners + staff)
   const firstHealth = await prisma.employer.create({ data: { institutionId: sandhills.id, name: "FirstHealth Moore Regional Hospital", setting: "Acute-care Hospital / Health System", wblSlots: 12, notes: "Primary imaging & OR clinical site" } });
   await prisma.employer.create({ data: { institutionId: sandhills.id, name: "Pinehurst Surgical Clinic", setting: "Ambulatory Surgical Center", wblSlots: 4 } });
@@ -1063,54 +1085,14 @@ async function main() {
     ],
   });
 
-  // ----- Cape Fear Community College (multi-tenant demo) -------------------
-  const capeFear = await prisma.institution.create({
-    data: { name: "Cape Fear Community College", shortName: "Cape Fear CC", serviceArea: "New Hanover County, NC" },
-  });
-  const elecOcc = await prisma.occupation.create({ data: { institutionId: capeFear.id, socCode: "47-2111", title: "Electricians" } });
-  const cfServiceArea = await prisma.region.create({ data: { institutionId: capeFear.id, name: "Service Area", kind: "SERVICE_AREA", sortOrder: 0 } });
-  const cfNational = await prisma.region.create({ data: { institutionId: capeFear.id, name: "United States", kind: "NATIONAL", sortOrder: 1 } });
-  const elecOpenings: Record<number, number> = { 2025: 117, 2026: 115, 2027: 111, 2028: 111, 2029: 109, 2030: 113 };
-  for (const [y, o] of Object.entries(elecOpenings)) {
-    await prisma.demandProjection.create({ data: { institutionId: capeFear.id, occupationId: elecOcc.id, regionId: cfServiceArea.id, year: Number(y), jobs: 1200, openings: o } });
-  }
-  await prisma.demandProjection.create({ data: { institutionId: capeFear.id, occupationId: elecOcc.id, regionId: cfNational.id, year: 2026, jobs: 108427, openings: 84000 } });
-
-  const elec = await createProgram({
-    institutionId: capeFear.id,
-    occupationId: elecOcc.id,
-    name: "Electrical Systems Technology",
-    programType: "Traditional Full Time",
-    credential: "AAS",
-    terms: [
-      {
-        index: 1,
-        name: "Term 1",
-        startWeek: 1,
-        endWeek: 16,
-        courses: [
-          { code: "ELC-113", name: "Basic Wiring", weeklyClassHours: 3, weeklyLabHours: 6, weeklyClinicalHours: 0, sessions: [
-            { kind: "CLASS", count: 16, lengthHours: 3, maxStudents: 24, facultyNeeded: 1, title: "Lecture", location: "Classroom" },
-            { kind: "LAB", count: 16, lengthHours: 6, maxStudents: 16, facultyNeeded: 1, title: "Wiring Lab", location: "Electrical lab" },
-          ] },
-        ],
-      },
-    ],
-  });
-  // Cape Fear credential targets (25 → 90 ramp from the workbook)
-  const elecTargets: Record<number, number> = { 2025: 25, 2026: 25, 2027: 40, 2028: 50, 2029: 70, 2030: 90 };
-  for (const [y, t] of Object.entries(elecTargets)) {
-    await prisma.programYearTarget.create({ data: { programId: elec.id, year: Number(y), credentialTarget: t, cohortCapacity: t * 1.2 } });
-  }
-
-  // ----- Calendar blocks (190 real blocks) shared across both -------------
+  // ----- Calendar blocks (190 real blocks) — Sandhills -------------
   let blocks: any[] = [];
   try {
     blocks = JSON.parse(readFileSync(join(__dirname, "seed-data", "calendar_blocks.json"), "utf-8"));
   } catch {
     console.warn("calendar_blocks.json not found — skipping calendar import");
   }
-  for (const inst of [sandhills, capeFear]) {
+  for (const inst of [sandhills]) {
     if (!blocks.length) break;
     await prisma.calendarBlock.createMany({
       data: blocks.map((b) => ({
@@ -1149,9 +1131,6 @@ async function main() {
       isDefault: true,
       levels: { create: scaleLevels },
     },
-  });
-  await prisma.proficiencyScale.create({
-    data: { institutionId: capeFear.id, name: "Rosie Standard Proficiency Scale", isDefault: true, levels: { create: scaleLevels } },
   });
   void sandhillsScale;
 
@@ -1408,12 +1387,11 @@ async function main() {
     radWblStudents,
   );
 
-  // ===== DATA EXPANSION: a full allied-health portfolio at Sandhills ==========
-  // More program families (Nursing, Practical Nursing, Medical Assisting, Phlebotomy,
-  // Respiratory Therapy, Pharmacy Tech), each with multi-year cohorts, plus a deep
-  // bench of clinical-partner employers and staff (faculty / preceptors / support)
-  // carrying active-status, titles, employment type, and affiliation windows. Cohort
-  // rosters auto-populate from the roster seeder below (it sees every started cohort).
+  // ===== FOCUSED PORTFOLIO: Radiography · Surgical Technology · Medical Assisting
+  // One real, small-scale example told at full depth. Medical Assisting is generated
+  // (multi-year cohorts + shared gen-eds); the clinical-partner bench and staff
+  // (faculty / preceptors / support) carry active-status, titles, employment type,
+  // and affiliation windows. Rosters auto-populate from the roster seeder below.
   {
     const AS_OF = new Date("2026-06-26T00:00:00Z");
     const ex = mulberry32(0x52051e);
@@ -1428,29 +1406,16 @@ async function main() {
 
     // -- More clinical-partner employers across the Sandhills region ----------
     const EMP = [
-      { name: "Cape Fear Valley — Hoke Hospital", setting: "Acute-care Hospital / Health System", city: "Raeford", status: "active" },
-      { name: "Moore Regional Hospital — Richmond", setting: "Acute-care Hospital / Health System", city: "Rockingham", status: "active" },
       { name: "Sandhills Regional Medical Center", setting: "Acute-care Hospital / Health System", city: "Hamlet", status: "active" },
       { name: "Carolina Imaging Partners", setting: "Outpatient Imaging Center", city: "Southern Pines", status: "active" },
       { name: "Pinehurst Radiology Associates", setting: "Outpatient Imaging Center", city: "Pinehurst", status: "active" },
       { name: "Sandhills Surgery Center", setting: "Ambulatory Surgical Center", city: "Pinehurst", status: "active" },
       { name: "FirstHealth Outpatient Surgery", setting: "Ambulatory Surgical Center", city: "Raeford", status: "active" },
-      { name: "Quail Haven Skilled Nursing", setting: "Skilled Nursing Facility", city: "Pinehurst", status: "active" },
-      { name: "Pinelake Health & Rehab", setting: "Skilled Nursing Facility", city: "Carthage", status: "active" },
       { name: "Sandhills Family Practice", setting: "Physician Practice / Clinic", city: "Aberdeen", status: "active" },
-      { name: "Moore County Health Department", setting: "Public Health Clinic", city: "Carthage", status: "active" },
-      { name: "AccessCare Urgent Care — Pinehurst", setting: "Urgent Care", city: "Pinehurst", status: "active" },
-      { name: "FastMed Urgent Care — Aberdeen", setting: "Urgent Care", city: "Aberdeen", status: "active" },
-      { name: "CVS Pharmacy #4821", setting: "Retail Pharmacy", city: "Southern Pines", status: "active" },
-      { name: "FirstHealth Inpatient Pharmacy", setting: "Hospital Pharmacy", city: "Pinehurst", status: "active" },
-      { name: "Walgreens — Sandhills", setting: "Retail Pharmacy", city: "Aberdeen", status: "active" },
-      { name: "Sandhills Pediatrics", setting: "Physician Practice / Clinic", city: "Southern Pines", status: "active" },
-      { name: "Carolina Cardiology — Sandhills", setting: "Specialty Clinic", city: "Pinehurst", status: "active" },
       { name: "Pinehurst Medical Clinic", setting: "Multispecialty Clinic", city: "Pinehurst", status: "active" },
-      { name: "Hospice of the Sandhills", setting: "Hospice / Home Health", city: "Pinehurst", status: "active" },
-      { name: "Liberty Home Care — Moore", setting: "Hospice / Home Health", city: "Aberdeen", status: "active" },
+      { name: "Sandhills Pediatrics", setting: "Physician Practice / Clinic", city: "Southern Pines", status: "active" },
+      { name: "AccessCare Urgent Care — Pinehurst", setting: "Urgent Care", city: "Pinehurst", status: "active" },
       { name: "Womack Army Medical Center", setting: "Acute-care Hospital / Health System", city: "Fort Liberty", status: "prospect" },
-      { name: "Scotland Surgical Associates", setting: "Ambulatory Surgical Center", city: "Laurinburg", status: "paused" },
       { name: "Old North State Imaging (closed)", setting: "Outpatient Imaging Center", city: "Rockingham", status: "archived" },
     ];
     const expandedEmployers: { id: string; name: string; setting: string }[] = [];
@@ -1507,12 +1472,7 @@ async function main() {
     // -- Allied-health families: occupation → family → template → cohorts -----
     type FamCfg = { soc: string; occ: string; fam: string; prog: string; ptype: string; cred: string; prefix: string; spanWeeks: number; nTerms: number; seats: number; goal: number; grads: number[] };
     const FAMILIES: FamCfg[] = [
-      { soc: "29-1141", occ: "Registered Nurses", fam: "Associate Degree Nursing", prog: "Associate Degree Nursing", ptype: "Traditional Full Time", cred: "AAS", prefix: "NUR", spanWeeks: 104, nTerms: 4, seats: 40, goal: 48, grads: [2024, 2025, 2026, 2027, 2028, 2029] },
-      { soc: "29-2061", occ: "Licensed Practical & Vocational Nurses", fam: "Practical Nursing", prog: "Practical Nursing", ptype: "Traditional Full Time", cred: "Diploma", prefix: "PNU", spanWeeks: 51, nTerms: 3, seats: 30, goal: 34, grads: [2024, 2025, 2026, 2027, 2028] },
       { soc: "31-9092", occ: "Medical Assistants", fam: "Medical Assisting", prog: "Medical Assisting", ptype: "Traditional Full Time", cred: "Diploma", prefix: "MED", spanWeeks: 52, nTerms: 2, seats: 28, goal: 30, grads: [2024, 2025, 2026, 2027, 2028] },
-      { soc: "31-9097", occ: "Phlebotomists", fam: "Phlebotomy", prog: "Phlebotomy Certificate", ptype: "Accelerated", cred: "Certificate", prefix: "PBT", spanWeeks: 24, nTerms: 1, seats: 20, goal: 24, grads: [2024, 2025, 2026, 2027] },
-      { soc: "29-1126", occ: "Respiratory Therapists", fam: "Respiratory Therapy", prog: "Respiratory Therapy", ptype: "Traditional Full Time", cred: "AAS", prefix: "RCP", spanWeeks: 104, nTerms: 4, seats: 24, goal: 26, grads: [2025, 2026, 2027, 2028, 2029] },
-      { soc: "29-2052", occ: "Pharmacy Technicians", fam: "Pharmacy Technology", prog: "Pharmacy Technology", ptype: "Traditional Full Time", cred: "Diploma", prefix: "PHM", spanWeeks: 52, nTerms: 2, seats: 24, goal: 28, grads: [2025, 2026, 2027, 2028] },
     ];
     const FAC_TITLES = ["Program Director", "Lead Instructor", "Clinical Coordinator", "Instructor"];
     const FAC_TYPES = ["full-time", "full-time", "full-time", "adjunct"];
@@ -1769,10 +1729,19 @@ async function main() {
       }
       if (!reqs.length) continue;
       const { placements, unroomed } = autoSchedule(reqs, rooms);
+      // Clinical meetings are hosted at partner sites — attribute each to a real
+      // clinical-capable employer (round-robin) so the master calendar carries
+      // campus rooms AND partner rotations on the same timeline.
+      const clinicalHosts = await prisma.employer.findMany({
+        where: { institutionId: inst.id, status: "active", OR: [{ setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] },
+        orderBy: { name: "asc" }, select: { id: true },
+      });
+      let clinIdx = 0;
       const rows = reqs.map((r) => {
         const m = meta.get(r.id)!;
         const p = placements.get(r.id)!;
-        return { cohortId: m.cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats, dayOfWeek: p.dayOfWeek, startTime: toHHMM(p.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek, facilityId: p.facilityId, staffPersonId: m.staffPersonId };
+        const employerId = m.kind === "CLINICAL" && clinicalHosts.length ? clinicalHosts[(clinIdx++) % clinicalHosts.length].id : null;
+        return { cohortId: m.cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats, dayOfWeek: p.dayOfWeek, startTime: toHHMM(p.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek, facilityId: p.facilityId, employerId, staffPersonId: m.staffPersonId };
       });
       for (let i = 0; i < rows.length; i += 500) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 500) });
       totalMeetings += rows.length; totalUnroomed += unroomed.length;
@@ -1787,6 +1756,7 @@ async function main() {
   // priority populations, and cost bands).
   {
     const radFam = await prisma.programFamily.findFirst({ where: { name: "Radiography", institutionId: sandhills.id } });
+    const focusFams = await prisma.programFamily.findMany({ where: { institutionId: sandhills.id, name: { in: ["Radiography", "Surgical Technology", "Medical Assisting"] } }, select: { id: true } });
     if (radFam) {
       // -- Learner alignment intakes: archetypes drawn from the framework's
       //    healthcare cohort (M: benefits-cliff single parent; T: internationally
@@ -1838,8 +1808,8 @@ async function main() {
           ] },
       ];
       const radStudents = await prisma.student.findMany({
-        where: { status: "enrolled", program: { familyId: radFam.id } },
-        orderBy: { name: "asc" }, take: 10, select: { id: true },
+        where: { status: "enrolled", program: { familyId: { in: focusFams.map((f) => f.id) } } },
+        orderBy: { name: "asc" }, take: 15, select: { id: true },
       });
       let li = 0;
       for (const st of radStudents) {

@@ -1006,6 +1006,7 @@ export interface MasterMeeting {
   kind: string; sectionIndex: number; sectionCount: number; seats: number;
   dayOfWeek: string; startTime: string; endTime: string; lengthHours: number;
   facilityId: string | null; facilityName: string | null; facilityKind: string | null;
+  employerId: string | null; employerName: string | null;
   staffPersonId: string | null; staffName: string | null;
   termIndex: number; weekStartMs: number; weekEndMs: number;
   startLabel: string; endLabel: string;
@@ -1038,6 +1039,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
       where: { cohort: { program: { institutionId } } },
       include: {
         facility: { select: { id: true, name: true, kind: true } },
+        employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
         course: { select: { id: true, code: true, name: true } },
         cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } },
@@ -1061,6 +1063,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
       kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
       dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(Math.round(endMin)), lengthHours: m.lengthHours,
       facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
+      employerId: m.employerId, employerName: m.employer?.name ?? null,
       staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
       termIndex: m.termIndex, weekStartMs, weekEndMs,
       startLabel: startMs ? dlabel(weekStartMs) : "—", endLabel: startMs ? dlabel(weekEndMs) : "—",
@@ -1128,7 +1131,7 @@ export async function getCohortSchedule(cohortId: string) {
   const institutionId = cohort.program.institutionId;
   const [rooms, mine, instMeetings] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
-    prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
+    prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, employer: { select: { id: true, name: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
     prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
   ]);
 
@@ -1151,6 +1154,7 @@ export async function getCohortSchedule(cohortId: string) {
       kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
       dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(toMin(m.startTime) + m.lengthHours * 60), lengthHours: m.lengthHours,
       facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
+      employerId: m.employerId, employerName: m.employer?.name ?? null,
       staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
       weekStartMs: w.weekStartMs, weekEndMs: w.weekEndMs,
       conflict: conflictIds.has(m.id),

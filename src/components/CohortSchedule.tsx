@@ -10,6 +10,7 @@ export interface CohortMeeting {
   kind: string; sectionIndex: number; sectionCount: number; seats: number;
   dayOfWeek: string; startTime: string; endTime: string; lengthHours: number;
   facilityId: string | null; facilityName: string | null; facilityKind: string | null;
+  employerId: string | null; employerName: string | null;
   staffPersonId: string | null; staffName: string | null;
   weekStartMs: number; weekEndMs: number; conflict: boolean;
 }
@@ -80,7 +81,7 @@ export function CohortSchedule({ meetings, rooms, conflictCount }: { meetings: C
                           className={`group flex items-center gap-1.5 rounded-lg border px-2 py-1 text-left text-[11px] hover:border-rose-300 ${m.conflict ? "border-rose-300 bg-rose-50" : "border-slate-200 bg-slate-50/50"}`}>
                           <span className={`rounded px-1 py-0.5 text-[9px] font-medium ${KIND_BADGE[m.kind] ?? "bg-slate-200"}`}>{KIND_LABEL[m.kind] ?? m.kind}{m.sectionCount > 1 ? ` ${m.sectionIndex}/${m.sectionCount}` : ""}</span>
                           <span className="text-slate-600">{m.dayOfWeek} {fmt(m.startTime)}</span>
-                          <span className={m.facilityName ? "text-slate-500" : "text-amber-600"}>{m.facilityName ?? "⚠ no room"}</span>
+                          <span className={m.facilityName || m.employerName ? "text-slate-500" : "text-amber-600"}>{m.facilityName ?? (m.employerName ? `@ ${m.employerName}` : m.kind === "CLINICAL" ? "partner site TBD" : "⚠ no room")}</span>
                           <span className="text-slate-400">{m.seats} seats</span>
                           {m.staffName && <span className="text-slate-400">· {m.staffName}</span>}
                           {m.conflict && <span className="text-rose-600">⚠</span>}
