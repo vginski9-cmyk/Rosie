@@ -817,6 +817,9 @@ async function seedWblSnapshots(
 async function main() {
   console.log("Resetting data…");
   // Order matters for FK cleanup on SQLite.
+  await prisma.alignmentTag.deleteMany();
+  await prisma.alignmentProfile.deleteMany();
+  await prisma.intervention.deleteMany();
   await prisma.meetingPattern.deleteMany();
   await prisma.wblPlacement.deleteMany();
   await prisma.wblSnapshotFactor.deleteMany();
@@ -1775,6 +1778,163 @@ async function main() {
       totalMeetings += rows.length; totalUnroomed += unroomed.length;
     }
     console.log(`Scheduled ${totalMeetings} meetings (${totalUnroomed} unroomed — space pressure).`);
+  }
+
+  // ===== ALIGNMENT ENGINE — deep build-out for the Radiography family ========
+  // Structured intakes (motivations/constraints/capacities, tiered + binding) on a
+  // slice of RAD learners and the clinical partners, plus the full intervention
+  // library from the North-Star plan (lanes × stages, sequenced, with owners,
+  // priority populations, and cost bands).
+  {
+    const radFam = await prisma.programFamily.findFirst({ where: { name: "Radiography", institutionId: sandhills.id } });
+    if (radFam) {
+      // -- Learner alignment intakes: archetypes drawn from the framework's
+      //    healthcare cohort (M: benefits-cliff single parent; T: internationally
+      //    trained; plus an explorer, a career-changer, and a settled traditional).
+      type TagSeed = { layer: string; code: string; tier?: number; binding?: boolean; conditionalOn?: string };
+      const ARCHETYPES: { narrative: string; tags: TagSeed[] }[] = [
+        { // "Learner M" — aligned but constrained
+          narrative: "Second run at college; raising two kids on a retail schedule that changes weekly. The insurance is the real engine but she won't raise it herself. Wants to feel like a professional. Caregiving years read as clinical assets.",
+          tags: [
+            { layer: "MOTIVATION", code: "B.2.b", tier: 1 }, { layer: "MOTIVATION", code: "B.3.a", tier: 2 },
+            { layer: "MOTIVATION", code: "A.3.a", tier: 2 }, { layer: "MOTIVATION", code: "C.2.a", tier: 2 },
+            { layer: "MOTIVATION", code: "D.1.a", tier: 2, conditionalOn: "B.3.a" }, { layer: "MOTIVATION", code: "F.3.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "G.3.b", binding: true }, { layer: "CONSTRAINT", code: "J.4.b", binding: true },
+            { layer: "CONSTRAINT", code: "H.1.c", binding: true }, { layer: "CONSTRAINT", code: "H.6.a", binding: true },
+            { layer: "CONSTRAINT", code: "I.1.c", binding: true },
+            { layer: "CAPACITY", code: "Q.7" }, { layer: "CAPACITY", code: "U.7" },
+          ] },
+        { // "Learner T" — internationally trained, credential non-transfer
+          narrative: "Clinical officer trained abroad; credentials don't transfer cleanly, currently working as an aide. Sends money home monthly. Deeply settled on imaging; the question is recognition, not direction.",
+          tags: [
+            { layer: "MOTIVATION", code: "A.3.a", tier: 1 }, { layer: "MOTIVATION", code: "B.4.a", tier: 2 },
+            { layer: "MOTIVATION", code: "D.1.a", tier: 2 }, { layer: "MOTIVATION", code: "C.2.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "L.1.a", binding: true }, { layer: "CONSTRAINT", code: "H.1.c", binding: true },
+            { layer: "CONSTRAINT", code: "G.1.a", binding: false },
+            { layer: "CAPACITY", code: "R.3" }, { layer: "CAPACITY", code: "Q.1" }, { layer: "CAPACITY", code: "T.1" },
+          ] },
+        { // Explorer — Q4 under pressure
+          narrative: "Declared pre-Rad after a career fair but hasn't tested it. Working nights stocking; car is unreliable. Curious about CT but hasn't seen a real department.",
+          tags: [
+            { layer: "MOTIVATION", code: "A.1.b", tier: 2 }, { layer: "MOTIVATION", code: "C.1.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "H.1.c", binding: true }, { layer: "CONSTRAINT", code: "I.2.b", binding: true },
+            { layer: "CONSTRAINT", code: "N.1.a", binding: true }, { layer: "CONSTRAINT", code: "O.2.a", binding: false },
+          ] },
+        { // Career changer — settled, equipped
+          narrative: "Twelve years in manufacturing QA; plant downsized. Chose imaging deliberately after shadowing a friend. Savings runway for one year; spouse carries benefits.",
+          tags: [
+            { layer: "MOTIVATION", code: "A.4.a", tier: 1 }, { layer: "MOTIVATION", code: "B.4.a", tier: 2 },
+            { layer: "MOTIVATION", code: "C.1.a", tier: 3 }, { layer: "MOTIVATION", code: "F.1.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "G.2.a", binding: false },
+            { layer: "CAPACITY", code: "Q.1" }, { layer: "CAPACITY", code: "T.1" }, { layer: "CAPACITY", code: "W.1" },
+          ] },
+        { // Traditional settled student, first-gen
+          narrative: "Straight from high school HOSA; wants to be the first medical professional in the family. Financially thin but flexible; grandmother helps with transport.",
+          tags: [
+            { layer: "MOTIVATION", code: "A.2.a", tier: 1 }, { layer: "MOTIVATION", code: "D.3.b", tier: 2 },
+            { layer: "MOTIVATION", code: "D.2.b", tier: 3 }, { layer: "MOTIVATION", code: "F.3.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "H.4.d", binding: false }, { layer: "CONSTRAINT", code: "O.2.a", binding: true },
+            { layer: "CAPACITY", code: "X.1" }, { layer: "CAPACITY", code: "U.7" },
+          ] },
+      ];
+      const radStudents = await prisma.student.findMany({
+        where: { status: "enrolled", program: { familyId: radFam.id } },
+        orderBy: { name: "asc" }, take: 10, select: { id: true },
+      });
+      let li = 0;
+      for (const st of radStudents) {
+        const a = ARCHETYPES[li % ARCHETYPES.length];
+        li += 1;
+        await prisma.alignmentProfile.create({
+          data: {
+            subjectType: "LEARNER", studentId: st.id, checkpoint: "P0", mvdTier: 2,
+            narrative: a.narrative, conductedBy: "Lindsey (Program Lead)",
+            tags: { create: a.tags.map((t) => ({ layer: t.layer, code: t.code, tier: t.tier ?? null, binding: t.binding ?? false, conditionalOn: t.conditionalOn ?? null })) },
+          },
+        });
+      }
+
+      // -- Employer alignment intakes: the health system, the imaging center, the
+      //    night center, and a skilled-nursing partner — different quadrants.
+      const empIntakes: { name: string; narrative: string; tags: TagSeed[] }[] = [
+        { name: "FirstHealth Moore Regional Hospital",
+          narrative: "Pipeline is Tier 1 — a retirement wave is visible in the imaging department. HR wants apprenticeship; the modality leads are stretched. Boss, HR and front-line supervisors mostly aligned.",
+          tags: [
+            { layer: "MOTIVATION", code: "EA.1.a", tier: 1 }, { layer: "MOTIVATION", code: "EA.1.d", tier: 2 },
+            { layer: "MOTIVATION", code: "EB.2.a", tier: 3 }, { layer: "MOTIVATION", code: "EC.1.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "EC1.a", binding: true }, { layer: "CONSTRAINT", code: "EC4.a", binding: true },
+            { layer: "CAPACITY", code: "EP1.a" }, { layer: "CAPACITY", code: "EP2.a" }, { layer: "CAPACITY", code: "EP2.b" },
+            { layer: "CAPACITY", code: "EP3.a" }, { layer: "CAPACITY", code: "EP6.a" }, { layer: "CAPACITY", code: "EP6.b" }, { layer: "CAPACITY", code: "EP6.d" },
+          ] },
+        { name: "Pinehurst Outpatient Imaging Center",
+          narrative: "Long relationship with the program; genuinely open, no sharp strategic agenda. Day-shift operation with steady volume; happy to host but can't pay.",
+          tags: [
+            { layer: "MOTIVATION", code: "EE.2.a", tier: 2 }, { layer: "MOTIVATION", code: "ED.1.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "EC3.a", binding: true }, { layer: "CONSTRAINT", code: "EC6.a", binding: true },
+            { layer: "CAPACITY", code: "EP1.a" }, { layer: "CAPACITY", code: "EP2.b" },
+          ] },
+        { name: "Night Imaging Center",
+          narrative: "Evening/overnight operation. Wants try-before-hire on the night shift where turnover hurts most. Small team, one preceptor, but real conversion intent.",
+          tags: [
+            { layer: "MOTIVATION", code: "EA.1.b", tier: 1 }, { layer: "MOTIVATION", code: "EA.1.a", tier: 2 },
+            { layer: "CONSTRAINT", code: "EC1.a", binding: true }, { layer: "CONSTRAINT", code: "EC5.a", binding: false },
+            { layer: "CAPACITY", code: "EP6.c" }, { layer: "CAPACITY", code: "EP6.a" }, { layer: "CAPACITY", code: "EP1.a" },
+          ] },
+        { name: "Scotland Memorial Hospital",
+          narrative: "Hosts because the system expects it; leadership churn has left no internal champion. Real capacity on paper — supervision is the question each semester.",
+          tags: [
+            { layer: "MOTIVATION", code: "EE.1.a", tier: 2 }, { layer: "MOTIVATION", code: "ED.1.a", tier: 3 },
+            { layer: "CONSTRAINT", code: "EC5.b", binding: true }, { layer: "CONSTRAINT", code: "EC7.a", binding: true },
+            { layer: "CAPACITY", code: "EP2.a" }, { layer: "CAPACITY", code: "EP4.a" },
+          ] },
+      ];
+      for (const e of empIntakes) {
+        const emp = await prisma.employer.findFirst({ where: { institutionId: sandhills.id, name: e.name }, select: { id: true } });
+        if (!emp) continue;
+        await prisma.alignmentProfile.create({
+          data: {
+            subjectType: "EMPLOYER", employerId: emp.id, checkpoint: "P0", mvdTier: 2,
+            narrative: e.narrative, conductedBy: "Lindsey (Program Lead)",
+            tags: { create: e.tags.map((t) => ({ layer: t.layer, code: t.code, tier: t.tier ?? null, binding: t.binding ?? false, conditionalOn: t.conditionalOn ?? null })) },
+          },
+        });
+      }
+
+      // -- Intervention library: the North-Star plan's lanes × stages, sequenced.
+      const IV = (lane: string, stage: string, seq: number, title: string, description: string, populations: string, lo?: number, hi?: number, owner?: string, targetStageKey?: string, status = "proposed") =>
+        ({ familyId: radFam.id, lane, stage, sequence: seq, title, description, populations, estCostLow: lo ?? null, estCostHigh: hi ?? null, owner: owner ?? null, targetStageKey: targetStageKey ?? null, status });
+      await prisma.intervention.createMany({
+        data: [
+          // Middle schools (~$5–10K)
+          IV("MIDDLE_SCHOOL", "AWARENESS", 1, "Imaging careers in existing CTE/counseling", "Embed imaging careers (with job-quality context) in existing career exploration.", "K-12", 5000, 10000, "K-12 counselors", "interested"),
+          IV("MIDDLE_SCHOOL", "READINESS", 2, "Math/science course-taking encouragement", "Encourage math & science course-taking through existing advising.", "K-12", undefined, undefined, "K-12 counselors"),
+          IV("MIDDLE_SCHOOL", "SUPPORTS", 3, "Counselor awareness via shared materials", "Shared materials so counselors can speak to imaging pathways.", "K-12"),
+          // High schools (~$25–40K)
+          IV("HIGH_SCHOOL", "AWARENESS", 1, "Health science CTE pathway emphasis + HOSA", "Health science CTE emphasis; HOSA identity-building; Rad/MRI/CT modality exposure so students don't conflate imaging careers.", "K-12", 25000, 40000, "CTE coordinators", "interested"),
+          IV("HIGH_SCHOOL", "READINESS", 2, "A&P / algebra / chemistry advising + dual enrollment", "Course-taking guidance for competitive admission; dual enrollment in prereqs before graduation.", "K-12", undefined, undefined, "HS counselors + Sandhills advising", "qualified"),
+          IV("HIGH_SCHOOL", "APPLICATION", 3, "Counselor briefings + warm handoffs + FAFSA", "Briefings on competitive admission; warm handoffs to Sandhills advising; FAFSA support tied to health-career planning.", "K-12", undefined, undefined, "HS counselors", "qualified"),
+          IV("HIGH_SCHOOL", "WBL", 4, "Job shadows / hospital visits through existing CTE", "Structured observation at partner sites through existing CTE.", "K-12", undefined, undefined, "CTE + clinical partners"),
+          IV("HIGH_SCHOOL", "SUPPORTS", 5, "Counselor support via shared protocol", "Current information on admission requirements, application timing, observation-hour expectations.", "K-12"),
+          // Community college (~$120–180K)
+          IV("COMMUNITY_COLLEGE", "AWARENESS", 1, "Audit & segment the declared pre-Rad roster", "Segment the 199 declared pre-Rad: active vs dormant, prereq progress, K-12 vs adult learner.", "Declared pre-Rad, Adult learners", 120000, 180000, "Program lead", "interested", "active"),
+          IV("COMMUNITY_COLLEGE", "AWARENESS", 2, "Direct outreach with pathway info", "Personalized status + next-step guidance to every declared pre-Rad student.", "Declared pre-Rad", undefined, undefined, "Advising", "qualified", "planned"),
+          IV("COMMUNITY_COLLEGE", "READINESS", 3, "Prereq advising at milestones + gateway support", "Proactive advising tied to prereq milestones (not student-initiated); gateway-course support.", "Declared pre-Rad, First-generation", undefined, undefined, "Advising", "qualified"),
+          IV("COMMUNITY_COLLEGE", "APPLICATION", 4, "Application readiness sessions", "Competitive-admission requirements demystified; close the 199 → 62 qualified → 52 offers → 41 enrolled gap.", "Declared pre-Rad, Adult learners", undefined, undefined, "Admissions", "enrolled"),
+          IV("COMMUNITY_COLLEGE", "WBL", 5, "Coordinate clinical placements with regional employers", "Placement coordination against pooled cohort constraints (evening share, proximity).", "All learners", undefined, undefined, "Clinical coordinator"),
+          IV("COMMUNITY_COLLEGE", "SUPPORTS", 6, "Barrier supports for declared pre-Rad", "Testing fees, transcript fees, application help — small barriers that shed real candidates.", "Declared pre-Rad, Single parents, First-generation", undefined, undefined, "Student services", "qualified"),
+          IV("COMMUNITY_COLLEGE", "RETENTION", 7, "Maintain completion / licensure / placement rates", "Hold ~87% completion, ~90% licensure, ~91% regional placement as cohorts scale.", "All learners", undefined, undefined, "Program lead", "productive"),
+          // Employers (~$80–130K)
+          IV("EMPLOYER", "AWARENESS", 1, "Industry voice via one coordinated channel", "Single coordinated employer voice into K-12/CC awareness work.", "K-12, Adult learners", 80000, 130000, "TPS employer co-lead", "interested"),
+          IV("EMPLOYER", "WBL", 2, "Clinical preceptor stipends scaled to 80 seats", "Preceptor stipends + apprenticeship structure scaled toward the 80-seat capacity target.", "All learners", undefined, undefined, "Employer partners"),
+          IV("EMPLOYER", "SUPPORTS", 3, "Tuition assistance + childcare/scheduling flex", "Tuition assistance for committed students; childcare & scheduling flexibility for adult learners; earn-while-you-learn arrangements.", "Adult learners, Single parents", undefined, undefined, "Employer partners", "completing"),
+          IV("EMPLOYER", "SUPPORTS", 4, "Employer-funded barrier supports", "Testing fees, transcript fees, uniforms for declared pre-Rad moving toward qualified application.", "Declared pre-Rad", undefined, undefined, "Employer partners", "qualified"),
+          IV("EMPLOYER", "RETENTION", 5, "Hire-local + advancement pathways", "Hire all 29 regionally; sign-on/completion bonuses tied to milestones; MRI/CT advancement pathways; reduce employer-hopping turnover.", "Graduates", undefined, undefined, "Employer partners", "productive"),
+          // Cross-cutting (~$15–30K)
+          IV("CROSS_CUTTING", "SUPPORTS", 1, "Coordinator role + single engagement channel", "Coordinator contribution; streamlined employer engagement channel; data infrastructure; compliance/accreditation work.", "All", 15000, 30000, "TPS", undefined, "active"),
+        ],
+      });
+      console.log(`Alignment: ${radStudents.length} learner intakes, ${empIntakes.length} partner intakes, 20 interventions seeded for ${radFam.name}.`);
+    }
   }
 
   const counts = {

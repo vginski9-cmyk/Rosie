@@ -151,15 +151,31 @@ export default async function FamilyPage({ params }: { params: { id: string } })
       </div>
 
       {/* Credentials & delivery models — managed on their own page */}
-      <Link href={`/families/${family.id}/programs`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">Credentials &amp; delivery models ↦</div>
-          <div className="text-xs text-slate-500">
-            {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")} · design templates &amp; add new ones
+      <div className="grid gap-3 md:grid-cols-3">
+        <Link href={`/families/${family.id}/programs`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Credentials &amp; delivery models ↦</div>
+            <div className="text-xs text-slate-500">
+              {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")}
+            </div>
           </div>
-        </div>
-        <span className="text-rose-600">→</span>
-      </Link>
+          <span className="text-rose-600">→</span>
+        </Link>
+        <Link href={`/families/${family.id}/wbl`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">WBL design studio ↦</div>
+            <div className="text-xs text-slate-500">alignment intakes pooled → clinical design, employer asks, supports</div>
+          </div>
+          <span className="text-rose-600">→</span>
+        </Link>
+        <Link href={`/families/${family.id}/interventions`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Pipeline interventions ↦</div>
+            <div className="text-xs text-slate-500">lanes × stages canvas — sequence, owners, priority populations</div>
+          </div>
+          <span className="text-rose-600">→</span>
+        </Link>
+      </div>
 
       {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}
       <section className="space-y-3">

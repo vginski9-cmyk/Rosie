@@ -144,6 +144,15 @@ export default async function StudentPage({ params }: { params: { id: string } }
         </form>
       </section>
 
+      {/* Alignment intake — structured motivations / constraints / capacities */}
+      <Link href={`/students/${student.id}/alignment`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Alignment intake ↦</div>
+          <div className="text-xs text-slate-500">motivations (tiered) · constraints · capacities → computed quadrant, recommended WBL modes, configuration</div>
+        </div>
+        <span className="text-rose-600">→</span>
+      </Link>
+
       {/* WBL placements — assign this student to an employer partner for a rotation */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between">

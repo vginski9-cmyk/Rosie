@@ -1014,3 +1014,111 @@ export async function fetchCourseDemandStudents(code: string, institutionId: str
   const { getCourseDemandStudents } = await import("./queries");
   return getCourseDemandStudents(code, institutionId);
 }
+
+// ---------------------------------------------------------------------------
+// ALIGNMENT ENGINE — save intake / checkpoint profiles + interventions
+// ---------------------------------------------------------------------------
+
+export interface AlignmentTagInput {
+  layer: string; // MOTIVATION | CONSTRAINT | CAPACITY
+  code: string;
+  tier?: number | null;
+  binding?: boolean;
+  conditionalOn?: string | null;
+  note?: string | null;
+}
+
+/** Create (or replace, per subject+checkpoint) an alignment profile with its tags. */
+export async function saveAlignmentProfile(input: {
+  subjectType: "LEARNER" | "EMPLOYER";
+  studentId?: string | null;
+  employerId?: string | null;
+  checkpoint: string;
+  mvdTier: number;
+  narrative?: string | null;
+  conductedBy?: string | null;
+  tags: AlignmentTagInput[];
+}): Promise<void> {
+  const where = input.subjectType === "LEARNER"
+    ? { studentId: input.studentId ?? undefined, checkpoint: input.checkpoint }
+    : { employerId: input.employerId ?? undefined, checkpoint: input.checkpoint };
+  const existing = await prisma.alignmentProfile.findFirst({ where });
+  if (existing) await prisma.alignmentProfile.delete({ where: { id: existing.id } });
+  await prisma.alignmentProfile.create({
+    data: {
+      subjectType: input.subjectType,
+      studentId: input.subjectType === "LEARNER" ? input.studentId ?? null : null,
+      employerId: input.subjectType === "EMPLOYER" ? input.employerId ?? null : null,
+      checkpoint: input.checkpoint,
+      mvdTier: input.mvdTier,
+      narrative: input.narrative ?? null,
+      conductedBy: input.conductedBy ?? null,
+      tags: {
+        create: input.tags.map((t) => ({
+          layer: t.layer, code: t.code, tier: t.tier ?? null,
+          binding: t.binding ?? false, conditionalOn: t.conditionalOn ?? null, note: t.note ?? null,
+        })),
+      },
+    },
+  });
+  if (input.studentId) revalidatePath(`/students/${input.studentId}/alignment`);
+  if (input.employerId) revalidatePath(`/employers/${input.employerId}/alignment`);
+}
+
+export async function deleteAlignmentProfile(profileId: string): Promise<void> {
+  const p = await prisma.alignmentProfile.delete({ where: { id: profileId } });
+  if (p.studentId) revalidatePath(`/students/${p.studentId}/alignment`);
+  if (p.employerId) revalidatePath(`/employers/${p.employerId}/alignment`);
+}
+
+// --- Interventions (family-scoped pipeline board) ---------------------------
+
+export async function createIntervention(familyId: string, formData: FormData): Promise<void> {
+  await prisma.intervention.create({
+    data: {
+      familyId,
+      lane: str(formData.get("lane")) || "COMMUNITY_COLLEGE",
+      stage: str(formData.get("stage")) || "AWARENESS",
+      title: str(formData.get("title")) || "New intervention",
+      description: str(formData.get("description")) || null,
+      populations: str(formData.get("populations")) || null,
+      owner: str(formData.get("owner")) || null,
+      status: str(formData.get("status")) || "proposed",
+      sequence: numOr(formData.get("sequence"), 0),
+      targetStageKey: str(formData.get("targetStageKey")) || null,
+      estCostLow: optNum(formData.get("estCostLow")),
+      estCostHigh: optNum(formData.get("estCostHigh")),
+    },
+  });
+  revalidatePath(`/families/${familyId}/interventions`);
+}
+
+export async function updateIntervention(id: string, familyId: string, formData: FormData): Promise<void> {
+  await prisma.intervention.update({
+    where: { id },
+    data: {
+      lane: str(formData.get("lane")) || undefined,
+      stage: str(formData.get("stage")) || undefined,
+      title: str(formData.get("title")) || undefined,
+      description: str(formData.get("description")) || null,
+      populations: str(formData.get("populations")) || null,
+      owner: str(formData.get("owner")) || null,
+      status: str(formData.get("status")) || undefined,
+      sequence: numOr(formData.get("sequence"), 0),
+      targetStageKey: str(formData.get("targetStageKey")) || null,
+      estCostLow: optNum(formData.get("estCostLow")),
+      estCostHigh: optNum(formData.get("estCostHigh")),
+    },
+  });
+  revalidatePath(`/families/${familyId}/interventions`);
+}
+
+export async function setInterventionStatus(id: string, familyId: string, status: string): Promise<void> {
+  await prisma.intervention.update({ where: { id }, data: { status } });
+  revalidatePath(`/families/${familyId}/interventions`);
+}
+
+export async function deleteIntervention(id: string, familyId: string): Promise<void> {
+  await prisma.intervention.delete({ where: { id } });
+  revalidatePath(`/families/${familyId}/interventions`);
+}

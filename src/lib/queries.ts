@@ -1240,3 +1240,88 @@ export async function getCourseDemandStudents(code: string, institutionId: strin
   });
   return students;
 }
+
+// ---------------------------------------------------------------------------
+// ALIGNMENT ENGINE — intake profiles, computed positioning, cohort rollup
+// ---------------------------------------------------------------------------
+
+/** A subject's alignment profiles (all checkpoints) + identity context. */
+export async function getAlignmentSubject(kind: "student" | "employer", id: string) {
+  if (kind === "student") {
+    const student = await prisma.student.findUnique({
+      where: { id },
+      select: {
+        id: true, name: true, status: true,
+        program: { select: { id: true, name: true, family: { select: { id: true, name: true } } } },
+        cohort: { select: { id: true, name: true } },
+        alignmentProfiles: { orderBy: { capturedAt: "asc" }, include: { tags: true } },
+      },
+    });
+    return student ? { kind, subject: student, profiles: student.alignmentProfiles } : null;
+  }
+  const employer = await prisma.employer.findUnique({
+    where: { id },
+    select: {
+      id: true, name: true, setting: true, status: true,
+      institution: { select: { id: true, name: true } },
+      alignmentProfiles: { orderBy: { capturedAt: "asc" }, include: { tags: true } },
+    },
+  });
+  return employer ? { kind, subject: employer, profiles: employer.alignmentProfiles } : null;
+}
+
+/** Family-scoped WBL design studio: every profiled learner in the family's
+ *  programs + every profiled employer at the institution, with tags — the engine
+ *  computes the rollup, pairings, and asks client/server-side from these. */
+export async function getFamilyAlignment(familyId: string) {
+  const family = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    select: { id: true, name: true, institutionId: true, institution: { select: { name: true } }, programs: { select: { id: true, name: true } } },
+  });
+  if (!family) return null;
+  const programIds = family.programs.map((p) => p.id);
+  const [learnerProfiles, employerProfiles, employers] = await Promise.all([
+    prisma.alignmentProfile.findMany({
+      where: { subjectType: "LEARNER", checkpoint: "P0", student: { programId: { in: programIds } } },
+      include: { tags: true, student: { select: { id: true, name: true, status: true, cohort: { select: { name: true } } } } },
+      orderBy: { capturedAt: "asc" },
+    }),
+    prisma.alignmentProfile.findMany({
+      where: { subjectType: "EMPLOYER", checkpoint: "P0", employer: { institutionId: family.institutionId } },
+      include: { tags: true, employer: { select: { id: true, name: true, setting: true, status: true } } },
+      orderBy: { capturedAt: "asc" },
+    }),
+    prisma.employer.findMany({ where: { institutionId: family.institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+  // Learners in the family without a profile yet (intake worklist).
+  const unprofiled = await prisma.student.findMany({
+    where: { programId: { in: programIds }, status: { in: ["enrolled", "admitted", "applicant"] }, alignmentProfiles: { none: {} } },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, status: true, cohort: { select: { name: true } } },
+    take: 40,
+  });
+  return { family, learnerProfiles, employerProfiles, employers, unprofiled };
+}
+
+/** The interventions board for a family + live funnel context per stage. */
+export async function getFamilyInterventions(familyId: string) {
+  const family = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    select: { id: true, name: true, institution: { select: { name: true } }, programs: { select: { id: true } } },
+  });
+  if (!family) return null;
+  const [interventions, students] = await Promise.all([
+    prisma.intervention.findMany({ where: { familyId }, orderBy: [{ lane: "asc" }, { sequence: "asc" }, { createdAt: "asc" }] }),
+    prisma.student.findMany({ where: { programId: { in: family.programs.map((p) => p.id) } }, select: { status: true } }),
+  ]);
+  // Live cumulative funnel from student statuses (same ranking as elsewhere).
+  const RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
+  const funnel = { interested: 0, qualified: 0, offered: 0, enrolled: 0, completing: 0, licensed: 0, placed: 0, productive: 0 };
+  const keys = Object.keys(funnel) as (keyof typeof funnel)[];
+  for (const s of students) {
+    if (s.status === "withdrawn") continue;
+    const r = RANK[s.status] ?? -1;
+    keys.forEach((k, i) => { if (r >= i) funnel[k] += 1; });
+  }
+  return { family, interventions, funnel };
+}

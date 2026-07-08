@@ -106,6 +106,15 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         </form>
       </section>
 
+      {/* Partner alignment intake */}
+      <Link href={`/employers/${e.id}/alignment`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Partner alignment intake ↦</div>
+          <div className="text-xs text-slate-500">what this partner actually wants from hosting · hosting constraints · real capacities → hostable WBL modes</div>
+        </div>
+        <span className="text-rose-600">→</span>
+      </Link>
+
       {/* Placements hosted here */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
