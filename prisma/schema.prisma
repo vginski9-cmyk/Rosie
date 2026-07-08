@@ -108,6 +108,7 @@ model ProgramFamily {
   createdAt     DateTime @default(now())
 
   programs Program[]
+  interventions Intervention[]
 
   @@index([institutionId])
 }
@@ -539,6 +540,7 @@ model Employer {
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
+  alignmentProfiles AlignmentProfile[]
 
   @@index([institutionId])
 }
@@ -853,6 +855,7 @@ model Student {
   absences    StudentAbsence[]
   wblSnapshots WblSnapshot[]
   placements  WblPlacement[]
+  alignmentProfiles AlignmentProfile[]
 
   @@index([programId])
   @@index([cohortId])
@@ -902,4 +905,94 @@ model StudentAbsence {
   excused      Boolean  @default(false)
 
   @@index([studentId])
+}
+
+// ---------------------------------------------------------------------------
+// ALIGNMENT ENGINE — structured WBL intake on learners AND employers.
+//
+// The Alignment Engine framework: three layers per side (motivation, constraint,
+// capacity), captured at checkpoints across the placement lifecycle (P0 intake →
+// P+24), tagged against a curated taxonomy with tier weights (driving → absent)
+// and binding flags. Everything downstream — quadrant position, recommended WBL
+// modes, configuration guidance, MVD intake requirement, cohort-level design —
+// is COMPUTED from these tags by src/lib/alignment.ts.
+// ---------------------------------------------------------------------------
+
+/// One captured profile for a learner or employer at a checkpoint. A subject can
+/// have several (P0 intake, mid-placement, exit, +6mo, +24mo) — blend evolution
+/// is read by comparing checkpoints.
+model AlignmentProfile {
+  id          String  @id @default(cuid())
+  subjectType String  // LEARNER | EMPLOYER
+  studentId   String?
+  student     Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  employerId  String?
+  employer    Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  /// Checkpoint in the placement lifecycle: P0 (intake) | PMID | P1 (exit) | P6 | P24
+  checkpoint  String  @default("P0")
+  /// MVD tier this intake was conducted at: 1 | 2 | 3
+  mvdTier     Int     @default(2)
+  /// The narrative capture — "tell me how you came to be considering this."
+  narrative   String?
+  /// Who conducted the intake (free text; staff name).
+  conductedBy String?
+  capturedAt  DateTime @default(now())
+
+  tags AlignmentTag[]
+
+  @@index([studentId])
+  @@index([employerId])
+}
+
+/// One tagged taxonomy leaf on a profile. Layer decides which fields matter:
+/// MOTIVATION → tier (1 driving · 2 shaping · 3 active · 4 latent) + optional
+/// conditionalOn (the leaf code this motivation depends on — the F.10 cascade);
+/// CONSTRAINT → binding (true = strikes placements, a design parameter);
+/// CAPACITY → note (what the person brings; recognition text).
+model AlignmentTag {
+  id           String @id @default(cuid())
+  profileId    String
+  profile      AlignmentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  layer        String // MOTIVATION | CONSTRAINT | CAPACITY
+  code         String // taxonomy leaf code, e.g. "B.2.b", "H.6.a", "EC3.a", "EP2.b"
+  tier         Int?   // motivations only: 1..4
+  binding      Boolean @default(false) // constraints only
+  conditionalOn String? // motivations only: leaf code this is conditional on
+  note         String?
+
+  @@index([profileId])
+  @@index([code])
+}
+
+/// A top-of-funnel / pipeline intervention for a program family — instantiated
+/// from the template library or authored fresh. Lives on the partner-lane ×
+/// funnel-stage matrix and is sequenced (order + window) within its lane.
+model Intervention {
+  id          String @id @default(cuid())
+  familyId    String
+  family      ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  /// Partner lane: MIDDLE_SCHOOL | HIGH_SCHOOL | COMMUNITY_COLLEGE | EMPLOYER | CROSS_CUTTING
+  lane        String
+  /// Pipeline stage: AWARENESS | READINESS | APPLICATION | WBL | SUPPORTS | RETENTION
+  stage       String
+  title       String
+  description String?
+  /// Priority population(s): comma-separated, e.g. "K-12", "Adult learners",
+  /// "Declared pre-Rad", "Single parents", "First-generation"
+  populations String?
+  owner       String? // named owner (person/org), per the TPS workgroup model
+  /// proposed | planned | active | complete | paused
+  status      String  @default("proposed")
+  sequence    Int     @default(0) // order within its lane
+  startDate   DateTime?
+  endDate     DateTime?
+  estCostLow  Int?    // annual $ band
+  estCostHigh Int?
+  /// Funnel stage key this intervention is trying to move (interested | qualified |
+  /// offered | enrolled | completing | licensed | placed | productive)
+  targetStageKey String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([familyId])
 }
