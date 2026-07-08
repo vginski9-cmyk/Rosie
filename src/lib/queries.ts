@@ -1037,10 +1037,11 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     }
     institutionId = institutionId ?? institutions[0]?.id;
   }
-  if (!institutionId) return { institutions, institutionId: null, rooms: [], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
+  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
 
-  const [rooms, raw] = await Promise.all([
+  const [rooms, calPeople, raw] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
     prisma.meetingPattern.findMany({
       where: { cohort: { program: { institutionId } } },
       include: {
@@ -1113,7 +1114,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     peakUtil: roomsOut.reduce((n, r) => Math.max(n, r.utilization), 0),
   };
 
-  return { institutions, institutionId, rooms: roomsOut, meetings, conflicts, weeks, currentWeekMs, programs, summary };
+  return { institutions, institutionId, rooms: roomsOut, people: calPeople, meetings, conflicts, weeks, currentWeekMs, programs, summary };
 }
 
 /** One meeting's full editing context (for the move/reassign editor). */

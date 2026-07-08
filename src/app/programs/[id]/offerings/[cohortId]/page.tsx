@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOffering, getCohortSchedule } from "@/lib/queries";
+import { calendarizeCohort } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CohortSchedule } from "@/components/CohortSchedule";
 import { fmt } from "@/lib/format";
@@ -91,18 +92,29 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         {program.familyId && <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>}
       </div>
 
-      {/* Schedule, rooms & sections — the real bookings (shared with the master calendar) */}
-      {sched && sched.meetings.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-end justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold">Schedule, rooms &amp; sections</h2>
-              <p className="text-sm text-slate-500">Every section of every course as a real booking — its day, time, room, and instructor, assigned per meeting (click any chip). This is the same data the <Link href="/calendar" className="text-rose-700 hover:underline">master space calendar</Link> shows; move a section here and it moves there too.</p>
-            </div>
+      {/* Schedule, rooms & sections — THE assignment surface for this offering */}
+      <section className="space-y-3">
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Schedule, rooms, sites &amp; staff</h2>
+            <p className="text-sm text-slate-500"><strong>This is where assignments happen.</strong> Every section of every course is a real booking — click any meeting to set its day, time, room (or partner site for clinicals), and instructor / preceptor. Same data as the <Link href="/calendar" className="text-rose-700 hover:underline">master calendar</Link>: change it here, it changes everywhere.</p>
           </div>
+        </div>
+        {sched && sched.meetings.length > 0 ? (
           <CohortSchedule meetings={sched.meetings} rooms={sched.rooms} people={sched.people} conflictCount={sched.conflictCount} />
-        </section>
-      )}
+        ) : (
+          <div className="rounded-xl border border-dashed border-rose-200 bg-rose-50/30 p-6">
+            <p className="text-sm text-slate-600">
+              This offering hasn&apos;t been calendarized yet — its archetype (sequence, hours, ratios) exists outside space
+              and time. Calendarizing expands it into real bookable meetings, auto-placed against room capacity, partner
+              sites, and everything already on the institution&apos;s calendar. Then assign staff per meeting.
+            </p>
+            <form action={calendarizeCohort.bind(null, offering.id, program.id)} className="mt-3">
+              <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Calendarize this offering →</button>
+            </form>
+          </div>
+        )}
+      </section>
 
       {/* This run's funnel */}
       {offering.stages.length > 0 && (

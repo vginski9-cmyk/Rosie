@@ -1135,3 +1135,62 @@ export async function requestPlacement(studentId: string, employerId: string, fa
   revalidatePath(`/families/${familyId}/wbl`);
   revalidatePath(`/employers/${employerId}`);
 }
+
+// ---------------------------------------------------------------------------
+// CALENDARIZE — bind a cohort's timeless archetype to reality (rooms, sites,
+// days, times), creating its bookable meetings. THE assignment surface starts here.
+// ---------------------------------------------------------------------------
+
+export async function calendarizeCohort(cohortId: string, programId: string): Promise<void> {
+  const { autoSchedule, toHHMM } = await import("./space");
+  const WK_MS = 7 * 24 * 3600 * 1000;
+  const existing = await prisma.meetingPattern.count({ where: { cohortId } });
+  if (existing > 0) return; // already calendarized — edit meetings instead
+  const co = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      cohortTerms: { select: { termId: true, startDate: true } },
+      program: { select: { institutionId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true } } } } } } } },
+    },
+  });
+  if (!co) return;
+  const rooms = await prisma.facility.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
+  const hosts = await prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active", OR: [{ setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] }, select: { id: true } });
+  const E = Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30);
+  const ctStart = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+  type Req = import("./space").PlaceReq;
+  const reqs: Req[] = [];
+  const meta = new Map<string, { courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number; lengthHours: number; termIndex: number; startWeek: number; endWeek: number }>();
+  for (const t of co.program.terms) {
+    const termStart = ctStart.get(t.id);
+    // Planned cohorts may lack dated terms — synthesize a window from the cohort start.
+    const base = termStart ?? (co.startDate ? new Date(co.startDate.getTime() + (t.index - 1) * 17 * WK_MS) : null);
+    if (!base) continue;
+    const tw = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+    for (const c of t.courses) {
+      const kinds = new Map<string, { maxStudents: number; lengthHours: number }>();
+      for (const s of c.sessions) if (!kinds.has(s.kind)) kinds.set(s.kind, { maxStudents: s.maxStudents, lengthHours: s.lengthHours });
+      for (const [kind, info] of kinds) {
+        const cap = Math.max(1, info.maxStudents || (kind === "CLINICAL" ? 8 : 30));
+        const sections = Math.max(1, Math.ceil(E / cap));
+        for (let si = 1; si <= sections; si++) {
+          const id = `${cohortId}:${c.id}:${kind}:${si}`;
+          reqs.push({ id, cohortId, sectionIndex: si, kind, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, weekStartMs: base.getTime(), weekEndMs: base.getTime() + tw * WK_MS });
+          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
+        }
+      }
+    }
+  }
+  if (!reqs.length) return;
+  // Schedule against everything already booked at the institution (no conflicts).
+  const { placements } = autoSchedule(reqs, rooms);
+  let ci = 0;
+  const rows = reqs.map((r) => {
+    const m = meta.get(r.id)!;
+    const pl = placements.get(r.id)!;
+    return { cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats, dayOfWeek: pl.dayOfWeek, startTime: toHHMM(pl.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek, facilityId: pl.facilityId, employerId: m.kind === "CLINICAL" && hosts.length ? hosts[(ci++) % hosts.length].id : null, staffPersonId: null };
+  });
+  for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath("/calendar");
+}

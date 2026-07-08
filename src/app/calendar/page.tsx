@@ -23,6 +23,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { i
           institutions={data.institutions}
           institutionId={data.institutionId}
           rooms={data.rooms}
+          people={data.people}
           meetings={data.meetings}
           conflicts={data.conflicts}
           weeks={data.weeks}

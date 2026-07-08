@@ -20,6 +20,7 @@ export interface CalMeeting {
 export interface CalRoom { facilityId: string; name: string; kind: string; capacity: number | null; building: string | null; utilization: number; bookedHoursPeakWeek: number; openHoursPerWeek: number; meetingCount: number; distinctDays: number }
 export interface CalConflict { kind: string; aId: string; bId: string; dayOfWeek: string; key: string; detail: string }
 export interface RoomOpt { id: string; name: string; kind: string; capacity: number | null }
+export interface CalPerson { id: string; name: string; role: string }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
@@ -30,10 +31,10 @@ const fmtTime = (t: string) => { const [h, m] = t.split(":").map(Number); const 
 const KIND_LABEL: Record<string, string> = { CLASS: "Lecture", LAB: "Lab", CLINICAL: "Clinical" };
 
 export function MasterCalendar({
-  institutions, institutionId, rooms, meetings, conflicts, weeks, currentWeekMs, programs, summary,
+  institutions, institutionId, rooms, people = [], meetings, conflicts, weeks, currentWeekMs, programs, summary,
 }: {
   institutions: { id: string; name: string }[]; institutionId: string;
-  rooms: CalRoom[]; meetings: CalMeeting[]; conflicts: CalConflict[];
+  rooms: CalRoom[]; people?: CalPerson[]; meetings: CalMeeting[]; conflicts: CalConflict[];
   weeks: { ms: number; label: string }[]; currentWeekMs: number | null;
   programs: { id: string; name: string }[]; summary: { roomed: number; unroomed: number; clinical: number; peakUtil: number };
 }) {
@@ -254,16 +255,18 @@ export function MasterCalendar({
         </div>
       )}
 
-      {editing && <MoveEditor meeting={editing} rooms={rooms} onClose={() => setEditing(null)} onSave={save} />}
+      {editing && <MoveEditor meeting={editing} rooms={rooms} people={people} onClose={() => setEditing(null)} onSave={save} />}
     </div>
   );
 }
 
-function MoveEditor({ meeting, rooms, onClose, onSave }: { meeting: CalMeeting; rooms: CalRoom[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null }) => void }) {
+function MoveEditor({ meeting, rooms, people, onClose, onSave }: { meeting: CalMeeting; rooms: CalRoom[]; people: CalPerson[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null }) => void }) {
   const [day, setDay] = useState(meeting.dayOfWeek);
   const [time, setTime] = useState(meeting.startTime);
   const [room, setRoom] = useState(meeting.facilityId ?? "");
+  const [staff, setStaff] = useState(meeting.staffPersonId ?? "");
   const offCampus = meeting.kind === "CLINICAL";
+  const staffPool = offCampus ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
   const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>
@@ -296,9 +299,16 @@ function MoveEditor({ meeting, rooms, onClose, onSave }: { meeting: CalMeeting; 
               </select>
             </label>
           )}
+          <label className="col-span-2 block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{offCampus ? "Preceptor" : "Instructor"}</span>
+            <select value={staff} onChange={(e) => setStaff(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">— unstaffed —</option>
+              {staffPool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
         </div>
         <div className="mt-4 flex items-center gap-2">
-          <button onClick={() => onSave({ dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null) })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Move</button>
+          <button onClick={() => onSave({ dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), staffPersonId: staff || null })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Move</button>
           <button onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
