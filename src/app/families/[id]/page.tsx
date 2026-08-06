@@ -121,15 +121,26 @@ export default async function FamilyPage({ params }: { params: { id: string } })
       </div>
 
       {/* Design & pathways — delivery models + interventions per target population */}
-      <Link href={`/families/${family.id}/design`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">Program design &amp; pathways ↦</div>
-          <div className="text-xs text-slate-500">
-            {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")} · delivery models + pipeline interventions per target population
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link href={`/families/${family.id}/design`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Program design &amp; pathways ↦</div>
+            <div className="text-xs text-slate-500">
+              {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")} · delivery models + pipeline interventions per target population
+            </div>
           </div>
-        </div>
-        <span className="text-rose-600">→</span>
-      </Link>
+          <span className="text-rose-600">→</span>
+        </Link>
+        <Link href={`/families/${family.id}/analytics`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Talent-pipeline analytics ↦</div>
+            <div className="text-xs text-slate-500">
+              funnel ladder, health metrics vs benchmarks, year-by-season pipeline &amp; Y-O-Y — with full number lineage
+            </div>
+          </div>
+          <span className="text-rose-600">→</span>
+        </Link>
+      </div>
 
       {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}
       <section className="space-y-3">
