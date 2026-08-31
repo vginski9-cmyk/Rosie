@@ -918,6 +918,73 @@ async function main() {
   const ma = await createProgram({ institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", programType: "Traditional Full Time", credential: "Diploma", terms: genTerms("MED", 52, 2, true) });
   await prisma.program.update({ where: { id: ma.id }, data: { familyId: maFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 28 } });
 
+  // ----- CNA template pack — imported straight from the demo workbooks -------
+  // Five Nurse Aide I delivery models (5-wk day intensive, 6-wk term, 8-wk
+  // summer evening, 12-wk day, 12-wk evening), each an exact copy of its
+  // workbook's Raw Data & Calculations session table: every session row with
+  // delivery mode, location, length, capacity, staffing, contact-hour
+  // policies, week/day placement, notes, and clinical rotation columns.
+  type CnaSession = {
+    kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
+    lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
+    supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null;
+    notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
+    rotationType: string | null; clinicalMode: string | null;
+  };
+  type CnaTemplate = {
+    name: string; label: string; programType: string; credential: string; sourceWorkbook: string;
+    termWeeks: number; maxCohort: number;
+    assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
+    course: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number };
+    sessions: CnaSession[];
+  };
+  const cnaPack = JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[];
+
+  const cnaOcc = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: "31-1131", title: "Nursing Assistants" } });
+  for (const y of [2025, 2026, 2027, 2028, 2029, 2030]) {
+    await prisma.demandProjection.create({
+      data: { institutionId: sandhills.id, occupationId: cnaOcc.id, regionId: regions["SERVICE_AREA"], year: y, jobs: 520, openings: 68, growthPct: 0.05, replacementPct: 0.95, turnoverPct: 0.35 },
+    });
+  }
+  const cnaFamily = await prisma.programFamily.create({
+    data: { institutionId: sandhills.id, occupationId: cnaOcc.id, name: "Nurse Aide (CNA)", description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the CNA demo workbooks (day intensive, standard term, summer evening, and extended day/evening tracks)." },
+  });
+  for (const tpl of cnaPack) {
+    const program = await prisma.program.create({
+      data: {
+        institutionId: sandhills.id, occupationId: cnaOcc.id, familyId: cnaFamily.id,
+        name: tpl.name, programType: tpl.programType, credential: tpl.credential,
+        monthsToFullProductivity: 1, status: "active",
+        launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING,SUMMER", termSlots: "FALL,SPRING,SUMMER",
+        defaultCohortSeats: tpl.maxCohort,
+        facContactHours: tpl.assumptions.facContactHours, facWorkWeekHours: tpl.assumptions.facWorkWeekHours, facTermWeeks: tpl.assumptions.facTermWeeks,
+        preContactHours: tpl.assumptions.preContactHours, preWorkWeekHours: tpl.assumptions.preWorkWeekHours, preTermWeeks: tpl.assumptions.preTermWeeks,
+      },
+    });
+    const term = await prisma.term.create({
+      data: { programId: program.id, index: 1, name: "Term 1", startWeek: 1, endWeek: tpl.termWeeks },
+    });
+    await prisma.course.create({
+      data: {
+        termId: term.id, code: tpl.course.code, name: tpl.course.title, sequenceOrder: 0,
+        weeklyClassHours: tpl.course.weeklyClassHours, weeklyLabHours: tpl.course.weeklyLabHours, weeklyClinicalHours: tpl.course.weeklyClinicalHours,
+        creditHours: 6, semesterOffered: "All", courseType: "CORE",
+        description: `Nurse Aide I (${tpl.label}) — imported from ${tpl.sourceWorkbook}.`,
+        sessions: {
+          create: tpl.sessions.map((x) => ({
+            kind: x.kind, number: x.number, title: x.title,
+            deliveryMode: x.deliveryMode, location: x.location,
+            lengthHours: x.lengthHours, maxStudents: x.maxStudents,
+            facultyNeeded: Math.round(x.facultyNeeded), supportStaffNeeded: Math.round(x.supportStaffNeeded), preceptorsNeeded: Math.round(x.preceptorsNeeded),
+            facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
+            week: x.week, dayOfWeek: x.dayOfWeek, notes: x.notes,
+            rotationType: x.rotationType, clinicalMode: x.clinicalMode,
+          })),
+        },
+      },
+    });
+  }
+
   const counts = {
     institutions: await prisma.institution.count(),
     occupations: await prisma.occupation.count(),
