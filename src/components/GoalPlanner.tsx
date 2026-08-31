@@ -7,6 +7,7 @@ import {
   buildLadder, capacityFromNorthStar, utilization, roundLadder,
   type LadderRates,
 } from "@/lib/northstar";
+import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan } from "@/lib/actions";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
@@ -60,6 +61,25 @@ function actualRateOf(key: keyof LadderRates, a: ActualFunnel, cap: number): num
   }
 }
 
+export interface DeliveryModel {
+  programId: string;
+  name: string;
+  credential: string | null;
+  terms: number;
+  /** Max cohort enrollment capacity — the gating criterion when splitting a goal. */
+  maxCapacity: number | null;
+  running: number;
+}
+
+/** One slice of a year's goal, assigned to a delivery model. */
+interface Alloc {
+  programId: string;
+  /** Fully-productive workers this instantiation is responsible for. */
+  goal: number;
+  /** Optional per-term enrollment overrides (index 0 = term 1). */
+  termOverrides?: (number | null)[];
+}
+
 interface Persisted {
   anchor: Anchor;
   years: number[];
@@ -68,6 +88,8 @@ interface Persisted {
   selectedYear: number;
   goal: LadderRates;
   actual: LadderRates;
+  /** Year → the delivery-model breakdown responsible for that goal. */
+  allocationsByYear?: Record<string, Alloc[]>;
 }
 
 const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
@@ -82,7 +104,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {}, nowYear,
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {}, nowYear, models = [],
 }: {
   familyId: string;
   familyName: string;
@@ -92,6 +114,7 @@ export function GoalPlanner({
   instantiationsByYear?: Record<number, Instantiation[]>;
   actualByYear?: Record<number, ActualFunnel>;
   nowYear: number;
+  models?: DeliveryModel[];
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -172,6 +195,19 @@ export function GoalPlanner({
   const setGoalRate = (k: keyof LadderRates, vPct: number) => setS((p) => ({ ...p, goal: { ...p.goal, [k]: vPct / 100 } }));
   const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES } }));
   const attain = (g: number, a: number | null) => (a != null && g > 0 ? a / g : null);
+
+  // --- Goal breakdown: delivery models → instantiations responsible for it ---
+  const yearKey = String(s.selectedYear);
+  const allocs: Alloc[] = s.allocationsByYear?.[yearKey] ?? [];
+  const yearGoal = Math.round(s.anchor === "northstar" ? (s.goalsByYear[yearKey] ?? 0) : productiveForYear(s.selectedYear));
+  const allocated = allocs.reduce((n, a) => n + a.goal, 0);
+  const remaining = yearGoal - allocated;
+  const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
+  const addAlloc = (programId: string) => {
+    if (allocs.some((a) => a.programId === programId)) return;
+    setAllocs([...allocs, { programId, goal: Math.max(0, remaining) }]);
+  };
+  const [dragOver, setDragOver] = useState(false);
 
   const af = actualFunnel;
   const ladderRows: { label: string; g: number; a: number | null; strong?: boolean }[] = [
@@ -273,6 +309,141 @@ export function GoalPlanner({
               ))}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Break the goal down: drag delivery models into the box that owns it */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-700">{s.selectedYear} — who delivers this goal</h3>
+          <span className="text-[11px] tabular-nums">
+            goal <strong className="text-slate-800">{yearGoal}</strong> · allocated <strong className={allocated === yearGoal ? "text-emerald-600" : "text-slate-800"}>{allocated}</strong> ·{" "}
+            <strong className={remaining === 0 ? "text-emerald-600" : remaining > 0 ? "text-amber-600" : "text-rose-600"}>{remaining === 0 ? "fully covered" : remaining > 0 ? `${remaining} uncovered` : `${-remaining} over`}</strong>
+          </span>
+        </div>
+        <p className="mb-3 text-[11px] text-slate-400">
+          Drag a delivery model into the box (or click +) and split the {yearGoal || "—"} fully-productive workers across
+          the instantiations responsible for delivering them. Each model&apos;s <strong>max cohort enrollment capacity</strong> is
+          the gating criterion — if the pipeline math needs more seats than a cohort can hold, the box flags it.
+        </p>
+        <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
+          {/* Delivery-model cards (drag sources) */}
+          <div className="space-y-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery models</div>
+            {models.map((m) => {
+              const used = allocs.some((a) => a.programId === m.programId);
+              return (
+                <div key={m.programId}
+                  draggable={!used}
+                  onDragStart={(e) => e.dataTransfer.setData("text/rosie-program", m.programId)}
+                  className={`rounded-lg border p-2.5 text-xs ${used ? "border-slate-100 bg-slate-50 text-slate-300" : "cursor-grab border-slate-200 bg-white hover:border-rose-300"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`font-medium ${used ? "" : "text-slate-800"}`}>{m.name}</span>
+                    {!used && <button onClick={() => addAlloc(m.programId)} className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100">+ add</button>}
+                  </div>
+                  <div className={`mt-0.5 ${used ? "" : "text-slate-500"}`}>
+                    {m.credential ?? "—"} · {m.terms}-term structure · {m.running} running
+                  </div>
+                  <div className={`mt-0.5 font-medium ${used ? "" : "text-slate-600"}`}>
+                    max cohort enrollment: <span className="tabular-nums">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "not set"}</span>
+                  </div>
+                  {used && <div className="mt-0.5 text-[10px]">in the plan below</div>}
+                </div>
+              );
+            })}
+            {models.length === 0 && <p className="text-[11px] text-slate-300">No delivery models yet — create one on the design page.</p>}
+          </div>
+
+          {/* Drop zone: the instantiation plan */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); const id = e.dataTransfer.getData("text/rosie-program"); if (id) addAlloc(id); }}
+            className={`rounded-xl border-2 border-dashed p-3 transition-colors ${dragOver ? "border-rose-400 bg-rose-50/50" : "border-slate-200 bg-slate-50/40"}`}>
+            {allocs.length === 0 ? (
+              <div className="flex h-full min-h-[120px] items-center justify-center text-center text-xs text-slate-400">
+                Drop delivery models here — the instantiations responsible for delivering the {s.selectedYear} goal.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {allocs.map((a, ai) => {
+                  const m = models.find((x) => x.programId === a.programId);
+                  if (!m) return null;
+                  const t = deriveCohortTargets(a.goal, s.goal, Math.max(1, m.terms));
+                  const capNeeded = Math.round(t.capacity);
+                  const over = m.maxCapacity != null && capNeeded > m.maxCapacity;
+                  const share = yearGoal > 0 ? Math.round((a.goal / yearGoal) * 100) : 0;
+                  const setGoal = (v: number) => setAllocs(allocs.map((x, i) => (i === ai ? { ...x, goal: Math.max(0, v) } : x)));
+                  const setTermOverride = (ti: number, v: number | null) => setAllocs(allocs.map((x, i) => {
+                    if (i !== ai) return x;
+                    const o = [...(x.termOverrides ?? Array(m.terms).fill(null))];
+                    o[ti] = v;
+                    return { ...x, termOverrides: o };
+                  }));
+                  return (
+                    <div key={a.programId} className={`rounded-lg border bg-white p-3 ${over ? "border-rose-300 ring-1 ring-rose-100" : "border-slate-200"}`}>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-sm font-semibold text-slate-800">{m.name}</span>
+                        <span className="text-[11px] text-slate-400">{m.credential ?? ""} · {m.terms} terms</span>
+                        <span className="ml-auto flex items-center gap-2 text-xs">
+                          <label className="flex items-center gap-1">
+                            <span className="text-slate-500">covers</span>
+                            <input type="number" min={0} value={a.goal} onChange={(e) => setGoal(Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right font-semibold tabular-nums focus:border-rose-400 focus:outline-none" />
+                            <span className="text-slate-500">productive ({share}%)</span>
+                          </label>
+                          <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>
+                        </span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
+                        <span className="text-slate-500">needs enrollment capacity <strong className={over ? "text-rose-700" : "text-slate-700"}>{capNeeded}</strong></span>
+                        <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "—"}</strong></span>
+                        {over && <span className="rounded-full bg-rose-100 px-2 py-0.5 font-medium text-rose-700">over capacity — needs {capNeeded - Math.round(m.maxCapacity!)} more seats, another instantiation, or a bigger model</span>}
+                        {!over && m.maxCapacity != null && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">fits</span>}
+                      </div>
+                      {/* Per-instantiation pipeline targets, respecting THIS model's term count */}
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="min-w-full text-[11px]">
+                          <thead>
+                            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                              <th className="py-1 pr-3 font-medium">Interested</th><th className="py-1 pr-3 font-medium">Qualified</th><th className="py-1 pr-3 font-medium">Offered</th>
+                              {t.terms.map((_, i) => <th key={i} className="py-1 pr-3 font-medium text-rose-500">T{i + 1} enrolled</th>)}
+                              <th className="py-1 pr-3 font-medium">Completing</th><th className="py-1 pr-3 font-medium">Licensed</th><th className="py-1 pr-3 font-medium">Placed</th><th className="py-1 pr-0 font-medium">Productive</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr className="tabular-nums text-slate-700">
+                              <td className="py-1 pr-3">{Math.round(t.interested)}</td>
+                              <td className="py-1 pr-3">{Math.round(t.qualified)}</td>
+                              <td className="py-1 pr-3">{Math.round(t.offered)}</td>
+                              {t.terms.map((tv, i) => {
+                                const ov = a.termOverrides?.[i] ?? null;
+                                return (
+                                  <td key={i} className="py-1 pr-3">
+                                    <input
+                                      type="number" min={0}
+                                      value={ov ?? Math.round(tv)}
+                                      onChange={(e) => setTermOverride(i, e.target.value === "" ? null : Number(e.target.value))}
+                                      className={`w-14 rounded border px-1 py-0.5 text-right ${ov != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : "border-slate-200 text-slate-700"}`}
+                                      title={ov != null ? "override — clear to return to the derived figure" : "derived from the goal; type to override this term's enrollment"}
+                                    />
+                                  </td>
+                                );
+                              })}
+                              <td className="py-1 pr-3">{Math.round(t.completing)}</td>
+                              <td className="py-1 pr-3">{Math.round(t.licensed)}</td>
+                              <td className="py-1 pr-3">{Math.round(t.placed)}</td>
+                              <td className="py-1 pr-0 font-semibold">{Math.round(t.productive)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                        <p className="mt-0.5 text-[10px] text-slate-400">Targets derived backward from this instantiation&apos;s {a.goal}-productive goal through the family&apos;s health rates, across its {m.terms} terms. Type in a term cell to override enrollment for that term.</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

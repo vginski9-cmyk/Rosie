@@ -182,6 +182,19 @@ model Program {
   launchIntervalYears Int @default(1)
   /// Fallback planned seats per cohort when a year has no explicit target.
   defaultCohortSeats Float?
+  // --- Workload assumption cells (clinical capacity model AH–AN) ---
+  /// "Full time faculty student contact hours" — cell AI2.
+  facContactHours   Float @default(16)
+  /// "Number of hours in work week" (faculty) — cell AJ2.
+  facWorkWeekHours  Float @default(40)
+  /// "Number of weeks in Term" (faculty) — cell AL2.
+  facTermWeeks      Float @default(18)
+  /// "Full time preceptor contact hours" — cell AI5.
+  preContactHours   Float @default(40)
+  /// "Number of hours in work week" (preceptor) — cell AJ5.
+  preWorkWeekHours  Float @default(40)
+  /// "Number of weeks in Term" (preceptor) — cell AL5.
+  preTermWeeks      Float @default(18)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -282,6 +295,12 @@ model Session {
   clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
   notes         String?
   homework      String? // assignment / homework / prep tied to this session
+  /// "Contact hour policy for faculty during session (___hrs per contact hour)" — workbook column N.
+  facultyContactPolicy   Float?
+  /// "Contact hour policy for support staff during session (___hrs per contact hour)" — workbook column P.
+  supportContactPolicy   Float?
+  /// "Contact hour policy for preceptors during session (___hrs per contact hour)" — workbook column U.
+  preceptorContactPolicy Float?
 
   skillLinks SessionSkill[]
   instructors SessionInstructor[]

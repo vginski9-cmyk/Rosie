@@ -67,17 +67,10 @@ export async function getProgramFull(programId: string) {
       family: { select: { id: true, name: true } },
       yearTargets: { orderBy: { year: "asc" } },
       cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } } } },
-      programSkills: { include: { skill: true }, orderBy: { skill: { name: "asc" } } },
       terms: {
         orderBy: { index: "asc" },
         include: {
-          courses: {
-            orderBy: { sequenceOrder: "asc" },
-            include: {
-              sessions: { include: { skillLinks: { include: { skill: true } } } },
-              courseSkills: { include: { skill: true } },
-            },
-          },
+          courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true } },
         },
       },
     },
@@ -96,30 +89,9 @@ export async function getProgramBottleneck(programId: string) {
     peak: plan.peak,
     supply: data.supply,
     cohortCount: data.cohorts.length,
-    competencyReadiness: data.competency.competencyReadiness,
     placementRaw: data.placement.raw,
     placementEffective: data.placement.effective,
   };
-}
-
-/** The institution-wide proficiency scale (levels) for an institution. */
-export async function getProficiencyScale(institutionId: string) {
-  return prisma.proficiencyScale.findFirst({
-    where: { institutionId, isDefault: true },
-    include: { levels: { orderBy: { level: "asc" } } },
-  });
-}
-
-/** All skills in an institution's library with usage counts. */
-export async function getSkillLibrary(institutionId: string) {
-  return prisma.skill.findMany({
-    where: { institutionId },
-    orderBy: [{ category: "asc" }, { name: "asc" }],
-    include: {
-      descriptors: { orderBy: { level: "asc" } },
-      _count: { select: { programSkills: true, courseSkills: true } },
-    },
-  });
 }
 
 export async function getWblProfiles(institutionId: string) {
@@ -336,8 +308,7 @@ export async function getInstitutions() {
 /**
  * Assemble every input the integrated planning engine needs for one program:
  * the authored archetype, the cohort series (from the launch cadence), staff
- * supply, ALIGNMENT-CONSTRAINED WBL supply (loop 2), and the competency
- * readiness derived from what's actually assessed (loop 1).
+ * supply, and ALIGNMENT-CONSTRAINED WBL supply (loop 2).
  */
 export async function getProgramPlanData(programId: string) {
   const program = await prisma.program.findUnique({
@@ -345,10 +316,9 @@ export async function getProgramPlanData(programId: string) {
     include: {
       institution: true,
       yearTargets: { orderBy: { year: "asc" } },
-      programSkills: { include: { skill: true } },
       assignments: { include: { person: true } },
       cohorts: true,
-      terms: { include: { courses: { include: { sessions: { include: { skillLinks: true } } } } } },
+      terms: { include: { courses: { include: { sessions: true } } } },
     },
   });
   if (!program) return null;
@@ -356,7 +326,6 @@ export async function getProgramPlanData(programId: string) {
   const { parseTermCodes } = await import("./calendar");
   const { generateCohortSeries } = await import("./plan");
   const { effectivePlacementCapacity } = await import("./wbl");
-  const { analyzeAssessment } = await import("./ksa");
 
   const archetype = await getProgramArchetype(programId);
 
@@ -399,15 +368,7 @@ export async function getProgramPlanData(programId: string) {
   const cohorts = generateCohortSeries(launchConfig, explicitCohorts);
   const activeCodes = parseTermCodes(program.termSlots);
 
-  // --- Loop 1: assessment → competency readiness ---
-  const assessedLevels: Record<string, number> = {};
-  for (const term of program.terms) for (const c of term.courses) for (const s of c.sessions) for (const l of s.skillLinks) {
-    if (l.mode === "ASSESS" || l.mode === "BOTH") assessedLevels[l.skillId] = Math.max(assessedLevels[l.skillId] ?? 0, l.targetLevel ?? 0);
-  }
-  const benchmarks = program.programSkills.map((ps) => ({ skillId: ps.skillId, skillName: ps.skill.name, skillType: ps.skill.type, targetLevel: ps.targetLevel, priority: ps.priority }));
-  const competency = analyzeAssessment(benchmarks, assessedLevels);
-
-  return { program, archetype, supply, placement, cohorts, activeCodes, launchConfig, competency, assignments: program.assignments };
+  return { program, archetype, supply, placement, cohorts, activeCodes, launchConfig, assignments: program.assignments };
 }
 
 /** People available to staff a program (for the assignment picker). */
@@ -532,14 +493,14 @@ export async function getProgramStudents(programId: string) {
     select: {
       id: true, name: true, email: true, status: true, stageKey: true,
       entryYear: true, gpa: true, attendedCount: true, missedCount: true,
-      _count: { select: { grades: true, assessments: true, absences: true } },
+      _count: { select: { grades: true, absences: true } },
     },
   });
   return { program, students };
 }
 
-/** A single student's complete record: dated grades, dated KSA assessments,
- *  and dated attendance — the bottom of every drill-down. */
+/** A single student's complete record: dated grades and dated attendance —
+ *  the bottom of every drill-down. */
 export async function getStudent(studentId: string) {
   return prisma.student.findUnique({
     where: { id: studentId },
@@ -549,10 +510,6 @@ export async function getStudent(studentId: string) {
       grades: {
         orderBy: [{ termIndex: "asc" }],
         include: { course: { select: { id: true, code: true, name: true, creditHours: true } } },
-      },
-      assessments: {
-        orderBy: [{ assessedDate: "asc" }],
-        include: { skill: { select: { id: true, name: true, type: true } } },
       },
       absences: { orderBy: [{ date: "asc" }] },
       wblSnapshots: { orderBy: { asOfDate: "desc" }, include: { factors: true } },
@@ -845,12 +802,11 @@ export async function getOfferingScheduler(cohortId: string) {
 /** A single course with its full catalog detail + session-by-session schedule. */
 export async function getCourse(courseId: string) {
   // The course is part of the TEMPLATE — no instructors/students here (those are
-  // offering concerns). Just catalog detail, the session archetype, and KSAs.
+  // offering concerns). Just catalog detail and the session archetype.
   return prisma.course.findUnique({
     where: { id: courseId },
     include: {
       sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { resources: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } } },
-      courseSkills: { include: { skill: true } },
       term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },
   });
@@ -1322,32 +1278,6 @@ export async function getFamilyAlignment(familyId: string) {
   return { family, learnerProfiles, employerProfiles, employers, unprofiled };
 }
 
-/** The interventions board for a family + live funnel context per stage. */
-export async function getFamilyInterventions(familyId: string) {
-  const family = await prisma.programFamily.findUnique({
-    where: { id: familyId },
-    select: { id: true, name: true, institution: { select: { name: true } }, programs: { select: { id: true } } },
-  });
-  if (!family) return null;
-  const [interventions, students, stageRows] = await Promise.all([
-    prisma.intervention.findMany({ where: { familyId }, orderBy: [{ lane: "asc" }, { sequence: "asc" }, { createdAt: "asc" }] }),
-    prisma.student.findMany({ where: { programId: { in: family.programs.map((p) => p.id) } }, select: { status: true } }),
-    prisma.funnelStage.findMany({ where: { cohort: { programId: { in: family.programs.map((p) => p.id) }, status: { in: ["active", "planned"] } } }, select: { stageKey: true, targetNumber: true } }),
-  ]);
-  // Per-stage targets: sum across the family's live (active+planned) cohorts.
-  const funnelTarget: Record<string, number> = {};
-  for (const r of stageRows) if (r.targetNumber != null) funnelTarget[r.stageKey] = (funnelTarget[r.stageKey] ?? 0) + Math.round(r.targetNumber);
-  // Live cumulative funnel from student statuses (same ranking as elsewhere).
-  const RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
-  const funnel = { interested: 0, qualified: 0, offered: 0, enrolled: 0, completing: 0, licensed: 0, placed: 0, productive: 0 };
-  const keys = Object.keys(funnel) as (keyof typeof funnel)[];
-  for (const s of students) {
-    if (s.status === "withdrawn") continue;
-    const r = RANK[s.status] ?? -1;
-    keys.forEach((k, i) => { if (r >= i) funnel[k] += 1; });
-  }
-  return { family, interventions, funnel, funnelTarget };
-}
 
 // ---------------------------------------------------------------------------
 // ACTION CENTER — the connective organ. Every gap the data can see, expressed
@@ -1466,4 +1396,97 @@ export async function getCohortPlacements(cohortId: string) {
       term: { select: { name: true } },
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// CLINICAL CAPACITY MODEL — the workbook's calendar layer, from live data
+// ---------------------------------------------------------------------------
+
+/** Everything the capacity insights (instructors & preceptors needed · clinical
+ *  sites · daily coverage) need: every offering's dated template expansion
+ *  inputs. Per-term enrollment comes from the same backward derivation the
+ *  analytics page uses (the cohort's North-Star goal through the family's goal
+ *  plan rates), so all surfaces agree on the numbers. */
+export async function getCapacityModel(opts?: { institutionId?: string }) {
+  const { deriveCohortTargets } = await import("./pipeline");
+  const { BENCHMARK_RATES } = await import("./northstar");
+
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const institution = institutions.find((i) => i.id === opts?.institutionId) ?? institutions[0];
+  if (!institution) return null;
+
+  const programs = await prisma.program.findMany({
+    where: { institutionId: institution.id, cohorts: { some: { status: { in: ["planned", "active"] } } } },
+    include: {
+      family: { select: { id: true, name: true, goalPlan: true } },
+      terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true } } } },
+      cohorts: {
+        where: { status: { in: ["planned", "active"] } },
+        orderBy: { name: "asc" },
+        include: {
+          stages: true,
+          cohortTerms: { select: { termId: true, startDate: true } },
+          meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true } },
+          _count: { select: { students: true } },
+        },
+      },
+    },
+  });
+
+  const cohorts = programs.flatMap((p) => {
+    // Rates: the family's saved goal plan, else benchmarks.
+    let rates = { ...BENCHMARK_RATES };
+    if (p.family?.goalPlan) {
+      try {
+        const saved = JSON.parse(p.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> };
+        if (saved.goal) rates = { ...rates, ...saved.goal };
+      } catch { /* benchmarks */ }
+    }
+    const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
+    return p.cohorts.map((co) => {
+      const productiveGoal = co.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0;
+      const enrolledTarget = co.stages.find((s) => s.stageKey === "enrolled")?.targetNumber ?? null;
+      const fallbackSeats = enrolledTarget ?? co.plannedSeats ?? p.defaultCohortSeats ?? co._count.students ?? 24;
+      const derived = productiveGoal > 0
+        ? deriveCohortTargets(productiveGoal, rates, Math.max(1, orderedTerms.length)).terms
+        : orderedTerms.map(() => Number(fallbackSeats));
+      const enrollmentByTerm: Record<number, number> = {};
+      orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(derived[i] ?? derived[derived.length - 1] ?? 0); });
+      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+      const termStartByIndex: Record<number, string | null> = {};
+      orderedTerms.forEach((t) => { const d = ctById.get(t.id) ?? null; termStartByIndex[t.index] = d ? d.toISOString() : null; });
+      // Templates are timeless — days attach at instantiation. When this offering
+      // has calendarized meetings, their day pattern dates the session rows.
+      const meetingDay = new Map<string, string>();
+      for (const m of co.meetings) {
+        const k = `${m.courseId}|${m.kind}`;
+        if (!meetingDay.has(k)) meetingDay.set(k, m.dayOfWeek);
+      }
+      return {
+        cohortId: co.id, cohort: co.name, status: co.status,
+        programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
+        students: co._count.students,
+        enrollmentByTerm, termStartByIndex,
+        courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
+          code: c.code, title: c.name, termIndex: t.index, termName: t.name,
+          sessions: c.sessions.map((s) => ({
+            id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", number: s.number, title: s.title,
+            deliveryMode: s.deliveryMode, location: s.location,
+            lengthHours: s.lengthHours, maxStudents: s.maxStudents,
+            facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
+            supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
+            week: s.week, dayOfWeek: s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null, notes: s.notes,
+            preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
+            rotationType: s.rotationType, clinicalMode: s.clinicalMode,
+          })),
+        }))),
+        assumptions: {
+          facContactHours: p.facContactHours, facWorkWeekHours: p.facWorkWeekHours, facTermWeeks: p.facTermWeeks,
+          preContactHours: p.preContactHours, preWorkWeekHours: p.preWorkWeekHours, preTermWeeks: p.preTermWeeks,
+        },
+      };
+    });
+  });
+
+  return { institution, institutions, cohorts };
 }

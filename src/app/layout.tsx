@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MainNav } from "@/components/MainNav";
+import { Tutorial } from "@/components/Tutorial";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,8 +25,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </header>
           <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+          <Tutorial />
           <footer className="mx-auto max-w-7xl px-6 py-8 text-xs text-slate-400">
-            Rosie v0.2 — authored in-app: demand · program structure · talent funnel · capacity · KSA proficiency · WBL alignment.
+            Rosie v0.2 — authored in-app: demand · program structure · talent funnel · capacity · WBL alignment.
           </footer>
         </div>
       </body>

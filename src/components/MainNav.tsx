@@ -5,20 +5,26 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 // Grouped top navigation with dropdown menus, so a now-rich platform reads cleanly:
-// North Star · Insights ▾ · Directory ▾ · Library ▾.
+// North Star · Calendar · Insights ▾ · Directory ▾.
 
 type Item = { label: string; href: string };
 type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
-  { label: "Insights", items: [{ label: "Explore", href: "/insights" }, { label: "Semester", href: "/semester" }, { label: "Shared course demand", href: "/courses" }] },
+  { label: "Insights", items: [
+    { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
+    { label: "Clinical sites", href: "/insights/clinical-sites" },
+    { label: "Daily coverage", href: "/insights/coverage" },
+    { label: "Explore", href: "/insights" },
+    { label: "Semester", href: "/semester" },
+    { label: "Shared course demand", href: "/courses" },
+  ] },
   { label: "Directory", items: [
     { label: "Students", href: "/students" },
     { label: "People (faculty & staff)", href: "/people" },
     { label: "Employers & clinical sites", href: "/employers" },
     { label: "Facilities", href: "/facilities" },
   ] },
-  { label: "Library", items: [{ label: "Skill library", href: "/skills" }] },
 ];
 
 export function MainNav() {

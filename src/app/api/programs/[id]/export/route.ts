@@ -3,13 +3,12 @@ import * as XLSX from "xlsx";
 import { getProgramFull, getProgramArchetype } from "@/lib/queries";
 import { programDemand } from "@/lib/capacity";
 import { analyzeFunnel, type StageKey } from "@/lib/funnel";
-import { analyzeCoverage, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
 
 export const runtime = "nodejs";
 
 const ATTRITION = [1.0, 0.94, 0.88, 0.82, 0.76, 0.7];
 
-/** Excel-out: a workbook with the program's funnel, capacity, and KSA coverage. */
+/** Excel-out: a workbook with the program's funnel and capacity. */
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) return new Response("Not found", { status: 404 });
@@ -62,30 +61,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(capRows), "Capacity");
 
-  // --- KSA coverage sheet ---
-  const benchmarks: ProgramBenchmark[] = program.programSkills.map((ps) => ({
-    skillId: ps.skillId,
-    skillName: ps.skill.name,
-    skillType: ps.skill.type,
-    targetLevel: ps.targetLevel,
-    priority: ps.priority,
-  }));
-  const development: CourseDevelopment[] = program.terms.flatMap((t) =>
-    t.courses.flatMap((c) => c.courseSkills.map((cs) => ({ skillId: cs.skillId, courseId: c.id, courseName: c.code ?? c.name, termIndex: t.index, targetLevel: cs.targetLevel, role: cs.role ?? undefined })),
-    ),
-  );
-  const coverage = analyzeCoverage(benchmarks, development);
-  const ksaRows = coverage.skills.map((s) => ({
-    Skill: s.skillName,
-    Type: s.skillType,
-    Priority: s.priority ?? "",
-    "Graduate benchmark": s.targetLevel,
-    "Curriculum reaches": s.reachedLevel,
-    Status: s.status,
-    Gap: s.gap,
-    "Developed by": s.contributingCourses.map((c) => c.courseName).join(", "),
-  }));
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ksaRows.length ? ksaRows : [{ Note: "No skills mapped yet" }]), "KSA Coverage");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
   const safeName = program.name.replace(/[^a-z0-9]+/gi, "_");

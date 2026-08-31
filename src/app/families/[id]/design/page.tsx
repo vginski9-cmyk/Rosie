@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getFamily, getFamilyInterventions } from "@/lib/queries";
+import { getFamily } from "@/lib/queries";
 import { createFamilyProgram, duplicateProgram } from "@/lib/actions";
-import { InterventionBoard } from "@/components/InterventionBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +10,8 @@ const STATUS_BADGE: Record<string, string> = { active: "bg-emerald-100 text-emer
 const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
 
 export default async function FamilyDesignPage({ params }: { params: { id: string } }) {
-  const [data, iv] = await Promise.all([getFamily(params.id), getFamilyInterventions(params.id)]);
-  if (!data || !iv) notFound();
+  const data = await getFamily(params.id);
+  if (!data) notFound();
   const { family } = data;
   const homeYear = new Date().getUTCFullYear();
   const targetFor = (p: (typeof family.programs)[number], y: number) => p.yearTargets.find((t) => t.year === y)?.credentialTarget ?? 0;
@@ -37,8 +36,8 @@ export default async function FamilyDesignPage({ params }: { params: { id: strin
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Program design &amp; pathways</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           How this family delivers toward {family.occupation?.title ?? family.name}: the delivery models (credential + term
-          structures) people move through, and the pipeline interventions — sequenced per partner lane and target
-          population — that fill them. Design the structures, then design who gets into them and how.
+          structures) people move through. Click into any model to see its scheduled offerings and how each is performing
+          against its targets.
         </p>
       </div>
 
@@ -103,27 +102,6 @@ export default async function FamilyDesignPage({ params }: { params: { id: strin
         </section>
       ))}
 
-      {/* Pathways in: pipeline interventions per target population */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Pipeline interventions — by partner lane &amp; target population</h2>
-          <p className="max-w-3xl text-sm text-slate-500">
-            The pathways INTO these delivery models: awareness → readiness → application → WBL → supports → retention,
-            sequenced per lane with named owners, priority populations, and cost bands. Stage columns show the live funnel
-            count each column is trying to move.
-          </p>
-        </div>
-        <InterventionBoard
-          familyId={family.id}
-          interventions={iv.interventions.map((i) => ({
-            id: i.id, lane: i.lane, stage: i.stage, title: i.title, description: i.description,
-            populations: i.populations, owner: i.owner, status: i.status, sequence: i.sequence,
-            estCostLow: i.estCostLow, estCostHigh: i.estCostHigh, targetStageKey: i.targetStageKey,
-          }))}
-          funnel={iv.funnel}
-          funnelTarget={iv.funnelTarget}
-        />
-      </section>
     </div>
   );
 }

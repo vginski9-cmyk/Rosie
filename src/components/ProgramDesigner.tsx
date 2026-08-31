@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
+import { SessionSheet } from "@/components/SessionSheet";
+import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
-  addSession, updateSession, deleteSession, setSessionTiming,
-  addCourseSkill, removeCourseSkill, tagCourseSessions, untagCourseSessions,
+  addSession, setSessionTiming, updateWorkloadAssumptions,
 } from "@/lib/actions";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -18,27 +19,22 @@ export interface DSession {
   lengthHours: number; maxStudents: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number;
   week: number | null; dayOfWeek: string | null; startTime: string | null; location: string | null;
   homework: string | null; rotationType: string | null; clinicalMode: string | null;
-  skills: { skillId: string; name: string; mode: string }[];
+  deliveryMode: string | null; notes: string | null;
+  facultyContactPolicy: number | null; supportContactPolicy: number | null; preceptorContactPolicy: number | null;
 }
 export interface DCourse {
   id: string; code: string | null; name: string; creditHours: number | null;
   weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number;
   semesterOffered: string | null; courseType: string | null; description: string | null; requisites: string | null;
   sessions: DSession[];
-  courseSkills: { id: string; skillId: string; name: string; targetLevel: number; role: string | null }[];
 }
 export interface DTerm { id: string; name: string; index: number; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
 
-const KIND_TEXT: Record<Kind, string> = { CLASS: "text-sky-700", LAB: "text-violet-700", CLINICAL: "text-rose-700" };
-const KIND_BG: Record<Kind, string> = { CLASS: "bg-sky-500", LAB: "bg-violet-500", CLINICAL: "bg-rose-500" };
 const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 const n2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-// Shared grid template so the header and every editable row line up.
-const ROW = "grid grid-cols-[30px_38px_minmax(150px,1.5fr)_44px_60px_94px_50px_50px_78px_minmax(110px,1fr)_46px_56px_56px_48px_20px] items-center gap-1";
-
-export function ProgramDesigner({ programId, terms, library, defaultEnrollment }: { programId: string; terms: DTerm[]; library: { id: string; name: string }[]; defaultEnrollment: number }) {
+export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptions }: { programId: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showSeq, setShowSeq] = useState(false);
@@ -140,6 +136,64 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
         </div>
       </div>
 
+      {/* Workload assumption helpers (capacity model columns AH–AN) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold text-slate-700">Workload assumption helpers (columns AH–AN)</h3>
+          <span className="text-[11px] text-slate-400">The divisors behind the semesterly &amp; weekly conversions — every green formula column below divides by these cells</span>
+        </div>
+        <form action={updateWorkloadAssumptions.bind(null, programId)} className="grid gap-4 lg:grid-cols-2">
+          {([
+            { title: "Faculty Workload Assumptions", fx: "columns AA & AB divide by AM2 / AI2", pre: false },
+            { title: "Preceptor Workload Assumptions", fx: "columns AD & AE divide by AM5 / AN5", pre: true },
+          ] as const).map(({ title, fx, pre }) => {
+            const d = deriveAssumptions(assumptions);
+            const who = pre ? "preceptor" : "faculty";
+            const contact = pre ? assumptions.preContactHours : assumptions.facContactHours;
+            const week = pre ? assumptions.preWorkWeekHours : assumptions.facWorkWeekHours;
+            const tw = pre ? assumptions.preTermWeeks : assumptions.facTermWeeks;
+            const conv = pre ? d.preConversion : d.facConversion;
+            const sem = pre ? d.preSemesterHours : d.facSemesterHours;
+            const wk = pre ? d.preWeeklyHours : d.facWeeklyHours;
+            return (
+              <div key={title} className="rounded-lg border border-slate-200 p-3">
+                <div className="mb-2 text-xs font-semibold text-slate-600">{title} <span className="ml-1 font-mono text-[10px] font-normal text-emerald-700">{fx}</span></div>
+                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Full time {who} {pre ? "contact hours" : "student contact hours"}</span>
+                    <input name={pre ? "preContactHours" : "facContactHours"} type="number" step="any" defaultValue={contact} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Number of hours in work week</span>
+                    <input name={pre ? "preWorkWeekHours" : "facWorkWeekHours"} type="number" step="any" defaultValue={week} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Full Time {pre ? "Preceptor" : "Faculty"} Contact Hour Conversion</span>
+                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AJ5/AI5" : "=AJ2/AI2"}>{n2(conv)}</span>
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Number of weeks in Term</span>
+                    <input name={pre ? "preTermWeeks" : "facTermWeeks"} type="number" step="any" defaultValue={tw} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Total Semesterly {pre ? "Preceptor" : "Faculty"} Contact Hours</span>
+                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AL5×AI5" : "=AL2×AI2"}>{n0(sem)}</span>
+                  </label>
+                  <label className="block">
+                    <span className="mb-0.5 block leading-tight text-slate-500">Weekly {pre ? "Preceptor" : "Faculty"} Contact Hours</span>
+                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AI5" : "=AI2"}>{n0(wk)}</span>
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+          <div className="lg:col-span-2">
+            <button className="btn-primary py-1 text-xs">Save assumptions</button>
+            <span className="ml-2 text-[11px] text-slate-400">Saving recomputes every offering, calendar, and insight that reads this template.</span>
+          </div>
+        </form>
+      </div>
+
       {/* Sticky jump-nav: terms, collapse, re-sequence, add term */}
       <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
@@ -226,47 +280,28 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
                     );
                   })()}
 
-                  {/* Sessions — all open, single row each, with live computed columns */}
-                  <div className="mt-3 overflow-x-auto">
-                    <div className="min-w-[940px]">
-                      <div className={`${ROW} border-b border-slate-200 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400`}>
-                        <span>#</span><span>Kind</span><span>Title</span><span>Wk</span><span>Day</span><span>Time</span><span>Len</span><span>Cap</span><span>Staff f/p</span><span>Location</span>
-                        <span className="text-rose-500">Sec</span><span className="text-rose-500">Space</span><span className="text-sky-600">FacHr</span><span></span><span></span>
-                      </div>
-                      {[...course.sessions].sort((a, b) => a.kind.localeCompare(b.kind) || a.number - b.number).map((s) => {
-                        const r = calc.bySession.get(s.id);
-                        return (
-                          <div key={s.id} className={`${ROW} border-b border-slate-50 py-1`}>
-                            <form action={updateSession.bind(null, s.id, pid)} className="contents">
-                              <span className="text-[11px] text-slate-400">{s.number}</span>
-                              <span className={`text-[11px] font-bold ${KIND_TEXT[s.kind]}`}>{s.kind[0]}</span>
-                              <input name="title" defaultValue={s.title ?? ""} className="inp w-full" />
-                              <input name="week" type="number" defaultValue={s.week ?? ""} className="inp w-full" />
-                              <select name="dayOfWeek" defaultValue={s.dayOfWeek ?? ""} className="inp w-full"><option value="">—</option>{DAYS.map((d) => <option key={d} value={d}>{d}</option>)}</select>
-                              <input name="startTime" type="time" defaultValue={s.startTime ?? ""} className="inp w-full" />
-                              <input name="lengthHours" type="number" step="0.5" defaultValue={s.lengthHours} className="inp w-full" />
-                              <input name="maxStudents" type="number" defaultValue={s.maxStudents} className="inp w-full" />
-                              <span className="flex items-center gap-0.5">
-                                <input name="facultyNeeded" type="number" step="0.1" defaultValue={s.facultyNeeded} className="inp w-9" title="faculty per section" />
-                                <input name="preceptorsNeeded" type="number" step="0.1" defaultValue={s.preceptorsNeeded} className="inp w-9" title="preceptors per section" />
-                              </span>
-                              <input name="location" defaultValue={s.location ?? ""} className="inp w-full" />
-                              <span className="rounded bg-rose-50 px-1 py-0.5 text-center text-[11px] font-semibold tabular-nums text-rose-700">{r ? n0(r.sections) : "—"}</span>
-                              <span className="rounded bg-rose-50/60 px-1 py-0.5 text-center text-[11px] tabular-nums text-slate-600">{r ? n0(r.spaceHours) : "—"}</span>
-                              <span className="rounded bg-sky-50 px-1 py-0.5 text-center text-[11px] tabular-nums text-slate-600">{r ? n1(r.facultyContactHours) : "—"}</span>
-                              <button className="rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-rose-700">Save</button>
-                              <input type="hidden" name="rotationType" defaultValue={s.rotationType ?? ""} />
-                              <input type="hidden" name="clinicalMode" defaultValue={s.clinicalMode ?? ""} />
-                              <input type="hidden" name="homework" defaultValue={s.homework ?? ""} />
-                              <input type="hidden" name="supportStaffNeeded" defaultValue={s.supportStaffNeeded} />
-                            </form>
-                            <form action={deleteSession.bind(null, s.id, pid)} className="contents"><button className="text-slate-300 hover:text-rose-600" title="delete">✕</button></form>
-                          </div>
-                        );
-                      })}
-                      {course.sessions.length === 0 && <div className="py-2 text-xs text-slate-400">No sessions yet.</div>}
-                    </div>
-                  </div>
+                  {/* The Raw Data & Calculations session table for this course */}
+                  <SessionSheet
+                    programId={pid}
+                    courseId={course.id}
+                    courseCode={course.code}
+                    courseTitle={course.name}
+                    termNumber={term.index}
+                    semester={term.name}
+                    sessions={course.sessions.map((s) => ({
+                      id: s.id, kind: s.kind, number: s.number, title: s.title,
+                      deliveryMode: s.deliveryMode, location: s.location,
+                      lengthHours: s.lengthHours, maxStudents: s.maxStudents,
+                      facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
+                      supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
+                      week: s.week, dayOfWeek: s.dayOfWeek, notes: s.notes,
+                      preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
+                      rotationType: s.rotationType, clinicalMode: s.clinicalMode,
+                      startTime: s.startTime,
+                    }))}
+                    enrollment={enrollment}
+                    assumptions={assumptions}
+                  />
 
                   {/* Add session (open) */}
                   <form action={addSession.bind(null, course.id, pid)} className="mt-2 flex flex-wrap items-end gap-2 rounded bg-slate-50 p-2">
@@ -296,46 +331,6 @@ export function ProgramDesigner({ programId, terms, library, defaultEnrollment }
                     <button className="btn-ghost py-1 text-xs">Apply</button>
                   </form>
 
-                  {/* KSAs (taught / assessed) */}
-                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Develops KSAs (course → grad level)</div>
-                      <div className="flex flex-wrap gap-1">
-                        {course.courseSkills.map((cs) => (
-                          <span key={cs.id} className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[11px] text-violet-700">
-                            {cs.name} → L{cs.targetLevel}{cs.role ? ` (${cs.role.toLowerCase()})` : ""}
-                            <form action={removeCourseSkill.bind(null, cs.id, pid)}><button className="text-violet-300 hover:text-rose-600">✕</button></form>
-                          </span>
-                        ))}
-                        {course.courseSkills.length === 0 && <span className="text-[11px] text-slate-400">None.</span>}
-                      </div>
-                      <form action={addCourseSkill.bind(null, course.id, pid)} className="mt-1.5 flex flex-wrap items-end gap-1.5">
-                        <select name="skillId" required className="inp w-40"><option value="">Add skill…</option>{library.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}</select>
-                        <input name="targetLevel" type="number" min="1" max="5" defaultValue="2" className="inp w-12" title="level" />
-                        <select name="role" className="inp w-28"><option value="INTRODUCED">Introduced</option><option value="REINFORCED">Reinforced</option><option value="MASTERED">Mastered</option></select>
-                        <button className="btn-ghost py-1 text-[11px]">Add</button>
-                      </form>
-                    </div>
-                    <div>
-                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivers / assesses (per session)</div>
-                      <div className="flex flex-wrap gap-1">
-                        {aggregateSkills(course.sessions).map((g) => (
-                          <span key={g.skillId + g.mode} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] ${g.mode === "ASSESS" ? "bg-amber-50 text-amber-700" : g.mode === "BOTH" ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-sky-700"}`}>
-                            {g.name} · {g.mode.toLowerCase()} · {g.count} sess
-                            <form action={untagCourseSessions.bind(null, course.id, pid, g.skillId)}><button className="text-slate-300 hover:text-rose-600">✕</button></form>
-                          </span>
-                        ))}
-                        {course.sessions.every((s) => s.skills.length === 0) && <span className="text-[11px] text-slate-400">None.</span>}
-                      </div>
-                      <form action={tagCourseSessions.bind(null, course.id, pid)} className="mt-1.5 flex flex-wrap items-end gap-1.5">
-                        <select name="skillId" required className="inp w-36"><option value="">Tag skill…</option>{library.map((sk) => <option key={sk.id} value={sk.id}>{sk.name}</option>)}</select>
-                        <select name="kind" className="inp w-20"><option value="CLASS">Class</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option></select>
-                        <select name="mode" className="inp w-24"><option value="DELIVER">Deliver</option><option value="ASSESS">Assess</option><option value="BOTH">Both</option></select>
-                        <input name="targetLevel" type="number" min="1" max="5" className="inp w-12" title="level" />
-                        <button className="btn-ghost py-1 text-[11px]">Tag</button>
-                      </form>
-                    </div>
-                  </div>
                 </div>
               );
             })}
@@ -373,13 +368,4 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 function Pill({ dot, t }: { dot: string; t: string }) {
   return <span className="inline-flex items-center gap-1 text-slate-600"><span className={`h-1.5 w-1.5 rounded-full ${dot}`} />{t}</span>;
-}
-function aggregateSkills(sessions: DSession[]) {
-  const map = new Map<string, { skillId: string; name: string; mode: string; count: number }>();
-  for (const s of sessions) for (const l of s.skills) {
-    const key = l.skillId + "|" + l.mode;
-    const cur = map.get(key) ?? { skillId: l.skillId, name: l.name, mode: l.mode, count: 0 };
-    cur.count += 1; map.set(key, cur);
-  }
-  return [...map.values()];
 }

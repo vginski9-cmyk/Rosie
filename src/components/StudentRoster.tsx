@@ -14,7 +14,6 @@ export interface RosterStudent {
   attendedCount: number;
   missedCount: number;
   grades: number;
-  assessments: number;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -99,7 +98,6 @@ export function StudentRoster({ programId, students }: { programId: string; stud
               <th className="px-4 py-3 text-right font-semibold">Attended</th>
               <th className="px-4 py-3 text-right font-semibold">Missed</th>
               <th className="px-4 py-3 text-right font-semibold">Grades</th>
-              <th className="px-4 py-3 text-right font-semibold">Assessments</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm">
@@ -126,7 +124,6 @@ export function StudentRoster({ programId, students }: { programId: string; stud
                   <td className="px-4 py-3 text-right tabular-nums text-slate-600">{s.attendedCount || "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{s.missedCount ? <span className="text-rose-600">{s.missedCount}</span> : <span className="text-slate-300">0</span>}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-500">{s.grades || "—"}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-500">{s.assessments || "—"}</td>
                 </tr>
               );
             })}

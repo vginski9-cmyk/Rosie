@@ -152,7 +152,15 @@ export default async function FamilyPage({ params }: { params: { id: string } })
             to the workforce goal it&apos;s working toward.
           </p>
         </div>
-        <GoalPlanner familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear} savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear} />
+        <GoalPlanner
+          familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={seedGoalsByYear}
+          savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear}
+          models={family.programs.map((p) => ({
+            programId: p.id, name: p.name, credential: p.credential, terms: p.terms.length,
+            maxCapacity: p.defaultCohortSeats ?? p.yearTargets.reduce<number | null>((m, t) => (t.cohortCapacity != null && (m == null || t.cohortCapacity > m) ? t.cohortCapacity : m), null),
+            running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length,
+          }))}
+        />
       </section>
 
     </div>

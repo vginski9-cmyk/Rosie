@@ -126,6 +126,10 @@ function buildSessions(s: SessionSeed) {
     location: null, // archetype is placeless — rooms/sites attach at instantiation
     rotationType: s.rotationType ?? null,
     clinicalMode: s.clinicalMode ?? null,
+    // Contact-hour policy cells (capacity-model columns N / P / U).
+    facultyContactPolicy: s.kind === "CLASS" ? 2.5 : 2,
+    supportContactPolicy: 2,
+    preceptorContactPolicy: s.kind === "CLINICAL" ? 1 : null,
   }));
 }
 
@@ -148,13 +152,13 @@ function genSessions(c: CourseSeed, weeks: number) {
   if (c.weeklyClassHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lecture?.[i] ?? `${c.name} — Unit ${i + 1}`;
-      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null } as any);
+      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null, facultyContactPolicy: 2.5, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
     }
   }
   if (c.weeklyLabHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lab?.[i] ?? `${c.name} Lab — Week ${i + 1}`;
-      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null } as any);
+      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
     }
   }
   if (c.weeklyClinicalHours > 0) {
@@ -163,7 +167,7 @@ function genSessions(c: CourseSeed, weeks: number) {
     const shiftLen = c.weeklyClinicalHours >= 18 ? 12 : 8; // heavier clinical terms run 12-hr shifts
     for (let i = 0; i < clinWeeks; i++) {
       const rotation = CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length];
-      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: rotation, clinicalMode: p.mode } as any);
+      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: rotation, clinicalMode: p.mode, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: 1 } as any);
     }
   }
   return rows;

@@ -197,6 +197,23 @@ export async function addSessionResource(sessionId: string, courseId: string, pr
   revalidatePath(`/programs/${programId}/structure`);
 }
 
+/** Save the program's workload-assumption cells (capacity model AI/AJ/AL, faculty & preceptor). */
+export async function updateWorkloadAssumptions(programId: string, formData: FormData) {
+  await prisma.program.update({
+    where: { id: programId },
+    data: {
+      facContactHours: numOr(formData.get("facContactHours"), 16),
+      facWorkWeekHours: numOr(formData.get("facWorkWeekHours"), 40),
+      facTermWeeks: numOr(formData.get("facTermWeeks"), 18),
+      preContactHours: numOr(formData.get("preContactHours"), 40),
+      preWorkWeekHours: numOr(formData.get("preWorkWeekHours"), 40),
+      preTermWeeks: numOr(formData.get("preTermWeeks"), 18),
+    },
+  });
+  revalidatePath(`/programs/${programId}/structure`);
+  revalidatePath(`/programs/${programId}`);
+}
+
 export async function deleteSessionResource(resourceId: string, courseId: string): Promise<void> {
   await prisma.sessionResource.delete({ where: { id: resourceId } });
   revalidatePath(`/courses/${courseId}`);
@@ -684,6 +701,11 @@ export async function addSession(courseId: string, programId: string, formData: 
       homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
+      deliveryMode: str(formData.get("deliveryMode")) || null,
+      notes: str(formData.get("notes")) || null,
+      facultyContactPolicy: optNum(formData.get("facultyContactPolicy")),
+      supportContactPolicy: optNum(formData.get("supportContactPolicy")),
+      preceptorContactPolicy: optNum(formData.get("preceptorContactPolicy")),
     },
   });
   revalidatePath(`/programs/${programId}`);
@@ -706,9 +728,15 @@ export async function updateSession(sessionId: string, programId: string, formDa
       homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
+      deliveryMode: str(formData.get("deliveryMode")) || null,
+      notes: str(formData.get("notes")) || null,
+      facultyContactPolicy: optNum(formData.get("facultyContactPolicy")),
+      supportContactPolicy: optNum(formData.get("supportContactPolicy")),
+      preceptorContactPolicy: optNum(formData.get("preceptorContactPolicy")),
     },
   });
   revalidatePath(`/programs/${programId}`);
+  revalidatePath(`/programs/${programId}/structure`);
 }
 
 export async function deleteSession(sessionId: string, programId: string) {
@@ -747,115 +775,6 @@ export async function updateFunnelStage(stageId: string, programId: string, form
     where: { id: stageId },
     data: { targetNumber: optNum(formData.get("target")), actualNumber: optNum(formData.get("actual")) },
   });
-  revalidatePath(`/programs/${programId}`);
-}
-
-// ---------------------------------------------------------------------------
-// SKILLS (KSA library)
-// ---------------------------------------------------------------------------
-
-export async function createSkill(institutionId: string, formData: FormData) {
-  const skill = await prisma.skill.create({
-    data: {
-      institutionId,
-      name: str(formData.get("name")) || "New Skill",
-      type: str(formData.get("type")) || "SKILL",
-      category: str(formData.get("category")) || null,
-      definition: str(formData.get("definition")) || null,
-      howUsed: str(formData.get("howUsed")) || null,
-    },
-  });
-  revalidatePath("/skills");
-  redirect(`/skills/${skill.id}`);
-}
-
-export async function updateSkill(skillId: string, formData: FormData) {
-  await prisma.skill.update({
-    where: { id: skillId },
-    data: {
-      name: str(formData.get("name")),
-      type: str(formData.get("type")),
-      category: str(formData.get("category")) || null,
-      definition: str(formData.get("definition")) || null,
-      howUsed: str(formData.get("howUsed")) || null,
-    },
-  });
-  revalidatePath(`/skills/${skillId}`);
-  revalidatePath("/skills");
-}
-
-export async function duplicateSkill(skillId: string) {
-  const src = await prisma.skill.findUnique({ where: { id: skillId }, include: { descriptors: true } });
-  if (!src) return;
-  const copy = await prisma.skill.create({
-    data: {
-      institutionId: src.institutionId,
-      name: `${src.name} (Copy)`,
-      type: src.type,
-      category: src.category,
-      definition: src.definition,
-      howUsed: src.howUsed,
-      descriptors: { create: src.descriptors.map((d) => ({ level: d.level, descriptor: d.descriptor })) },
-    },
-  });
-  revalidatePath("/skills");
-  redirect(`/skills/${copy.id}`);
-}
-
-export async function deleteSkill(skillId: string) {
-  await prisma.skill.delete({ where: { id: skillId } });
-  revalidatePath("/skills");
-  redirect("/skills");
-}
-
-export async function upsertDescriptor(skillId: string, formData: FormData) {
-  const level = numOr(formData.get("level"));
-  const descriptor = str(formData.get("descriptor"));
-  if (descriptor === "") {
-    await prisma.skillLevelDescriptor.deleteMany({ where: { skillId, level } });
-  } else {
-    await prisma.skillLevelDescriptor.upsert({
-      where: { skillId_level: { skillId, level } },
-      update: { descriptor },
-      create: { skillId, level, descriptor },
-    });
-  }
-  revalidatePath(`/skills/${skillId}`);
-}
-
-// ---------------------------------------------------------------------------
-// PROGRAM / COURSE SKILL MAPPING
-// ---------------------------------------------------------------------------
-
-export async function addProgramSkill(programId: string, formData: FormData) {
-  const skillId = str(formData.get("skillId"));
-  if (!skillId) return;
-  await prisma.programSkill.upsert({
-    where: { programId_skillId: { programId, skillId } },
-    update: { targetLevel: numOr(formData.get("targetLevel"), 1), priority: str(formData.get("priority")) || null },
-    create: { programId, skillId, targetLevel: numOr(formData.get("targetLevel"), 1), priority: str(formData.get("priority")) || null },
-  });
-  revalidatePath(`/programs/${programId}`);
-}
-
-export async function removeProgramSkill(id: string, programId: string) {
-  await prisma.programSkill.delete({ where: { id } });
-  revalidatePath(`/programs/${programId}`);
-}
-
-export async function addCourseSkill(courseId: string, programId: string, formData: FormData) {
-  const skillId = str(formData.get("skillId"));
-  if (!skillId) return;
-  await prisma.courseSkill.upsert({
-    where: { courseId_skillId: { courseId, skillId } },
-    update: { targetLevel: numOr(formData.get("targetLevel"), 1), role: str(formData.get("role")) || null },
-    create: { courseId, skillId, targetLevel: numOr(formData.get("targetLevel"), 1), role: str(formData.get("role")) || null },
-  });
-  revalidatePath(`/programs/${programId}`);
-}
-
-export async function removeCourseSkill(id: string, programId: string) {
-  await prisma.courseSkill.delete({ where: { id } });
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -939,49 +858,17 @@ export async function createStaff(institutionId: string, programId: string, form
   revalidatePath(`/programs/${programId}/plan`);
 }
 
-// ---------------------------------------------------------------------------
-// SESSION SKILLS (delivery / assessment)
-// ---------------------------------------------------------------------------
-
-export async function addSessionSkill(sessionId: string, programId: string, formData: FormData) {
-  const skillId = str(formData.get("skillId"));
-  if (!skillId) return;
-  await prisma.sessionSkill.upsert({
-    where: { sessionId_skillId: { sessionId, skillId } },
-    update: { mode: str(formData.get("mode")) || "DELIVER", targetLevel: optNum(formData.get("targetLevel")) },
-    create: { sessionId, skillId, mode: str(formData.get("mode")) || "DELIVER", targetLevel: optNum(formData.get("targetLevel")) },
-  });
-  revalidatePath(`/programs/${programId}/structure`);
-}
-
-export async function removeSessionSkill(id: string, programId: string) {
-  await prisma.sessionSkill.delete({ where: { id } });
-  revalidatePath(`/programs/${programId}/structure`);
-}
-
-/** Tag every session of a given kind in a course with a skill (delivery/assessment). */
-export async function tagCourseSessions(courseId: string, programId: string, formData: FormData) {
-  const skillId = str(formData.get("skillId"));
-  const kind = str(formData.get("kind"));
-  if (!skillId || !kind) return;
-  const mode = str(formData.get("mode")) || "DELIVER";
-  const targetLevel = optNum(formData.get("targetLevel"));
-  const sessions = await prisma.session.findMany({ where: { courseId, kind }, select: { id: true } });
-  for (const s of sessions) {
-    await prisma.sessionSkill.upsert({
-      where: { sessionId_skillId: { sessionId: s.id, skillId } },
-      update: { mode, targetLevel },
-      create: { sessionId: s.id, skillId, mode, targetLevel },
-    });
+/** The studio's "ask": create a PLANNED placement (learner × partner). The partner
+ *  confirming it (planned → active) is what makes it secured — asked vs secured on
+ *  the employer page reads straight from these statuses. */
+export async function requestPlacement(studentId: string, employerId: string, familyId: string): Promise<void> {
+  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { cohortId: true } });
+  const dup = await prisma.wblPlacement.findFirst({ where: { studentId, employerId, status: { in: ["planned", "active"] } } });
+  if (!dup) {
+    await prisma.wblPlacement.create({ data: { studentId, employerId, cohortId: student?.cohortId ?? null, status: "planned" } });
   }
-  revalidatePath(`/programs/${programId}/structure`);
-}
-
-/** Remove a skill from all sessions of a course. */
-export async function untagCourseSessions(courseId: string, programId: string, skillId: string) {
-  const sessions = await prisma.session.findMany({ where: { courseId }, select: { id: true } });
-  await prisma.sessionSkill.deleteMany({ where: { sessionId: { in: sessions.map((s) => s.id) }, skillId } });
-  revalidatePath(`/programs/${programId}/structure`);
+  revalidatePath(`/families/${familyId}/wbl`);
+  revalidatePath(`/employers/${employerId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,71 +956,6 @@ export async function deleteAlignmentProfile(profileId: string): Promise<void> {
   const p = await prisma.alignmentProfile.delete({ where: { id: profileId } });
   if (p.studentId) revalidatePath(`/students/${p.studentId}/alignment`);
   if (p.employerId) revalidatePath(`/employers/${p.employerId}/alignment`);
-}
-
-// --- Interventions (family-scoped pipeline board) ---------------------------
-
-export async function createIntervention(familyId: string, formData: FormData): Promise<void> {
-  await prisma.intervention.create({
-    data: {
-      familyId,
-      lane: str(formData.get("lane")) || "COMMUNITY_COLLEGE",
-      stage: str(formData.get("stage")) || "AWARENESS",
-      title: str(formData.get("title")) || "New intervention",
-      description: str(formData.get("description")) || null,
-      populations: str(formData.get("populations")) || null,
-      owner: str(formData.get("owner")) || null,
-      status: str(formData.get("status")) || "proposed",
-      sequence: numOr(formData.get("sequence"), 0),
-      targetStageKey: str(formData.get("targetStageKey")) || null,
-      estCostLow: optNum(formData.get("estCostLow")),
-      estCostHigh: optNum(formData.get("estCostHigh")),
-    },
-  });
-  revalidatePath(`/families/${familyId}/interventions`);
-}
-
-export async function updateIntervention(id: string, familyId: string, formData: FormData): Promise<void> {
-  await prisma.intervention.update({
-    where: { id },
-    data: {
-      lane: str(formData.get("lane")) || undefined,
-      stage: str(formData.get("stage")) || undefined,
-      title: str(formData.get("title")) || undefined,
-      description: str(formData.get("description")) || null,
-      populations: str(formData.get("populations")) || null,
-      owner: str(formData.get("owner")) || null,
-      status: str(formData.get("status")) || undefined,
-      sequence: numOr(formData.get("sequence"), 0),
-      targetStageKey: str(formData.get("targetStageKey")) || null,
-      estCostLow: optNum(formData.get("estCostLow")),
-      estCostHigh: optNum(formData.get("estCostHigh")),
-    },
-  });
-  revalidatePath(`/families/${familyId}/interventions`);
-}
-
-export async function setInterventionStatus(id: string, familyId: string, status: string): Promise<void> {
-  await prisma.intervention.update({ where: { id }, data: { status } });
-  revalidatePath(`/families/${familyId}/interventions`);
-}
-
-export async function deleteIntervention(id: string, familyId: string): Promise<void> {
-  await prisma.intervention.delete({ where: { id } });
-  revalidatePath(`/families/${familyId}/interventions`);
-}
-
-/** The studio's "ask": create a PLANNED placement (learner × partner). The partner
- *  confirming it (planned → active) is what makes it secured — asked vs secured on
- *  the employer page reads straight from these statuses. */
-export async function requestPlacement(studentId: string, employerId: string, familyId: string): Promise<void> {
-  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { cohortId: true } });
-  const dup = await prisma.wblPlacement.findFirst({ where: { studentId, employerId, status: { in: ["planned", "active"] } } });
-  if (!dup) {
-    await prisma.wblPlacement.create({ data: { studentId, employerId, cohortId: student?.cohortId ?? null, status: "planned" } });
-  }
-  revalidatePath(`/families/${familyId}/wbl`);
-  revalidatePath(`/employers/${employerId}`);
 }
 
 // ---------------------------------------------------------------------------

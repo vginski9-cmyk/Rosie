@@ -26,12 +26,6 @@ const GRADE_COLOR = (status: string) =>
   : status === "withdrawn" ? "text-slate-400"
   : "text-rose-600";
 
-const TYPE_BADGE: Record<string, string> = {
-  KNOWLEDGE: "bg-sky-100 text-sky-700",
-  SKILL: "bg-violet-100 text-violet-700",
-  ABILITY: "bg-emerald-100 text-emerald-700",
-};
-
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
@@ -66,14 +60,6 @@ export default async function StudentPage({ params }: { params: { id: string } }
 
   // Group grades by term.
   const terms = Array.from(new Set(student.grades.map((g) => g.termIndex))).sort((a, b) => a - b);
-
-  // Group KSA assessments by skill, ordered by date — the proficiency ladder.
-  const skillIds = Array.from(new Set(student.assessments.map((a) => a.skillId)));
-  const bySkill = skillIds.map((id) => {
-    const rows = student.assessments.filter((a) => a.skillId === id);
-    return { skill: rows[0].skill, rows };
-  });
-  const maxLevel = 5;
 
   return (
     <div className="mx-auto max-w-6xl space-y-10">
@@ -339,52 +325,6 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
         </section>
       )}
-
-      {/* KSA proficiency over time */}
-      <section>
-        <h2 className="mb-1 text-xl font-semibold tracking-tight">Skill &amp; knowledge levels (KSAs)</h2>
-        <p className="mb-4 text-sm text-slate-500">Dated proficiency assessments — each Knowledge, Skill, and Ability and how the student progressed through the levels over time.</p>
-        {bySkill.length === 0 ? (
-          <p className="text-sm text-slate-400">No KSA assessments recorded yet.</p>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {bySkill.map(({ skill, rows }) => {
-              const latest = rows[rows.length - 1];
-              return (
-                <div key={skill.id} className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <Link href={`/skills/${skill.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{skill.name}</Link>
-                      <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${TYPE_BADGE[skill.type] ?? "bg-slate-100 text-slate-600"}`}>{skill.type.toLowerCase()}</span>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold tabular-nums text-slate-900">L{latest.level}</div>
-                      <div className="text-[10px] uppercase tracking-wide text-slate-400">current</div>
-                    </div>
-                  </div>
-                  {/* level meter */}
-                  <div className="mt-3 flex gap-1">
-                    {Array.from({ length: maxLevel }, (_, i) => (
-                      <div key={i} className={`h-2 flex-1 rounded-full ${i < latest.level ? "bg-rose-500" : "bg-slate-100"}`} />
-                    ))}
-                  </div>
-                  {/* dated ladder */}
-                  <div className="mt-4 space-y-1.5">
-                    {rows.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{dateFmt(a.assessedDate)}</span>
-                        <span className="flex-1 px-2 text-slate-400">{a.courseCode ?? ""}{a.method ? ` · ${a.method}` : ""}</span>
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">L{a.level}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
 
       {/* Attendance / absences */}
       <section>

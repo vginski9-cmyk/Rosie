@@ -100,18 +100,6 @@ export default async function CoursePage({ params }: { params: { id: string } })
               <p className="text-sm leading-relaxed text-slate-700">{course.requisites}</p>
             </div>
           )}
-          {course.courseSkills.length > 0 && (
-            <div className="rounded-xl border border-slate-200 bg-white p-6">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Develops KSAs</h2>
-              <div className="flex flex-wrap gap-2">
-                {course.courseSkills.map((cs) => (
-                  <Link key={cs.id} href={`/skills/${cs.skillId}`} className="rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100">
-                    {cs.skill.name} → L{cs.targetLevel}{cs.role ? ` (${cs.role.toLowerCase()})` : ""}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
       </div>
 

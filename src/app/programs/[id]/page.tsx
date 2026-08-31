@@ -1,31 +1,20 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/db";
-import { getProgramFull, getProgramArchetype, getProficiencyScale, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
+import { getProgramFull, getProgramArchetype, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
 import { FunnelChart } from "@/components/FunnelChart";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
-import { analyzeCoverage, assessmentCoverage, analyzeAssessment, competencyAdjustedCompletion, type ProgramBenchmark, type CourseDevelopment } from "@/lib/ksa";
-import {
-  duplicateProgram, deleteProgram, updateFunnelStage, addProgramSkill, removeProgramSkill, createOffering,
-} from "@/lib/actions";
+import { duplicateProgram, deleteProgram, updateFunnelStage, createOffering } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
-
-const STATUS_COLOR: Record<string, string> = {
-  MET: "bg-emerald-100 text-emerald-700",
-  BELOW: "bg-amber-100 text-amber-700",
-  NOT_TAUGHT: "bg-rose-100 text-rose-700",
-};
 
 export default async function ProgramPage({ params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) notFound();
-  const archetype = await getProgramArchetype(params.id);
-  const [scale, library, offerings] = await Promise.all([
-    getProficiencyScale(program.institutionId),
-    prisma.skill.findMany({ where: { institutionId: program.institutionId }, orderBy: { name: "asc" }, select: { id: true, name: true, type: true } }),
+  const [archetype, offerings, bottleneck] = await Promise.all([
+    getProgramArchetype(params.id),
     getProgramOfferings(params.id),
+    getProgramBottleneck(params.id),
   ]);
 
   const cohort = program.cohorts[0];
@@ -33,38 +22,11 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const defaultEnrollment = Math.round(northStar?.cohortCapacity ?? 40);
   const totalSessions = archetype.reduce((n, t) => n + t.courses.reduce((m, c) => m + c.sessions.length, 0), 0);
 
-  // KSA curriculum coverage.
-  const benchmarks: ProgramBenchmark[] = program.programSkills.map((ps) => ({
-    skillId: ps.skillId, skillName: ps.skill.name, skillType: ps.skill.type, targetLevel: ps.targetLevel, priority: ps.priority,
-  }));
-  const development: CourseDevelopment[] = program.terms.flatMap((t) =>
-    t.courses.flatMap((c) => c.courseSkills.map((cs) => ({ skillId: cs.skillId, courseId: c.id, courseName: c.code ?? c.name, termIndex: t.index, targetLevel: cs.targetLevel, role: cs.role ?? undefined }))),
-  );
-  const coverage = analyzeCoverage(benchmarks, development);
-  const mappedSkillIds = new Set(program.programSkills.map((p) => p.skillId));
-
-  // Skills → assessment loop (boolean coverage + leveled competency readiness).
-  const assessedSkillIds = new Set<string>();
-  const assessedLevels: Record<string, number> = {};
-  for (const t of program.terms) for (const c of t.courses) for (const s of c.sessions) for (const l of s.skillLinks) {
-    if (l.mode === "ASSESS" || l.mode === "BOTH") {
-      assessedSkillIds.add(l.skillId);
-      assessedLevels[l.skillId] = Math.max(assessedLevels[l.skillId] ?? 0, l.targetLevel ?? 0);
-    }
-  }
-  const assessment = assessmentCoverage(benchmarks, assessedSkillIds);
-  const competency = analyzeAssessment(benchmarks, assessedLevels);
-  const bottleneck = await getProgramBottleneck(program.id);
-
-  // Loop 1: assessment competency → funnel completion projection.
-  const completingTarget = cohort?.stages.find((s) => s.stageKey === "completing")?.targetNumber ?? null;
-  const projectedCompetent = completingTarget != null ? competencyAdjustedCompletion(completingTarget, competency.competencyReadiness) : null;
-
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="max-w-2xl text-xs text-slate-400">
-          This is the <strong>program template</strong> — the timeless structure (terms, courses, sessions, KSAs). A
+          This is the <strong>program template</strong> — the timeless structure (terms, courses, sessions). A
           <strong> scheduled offering</strong> below instantiates it for a cohort with real dates, instructors, and students.
         </p>
         <div className="flex flex-wrap gap-2">
@@ -74,10 +36,10 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      {/* Scheduled offerings (instantiations of the template) */}
+      {/* Scheduled offerings (instantiations of the template) — with target vs actual */}
       <section className="card card-pad space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Scheduled offerings <span className="text-sm font-normal text-slate-400">— runs of this template</span></h2>
+          <h2 className="text-lg font-semibold">Scheduled offerings <span className="text-sm font-normal text-slate-400">— runs of this template, and how each performs against its targets</span></h2>
           <span className="text-xs text-slate-400">{offerings.length} offering{offerings.length === 1 ? "" : "s"}</span>
         </div>
         {offerings.length === 0 ? (
@@ -86,6 +48,19 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           <div className="grid gap-3 lg:grid-cols-2">
             {offerings.map((o) => {
               const STATUS: Record<string, string> = { active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700", completed: "bg-slate-200 text-slate-600", archived: "bg-slate-100 text-slate-400" };
+              const stage = (k: string) => o.stages.find((s) => s.stageKey === k);
+              const enrolled = stage("enrolled");
+              const productive = stage("productive");
+              const chip = (label: string, target: number | null | undefined, actual: number | null | undefined) => {
+                const t = target != null ? Math.round(target) : null;
+                const a = actual != null ? Math.round(actual) : null;
+                const cls = a == null || t == null || t === 0 ? "text-slate-500" : a >= t ? "text-emerald-700" : a >= 0.85 * t ? "text-amber-700" : "text-rose-700";
+                return (
+                  <span key={label} className="rounded-full bg-slate-50 px-2 py-0.5 text-[11px] ring-1 ring-slate-200">
+                    {label}: <strong className={cls}>{a ?? "—"}</strong><span className="text-slate-400"> / {t ?? "—"} target</span>
+                  </span>
+                );
+              };
               return (
                 <div key={o.id} className="rounded-xl border border-slate-200 p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -97,9 +72,12 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{o.status}</span>
                   </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {chip("Enrolled", enrolled?.targetNumber, enrolled?.actualNumber ?? o._count.students)}
+                    {chip("Productive", productive?.targetNumber, productive?.actualNumber)}
+                  </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Overview</Link>
-                    <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Schedule &amp; WBL ↦</Link>
+                    <Link href={`/programs/${program.id}/offerings/${o.id}`} className="btn-ghost text-xs">Schedule, staffing &amp; WBL ↦</Link>
                     <Link href={`/programs/${program.id}/students`} className="btn-ghost text-xs">Students ↦</Link>
                   </div>
                 </div>
@@ -125,7 +103,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
       {bottleneck?.hasBottleneck && (
         <div className="block rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200">
           ⚠ <strong>{bottleneck.bottleneckCount}</strong> capacity bottleneck{bottleneck.bottleneckCount === 1 ? "" : "s"} across the multi-cohort plan —
-          peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE / {fmt.num(bottleneck.peak.clinicalSlots)} clinical rotations vs. supply of {fmt.fte(bottleneck.supply.facultyFte)} FTE / {fmt.num(bottleneck.supply.wblSlots)} hosted. Work it on each offering&apos;s WBL &amp; operations.
+          peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE / {fmt.num(bottleneck.peak.clinicalSlots)} clinical rotations vs. supply of {fmt.fte(bottleneck.supply.facultyFte)} FTE / {fmt.num(bottleneck.supply.wblSlots)} hosted. Work it on each offering&apos;s schedule.
         </div>
       )}
 
@@ -133,7 +111,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         <Kpi label="North Star" value={fmt.num(northStar?.credentialTarget)} sub="grads / yr (regional need)" />
         <Kpi label="Cohort capacity needed" value={fmt.num(northStar?.cohortCapacity)} sub="seats to hit goal" />
         <Kpi label="Terms in sequence" value={fmt.num(program.terms.length)} />
-        <Kpi label="KSA coverage" value={fmt.pct(coverage.coverageRate)} sub={`${coverage.met}/${coverage.total} benchmarks met`} />
+        <Kpi label="Sessions / student" value={fmt.num(totalSessions)} sub="across the whole sequence" />
       </div>
 
       {/* Talent-pipeline funnel */}
@@ -144,12 +122,6 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             <span className="text-xs text-slate-400">target vs. actual · {totalSessions} sessions/student</span>
           </div>
           <FunnelChart programId={program.id} stages={cohort.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
-          {projectedCompetent != null && (
-            <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${competency.competencyReadiness < 1 ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
-              <strong>Competency-adjusted completion (loop 1):</strong> with {fmt.pct(competency.competencyReadiness)} of core competencies assessed to target, ~
-              <strong>{fmt.num(projectedCompetent)}</strong> of the {fmt.num(completingTarget)} planned completers are <em>verifiably</em> competent. Unassessed core skills can&apos;t be certified — close the gap in the structure editor.
-            </div>
-          )}
           <details className="mt-3">
             <summary className="cursor-pointer text-sm font-medium text-rose-700">Edit funnel numbers</summary>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -166,89 +138,11 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         </section>
       )}
 
-      {/* KSA / curriculum coverage */}
-      <section className="card card-pad space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Graduate proficiency benchmarks (KSAs)</h2>
-          <span className="text-xs text-slate-400">core coverage {fmt.pct(coverage.coreCoverageRate)} · assessed {fmt.pct(assessment.assessmentRate)}</span>
-        </div>
-        {assessment.unassessed.length > 0 && (
-          <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Taught but never <strong>assessed</strong>: {assessment.unassessed.map((u) => u.skillName).join(", ")}. Tag sessions as ASSESS in the structure editor to close the loop.
-          </div>
-        )}
-        {coverage.skills.length === 0 ? (
-          <p className="text-sm text-slate-500">No skills benchmarked yet. Add one below from the skill library.</p>
-        ) : (
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="th">Skill</th>
-                  <th className="th text-center">Benchmark</th>
-                  <th className="th text-center">Curriculum reaches</th>
-                  <th className="th">Status</th>
-                  <th className="th">Developed by</th>
-                  <th className="th"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {coverage.skills.map((s) => {
-                  const ps = program.programSkills.find((p) => p.skillId === s.skillId)!;
-                  return (
-                    <tr key={s.skillId}>
-                      <td className="td">
-                        <Link href={`/skills/${s.skillId}`} className="font-medium text-rose-700 hover:underline">{s.skillName}</Link>
-                        {s.priority === "core" && <span className="ml-1 text-[10px] text-slate-400">core</span>}
-                      </td>
-                      <td className="td text-center font-medium">L{s.targetLevel}</td>
-                      <td className="td text-center">{s.reachedLevel ? `L${s.reachedLevel}` : "—"}</td>
-                      <td className="td"><span className={`badge ${STATUS_COLOR[s.status]}`}>{s.status.replace("_", " ").toLowerCase()}</span></td>
-                      <td className="td text-xs text-slate-500">{s.contributingCourses.map((c) => c.courseName).join(", ") || "—"}</td>
-                      <td className="td text-right">
-                        <form action={removeProgramSkill.bind(null, ps.id, program.id)}><button className="text-xs text-slate-300 hover:text-rose-600">✕</button></form>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <form action={addProgramSkill.bind(null, program.id)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Add benchmark</span>
-            <select name="skillId" required className="input-sm w-56">
-              <option value="">Select a skill…</option>
-              {library.filter((sk) => !mappedSkillIds.has(sk.id)).map((sk) => (
-                <option key={sk.id} value={sk.id}>{sk.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Target level</span>
-            <select name="targetLevel" className="input-sm w-32">
-              {(scale?.levels ?? []).map((l) => <option key={l.id} value={l.level}>L{l.level} · {l.label}</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">Priority</span>
-            <select name="priority" className="input-sm w-28">
-              <option value="core">core</option>
-              <option value="supporting">supporting</option>
-            </select>
-          </label>
-          <button className="btn-primary">Add</button>
-          <Link href="/skills" className="text-xs text-slate-400 hover:text-slate-600">manage library →</Link>
-        </form>
-      </section>
-
       {/* Program structure (read-only overview; edit on the structure page) */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Program structure</h2>
-          <Link href={`/programs/${program.id}/structure`} className="text-sm text-rose-700 hover:underline">Edit structure →</Link>
+          <Link href={`/programs/${program.id}/structure`} className="text-sm text-rose-700 hover:underline">Edit design &amp; sequence →</Link>
         </div>
         <div className="grid gap-4 lg:grid-cols-2">
           {program.terms.map((term) => (
@@ -275,7 +169,6 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                       </div>
                       <div className="mt-1 text-xs text-slate-500">
                         {course.weeklyClassHours}h class · {course.weeklyLabHours}h lab · {course.weeklyClinicalHours}h clinical / wk
-                        {course.courseSkills.length > 0 && <span className="text-slate-400"> · {course.courseSkills.length} KSAs</span>}
                       </div>
                     </Link>
                   );

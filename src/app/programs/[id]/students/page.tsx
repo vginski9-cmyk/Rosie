@@ -20,7 +20,6 @@ export default async function ProgramStudentsPage({ params }: { params: { id: st
     attendedCount: s.attendedCount,
     missedCount: s.missedCount,
     grades: s._count.grades,
-    assessments: s._count.assessments,
   }));
 
   return (
