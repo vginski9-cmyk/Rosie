@@ -912,8 +912,59 @@ async function main() {
   });
   await prisma.program.update({ where: { id: radEvening.id }, data: { familyId: radFamily.id, launchCadence: "BIENNIAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 18 } });
 
-  const surg = await createProgram({ institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", programType: "Traditional Full Time", credential: "Diploma", terms: surgTerms });
-  await prisma.program.update({ where: { id: surg.id }, data: { familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 19 } });
+  // Surgical Technology — imported straight from the clinical-capacity model's
+  // Raw Data & Calculations tab: 226 session rows across 9 courses / 5 terms,
+  // every input column (delivery mode, location, lengths, capacities, staffing,
+  // contact-hour policies, week/day placement, notes, rotation types) verbatim.
+  type PackSession = {
+    kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
+    lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
+    supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null;
+    notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
+    rotationType: string | null; clinicalMode: string | null;
+  };
+  type SurgPack = {
+    name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
+    assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
+    terms: { index: number; name: string; startWeek: number; endWeek: number; courses: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
+  };
+  const surgPack = JSON.parse(readFileSync(join(__dirname, "templates", "surgtech.json"), "utf8")) as SurgPack;
+  const surg = await prisma.program.create({
+    data: {
+      institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id,
+      name: surgPack.name, programType: surgPack.programType, credential: surgPack.credential,
+      monthsToFullProductivity: 6, status: "active",
+      launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER",
+      defaultCohortSeats: surgPack.maxCohort,
+      facContactHours: surgPack.assumptions.facContactHours, facWorkWeekHours: surgPack.assumptions.facWorkWeekHours, facTermWeeks: surgPack.assumptions.facTermWeeks,
+      preContactHours: surgPack.assumptions.preContactHours, preWorkWeekHours: surgPack.assumptions.preWorkWeekHours, preTermWeeks: surgPack.assumptions.preTermWeeks,
+    },
+  });
+  for (const t of surgPack.terms) {
+    const termRow = await prisma.term.create({ data: { programId: surg.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek } });
+    let order = 0;
+    for (const c of t.courses) {
+      await prisma.course.create({
+        data: {
+          termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
+          weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
+          semesterOffered: "All", courseType: "CORE",
+          description: `${c.title} — imported from ${surgPack.sourceWorkbook}.`,
+          sessions: {
+            create: c.sessions.map((x) => ({
+              kind: x.kind, number: x.number, title: x.title,
+              deliveryMode: x.deliveryMode, location: x.location,
+              lengthHours: x.lengthHours, maxStudents: x.maxStudents,
+              facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
+              facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
+              week: x.week, dayOfWeek: x.dayOfWeek, notes: x.notes,
+              rotationType: x.rotationType, clinicalMode: x.clinicalMode,
+            })),
+          },
+        },
+      });
+    }
+  }
 
   const ma = await createProgram({ institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", programType: "Traditional Full Time", credential: "Diploma", terms: genTerms("MED", 52, 2, true) });
   await prisma.program.update({ where: { id: ma.id }, data: { familyId: maFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 28 } });
@@ -975,7 +1026,7 @@ async function main() {
             kind: x.kind, number: x.number, title: x.title,
             deliveryMode: x.deliveryMode, location: x.location,
             lengthHours: x.lengthHours, maxStudents: x.maxStudents,
-            facultyNeeded: Math.round(x.facultyNeeded), supportStaffNeeded: Math.round(x.supportStaffNeeded), preceptorsNeeded: Math.round(x.preceptorsNeeded),
+            facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
             facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
             week: x.week, dayOfWeek: x.dayOfWeek, notes: x.notes,
             rotationType: x.rotationType, clinicalMode: x.clinicalMode,

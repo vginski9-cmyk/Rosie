@@ -285,9 +285,11 @@ model Session {
   deliveryMode  String? // in-person | online | hybrid
   location      String? // lecture hall | skills lab | clinical site ...
   maxStudents   Int    @default(1) // capacity of ONE instance of this session
-  facultyNeeded Int    @default(1) // faculty per instance
-  supportStaffNeeded Int @default(0)
-  preceptorsNeeded   Int @default(0) // clinical only
+  /// Faculty per instance — Float because clinical oversight is often fractional
+  /// (e.g. 1/21 of a clinical instructor per 1-student preceptor session).
+  facultyNeeded Float  @default(1)
+  supportStaffNeeded Float @default(0)
+  preceptorsNeeded   Float @default(0) // clinical only
   week          Int?
   dayOfWeek     String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
   startTime     String? // time of day, "HH:MM" (24h)
