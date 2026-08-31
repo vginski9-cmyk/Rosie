@@ -176,6 +176,10 @@ function AddForm({ institutions, onDone }: { institutions: InstLite[]; onDone: (
         <input name="city" placeholder="Fayetteville" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
       </label>
       <label className="block">
+        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Students / day (clinical capacity)</span>
+        <input name="wblSlots" type="number" min={0} placeholder="e.g. 12" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Status</span>
         <select name="status" defaultValue="prospect" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}

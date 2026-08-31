@@ -15,7 +15,7 @@ export default async function ClinicalSitesPage() {
           many weeks, and how many preceptors that takes — one request block per setting, ready to hand to a site.
         </p>
       </div>
-      <CapacityBoard cohorts={data.cohorts} view="sites" />
+      <CapacityBoard cohorts={data.cohorts} view="sites" sites={data.clinicalSites} />
     </div>
   );
 }

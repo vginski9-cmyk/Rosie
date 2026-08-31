@@ -30,6 +30,16 @@ export interface CapacityCohort {
 
 export type CapacityView = "staffing" | "sites" | "coverage";
 
+export interface ClinicalSite {
+  id: string;
+  name: string;
+  setting: string | null;
+  city: string | null;
+  /** Students per day this site can host. */
+  wblSlots: number | null;
+  status: string;
+}
+
 const n0 = (v: number) => Math.round(v).toLocaleString();
 const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1 });
 const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -57,7 +67,7 @@ function Peak({ k, v, d }: { k: string; v: string; d: string }) {
   );
 }
 
-export function CapacityBoard({ cohorts, view }: { cohorts: CapacityCohort[]; view: CapacityView }) {
+export function CapacityBoard({ cohorts, view, sites = [] }: { cohorts: CapacityCohort[]; view: CapacityView; sites?: ClinicalSite[] }) {
   const [cohortsOn, setCohortsOn] = useState<Set<string>>(new Set(cohorts.map((c) => c.cohortId)));
   const [termsOn, setTermsOn] = useState<Set<number> | null>(null); // null = all
   const [kindsOn, setKindsOn] = useState<Set<string>>(new Set(view === "staffing" ? ["CLASS", "LAB", "CLINICAL"] : ["CLINICAL"]));
@@ -119,7 +129,7 @@ export function CapacityBoard({ cohorts, view }: { cohorts: CapacityCohort[]; vi
       </div>
 
       {view === "staffing" && <StaffingView rows={instances} />}
-      {view === "sites" && <SitesView rows={instances} />}
+      {view === "sites" && <SitesView rows={instances} sites={sites} />}
       {view === "coverage" && <CoverageView rows={instances} />}
     </div>
   );
@@ -281,7 +291,7 @@ function PivotDetail({ rows }: { rows: DatedInstance[] }) {
 }
 
 // ───────────────────────────── 04 · Clinical sites ───────────────────────────
-function SitesView({ rows }: { rows: DatedInstance[] }) {
+function SitesView({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite[] }) {
   const clinical = rows.filter((r) => r.session.kind === "CLINICAL");
   const asks = useMemo(() => settingAsks(rows), [rows]);
   const months = useMemo(() => {
@@ -290,7 +300,14 @@ function SitesView({ rows }: { rows: DatedInstance[] }) {
     return { ms, settings };
   }, [clinical]);
 
-  if (!clinical.length) return <p className="text-sm text-slate-400">No clinical sessions in this slice — clinical demand is what sites host. Turn the Clinical chip on or widen the filters.</p>;
+  if (!clinical.length) {
+    return (
+      <div className="space-y-6">
+        <p className="text-sm text-slate-400">No clinical demand in this slice yet — lock in an instantiation (its clinical sessions land on the calendar), or widen the filters. The supply side below fills in as you add partner sites.</p>
+        <SupplyVsDemand rows={clinical} sites={sites} />
+      </div>
+    );
+  }
 
   const studentDays = (setting: string, month: string) =>
     clinical.filter((r) => (r.session.rotationType ?? "(unspecified)") === setting && r.month === month)
@@ -307,6 +324,9 @@ function SitesView({ rows }: { rows: DatedInstance[] }) {
         <Peak k="Total preceptor hours" v={n0(asks.reduce((s, a) => s + a.preceptorHours, 0))} d="across the slice" />
         <Peak k="Clinical shifts (sections)" v={n0(asks.reduce((s, a) => s + a.sectionsTotal, 0))} d="each is one hosted group" />
       </div>
+
+      {/* Supply vs demand — can the sites in supply absorb this? */}
+      <SupplyVsDemand rows={clinical} sites={sites} />
 
       {/* Site request sheet */}
       <section className="space-y-3">
@@ -370,6 +390,78 @@ function SitesView({ rows }: { rows: DatedInstance[] }) {
         <WeeklyBars rows={clinical} />
       </section>
     </div>
+  );
+}
+
+function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite[] }) {
+  // Demand: students who must be ON SITE each date (capped by section capacity).
+  const byDate = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.dateIso) continue;
+    const students = Math.min(r.computed.C, (r.computed.Y ?? 0) * (r.session.maxStudents ?? 0));
+    byDate.set(r.dateIso, (byDate.get(r.dateIso) ?? 0) + students);
+  }
+  const peak = peakOf(byDate);
+  const active = sites.filter((x) => x.status === "active");
+  const supply = active.reduce((n, x) => n + (x.wblSlots ?? 0), 0);
+  const gap = peak ? supply - peak.value : supply;
+  const verdict = !peak
+    ? { cls: "bg-slate-100 text-slate-500", label: "no dated clinical demand in the slice" }
+    : supply === 0
+      ? { cls: "bg-rose-100 text-rose-700", label: "no active supply — every clinical day is uncovered" }
+      : gap >= 0
+        ? { cls: "bg-emerald-100 text-emerald-700", label: `fits — ${n0(gap)} student-slots of headroom on the peak day` }
+        : { cls: "bg-rose-100 text-rose-700", label: `short by ${n0(-gap)} students on the peak day — add sites or capacity` };
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-700">Supply vs demand — can the sites in supply absorb this?</h2>
+          <p className="text-[11px] text-slate-400">Demand is students on site on the heaviest day; supply is the students/day capacity of every active partner site.</p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${verdict.cls}`}>{verdict.label}</span>
+      </div>
+      <div className="grid gap-3 p-4 sm:grid-cols-3">
+        <Peak k="Peak-day demand" v={peak ? `${n0(peak.value)} students` : "—"} d={peak ? `on ${fmtDate(peak.key as string)}` : "no dated clinical sessions"} />
+        <Peak k="Daily supply" v={`${n0(supply)} student-slots`} d={`${active.length} active site${active.length === 1 ? "" : "s"}`} />
+        <Peak k="Headroom on peak day" v={peak ? `${gap >= 0 ? "+" : ""}${n0(gap)}` : "—"} d={gap >= 0 ? "capacity to spare" : "uncovered students"} />
+      </div>
+      {sites.length === 0 ? (
+        <div className="border-t border-slate-100 px-4 py-4 text-sm text-slate-500">
+          No clinical sites in supply yet.{" "}
+          <a href="/employers" className="font-medium text-rose-700 hover:underline">Add partner sites</a> with the number of
+          students each can host per day, and this comparison fills in.
+        </div>
+      ) : (
+        <div className="overflow-x-auto border-t border-slate-100">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                <th className="px-4 py-2 font-semibold">Site</th>
+                <th className="px-4 py-2 font-semibold">Setting</th>
+                <th className="px-4 py-2 font-semibold">City</th>
+                <th className="px-4 py-2 text-right font-semibold">Students / day</th>
+                <th className="px-4 py-2 text-right font-semibold">Share of supply</th>
+                <th className="px-4 py-2 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sites.map((x) => (
+                <tr key={x.id} className={`border-b border-slate-100 ${x.status !== "active" ? "text-slate-400" : ""}`}>
+                  <td className="px-4 py-1.5 font-medium">{x.name}</td>
+                  <td className="px-4 py-1.5">{x.setting ?? "—"}</td>
+                  <td className="px-4 py-1.5">{x.city ?? "—"}</td>
+                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.wblSlots != null ? n0(x.wblSlots) : "not set"}</td>
+                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.status === "active" && supply > 0 && x.wblSlots ? `${Math.round((x.wblSlots / supply) * 100)}%` : "—"}</td>
+                  <td className="px-4 py-1.5">{x.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }
 

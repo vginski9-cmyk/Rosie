@@ -1488,5 +1488,12 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
     });
   });
 
-  return { institution, institutions, cohorts };
+  // Clinical-site supply: every partner site and the students/day it can host.
+  const clinicalSites = await prisma.employer.findMany({
+    where: { institutionId: institution.id },
+    orderBy: [{ status: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, setting: true, city: true, wblSlots: true, status: true },
+  });
+
+  return { institution, institutions, cohorts, clinicalSites };
 }

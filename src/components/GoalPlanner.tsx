@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   BENCHMARK_RATES, RATE_DEFS, UTILIZATION_BENCHMARK,
   buildLadder, capacityFromNorthStar, utilization, roundLadder,
   type LadderRates,
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
-import { saveFamilyGoalPlan } from "@/lib/actions";
+import { saveFamilyGoalPlan, lockInInstantiation } from "@/lib/actions";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -66,6 +67,8 @@ export interface DeliveryModel {
   name: string;
   credential: string | null;
   terms: number;
+  /** Total instructional weeks across the template's terms (for the stop date). */
+  spanWeeks: number;
   /** Max cohort enrollment capacity — the gating criterion when splitting a goal. */
   maxCapacity: number | null;
   running: number;
@@ -78,6 +81,12 @@ interface Alloc {
   goal: number;
   /** Optional per-term enrollment overrides (index 0 = term 1). */
   termOverrides?: (number | null)[];
+  /** Planned first day (ISO date). Required to lock in. */
+  startDate?: string | null;
+  /** Locked in: the real cohort this allocation became. */
+  locked?: boolean;
+  cohortId?: string | null;
+  cohortName?: string | null;
 }
 
 interface Persisted {
@@ -205,9 +214,41 @@ export function GoalPlanner({
   const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
-    setAllocs([...allocs, { programId, goal: Math.max(0, remaining) }]);
+    const m = models.find((x) => x.programId === programId);
+    setAllocs([...allocs, { programId, goal: Math.max(0, remaining), startDate: m ? suggestStart(m) : null }]);
   };
   const [dragOver, setDragOver] = useState(false);
+  const [lockingId, setLockingId] = useState<string | null>(null);
+  const router = useRouter();
+
+  /** Suggested start so the cohort lands its graduates in the selected year. */
+  const suggestStart = (m: DeliveryModel): string => {
+    const spanYears = Math.max(1, Math.ceil((m.spanWeeks + 6) / 52));
+    return `${s.selectedYear - spanYears}-08-15`;
+  };
+  const stopDateOf = (startIso: string | null | undefined, m: DeliveryModel): string | null => {
+    if (!startIso) return null;
+    const d = new Date(startIso + "T00:00:00Z");
+    if (isNaN(d.getTime())) return null;
+    // instructional weeks + ~2-week breaks between terms
+    d.setUTCDate(d.getUTCDate() + (m.spanWeeks + Math.max(0, m.terms - 1) * 2) * 7);
+    return d.toISOString().slice(0, 10);
+  };
+  const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+
+  const lockIn = async (ai: number) => {
+    const a = allocs[ai];
+    const m = models.find((x) => x.programId === a.programId);
+    if (!m || !a.startDate || a.locked) return;
+    setLockingId(a.programId);
+    try {
+      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: a.goal, startDate: a.startDate });
+      setAllocs(allocs.map((x, i) => (i === ai ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x)));
+      router.refresh();
+    } finally {
+      setLockingId(null);
+    }
+  };
 
   const af = actualFunnel;
   const ladderRows: { label: string; g: number; a: number | null; strong?: boolean }[] = [
@@ -388,11 +429,36 @@ export function GoalPlanner({
                         <span className="ml-auto flex items-center gap-2 text-xs">
                           <label className="flex items-center gap-1">
                             <span className="text-slate-500">covers</span>
-                            <input type="number" min={0} value={a.goal} onChange={(e) => setGoal(Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right font-semibold tabular-nums focus:border-rose-400 focus:outline-none" />
+                            <input type="number" min={0} value={a.goal} disabled={!!a.locked} onChange={(e) => setGoal(Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right font-semibold tabular-nums focus:border-rose-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400" />
                             <span className="text-slate-500">productive ({share}%)</span>
                           </label>
-                          <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>
+                          {!a.locked && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
                         </span>
+                      </div>
+                      {/* Start / stop dates + lock-in */}
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+                        {a.locked ? (
+                          <>
+                            <span className="rounded-full bg-emerald-100 px-2.5 py-1 font-medium text-emerald-700">🔒 Locked in{a.cohortName ? ` — ${a.cohortName}` : ""}</span>
+                            <span className="tabular-nums text-slate-500">starts {fmtMY(a.startDate ?? null)} · ends ~{fmtMY(stopDateOf(a.startDate, m))}</span>
+                            {a.cohortId && <Link href={`/programs/${m.programId}/offerings/${a.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
+                          </>
+                        ) : (
+                          <>
+                            <label className="flex items-center gap-1.5">
+                              <span className="text-slate-500">starts</span>
+                              <input type="date" value={a.startDate ?? ""} onChange={(e) => setAllocs(allocs.map((x, i) => (i === ai ? { ...x, startDate: e.target.value || null } : x)))} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
+                            </label>
+                            <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(a.startDate, m))} <span className="text-slate-400">({m.terms} terms · {m.spanWeeks} instructional wks)</span></span>
+                            <button
+                              onClick={() => lockIn(ai)}
+                              disabled={!a.startDate || a.goal <= 0 || lockingId != null}
+                              className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                              title={!a.startDate ? "set a start date first" : a.goal <= 0 ? "give it a share of the goal first" : "create the real instantiation"}
+                            >{lockingId === a.programId ? "Locking in…" : "🔒 Lock in instantiation"}</button>
+                            <span className="text-[10px] text-slate-400">creates the offering with real term dates + the full set of pipeline targets</span>
+                          </>
+                        )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
                         <span className="text-slate-500">needs enrollment capacity <strong className={over ? "text-rose-700" : "text-slate-700"}>{capNeeded}</strong></span>
@@ -422,6 +488,7 @@ export function GoalPlanner({
                                     <input
                                       type="number" min={0}
                                       value={ov ?? Math.round(tv)}
+                                      disabled={!!a.locked}
                                       onChange={(e) => setTermOverride(i, e.target.value === "" ? null : Number(e.target.value))}
                                       className={`w-14 rounded border px-1 py-0.5 text-right ${ov != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : "border-slate-200 text-slate-700"}`}
                                       title={ov != null ? "override — clear to return to the derived figure" : "derived from the goal; type to override this term's enrollment"}

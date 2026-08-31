@@ -15,9 +15,9 @@ const TOURS: Tour[] = [
   {
     key: "home", match: /^\/$/, title: "North Star — the whole platform in one row",
     steps: [
-      { h: "One card per job the region needs", b: "Each card is a program family — Radiologic Technologists, Surgical Technologists, Medical Assistants — with its North-Star goal: how many fully-productive workers the region needs from it each year." },
-      { h: "Click a job to see just its goals", b: "The family page opens with the multi-year goal row. Nothing else competes with it: pick a year, then plan the pipeline that delivers it." },
-      { h: "Everything is connected", b: "Goals set targets → targets size cohorts → cohorts schedule sessions → sessions demand rooms, instructors, preceptors and clinical sites. Change any link and every other surface updates." },
+      { h: "One card per job the region needs", b: "Each card is a job — Radiologic Technologists, Surgical Technologists, Medical Assistants. Click one to set its goal." },
+      { h: "The simple workflow", b: "1) Set a goal for the job. 2) Drag a prepopulated program template in with a start date. 3) Lock it in — the instantiation is created with real term dates and every pipeline target. 4) Open Insights to see the clinical capacity it needs and whether the sites in supply can absorb it." },
+      { h: "Everything is connected", b: "Goals set targets → targets size cohorts → cohorts schedule sessions → sessions demand instructors, preceptors and clinical sites. Change any link and every other surface updates." },
     ],
   },
   {
@@ -25,8 +25,8 @@ const TOURS: Tour[] = [
     steps: [
       { h: "The goal row", b: "One box per year, reading left to right — the stairstep of fully-productive workers this family owes the region. Type in a box to change that year's goal; everything below recalculates." },
       { h: "Click a year", b: "Below the row you get that year's talent-pipeline health targets (the editable % ladder) and the talent-pipeline target metrics for cohorts ending that year — goal vs actual, live from student records." },
-      { h: "Who delivers the goal", b: "Drag delivery models into the box to say which instantiations are responsible — the evening class covers 15, the traditional program covers the rest. Each model shows its max cohort enrollment capacity; if the math needs more seats than a cohort can hold, the box flags it." },
-      { h: "Per-instantiation targets", b: "Every allocation derives its own pipeline targets from its share of the goal, respecting that model's term count — and you can override enrollment per term." },
+      { h: "Who delivers the goal", b: "Drag prepopulated program templates into the box to say which instantiations are responsible — the evening class covers 15, the traditional program covers the rest. Each template shows its max cohort enrollment capacity; if the math needs more seats than a cohort can hold, the box flags it." },
+      { h: "Set dates and lock it in", b: "Give each allocation a start date (the stop date derives from the template's term structure), tune per-term enrollment if you like, then Lock in instantiation — that creates the real offering with term dates and the full set of pipeline targets. It appears under the year immediately." },
     ],
   },
   {
@@ -100,6 +100,7 @@ const TOURS: Tour[] = [
   {
     key: "clinical-sites", match: /^\/insights\/clinical-sites/, title: "Clinical sites",
     steps: [
+      { h: "Supply vs demand first", b: "The verdict up top: peak-day clinical demand from every locked-in instantiation against the students/day capacity of the partner sites in supply — fits, or short by N. Add sites and capacities in the Employers directory." },
       { h: "One request block per setting", b: "For each clinical rotation type: students on the heaviest day, hosted shifts, preceptor hours, the days of week, and the calendar window — exactly what to ask a site to host." },
       { h: "Month by month", b: "The table shows the hosted load each setting carries per month, so a site can see its whole year at a glance." },
     ],

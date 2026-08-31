@@ -595,6 +595,83 @@ export async function createOffering(programId: string, formData: FormData) {
   redirect(`/programs/${programId}/offerings/${cohort.id}`);
 }
 
+/** Lock in an instantiation from the goal-breakdown box: create the cohort
+ *  (offering) for a delivery model with real per-term dates AND the full set of
+ *  funnel targets derived backward from its share of the goal — so the moment
+ *  it's locked, every surface (offering page, calendars, analytics, capacity
+ *  insights) has its numbers. */
+export async function lockInInstantiation(
+  programId: string,
+  familyId: string,
+  input: { gradYear: number; goal: number; startDate: string },
+): Promise<{ cohortId: string; name: string }> {
+  const { deriveCohortTargets } = await import("./pipeline");
+  const { BENCHMARK_RATES } = await import("./northstar");
+
+  const program = await prisma.program.findUnique({
+    where: { id: programId },
+    include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } } },
+  });
+  if (!program) throw new Error("Program not found");
+
+  // The SAME rates the goal planner saves — one plan, every surface reads it.
+  let rates = { ...BENCHMARK_RATES };
+  if (program.family?.goalPlan) {
+    try {
+      const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> };
+      if (saved.goal) rates = { ...rates, ...saved.goal };
+    } catch { /* benchmarks */ }
+  }
+  const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, program.terms.length));
+
+  // Name it by the year it lands its graduates; disambiguate within the program.
+  let name = `Class of ${input.gradYear}`;
+  if (program.cohorts.some((c) => c.name === name)) {
+    let n = 2;
+    while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++;
+    name = `${name} (${n})`;
+  }
+
+  const startD = new Date(input.startDate);
+  const cohort = await prisma.cohort.create({
+    data: {
+      programId, name, status: "planned", startDate: startD,
+      entryYear: startD.getFullYear(), isExplicit: true,
+      plannedSeats: Math.round(t.capacity),
+    },
+  });
+
+  // Funnel targets — the whole derived ladder, stage by stage.
+  const stageTargets: Record<string, number> = {
+    interested: t.interested, qualified: t.qualified, offered: t.offered,
+    enrolled: t.capacity, completing: t.completing, licensed: t.licensed,
+    placed: t.placed, productive: t.productive,
+  };
+  await prisma.funnelStage.createMany({
+    data: STAGES.map((s, i) => ({
+      cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label,
+      targetNumber: Math.round(stageTargets[s.key] ?? 0),
+    })),
+  });
+
+  // Real per-term dates cascaded from each template term's week span.
+  const cursor = new Date(startD);
+  for (const term of program.terms) {
+    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: new Date(cursor) } });
+    const weeks = (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1;
+    cursor.setDate(cursor.getDate() + (weeks + 2) * 7); // term length + ~2-week break
+  }
+
+  // Calendarize immediately so the data shows up everywhere at once: meetings
+  // (with days/times) land on the master calendar and drive the capacity
+  // insights. Rooms/sites stay unassigned until someone places them.
+  await calendarizeCohort(cohort.id, programId);
+
+  revalidatePath(`/families/${familyId}`);
+  revalidatePath(`/programs/${programId}`);
+  return { cohortId: cohort.id, name };
+}
+
 /** Persist an offering's per-section weekly slots (day/time/room) in bulk. */
 export async function saveSectionSchedules(
   cohortId: string,

@@ -157,6 +157,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
           savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear}
           models={family.programs.map((p) => ({
             programId: p.id, name: p.name, credential: p.credential, terms: p.terms.length,
+            spanWeeks: p.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0),
             maxCapacity: p.defaultCohortSeats ?? p.yearTargets.reduce<number | null>((m, t) => (t.cohortCapacity != null && (m == null || t.cohortCapacity > m) ? t.cohortCapacity : m), null),
             running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length,
           }))}
