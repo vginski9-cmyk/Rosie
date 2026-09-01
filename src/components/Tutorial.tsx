@@ -104,9 +104,10 @@ const TOURS: Tour[] = [
   {
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
-      { h: "Peak people, not abstractions", b: "The cards up top are the answer: peak simultaneous instructors and preceptors across every scheduled offering, converted from session hours via each program's workload assumptions." },
-      { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling. For the day-by-day picture, open Daily coverage: a month calendar with every session's date, time and location." },
-      { h: "Filters", b: "Chips narrow cohorts, terms and session types — they never remove data from the model, only from the view." },
+      { h: "The answer, in words", b: "The headline states the peak: N FTE of instructors and M FTE of preceptors, which weeks, and the ÷-by-workload math behind each number — followed by a what-to-do list with real deadlines (preceptor agreements six weeks before the first clinical day)." },
+      { h: "Week by week, day by day", b: "Every row is a real calendar week, split class / lab / clinical, toggling between people (FTE → whole heads) and raw workbook contact hours. Click a week to expand its day-by-day: each date's sessions with times, students, and the instructor-led groups and preceptors it takes." },
+      { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling." },
+      { h: "Filters", b: "Every workbook page filter: cohorts, terms, session type, course code, delivery mode, rotation type, clinical mode, day, and a date range — they never remove data from the model, only from the view." },
     ],
   },
   {

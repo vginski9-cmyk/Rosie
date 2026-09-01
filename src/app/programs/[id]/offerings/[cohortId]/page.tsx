@@ -266,6 +266,21 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         {program.familyId && <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>}
       </div>
 
+      {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}
+      {capCohort && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Instructors &amp; preceptors — how many, and when</h2>
+            <p className="text-sm text-slate-500">
+              This offering&apos;s need, week by week: class, lab and clinical faculty FTE (or raw contact hours) with the
+              peaks called out and deadlines derived. Click any week for its day-by-day breakdown; the filters slice by
+              term, course, session type, rotation, day, or date range.
+            </p>
+          </div>
+          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+        </section>
+      )}
+
       {/* ── THE calendar for this instantiation: exact dates, times, locations ── */}
       {capCohort && (
         <section className="space-y-3">

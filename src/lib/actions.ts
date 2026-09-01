@@ -713,6 +713,15 @@ export async function saveCourseDates(cohortId: string, courseId: string, progra
 export async function saveSessionOverride(cohortId: string, sessionId: string, programId: string, formData: FormData) {
   const tpl = await prisma.session.findUnique({ where: { id: sessionId } });
   if (!tpl) return;
+  // Day, time and location are effectively supplied by the weekly booking
+  // (meeting pattern) when one exists — diff those fields against what the row
+  // actually shows (meeting ?? template), or an untouched row would store
+  // spurious overrides and an equal-to-template edit would silently revert to
+  // the meeting value.
+  const meeting = await prisma.meetingPattern.findFirst({
+    where: { cohortId, courseId: tpl.courseId, kind: tpl.kind },
+    orderBy: { sectionIndex: "asc" },
+  });
   const numDiff = (name: string, tplVal: number | null) => {
     const v = optNum(formData.get(name));
     return v != null && v !== tplVal ? v : null;
@@ -723,8 +732,8 @@ export async function saveSessionOverride(cohortId: string, sessionId: string, p
   };
   const data = {
     week: numDiff("week", tpl.week),
-    dayOfWeek: strDiff("dayOfWeek", tpl.dayOfWeek),
-    startTime: strDiff("startTime", tpl.startTime),
+    dayOfWeek: strDiff("dayOfWeek", meeting?.dayOfWeek ?? tpl.dayOfWeek),
+    startTime: strDiff("startTime", meeting?.startTime ?? tpl.startTime),
     notes: strDiff("notes", tpl.notes),
     title: strDiff("title", tpl.title),
     deliveryMode: strDiff("deliveryMode", tpl.deliveryMode),

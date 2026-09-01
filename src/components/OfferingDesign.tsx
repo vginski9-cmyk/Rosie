@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveMeeting, saveSessionOverride, clearSessionOverride } from "@/lib/actions";
 import {
@@ -152,6 +152,11 @@ export function OfferingDesign({
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setRows(buildRows()); setDirty(new Set()); }, [terms, overrides, meetings]);
+  // SAVED state, for row ordering — rows keep their place while you edit
+  // (they re-sort chronologically once Save row commits), so the row you're
+  // typing in never jumps out from under you.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const savedRows = useMemo(() => buildRows(), [terms, overrides, meetings]);
 
   const setField = (id: string, field: keyof RowState, value: unknown) => {
     setRows((m) => { const n = new Map(m); const r = n.get(id); if (r) n.set(id, { ...r, [field]: value }); return n; });
@@ -224,20 +229,24 @@ export function OfferingDesign({
 
           {t.courses.map((c) => {
             const kinds = [...new Set(c.sessions.map((s) => s.kind))];
-            const courseRows = c.sessions.map((s) => rows.get(s.id)!).filter(Boolean);
             const ct = courseTallies.get(c.id) ?? emptyTally();
             const psTot = ct.ps.CLASS + ct.ps.LAB + ct.ps.CLINICAL;
             const cSecTot = ct.sec.CLASS + ct.sec.LAB + ct.sec.CLINICAL;
-            const ordered = [...courseRows].sort((a, b) => {
-              const wa = a.week ?? 999, wb = b.week ?? 999;
-              if (wa !== wb) return wa - wb;
-              const da = a.dayOfWeek != null ? DAY_OFFSET[a.dayOfWeek] ?? 8 : 8;
-              const db = b.dayOfWeek != null ? DAY_OFFSET[b.dayOfWeek] ?? 8 : 8;
-              if (da !== db) return da - db;
-              const ta = a.startTime ?? "99:99", tb = b.startTime ?? "99:99";
-              if (ta !== tb) return ta.localeCompare(tb);
-              return a.kind.localeCompare(b.kind) || a.number - b.number;
-            });
+            // Order by the SAVED chronology (unsaved edits don't reshuffle rows mid-typing).
+            const ordered = c.sessions
+              .map((s) => savedRows.get(s.id)!)
+              .filter(Boolean)
+              .sort((a, b) => {
+                const wa = a.week ?? 999, wb = b.week ?? 999;
+                if (wa !== wb) return wa - wb;
+                const da = a.dayOfWeek != null ? DAY_OFFSET[a.dayOfWeek] ?? 8 : 8;
+                const db = b.dayOfWeek != null ? DAY_OFFSET[b.dayOfWeek] ?? 8 : 8;
+                if (da !== db) return da - db;
+                const ta = a.startTime ?? "99:99", tb = b.startTime ?? "99:99";
+                if (ta !== tb) return ta.localeCompare(tb);
+                return a.kind.localeCompare(b.kind) || a.number - b.number;
+              })
+              .map((s) => rows.get(s.id) ?? s);
             return (
               <div key={c.id} className="rounded-xl border border-slate-200 bg-white">
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
@@ -344,8 +353,29 @@ export function OfferingDesign({
                         return (
                           <tr key={r.id} className={`border-b border-slate-100 align-top ${holiday ? "bg-rose-50/60" : r.overridden ? "bg-amber-50/50" : "hover:bg-slate-50/60"}`}>
                             <td className="whitespace-nowrap border-r border-slate-100 px-1.5 py-1 font-medium text-slate-700">
-                              {d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "—"}
-                              {holiday && <span className="ml-1 rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800" title={`${holiday} — move this session (edit Q/R, then Save row)`}>⚠ {holiday}</span>}
+                              {(() => {
+                                const anchor = c.startDate ?? t.startDate;
+                                if (!anchor) return <>—</>;
+                                return (
+                                  <input
+                                    type="date"
+                                    value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""}
+                                    title="Pick the real date — week & day recompute; Save row stores it for this offering"
+                                    onChange={(e) => {
+                                      if (!e.target.value) return;
+                                      const picked = new Date(e.target.value + "T00:00:00Z");
+                                      const a0 = new Date(anchor + "T00:00:00Z");
+                                      let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000);
+                                      if (diff < 0) diff = 0;
+                                      setField(r.id, "week", Math.floor(diff / 7) + 1);
+                                      setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
+                                    }}
+                                    className={inp}
+                                  />
+                                );
+                              })()}
+                              <span className="block text-[10px] text-slate-500">{d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "no date yet"}</span>
+                              {holiday && <span className="rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800" title={`${holiday} — pick a new date (or edit Q/R), then Save row`}>⚠ {holiday}</span>}
                             </td>
                             <td className="border-r border-slate-100 px-1 py-0.5">
                               <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
