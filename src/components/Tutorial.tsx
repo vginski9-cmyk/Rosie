@@ -74,7 +74,7 @@ const TOURS: Tour[] = [
       { h: "In the order it actually happens", b: "Sessions are sorted by week → day → time, classes, labs and clinicals interleaved — the real timeline, with the actual date on every row. Holiday collisions are flagged in red so you can move them." },
       { h: "Every cell is editable — for THIS offering", b: "Title, delivery, length, capacity, staffing counts, policies, rotation, week, day, time, notes — the same configurability as the template sheet. Formula columns recalculate as you type; Save row stores only what differs from the template ('edited' chip; clear returns to it)." },
       { h: "Edit the weekly pattern", b: "Each course × kind has a weekly booking (day · time · room or partner site · staff). Click edit, change it, save — the same booking updates on the master calendar and every other surface." },
-      { h: "Staffing need by week", b: "The table up top shows how many class, lab and clinical faculty (and preceptors) this instantiation needs each calendar week — overrides included. The institution-wide version lives under Insights → Instructors & preceptors." },
+      { h: "Course windows drive the dates", b: "Set a course's own start and end dates on its card in the sequence board (offering page) and every session row here re-anchors — an 8-week course inside a 16-week term shows its real dates, staffing and holiday flags." },
     ],
   },
   {
@@ -82,7 +82,8 @@ const TOURS: Tour[] = [
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
       { h: "What it needs", b: "The capacity block shows peak-week instructors and preceptors, the clinical settings this run requires, and whether the sites in supply can absorb it." },
-      { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. Below the sequence board, set each COURSE's own start and end dates — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and coverage all shift with it." },
+      { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. In the sequence board, each course card carries its OWN start and end date inputs — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and the calendar all shift with it." },
+      { h: "The calendar", b: "Scroll the month view with ← → : every session on its exact date, color-coded (blue class, violet lab, rose clinical) with time, course and location. Click a day to see exactly what happens that day and who must be on site; ⚠ marks holiday collisions." },
     ],
   },
   {
@@ -102,8 +103,8 @@ const TOURS: Tour[] = [
   {
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
-      { h: "Every bar is a real week", b: "Session-table hours from every scheduled offering land on calendar weeks and convert to people via each program's workload assumptions. Green is faculty FTE, amber is preceptor FTE." },
-      { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling. The pivot below expands each week into the courses and sessions that drive it." },
+      { h: "Peak people, not abstractions", b: "The cards up top are the answer: peak simultaneous instructors and preceptors across every scheduled offering, converted from session hours via each program's workload assumptions." },
+      { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling. For the day-by-day picture, open Daily coverage: a month calendar with every session's date, time and location." },
       { h: "Filters", b: "Chips narrow cohorts, terms and session types — they never remove data from the model, only from the view." },
     ],
   },
@@ -118,7 +119,8 @@ const TOURS: Tour[] = [
   {
     key: "coverage", match: /^\/insights\/coverage/, title: "Daily coverage",
     steps: [
-      { h: "Each cell is a date", b: "Rows are calendar weeks, columns weekdays, the number is shifts (sections) to cover that day. Hover for the courses, settings and cohorts behind it; red is the peak." },
+      { h: "A real month calendar", b: "Scroll month by month with ← → . Every session sits on its exact date, color-coded — blue class, violet lab, rose clinical — with its time, course and how many students where. ⚠ flags holiday collisions." },
+      { h: "Click a day", b: "The panel shows only that day: each session's time, title, students in how many groups, hours and setting, plus how many instructor-led groups and preceptors must be on site." },
       { h: "The schedule for sites", b: "Below, every date with what arrives and how many preceptors need to be on site — the list you hand to clinical partners." },
     ],
   },

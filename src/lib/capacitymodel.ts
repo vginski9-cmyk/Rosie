@@ -165,6 +165,8 @@ export interface SessionInput {
   dayOfWeek: string | null;
   /** Booked start time for this session's meeting, when calendarized (HH:MM). */
   startTime?: string | null;
+  /** Booked instructor / preceptor name, when assigned. */
+  staffName?: string | null;
   /** S — Notes. */
   notes: string | null;
   /** T — Number of preceptors required to teach full clinical session. */

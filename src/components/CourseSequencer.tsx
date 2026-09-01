@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { saveCourseDates } from "@/lib/actions";
 
 export interface SeqCourse {
   id: string;
@@ -54,17 +55,20 @@ function CourseCard({ course, dragging, issues }: { course: SeqCourse; dragging?
   );
 }
 
-function SortableCourse({ course, issues }: { course: SeqCourse; issues?: string[] }) {
+function SortableCourse({ course, issues, dateSlot }: { course: SeqCourse; issues?: string[]; dateSlot?: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: course.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
-      <CourseCard course={course} issues={issues} />
+    <div ref={setNodeRef} style={style}>
+      <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <CourseCard course={course} issues={issues} />
+      </div>
+      {dateSlot}
     </div>
   );
 }
 
-function TermColumn({ term, courses, issuesByCourse, onRemove }: { term: SeqTerm; courses: SeqCourse[]; issuesByCourse: Record<string, string[]>; onRemove: (id: string) => void }) {
+function TermColumn({ term, courses, issuesByCourse, onRemove, dateSlotFor }: { term: SeqTerm; courses: SeqCourse[]; issuesByCourse: Record<string, string[]>; onRemove: (id: string) => void; dateSlotFor?: (course: SeqCourse) => React.ReactNode }) {
   // The column itself is droppable via an empty sortable context that accepts the term id.
   const { setNodeRef } = useSortable({ id: `term:${term.id}`, data: { isContainer: true, termId: term.id } });
   return (
@@ -81,7 +85,7 @@ function TermColumn({ term, courses, issuesByCourse, onRemove }: { term: SeqTerm
       <SortableContext items={courses.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="min-h-[120px] space-y-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-2">
           {courses.map((c) => (
-            <SortableCourse key={c.id} course={c} issues={issuesByCourse[c.id]} />
+            <SortableCourse key={c.id} course={c} issues={issuesByCourse[c.id]} dateSlot={dateSlotFor?.(c)} />
           ))}
           {courses.length === 0 && <div className="py-6 text-center text-xs text-slate-400">drop a course here</div>}
         </div>
@@ -90,7 +94,12 @@ function TermColumn({ term, courses, issuesByCourse, onRemove }: { term: SeqTerm
   );
 }
 
-export function CourseSequencer({ programId, terms: initialTerms, initialCourses }: { programId: string; terms: SeqTerm[]; initialCourses: SeqCourse[] }) {
+export function CourseSequencer({ programId, terms: initialTerms, initialCourses, cohortId, courseDates = {} }: {
+  programId: string; terms: SeqTerm[]; initialCourses: SeqCourse[];
+  /** When set, each course card gets start/end date inputs for THIS offering (8/12/16-week courses inside a term). */
+  cohortId?: string;
+  courseDates?: Record<string, { start: string | null; end: string | null }>;
+}) {
   const [courses, setCourses] = useState<SeqCourse[]>(initialCourses);
   const [terms, setTerms] = useState<SeqTerm[]>(initialTerms);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -134,6 +143,29 @@ export function CourseSequencer({ programId, terms: initialTerms, initialCourses
   }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  // Per-offering course windows, ON the drag-drop cards: 8-, 12-, 16-week
+  // courses inside the same term each get real start/end dates. The form sits
+  // outside the drag listeners, so typing never starts a drag.
+  const dateSlotFor = cohortId
+    ? (c: SeqCourse) => {
+        const d = courseDates[c.id];
+        return (
+          <form
+            action={saveCourseDates.bind(null, cohortId, c.id, programId)}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="mt-1 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[10px]"
+          >
+            <span className="font-semibold uppercase tracking-wide text-slate-400">Runs</span>
+            <input type="date" name="startDate" defaultValue={d?.start ?? ""} className="rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[10px] text-blue-900" />
+            <span className="text-slate-400">→</span>
+            <input type="date" name="endDate" defaultValue={d?.end ?? ""} className="rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[10px] text-blue-900" />
+            <button className="rounded bg-rose-600 px-1.5 py-0.5 font-medium text-white hover:bg-rose-700">Set</button>
+            {d?.start && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[8px] font-semibold text-amber-800">custom</span>}
+          </form>
+        );
+      }
+    : undefined;
 
   const byTerm = (termId: string) => courses.filter((c) => c.termId === termId);
   const findTermOf = (id: string): string | null => {
@@ -243,7 +275,7 @@ export function CourseSequencer({ programId, terms: initialTerms, initialCourses
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {terms.map((t) => (
-            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} issuesByCourse={issuesByCourse} onRemove={removeTermLocal} />
+            <TermColumn key={t.id} term={t} courses={byTerm(t.id)} issuesByCourse={issuesByCourse} onRemove={removeTermLocal} dateSlotFor={dateSlotFor} />
           ))}
         </div>
         <DragOverlay>{active ? <CourseCard course={active} dragging /> : null}</DragOverlay>

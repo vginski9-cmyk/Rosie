@@ -172,31 +172,6 @@ function StaffingView({ rows }: { rows: DatedInstance[] }) {
         <Peak k="Average active week" v={active.length ? `${n1(active.reduce((s, w) => s + w.facultyFte + w.preceptorFte, 0) / active.length)} FTE` : "—"} d="faculty + preceptor combined" />
       </div>
 
-      {/* Week-by-week bars */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-700">Week by week — every bar is a real week</h2>
-          <div className="flex gap-3 text-[11px] text-slate-500">
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-600" /> faculty FTE</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> preceptor FTE</span>
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <div className="flex items-end gap-[3px]" style={{ height: 140, minWidth: weekly.length * 14 }}>
-            {weekly.map((w) => (
-              <div key={w.mondayIso} className="group relative flex h-full flex-1 items-end gap-[1px]" title={`Week of ${fmtDate(w.mondayIso)} — faculty ${n1(w.facultyFte)} FTE (${w.facultyHeads} people) · preceptors ${n1(w.preceptorFte)} FTE (${w.preceptorHeads} people) · ${n0(w.sections)} sections`}>
-                <div className="w-1/2 rounded-t-sm bg-emerald-600/90" style={{ height: `${(w.facultyFte / maxV) * 100}%` }} />
-                <div className="w-1/2 rounded-t-sm bg-amber-500/90" style={{ height: `${(w.preceptorFte / maxV) * 100}%` }} />
-              </div>
-            ))}
-          </div>
-          <div className="mt-1 flex justify-between text-[10px] text-slate-400">
-            <span>{weekly.length ? fmtDateM(weekly[0].mondayIso) : ""}</span>
-            <span>{weekly.length ? fmtDateM(weekly[weekly.length - 1].mondayIso) : ""}</span>
-          </div>
-        </div>
-      </section>
-
       {/* Staffing plan by term */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3">
@@ -233,96 +208,7 @@ function StaffingView({ rows }: { rows: DatedInstance[] }) {
         </div>
       </section>
 
-      {/* Need by week & session type */}
-      <section className="rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Need by week &amp; session type — class / lab / clinical faculty and preceptors</h2>
-          <p className="text-[11px] text-slate-400">Faculty FTE split by what kind of session drives it, week by week; people = FTE rounded up.</p>
-        </div>
-        <div className="max-h-[26rem] overflow-auto">
-          <table className="min-w-full text-xs">
-            <thead className="sticky top-0 bg-slate-50">
-              <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2 font-semibold">Week of</th>
-                <th className="px-3 py-2 text-right font-semibold">Class fac FTE</th>
-                <th className="px-3 py-2 text-right font-semibold">Lab fac FTE</th>
-                <th className="px-3 py-2 text-right font-semibold">Clinical fac FTE</th>
-                <th className="px-3 py-2 text-right font-semibold">Faculty total (people)</th>
-                <th className="px-3 py-2 text-right font-semibold">Preceptor FTE (people)</th>
-                <th className="px-3 py-2 text-right font-semibold">Sections</th>
-              </tr>
-            </thead>
-            <tbody>
-              {weeklyNeedByKind(rows).map((w) => (
-                <tr key={w.mondayIso} className="border-b border-slate-50">
-                  <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDateM(w.mondayIso)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-sky-700">{w.classFte ? n1(w.classFte) : "·"}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-violet-700">{w.labFte ? n1(w.labFte) : "·"}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-rose-700">{w.clinicalFacFte ? n1(w.clinicalFacFte) : "·"}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold text-slate-800">{n1(w.totalFacFte)} ({w.facultyHeads})</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold text-amber-700">{w.preceptorFte ? `${n1(w.preceptorFte)} (${w.preceptorHeads})` : "·"}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-slate-500">{Math.round(w.sections)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Pivot detail */}
-      <PivotDetail rows={rows} />
     </div>
-  );
-}
-
-function PivotDetail({ rows }: { rows: DatedInstance[] }) {
-  const weekly = weeklyNeed(rows);
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white">
-      <div className="border-b border-slate-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-700">Pivot detail — week → course → sessions</h2>
-        <p className="text-[11px] text-slate-400">Same hierarchy as the workbook pivot; click a week to expand what drives it.</p>
-      </div>
-      <div className="max-h-[28rem] overflow-auto">
-        <table className="min-w-full text-xs">
-          <thead className="sticky top-0 bg-slate-800 text-left text-slate-100">
-            <tr>
-              <th className="px-3 py-2 font-medium">Week of</th>
-              <th className="px-3 py-2 text-right font-medium">Sum of Total number of faculty contact hours (weekly)</th>
-              <th className="px-3 py-2 text-right font-medium">Sum of Total number of preceptor contact hours (weekly)</th>
-              <th className="px-3 py-2 text-right font-medium">Sections</th>
-            </tr>
-          </thead>
-          <tbody>
-            {weekly.map((w) => {
-              const isOpen = open.has(w.mondayIso);
-              const wkRows = rows.filter((r) => r.mondayIso === w.mondayIso);
-              const byCourse = new Map<string, DatedInstance[]>();
-              for (const r of wkRows) { const k = `${r.courseCode ?? r.courseTitle} · ${r.cohort}`; byCourse.set(k, [...(byCourse.get(k) ?? []), r]); }
-              return [
-                <tr key={w.mondayIso} onClick={() => setOpen((s) => { const n = new Set(s); n.has(w.mondayIso) ? n.delete(w.mondayIso) : n.add(w.mondayIso); return n; })} className="cursor-pointer border-b border-slate-100 bg-slate-50/70 font-medium hover:bg-rose-50/50">
-                  <td className="px-3 py-1.5">{isOpen ? "▾" : "▸"} Week of {fmtDateM(w.mondayIso)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n1(w.facultyFte)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n1(w.preceptorFte)}</td>
-                  <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n0(w.sections)}</td>
-                </tr>,
-                ...(isOpen
-                  ? [...byCourse.entries()].map(([k, rs]) => (
-                      <tr key={w.mondayIso + k} className="border-b border-slate-50">
-                        <td className="px-3 py-1 pl-9 text-slate-500">{k} <span className="text-slate-300">· {rs.length} session{rs.length === 1 ? "" : "s"}</span></td>
-                        <td className="px-3 py-1 text-right font-mono tabular-nums text-slate-500">{n1(rs.reduce((s, r) => s + (r.computed.AB ?? 0), 0))}</td>
-                        <td className="px-3 py-1 text-right font-mono tabular-nums text-slate-500">{n1(rs.reduce((s, r) => s + (r.computed.AE ?? 0), 0))}</td>
-                        <td className="px-3 py-1 text-right font-mono tabular-nums text-slate-500">{n0(rs.reduce((s, r) => s + (r.computed.Y ?? 0), 0))}</td>
-                      </tr>
-                    ))
-                  : []),
-              ];
-            })}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 
@@ -523,106 +409,118 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
   const board = useMemo(() => shiftBoard(rows), [rows]);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const selected = selectedDay ? board.find((d) => d.dateIso === selectedDay) ?? null : null;
-  const peakDay = board.reduce((b, d) => (d.shifts > (b?.shifts ?? 0) ? d : b), null as null | (typeof board)[number]);
-  const byMonth = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const d of board) m.set(d.dateIso.slice(0, 7), (m.get(d.dateIso.slice(0, 7)) ?? 0) + d.shifts);
-    return [...m.entries()].sort();
-  }, [board]);
+  const byDate = useMemo(() => new Map(board.map((d) => [d.dateIso, d])), [board]);
 
-  // Week rows × weekday columns.
-  const weeks = useMemo(() => {
-    const m = new Map<string, Map<number, (typeof board)[number]>>();
-    for (const d of board) {
-      const dt = new Date(d.dateIso + "T00:00:00Z");
-      const dow = (dt.getUTCDay() + 6) % 7; // Mon=0
-      const monday = new Date(dt.getTime() - dow * 86400000).toISOString().slice(0, 10);
-      const row = m.get(monday) ?? new Map();
-      row.set(dow, d);
-      m.set(monday, row);
-    }
-    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [board]);
+  // Month navigation — start on the first month with anything scheduled.
+  const months = useMemo(() => [...new Set(board.map((d) => d.dateIso.slice(0, 7)))].sort(), [board]);
+  const [month, setMonth] = useState<string | null>(null);
+  const cur = month ?? months[0] ?? null;
+  const monthIdx = cur ? months.indexOf(cur) : -1;
+  const shiftMonth = (dir: number) => {
+    if (!cur) return;
+    const d = new Date(cur + "-01T00:00:00Z");
+    d.setUTCMonth(d.getUTCMonth() + dir);
+    setMonth(d.toISOString().slice(0, 7));
+  };
 
   if (!board.length) return <p className="text-sm text-slate-400">No dated sessions in this slice — days come from the template&apos;s Week __ · day columns and each offering&apos;s real term dates.</p>;
 
-  const totalShifts = board.reduce((s, d) => s + d.shifts, 0);
+  // Build the month grid (Mon-first) for the current month.
+  const first = new Date(cur + "-01T00:00:00Z");
+  const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  const lead = (first.getUTCDay() + 6) % 7; // Mon=0
+  const cells: (string | null)[] = [
+    ...Array.from({ length: lead }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => `${cur}-${String(i + 1).padStart(2, "0")}`),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const KIND_COLOR: Record<string, string> = {
+    CLASS: "border-l-4 border-sky-500 bg-sky-50 text-sky-900",
+    LAB: "border-l-4 border-violet-500 bg-violet-50 text-violet-900",
+    CLINICAL: "border-l-4 border-rose-500 bg-rose-50 text-rose-900",
+  };
+  const fmtT = (t: string | null) => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12;
+    return m ? `${hh}:${String(m).padStart(2, "0")}${ap} ` : `${hh}${ap} `;
+  };
+  const monthLabel = cur ? new Date(cur + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
+  const monthTotal = board.filter((d) => d.dateIso.startsWith(cur ?? "")).reduce((n, d) => n + d.shifts, 0);
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Peak k="Heaviest single day" v={peakDay ? `${n0(peakDay.shifts)} shifts` : "—"} d={peakDay ? `${fmtDate(peakDay.dateIso)} · ${n0(peakDay.preceptorsOnSite)} preceptors on site` : ""} />
-        <Peak k="Total shifts to cover" v={n0(totalShifts)} d="across the slice" />
-        <Peak k="Days with coverage" v={String(board.length)} d={`${fmtDateM(board[0].dateIso)} → ${fmtDateM(board[board.length - 1].dateIso)}`} />
-        <Peak k="Busiest month" v={byMonth.length ? n0(Math.max(...byMonth.map(([, v]) => v))) : "—"} d={byMonth.length ? fmtMonth(byMonth.reduce((b, e) => (e[1] > b[1] ? e : b))[0]) : ""} />
-      </div>
-
-      {/* The coverage board */}
+    <div className="space-y-4">
+      {/* ── The calendar: exact dates, times, locations — color-coded by kind ── */}
       <section className="rounded-xl border border-slate-200 bg-white">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Coverage board — each cell is a real date and the shifts that day</h2>
-          <p className="text-[11px] text-slate-400">Hover a cell for the courses, settings and cohorts behind it.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <button onClick={() => shiftMonth(-1)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-50">←</button>
+            <h2 className="min-w-[12rem] text-center text-base font-semibold text-slate-800">{monthLabel}</h2>
+            <button onClick={() => shiftMonth(1)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-sm hover:bg-slate-50">→</button>
+            {monthIdx !== 0 && months[0] && <button onClick={() => setMonth(months[0])} className="ml-1 text-xs text-slate-400 hover:text-rose-600">jump to first scheduled month</button>}
+          </div>
+          <div className="flex items-center gap-4 text-[11px] text-slate-600">
+            <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-500" /> Class</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-500" /> Lab</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" /> Clinical</span>
+            <span className="tabular-nums text-slate-400">{n0(monthTotal)} sessions this month</span>
+          </div>
         </div>
-        <div className="max-h-[30rem] overflow-auto">
-          <table className="min-w-full text-xs">
-            <thead className="sticky top-0 bg-slate-800 text-slate-100">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">Week of</th>
-                {WEEKDAYS.map((d) => <th key={d} className="px-3 py-2 text-center font-medium">{d}</th>)}
-                <th className="px-3 py-2 text-right font-medium">Week total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {weeks.map(([monday, days]) => {
-                const weekTotal = [...days.values()].reduce((s, d) => s + d.shifts, 0);
-                return (
-                  <tr key={monday} className="border-b border-slate-100">
-                    <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDateM(monday)}</td>
-                    {WEEKDAYS.map((_, i) => {
-                      const d = days.get(i);
-                      if (!d) return <td key={i} className="px-3 py-1.5 text-center text-slate-200">·</td>;
-                      const kindsHere = [...new Set(d.details.map((x) => x.kind[0]))].join("");
-                      const heat = d.shifts >= (peakDay?.shifts ?? 1) ? "bg-rose-600 text-white" : d.shifts >= (peakDay?.shifts ?? 1) * 0.6 ? "bg-rose-200 text-rose-900" : "bg-emerald-50 text-emerald-900";
-                      const isSel = selectedDay === d.dateIso;
-                      return (
-                        <td key={i} className="px-1 py-1 text-center align-top">
-                          <button
-                            onClick={() => setSelectedDay(isSel ? null : d.dateIso)}
-                            title={`click for exactly what happens on ${fmtDate(d.dateIso)}`}
-                            className={`inline-block min-w-[3.6rem] rounded px-1.5 py-1 leading-tight ${heat} ${isSel ? "ring-2 ring-slate-800" : "hover:ring-2 hover:ring-rose-400"}`}
-                          >
-                            <span className="block font-mono text-[12px] font-bold tabular-nums">{n0(d.studentsOnSite)}<span className="text-[9px] font-normal opacity-80"> stu</span></span>
-                            <span className="block text-[9px] opacity-80">{n0(d.shifts)} shift{d.shifts === 1 ? "" : "s"} · {kindsHere}</span>
-                            {d.holiday && <span className="block text-[8px] font-semibold">⚠ {d.holiday}</span>}
-                          </button>
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-1.5 text-right font-mono font-semibold tabular-nums text-slate-700">{n0(weekTotal)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {WEEKDAYS.map((d) => <div key={d} className="py-1.5">{d}</div>)}
         </div>
+        <div className="grid grid-cols-7">
+          {cells.map((dateIso, i) => {
+            if (!dateIso) return <div key={i} className="min-h-[92px] border-b border-r border-slate-100 bg-slate-50/40" />;
+            const day = byDate.get(dateIso) ?? null;
+            const dayNum = Number(dateIso.slice(8, 10));
+            const isToday = dateIso === todayIso;
+            const isSel = selectedDay === dateIso;
+            return (
+              <button
+                key={i}
+                onClick={() => day && setSelectedDay(isSel ? null : dateIso)}
+                className={`min-h-[92px] border-b border-r border-slate-100 p-1 text-left align-top ${day ? "cursor-pointer hover:bg-slate-50" : "cursor-default"} ${isSel ? "ring-2 ring-inset ring-slate-800" : ""}`}
+              >
+                <div className="mb-0.5 flex items-center justify-between px-0.5">
+                  <span className={`text-[11px] font-semibold ${isToday ? "rounded-full bg-rose-600 px-1.5 text-white" : "text-slate-500"}`}>{dayNum}</span>
+                  {day?.holiday && <span className="truncate text-[8px] font-semibold text-rose-600" title={day.holiday}>⚠ {day.holiday}</span>}
+                </div>
+                <div className="space-y-0.5">
+                  {(day?.details ?? []).slice(0, 3).map((x, j) => (
+                    <div key={j} className={`truncate rounded-r px-1 py-0.5 text-[9.5px] leading-tight ${KIND_COLOR[x.kind] ?? "bg-slate-50"}`}
+                      title={`${x.courseCode ?? x.courseTitle}${x.sessionTitle ? ` — ${x.sessionTitle}` : ""} · ${n0(x.students)} students · ${x.lengthHours}h${x.startTime ? ` from ${x.startTime}` : ""}${x.setting ? ` @ ${x.setting}` : ""} · ${x.cohort}`}>
+                      <span className="font-semibold">{fmtT(x.startTime)}{x.courseCode ?? x.courseTitle}</span>
+                      <span className="block truncate opacity-80">{n0(x.students)} stu{x.setting ? ` @ ${x.setting}` : ""}</span>
+                    </div>
+                  ))}
+                  {day && day.details.length > 3 && <div className="px-1 text-[9px] text-slate-400">+{day.details.length - 3} more — click</div>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Day drill-down: exactly what happens, plus the staffing it takes */}
         {selected && (
           <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-800">
-                {fmtDate(selected.dateIso)} — {n0(selected.studentsOnSite)} students out, {n0(selected.shifts)} shift{selected.shifts === 1 ? "" : "s"}, {n0(selected.preceptorsOnSite)} preceptor{selected.preceptorsOnSite === 1 ? "" : "s"} on site
+                {fmtDate(selected.dateIso)} — {n0(selected.studentsOnSite)} students · {n0(selected.shifts)} session-group{selected.shifts === 1 ? "" : "s"} · needs {n0(selected.details.filter((x) => x.kind !== "CLINICAL").reduce((n, x) => n + x.sections, 0))} instructor-led group{selected.details.filter((x) => x.kind !== "CLINICAL").reduce((n, x) => n + x.sections, 0) === 1 ? "" : "s"} + {n0(selected.preceptorsOnSite)} preceptor{selected.preceptorsOnSite === 1 ? "" : "s"} on site
                 {selected.holiday && <span className="ml-2 rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-800">⚠ {selected.holiday} — consider moving these</span>}
               </h3>
               <button onClick={() => setSelectedDay(null)} className="text-xs text-slate-400 hover:text-slate-600">close ✕</button>
             </div>
             <div className="space-y-1.5">
               {selected.details.map((x, i) => (
-                <div key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-lg bg-white px-3 py-1.5 text-xs ring-1 ring-slate-200">
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${x.kind === "CLASS" ? "bg-sky-100 text-sky-700" : x.kind === "LAB" ? "bg-violet-100 text-violet-700" : "bg-rose-100 text-rose-700"}`}>{x.kind[0] + x.kind.slice(1).toLowerCase()}</span>
-                  <span className="font-semibold text-slate-800">{x.courseCode ? `${x.courseCode} · ` : ""}{x.courseTitle}</span>
-                  {x.sessionTitle && <span className="text-slate-600">“{x.sessionTitle}”</span>}
-                  <span className="tabular-nums text-slate-500">{n0(x.students)} students in {n0(x.sections)} group{x.sections === 1 ? "" : "s"} · {x.lengthHours}h{x.startTime ? ` from ${x.startTime}` : ""}</span>
-                  {x.setting && <span className="font-medium text-amber-700">@ {x.setting}</span>}
-                  <span className="ml-auto text-slate-400">{x.cohort} · {x.program}</span>
+                <div key={i} className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-r-lg px-3 py-1.5 text-xs ${KIND_COLOR[x.kind] ?? "bg-white"}`}>
+                  <span className="font-semibold">{x.startTime ? `${x.startTime} · ` : ""}{x.courseCode ? `${x.courseCode} · ` : ""}{x.courseTitle}</span>
+                  {x.sessionTitle && <span>“{x.sessionTitle}”</span>}
+                  <span className="tabular-nums">{n0(x.students)} students in {n0(x.sections)} group{x.sections === 1 ? "" : "s"} · {x.lengthHours}h</span>
+                  {x.setting && <span className="font-medium">@ {x.setting}</span>}
+                  <span className="ml-auto opacity-70">{x.cohort} · {x.program}</span>
                 </div>
               ))}
             </div>
@@ -630,7 +528,7 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
         )}
       </section>
 
-      {/* Coverage schedule table */}
+      {/* Coverage schedule table stays — the printable list per date */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-700">Coverage schedule — every date, setting and head-count</h2>
@@ -642,7 +540,7 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
               <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2 font-semibold">Date</th>
                 <th className="px-3 py-2 text-right font-semibold">Students</th>
-                <th className="px-3 py-2 text-right font-semibold">Shifts</th>
+                <th className="px-3 py-2 text-right font-semibold">Groups</th>
                 <th className="px-3 py-2 text-right font-semibold">Preceptors on site</th>
                 <th className="px-3 py-2 font-semibold">What arrives</th>
               </tr>
@@ -650,11 +548,11 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
             <tbody>
               {board.map((d) => (
                 <tr key={d.dateIso} className="border-b border-slate-100 align-top">
-                  <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDate(d.dateIso)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDate(d.dateIso)}{d.holiday ? <span className="ml-1 text-[10px] font-semibold text-rose-600">⚠ {d.holiday}</span> : null}</td>
                   <td className="px-3 py-1.5 text-right font-mono font-semibold tabular-nums">{n0(d.studentsOnSite)}</td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n0(d.shifts)}</td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n0(d.preceptorsOnSite)}</td>
-                  <td className="px-3 py-1.5 text-slate-500">{[...new Set(d.details.map((x) => `${x.courseCode ?? x.courseTitle}: ${x.students} stu (${x.kind.toLowerCase()})${x.setting ? ` @ ${x.setting}` : ""} · ${x.cohort}`))].join(" / ")}</td>
+                  <td className="px-3 py-1.5 text-slate-500">{[...new Set(d.details.map((x) => `${x.startTime ? x.startTime + " " : ""}${x.courseCode ?? x.courseTitle}: ${x.students} stu (${x.kind.toLowerCase()})${x.setting ? ` @ ${x.setting}` : ""} · ${x.cohort}`))].join(" / ")}</td>
                 </tr>
               ))}
             </tbody>

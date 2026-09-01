@@ -1434,7 +1434,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true } },
+          meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
           _count: { select: { students: true } },
         },
       },
@@ -1467,10 +1467,15 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
       // has calendarized meetings, their day pattern dates the session rows.
       const meetingDay = new Map<string, string>();
       const meetingTime = new Map<string, string>();
+      const meetingLoc = new Map<string, string>();
+      const meetingStaff = new Map<string, string>();
       for (const m of co.meetings) {
         const k = `${m.courseId}|${m.kind}`;
         if (!meetingDay.has(k)) meetingDay.set(k, m.dayOfWeek);
         if (!meetingTime.has(k)) meetingTime.set(k, m.startTime);
+        const loc = m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null);
+        if (loc && !meetingLoc.has(k)) meetingLoc.set(k, loc);
+        if (m.staff?.name && !meetingStaff.has(k)) meetingStaff.set(k, m.staff.name);
       }
       // Per-instantiation session overrides beat both the template and the
       // meeting-day fallback — this cohort's reality is what the math uses.
@@ -1490,7 +1495,9 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
             return {
               id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", number: s.number,
               title: ov?.title ?? s.title,
-              deliveryMode: ov?.deliveryMode ?? s.deliveryMode, location: ov?.location ?? s.location,
+              deliveryMode: ov?.deliveryMode ?? s.deliveryMode,
+              location: ov?.location ?? meetingLoc.get(`${c.id}|${s.kind}`) ?? s.location,
+              staffName: meetingStaff.get(`${c.id}|${s.kind}`) ?? null,
               lengthHours: ov?.lengthHours ?? s.lengthHours, maxStudents: ov?.maxStudents ?? s.maxStudents,
               facultyNeeded: ov?.facultyNeeded ?? s.facultyNeeded, facultyContactPolicy: ov?.facultyContactPolicy ?? s.facultyContactPolicy,
               supportStaffNeeded: ov?.supportStaffNeeded ?? s.supportStaffNeeded, supportContactPolicy: ov?.supportContactPolicy ?? s.supportContactPolicy,

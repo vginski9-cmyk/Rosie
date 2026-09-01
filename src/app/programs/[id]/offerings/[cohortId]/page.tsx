@@ -247,84 +247,34 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <div>
           <h2 className="text-lg font-semibold">Preferred course sequence</h2>
           <p className="text-sm text-slate-500">
-            Which course sits in which term — the program&apos;s template. Drag a course to another term and <strong>every
-            offering&apos;s calendar shifts with it</strong> (this one included). Session-level design lives on the{" "}
-            <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">design &amp; sequence page</Link>.
+            Which course sits in which term — drag to re-sequence (template-wide). On each card, set the course&apos;s
+            <strong> real start and end dates for THIS offering</strong> — an 8-week course inside a 16-week term gets its
+            own window, and session dates, the calendar, staffing and coverage all shift with it.
           </p>
         </div>
-        <CourseSequencer programId={program.id} terms={seqTerms} initialCourses={seqCourses} />
+        <CourseSequencer
+          programId={program.id} terms={seqTerms} initialCourses={seqCourses}
+          cohortId={offering.id}
+          courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null }]))}
+        />
 
-        {/* Per-course dates for THIS offering — 8-, 12-, 16-week courses inside the same term */}
-        <div className="border-t border-slate-100 pt-3">
-          <h3 className="text-sm font-semibold text-slate-700">Course dates — this offering</h3>
-          <p className="mb-2 text-[11px] text-slate-400">
-            Courses inside one term run different lengths. Set each course&apos;s real start and end — the start anchors that
-            course&apos;s session weeks (session dates, staffing and coverage all shift with it); blank = the term&apos;s window.
-          </p>
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-2 font-semibold">Course</th>
-                  <th className="px-3 py-2 font-semibold">Term</th>
-                  <th className="px-3 py-2 font-semibold">Starts</th>
-                  <th className="px-3 py-2 font-semibold">Ends</th>
-                  <th className="px-3 py-2 font-semibold">Length</th>
-                  <th className="px-3 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {orderedTerms.flatMap((t) => t.courses.map((c) => {
-                  const cd = offering.courseDates.find((x) => x.courseId === c.id);
-                  const weeks = (() => {
-                    const weeksOfSessions = c.sessions.map((x) => x.week ?? 0);
-                    return weeksOfSessions.length ? Math.max(...weeksOfSessions) : null;
-                  })();
-                  const len = cd?.startDate && cd?.endDate
-                    ? `${Math.max(1, Math.round((cd.endDate.getTime() - cd.startDate.getTime()) / (7 * 86400000)))} wks (set)`
-                    : weeks ? `~${weeks} wks of sessions` : "—";
-                  return (
-                    <tr key={c.id} className="border-b border-slate-100">
-                      <td className="px-3 py-1.5 font-medium text-slate-800">{c.code ? `${c.code} · ` : ""}{c.name}</td>
-                      <td className="px-3 py-1.5 text-slate-500">{t.name}{termDate.get(t.id) ? ` (${dateFmt(termDate.get(t.id))})` : ""}</td>
-                      <td colSpan={3} className="px-3 py-1.5" >
-                        <form action={saveCourseDates.bind(null, offering.id, c.id, program.id)} className="flex flex-wrap items-center gap-2">
-                          <input type="date" name="startDate" defaultValue={iso(cd?.startDate)} className="rounded border border-slate-300 px-1.5 py-1" />
-                          <span className="text-slate-400">→</span>
-                          <input type="date" name="endDate" defaultValue={iso(cd?.endDate)} className="rounded border border-slate-300 px-1.5 py-1" />
-                          <span className="tabular-nums text-slate-500">{len}</span>
-                          <button className="rounded bg-rose-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-rose-700">Save</button>
-                          {cd && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">custom window</span>}
-                        </form>
-                      </td>
-                      <td />
-                    </tr>
-                  );
-                }))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       </section>
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-2">
-        <Link href="/calendar" className="btn-primary">Master calendar ↦</Link>
         <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
         {program.familyId && <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>}
       </div>
 
-      {/* ── Insights for THIS instantiation: the full boards, scoped to this run ── */}
+      {/* ── THE calendar for this instantiation: exact dates, times, locations ── */}
       {capCohort && (
         <section className="space-y-3">
           <div>
-            <h2 className="text-lg font-semibold">Instructors &amp; preceptors needed — this instantiation, week by week</h2>
-            <p className="text-sm text-slate-500">The full staffing board scoped to this run: real weeks, peaks, the staffing plan by term, and the need split by class / lab / clinical.</p>
-          </div>
-          <CapacityBoard cohorts={[capCohort]} view="staffing" />
-          <div className="pt-2">
-            <h2 className="text-lg font-semibold">Daily coverage — this instantiation</h2>
-            <p className="text-sm text-slate-500">Every date this run puts people somewhere: click a day for exactly what happens — course, session, students, setting.</p>
+            <h2 className="text-lg font-semibold">Calendar — exact dates, times &amp; locations</h2>
+            <p className="text-sm text-slate-500">
+              Month view, color-coded <span className="font-medium text-sky-700">class</span> / <span className="font-medium text-violet-700">lab</span> / <span className="font-medium text-rose-700">clinical</span>.
+              Every entry shows its time, students, and location; click a day for exactly what happens and the staffing it takes. Scroll months with ← →.
+            </p>
           </div>
           <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} />
         </section>
