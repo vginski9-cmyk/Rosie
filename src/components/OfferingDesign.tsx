@@ -2,14 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { moveMeeting } from "@/lib/actions";
+import { moveMeeting, saveSessionOverride, clearSessionOverride } from "@/lib/actions";
 
 // Design & sequence for ONE instantiation. The template is the boilerplate;
-// this page is where a specific offering gets configured: every session of
-// every course with its REAL date (from this offering's term dates + the
-// booked day pattern), time, location (room or partner site), and instructor
-// or preceptor. Editing the pattern here updates the same booking the master
-// calendar shows — one record, every surface.
+// this page is where a specific offering gets configured:
+//  · every session in the order it actually happens (week → day → time),
+//    with its REAL date;
+//  · per-session overrides (week / day / time / notes) that apply to THIS
+//    offering only — the template and every other offering stay untouched;
+//  · the weekly booking pattern per course×kind (day · time · room or partner
+//    site · staff) — the same MeetingPattern the master calendar shows.
 
 export interface DsSession {
   id: string; kind: string; number: number; title: string | null;
@@ -18,6 +20,7 @@ export interface DsSession {
   week: number | null; dayOfWeek: string | null; startTime: string | null;
   notes: string | null; rotationType: string | null; clinicalMode: string | null;
 }
+export interface DsOverride { sessionId: string; week: number | null; dayOfWeek: string | null; startTime: string | null; notes: string | null }
 export interface DsMeeting {
   id: string; courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number;
   dayOfWeek: string; startTime: string; lengthHours: number;
@@ -44,12 +47,13 @@ const fmtTime = (t: string | null) => {
 const fmtDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export function OfferingDesign({
-  programId, cohortId, terms, meetings, rooms, people, employers,
+  programId, cohortId, terms, meetings, overrides, rooms, people, employers,
 }: {
   programId: string;
   cohortId: string;
   terms: DsTerm[];
   meetings: DsMeeting[];
+  overrides: DsOverride[];
   rooms: DsRoom[];
   people: DsPerson[];
   employers: DsEmployer[];
@@ -57,7 +61,9 @@ export function OfferingDesign({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingSession, setEditingSession] = useState<string | null>(null);
 
+  const ovBySession = new Map(overrides.map((o) => [o.sessionId, o]));
   const meetingsFor = (courseId: string, kind: string) =>
     meetings.filter((m) => m.courseId === courseId && m.kind === kind).sort((a, b) => a.sectionIndex - b.sectionIndex);
 
@@ -66,12 +72,25 @@ export function OfferingDesign({
     startTransition(async () => { await moveMeeting(id, patch); router.refresh(); });
   };
 
-  const sessionDate = (termStart: string | null, week: number | null, day: string | null): string => {
-    if (!termStart || !week) return "—";
+  // Effective values for a session: override > weekly booking pattern > template.
+  const effective = (courseId: string, sess: DsSession) => {
+    const ov = ovBySession.get(sess.id);
+    const m = meetingsFor(courseId, sess.kind)[0] ?? null;
+    return {
+      week: ov?.week ?? sess.week,
+      day: ov?.dayOfWeek ?? m?.dayOfWeek ?? sess.dayOfWeek,
+      time: ov?.startTime ?? m?.startTime ?? sess.startTime,
+      notes: ov?.notes ?? sess.notes,
+      overridden: !!ov,
+      meeting: m,
+    };
+  };
+
+  const sessionDateObj = (termStart: string | null, week: number | null, day: string | null): Date | null => {
+    if (!termStart || !week) return null;
     const base = new Date(termStart + "T00:00:00Z");
     const off = day != null ? DAY_OFFSET[day] : undefined;
-    const d = new Date(base.getTime() + ((week - 1) * 7 + (off ?? 0)) * 86400000);
-    return off == null ? `wk of ${fmtDate(d)}` : fmtDate(d);
+    return new Date(base.getTime() + ((week - 1) * 7 + (off ?? 0)) * 86400000);
   };
 
   return (
@@ -89,6 +108,18 @@ export function OfferingDesign({
 
           {t.courses.map((c) => {
             const kinds = [...new Set(c.sessions.map((s) => s.kind))];
+            // WHAT-HAPPENS-WHEN order: week → day → time → kind → number.
+            const ordered = [...c.sessions].sort((a, b) => {
+              const ea = effective(c.id, a), eb = effective(c.id, b);
+              const wa = ea.week ?? 999, wb = eb.week ?? 999;
+              if (wa !== wb) return wa - wb;
+              const da = ea.day != null ? DAY_OFFSET[ea.day] ?? 8 : 8;
+              const db = eb.day != null ? DAY_OFFSET[eb.day] ?? 8 : 8;
+              if (da !== db) return da - db;
+              const ta = ea.time ?? "99:99", tb = eb.time ?? "99:99";
+              if (ta !== tb) return ta.localeCompare(tb);
+              return a.kind.localeCompare(b.kind) || a.number - b.number;
+            });
             return (
               <div key={c.id} className="rounded-xl border border-slate-200 bg-white">
                 <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
@@ -128,46 +159,85 @@ export function OfferingDesign({
                   })}
                 </div>
 
-                {/* Every session with its REAL date, time, location, staff */}
+                {/* Every session, in the order it actually happens, with its REAL date — click a row to override THIS offering's copy */}
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-xs">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                        <th className="px-3 py-2 font-semibold">#</th>
+                        <th className="px-3 py-2 font-semibold">Date</th>
+                        <th className="px-3 py-2 text-right font-semibold">Wk</th>
+                        <th className="px-3 py-2 font-semibold">Day</th>
+                        <th className="px-3 py-2 font-semibold">Time</th>
                         <th className="px-3 py-2 font-semibold">Kind</th>
                         <th className="px-3 py-2 font-semibold">Session title</th>
-                        <th className="px-3 py-2 text-right font-semibold">Wk</th>
-                        <th className="px-3 py-2 font-semibold">Date</th>
-                        <th className="px-3 py-2 font-semibold">Time</th>
                         <th className="px-3 py-2 text-right font-semibold">Len (h)</th>
                         <th className="px-3 py-2 font-semibold">Location</th>
                         <th className="px-3 py-2 font-semibold">Instructor / preceptor</th>
                         <th className="px-3 py-2 font-semibold">Notes</th>
+                        <th className="px-3 py-2 font-semibold" title="override this session for THIS offering only"></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {c.sessions.map((sess) => {
-                        const ms = meetingsFor(c.id, sess.kind);
-                        const m = ms[0] ?? null;
-                        const day = m?.dayOfWeek ?? sess.dayOfWeek;
-                        const time = m?.startTime ?? sess.startTime;
+                      {ordered.map((sess) => {
+                        const eff = effective(c.id, sess);
+                        const m = eff.meeting;
                         const offCampus = sess.kind === "CLINICAL";
+                        const d = sessionDateObj(t.startDate, eff.week, eff.day);
                         const loc = m
                           ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room"))
                           : (sess.location ?? "—");
                         const staff = m?.staffName ?? null;
+                        if (editingSession === sess.id) {
+                          return (
+                            <tr key={sess.id} className="border-b border-rose-100 bg-rose-50/50 align-top">
+                              <td colSpan={11} className="px-3 py-2">
+                                <form
+                                  action={async (fd) => { setEditingSession(null); await saveSessionOverride(cohortId, sess.id, programId, fd); router.refresh(); }}
+                                  className="flex flex-wrap items-end gap-2"
+                                >
+                                  <span className="self-center text-[11px] font-medium text-slate-600">{KIND_LABEL[sess.kind]} #{sess.number} · {sess.title ?? "untitled"} — override for THIS offering only:</span>
+                                  <label className="block">
+                                    <span className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-slate-400">Week</span>
+                                    <input name="week" type="number" min={1} defaultValue={eff.week ?? ""} className="w-16 rounded border border-slate-300 px-1.5 py-1 text-right" />
+                                  </label>
+                                  <label className="block">
+                                    <span className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-slate-400">Day</span>
+                                    <select name="dayOfWeek" defaultValue={eff.day ?? ""} className="rounded border border-slate-300 px-1.5 py-1">
+                                      <option value="">(pattern)</option>
+                                      {ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
+                                    </select>
+                                  </label>
+                                  <label className="block">
+                                    <span className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-slate-400">Start time</span>
+                                    <input name="startTime" type="time" defaultValue={eff.time ?? ""} className="rounded border border-slate-300 px-1.5 py-1" />
+                                  </label>
+                                  <label className="block min-w-[16rem] flex-1">
+                                    <span className="mb-0.5 block text-[9px] font-semibold uppercase tracking-wide text-slate-400">Notes (this offering)</span>
+                                    <input name="notes" defaultValue={eff.notes ?? ""} className="w-full rounded border border-slate-300 px-1.5 py-1" />
+                                  </label>
+                                  <button className="rounded bg-rose-600 px-2.5 py-1 font-medium text-white hover:bg-rose-700">Save override</button>
+                                  {eff.overridden && (
+                                    <button type="button" onClick={async () => { setEditingSession(null); await clearSessionOverride(cohortId, sess.id, programId); router.refresh(); }} className="rounded border border-slate-300 px-2 py-1 text-slate-500 hover:bg-white">Clear → template</button>
+                                  )}
+                                  <button type="button" onClick={() => setEditingSession(null)} className="rounded border border-slate-300 px-2 py-1 text-slate-500 hover:bg-white">Cancel</button>
+                                </form>
+                              </td>
+                            </tr>
+                          );
+                        }
                         return (
-                          <tr key={sess.id} className="border-b border-slate-50 align-top hover:bg-slate-50/50">
-                            <td className="px-3 py-1.5 tabular-nums text-slate-400">{sess.number}</td>
+                          <tr key={sess.id} onClick={() => setEditingSession(sess.id)} title="click to adjust this session for THIS offering" className={`cursor-pointer border-b border-slate-50 align-top hover:bg-rose-50/40 ${eff.overridden ? "bg-amber-50/60" : ""}`}>
+                            <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{d ? (eff.day != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "—"}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{eff.week ?? "—"}</td>
+                            <td className="px-3 py-1.5 text-slate-600">{eff.day ?? "—"}</td>
+                            <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600">{fmtTime(eff.time)}</td>
                             <td className="px-3 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[sess.kind]}`}>{KIND_LABEL[sess.kind]}</span></td>
-                            <td className="max-w-[26rem] px-3 py-1.5 text-slate-700">{sess.title ?? "—"}{sess.rotationType ? <span className="ml-1 text-slate-400">· {sess.rotationType}</span> : null}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{sess.week ?? "—"}</td>
-                            <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{sessionDate(t.startDate, sess.week, day)}</td>
-                            <td className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600">{fmtTime(time)}</td>
+                            <td className="max-w-[24rem] px-3 py-1.5 text-slate-700">{sess.title ?? "—"}{sess.rotationType ? <span className="ml-1 text-slate-400">· {sess.rotationType}</span> : null}</td>
                             <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{sess.lengthHours}</td>
                             <td className={`whitespace-nowrap px-3 py-1.5 ${m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : "text-slate-600"}`}>{loc}</td>
                             <td className={`whitespace-nowrap px-3 py-1.5 ${staff ? "text-slate-600" : "text-amber-600"}`}>{staff ?? "unassigned"}</td>
-                            <td className="max-w-[16rem] px-3 py-1.5 text-slate-400">{sess.notes ?? ""}</td>
+                            <td className="max-w-[14rem] px-3 py-1.5 text-slate-400">{eff.notes ?? ""}</td>
+                            <td className="px-3 py-1.5">{eff.overridden ? <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="this offering overrides the template here">edited</span> : <span className="text-slate-300">✎</span>}</td>
                           </tr>
                         );
                       })}

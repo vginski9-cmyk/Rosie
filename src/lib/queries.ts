@@ -1431,6 +1431,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         include: {
           stages: true,
           cohortTerms: { select: { termId: true, startDate: true } },
+          sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } },
           meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true } },
           _count: { select: { students: true } },
         },
@@ -1467,6 +1468,9 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         const k = `${m.courseId}|${m.kind}`;
         if (!meetingDay.has(k)) meetingDay.set(k, m.dayOfWeek);
       }
+      // Per-instantiation session overrides beat both the template and the
+      // meeting-day fallback — this cohort's reality is what the math uses.
+      const ovBySession = new Map(co.sessionOverrides.map((o) => [o.sessionId, o]));
       return {
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
@@ -1480,7 +1484,9 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
             lengthHours: s.lengthHours, maxStudents: s.maxStudents,
             facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
             supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
-            week: s.week, dayOfWeek: s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null, notes: s.notes,
+            week: ovBySession.get(s.id)?.week ?? s.week,
+            dayOfWeek: ovBySession.get(s.id)?.dayOfWeek ?? s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null,
+            notes: s.notes,
             preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
             rotationType: s.rotationType, clinicalMode: s.clinicalMode,
           })),
@@ -1521,6 +1527,7 @@ export async function getOfferingDesign(cohortId: string) {
         },
       },
       cohortTerms: { select: { termId: true, startDate: true } },
+      sessionOverrides: true,
       meetings: {
         include: {
           facility: { select: { id: true, name: true } },

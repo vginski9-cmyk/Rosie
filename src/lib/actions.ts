@@ -672,7 +672,35 @@ export async function lockInInstantiation(
   return { cohortId: cohort.id, name };
 }
 
-/** Adjust a locked-in offering's real dates: the start date and each term's
+/** Save a per-INSTANTIATION session override: move one session's week / day /
+ *  time or annotate it for THIS offering only — the template stays untouched.
+ *  Pass empty values to clear a field back to the template's. */
+export async function saveSessionOverride(cohortId: string, sessionId: string, programId: string, formData: FormData) {
+  const week = optNum(formData.get("week"));
+  const dayOfWeek = str(formData.get("dayOfWeek")) || null;
+  const startTime = str(formData.get("startTime")) || null;
+  const notes = str(formData.get("notes")) || null;
+  if (week == null && !dayOfWeek && !startTime && !notes) {
+    await prisma.sessionOverride.deleteMany({ where: { cohortId, sessionId } });
+  } else {
+    await prisma.sessionOverride.upsert({
+      where: { cohortId_sessionId: { cohortId, sessionId } },
+      update: { week, dayOfWeek, startTime, notes },
+      create: { cohortId, sessionId, week, dayOfWeek, startTime, notes },
+    });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/insights/staffing-need`);
+}
+
+/** Clear a per-instantiation session override entirely (back to the template). */
+export async function clearSessionOverride(cohortId: string, sessionId: string, programId: string) {
+  await prisma.sessionOverride.deleteMany({ where: { cohortId, sessionId } });
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+}
+
+/** Adjust a locked-in offering's real dates/** Adjust a locked-in offering's real dates: the start date and each term's
  *  first day. Calendars, capacity insights, and timing all derive from these
  *  live, so a shift here moves everything at once. */
 export async function updateOfferingDates(cohortId: string, programId: string, formData: FormData) {

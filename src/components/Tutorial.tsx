@@ -71,9 +71,10 @@ const TOURS: Tour[] = [
   {
     key: "offering-design", match: /^\/programs\/[^/]+\/offerings\/[^/]+\/design$/, title: "Design & sequence — this instantiation",
     steps: [
-      { h: "The instantiation's own copy", b: "The template is boilerplate; this page is THIS offering's configured reality — every session of every course with its real date, time, location, and instructor or preceptor." },
+      { h: "In the order it actually happens", b: "Sessions are sorted by week → day → time, classes, labs and clinicals interleaved — so the table reads as the real timeline, with the actual date on every row." },
+      { h: "Click any row to adjust THIS offering", b: "Move a session's week, day or time, or annotate it — the override applies to this instantiation only (rows show an 'edited' chip); the template and every other offering stay untouched. Clear returns to the template." },
       { h: "Edit the weekly pattern", b: "Each course × kind has a weekly booking (day · time · room or partner site · staff). Click edit, change it, save — the same booking updates on the master calendar and every other surface." },
-      { h: "Dates cascade", b: "Session dates derive from this offering's term start dates (set on the offering page) plus each session's Week __ and the booked day. Shift a term and every date below it moves." },
+      { h: "Staffing need by week", b: "The table up top shows how many class, lab and clinical faculty (and preceptors) this instantiation needs each calendar week — overrides included. The institution-wide version lives under Insights → Instructors & preceptors." },
     ],
   },
   {

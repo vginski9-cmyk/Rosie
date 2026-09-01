@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
-  buildInstances, weeklyNeed, settingAsks, shiftBoard, sumBy, peakOf,
+  buildInstances, weeklyNeed, weeklyNeedByKind, settingAsks, shiftBoard, sumBy, peakOf,
   type DatedInstance, type CohortCalendarInput, type WorkloadAssumptions, type SessionInput,
 } from "@/lib/capacitymodel";
 
@@ -226,6 +226,42 @@ function StaffingView({ rows }: { rows: DatedInstance[] }) {
                   <td className="px-3 py-1.5 text-right font-mono font-semibold tabular-nums text-amber-700">{t.preHeads}</td>
                   <td className="px-3 py-1.5 text-xs text-slate-500">{t.from ? `${fmtDateM(t.from)} → ${t.to ? fmtDateM(t.to) : ""}` : "—"}</td>
                   <td className="px-3 py-1.5 text-xs text-slate-500">{t.cohorts.join(" · ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Need by week & session type */}
+      <section className="rounded-xl border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-700">Need by week &amp; session type — class / lab / clinical faculty and preceptors</h2>
+          <p className="text-[11px] text-slate-400">Faculty FTE split by what kind of session drives it, week by week; people = FTE rounded up.</p>
+        </div>
+        <div className="max-h-[26rem] overflow-auto">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 bg-slate-50">
+              <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-2 font-semibold">Week of</th>
+                <th className="px-3 py-2 text-right font-semibold">Class fac FTE</th>
+                <th className="px-3 py-2 text-right font-semibold">Lab fac FTE</th>
+                <th className="px-3 py-2 text-right font-semibold">Clinical fac FTE</th>
+                <th className="px-3 py-2 text-right font-semibold">Faculty total (people)</th>
+                <th className="px-3 py-2 text-right font-semibold">Preceptor FTE (people)</th>
+                <th className="px-3 py-2 text-right font-semibold">Sections</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weeklyNeedByKind(rows).map((w) => (
+                <tr key={w.mondayIso} className="border-b border-slate-50">
+                  <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDateM(w.mondayIso)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-sky-700">{w.classFte ? n1(w.classFte) : "·"}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-violet-700">{w.labFte ? n1(w.labFte) : "·"}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-rose-700">{w.clinicalFacFte ? n1(w.clinicalFacFte) : "·"}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold text-slate-800">{n1(w.totalFacFte)} ({w.facultyHeads})</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums font-semibold text-amber-700">{w.preceptorFte ? `${n1(w.preceptorFte)} (${w.preceptorHeads})` : "·"}</td>
+                  <td className="px-3 py-1.5 text-right font-mono tabular-nums text-slate-500">{Math.round(w.sections)}</td>
                 </tr>
               ))}
             </tbody>

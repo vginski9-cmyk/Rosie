@@ -449,3 +449,41 @@ export function shiftBoard(rows: DatedInstance[]): ShiftDay[] {
     details: rs.map((r) => ({ cohort: r.cohort, courseCode: r.courseCode, setting: r.session.rotationType, lengthHours: r.session.lengthHours })),
   }));
 }
+
+/** Weekly staffing need broken out by session type — how many class, lab, and
+ *  clinical faculty (and preceptors) are needed each calendar week. Faculty
+ *  FTE per kind = Σ AB of that kind's rows in the week; preceptors = Σ AE. */
+export interface WeeklyKindRow {
+  mondayIso: string;
+  classFte: number;
+  labFte: number;
+  clinicalFacFte: number;
+  preceptorFte: number;
+  totalFacFte: number;
+  facultyHeads: number;
+  preceptorHeads: number;
+  sections: number;
+}
+
+export function weeklyNeedByKind(rows: DatedInstance[]): WeeklyKindRow[] {
+  const byWeek = new Map<string, { c: number; l: number; cf: number; p: number; s: number }>();
+  for (const r of rows) {
+    if (!r.mondayIso) continue;
+    const w = byWeek.get(r.mondayIso) ?? { c: 0, l: 0, cf: 0, p: 0, s: 0 };
+    const ab = nz(r.computed.AB);
+    if (r.session.kind === "CLASS") w.c += ab;
+    else if (r.session.kind === "LAB") w.l += ab;
+    else w.cf += ab;
+    w.p += nz(r.computed.AE);
+    w.s += nz(r.computed.Y);
+    byWeek.set(r.mondayIso, w);
+  }
+  return [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mondayIso, w]) => {
+    const total = w.c + w.l + w.cf;
+    return {
+      mondayIso, classFte: w.c, labFte: w.l, clinicalFacFte: w.cf, preceptorFte: w.p,
+      totalFacFte: total, facultyHeads: Math.ceil(total - 1e-9), preceptorHeads: Math.ceil(w.p - 1e-9),
+      sections: w.s,
+    };
+  });
+}

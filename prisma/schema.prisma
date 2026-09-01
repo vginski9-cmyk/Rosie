@@ -308,6 +308,7 @@ model Session {
   instructors SessionInstructor[]
   sectionSchedules SectionSchedule[]
   resources SessionResource[]
+  overrides SessionOverride[]
 
   @@index([courseId])
 }
@@ -439,6 +440,7 @@ model Cohort {
   stages      FunnelStage[]
   students    Student[]
   cohortTerms CohortTerm[]
+  sessionOverrides SessionOverride[]
   sessionStaff SessionInstructor[]
   sectionSchedules SectionSchedule[]
   placements  WblPlacement[]
@@ -458,6 +460,24 @@ model CohortTerm {
   startDate DateTime?
 
   @@unique([cohortId, termId])
+  @@index([cohortId])
+}
+
+/// A per-INSTANTIATION override of one template session: the boilerplate stays
+/// timeless, while a specific offering can move a session's week, day, time,
+/// or annotate it — without touching any other offering.
+model SessionOverride {
+  id        String  @id @default(cuid())
+  cohortId  String
+  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  week      Int?
+  dayOfWeek String?
+  startTime String?
+  notes     String?
+
+  @@unique([cohortId, sessionId])
   @@index([cohortId])
 }
 

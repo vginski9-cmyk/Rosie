@@ -121,3 +121,19 @@ describe("pivots", () => {
     expect(jan12.preceptorsOnSite).toBe(18);
   });
 });
+
+describe("weeklyNeedByKind — class/lab/clinical faculty by calendar week", () => {
+  it("splits faculty FTE by session type and keeps preceptors separate", async () => {
+    const { weeklyNeedByKind } = await import("../src/lib/capacitymodel");
+    const inst = buildInstances(cohortInput());
+    const rows = weeklyNeedByKind(inst);
+    const w1 = rows.find((r) => r.mondayIso === "2026-08-24")!; // term-1 wk1: one class session
+    // class row: K=3,L=20,M=1 @40 → Y=2, Z=6, AB=6/16
+    expect(w1.classFte).toBeCloseTo(6 / 16, 10);
+    expect(w1.labFte).toBe(0);
+    const wc = rows.find((r) => r.mondayIso === "2027-01-11")!; // term-2 wk1 clinical
+    expect(wc.preceptorFte).toBeCloseTo(3.6, 10);
+    expect(wc.clinicalFacFte).toBeCloseTo((8 * 1 * 18) / 16, 10); // fac=1 on the test row
+    expect(wc.facultyHeads).toBe(Math.ceil(wc.totalFacFte - 1e-9));
+  });
+});
