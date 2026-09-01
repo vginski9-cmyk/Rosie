@@ -16,14 +16,17 @@ export interface CalMeeting {
   employerId: string | null; employerName: string | null;
   staffPersonId: string | null; staffName: string | null;
   termIndex: number; weekStartMs: number; weekEndMs: number; startLabel: string; endLabel: string;
+  sessionTitles: { week: number | null; title: string | null }[];
 }
+export interface CalEmployer { id: string; name: string; setting: string | null }
 export interface CalRoom { facilityId: string; name: string; kind: string; capacity: number | null; building: string | null; utilization: number; bookedHoursPeakWeek: number; openHoursPerWeek: number; meetingCount: number; distinctDays: number }
 export interface CalConflict { kind: string; aId: string; bId: string; dayOfWeek: string; key: string; detail: string }
 export interface RoomOpt { id: string; name: string; kind: string; capacity: number | null }
 export interface CalPerson { id: string; name: string; role: string }
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday" };
+const BASE_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
 const START_HOUR = 8, END_HOUR = 20, HOUR_PX = 44;
 const PALETTE = ["bg-rose-500", "bg-sky-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-teal-500", "bg-fuchsia-500", "bg-indigo-500", "bg-orange-500", "bg-cyan-500"];
 const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
@@ -31,10 +34,10 @@ const fmtTime = (t: string) => { const [h, m] = t.split(":").map(Number); const 
 const KIND_LABEL: Record<string, string> = { CLASS: "Lecture", LAB: "Lab", CLINICAL: "Clinical" };
 
 export function MasterCalendar({
-  institutions, institutionId, rooms, people = [], meetings, conflicts, weeks, currentWeekMs, programs, summary,
+  institutions, institutionId, rooms, people = [], employers = [], meetings, conflicts, weeks, currentWeekMs, programs, summary,
 }: {
   institutions: { id: string; name: string }[]; institutionId: string;
-  rooms: CalRoom[]; people?: CalPerson[]; meetings: CalMeeting[]; conflicts: CalConflict[];
+  rooms: CalRoom[]; people?: CalPerson[]; employers?: CalEmployer[]; meetings: CalMeeting[]; conflicts: CalConflict[];
   weeks: { ms: number; label: string }[]; currentWeekMs: number | null;
   programs: { id: string; name: string }[]; summary: { roomed: number; unroomed: number; clinical: number; peakUtil: number };
 }) {
@@ -68,10 +71,17 @@ export function MasterCalendar({
 
   const campus = filtered.filter((m) => m.kind !== "CLINICAL");
   const clinical = filtered.filter((m) => m.kind === "CLINICAL");
+  // Week columns: Mon–Fri always; Sat/Sun appear when something is booked there.
+  const DAYS = useMemo(() => {
+    const used = new Set(meetings.map((m) => m.dayOfWeek));
+    return ALL_DAYS.filter((d) => BASE_DAYS.includes(d) || used.has(d));
+  }, [meetings]);
 
-  // Per-day lane packing so overlapping blocks sit side by side.
+  // Per-day lane packing so overlapping blocks sit side by side. EVERYTHING is
+  // on the one master calendar — campus classes/labs AND clinical rotations
+  // (hosted at partner sites, or "site TBD" until one is assigned).
   const dayLayout = (day: string) => {
-    const items = campus.filter((m) => m.dayOfWeek === day).sort((a, b) => toMin(a.startTime) - toMin(b.startTime));
+    const items = filtered.filter((m) => m.dayOfWeek === day).sort((a, b) => toMin(a.startTime) - toMin(b.startTime));
     const laneEnds: number[] = [];
     const placed = items.map((m) => {
       const s = toMin(m.startTime), e = s + m.lengthHours * 60;
@@ -144,7 +154,7 @@ export function MasterCalendar({
       {/* Summary */}
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="rounded-full bg-slate-100 px-2 py-0.5">{campus.length} campus meetings this week</span>
-        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{clinical.length} clinical (off-campus)</span>
+        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{clinical.length} clinical rotations on the calendar{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}</span>
         {summary.unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{summary.unroomed} unroomed — needs space</span>}
         {conflictsForWeek.length > 0
           ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictsForWeek.length} conflicts this week</span>
@@ -181,9 +191,9 @@ export function MasterCalendar({
                       return (
                         <button key={m.id} onClick={() => setEditing(m)}
                           style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)` }}
-                          className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${color} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
-                          <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}</span>
-                          <span className="block truncate text-[9px] leading-tight opacity-90">{m.facilityName ?? "⚠ no room"}</span>
+                          className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${color} ${m.kind === "CLINICAL" ? "border-2 border-dashed border-white/70" : ""} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
+                          <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}{m.kind === "CLINICAL" ? " ⚕" : ""}</span>
+                          <span className="block truncate text-[9px] leading-tight opacity-90">{m.kind === "CLINICAL" ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "⚠ no room")}</span>
                           <span className="block truncate text-[9px] leading-tight opacity-75">{fmtTime(m.startTime)} · {m.cohortName}</span>
                         </button>
                       );
@@ -193,19 +203,6 @@ export function MasterCalendar({
               );
             })}
           </div>
-          {/* Off-campus clinical strip */}
-          {clinical.length > 0 && (
-            <div className="mt-3 border-t border-slate-100 pt-2">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-orange-500">Clinical rotations (off-campus)</div>
-              <div className="flex flex-wrap gap-1.5">
-                {clinical.map((m) => (
-                  <button key={m.id} onClick={() => setEditing(m)} className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] text-orange-700 hover:bg-orange-200">
-                    {m.dayOfWeek} {fmtTime(m.startTime)} · {m.courseCode ?? m.courseName} · {m.cohortName}{m.employerName ? ` @ ${m.employerName}` : ""}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Room utilization rail */}
@@ -255,47 +252,85 @@ export function MasterCalendar({
         </div>
       )}
 
-      {editing && <MoveEditor meeting={editing} rooms={rooms} people={people} onClose={() => setEditing(null)} onSave={save} />}
+      {editing && <MoveEditor meeting={editing} rooms={rooms} people={people} employers={employers} onClose={() => setEditing(null)} onSave={save} />}
     </div>
   );
 }
 
-function MoveEditor({ meeting, rooms, people, onClose, onSave }: { meeting: CalMeeting; rooms: CalRoom[]; people: CalPerson[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null }) => void }) {
+function MoveEditor({ meeting, rooms, people, employers, onClose, onSave }: { meeting: CalMeeting; rooms: CalRoom[]; people: CalPerson[]; employers: CalEmployer[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null }) => void }) {
   const [day, setDay] = useState(meeting.dayOfWeek);
   const [time, setTime] = useState(meeting.startTime);
   const [room, setRoom] = useState(meeting.facilityId ?? "");
+  const [site, setSite] = useState(meeting.employerId ?? "");
   const [staff, setStaff] = useState(meeting.staffPersonId ?? "");
   const offCampus = meeting.kind === "CLINICAL";
   const staffPool = offCampus ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
   const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
+  const location = offCampus ? (meeting.employerName ?? "site TBD") : (meeting.facilityName ?? "unroomed");
+  const titled = meeting.sessionTitles.filter((x) => x.title);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between">
           <div>
-            <h3 className="text-base font-semibold text-slate-800">{meeting.courseCode ?? meeting.courseName} {meeting.sectionCount > 1 ? `· section ${meeting.sectionIndex}/${meeting.sectionCount}` : ""}</h3>
-            <p className="text-xs text-slate-500">{KIND_LABEL[meeting.kind] ?? meeting.kind} · {meeting.cohortName} · {meeting.programName}{meeting.staffName ? ` · ${meeting.staffName}` : ""}</p>
-            <p className="text-[11px] text-slate-400">{meeting.seats} students · {meeting.lengthHours}h · runs {meeting.startLabel} → {meeting.endLabel}</p>
+            <h3 className="text-base font-semibold text-slate-800">
+              {meeting.courseCode ? <span>{meeting.courseCode} · </span> : null}{meeting.courseName}
+              {meeting.sectionCount > 1 ? <span className="text-slate-400"> · section {meeting.sectionIndex}/{meeting.sectionCount}</span> : null}
+            </h3>
+            <p className="text-xs text-slate-500">{KIND_LABEL[meeting.kind] ?? meeting.kind} · {meeting.cohortName} · {meeting.programName}</p>
           </div>
           <Link href={`/programs/${meeting.programId}/offerings/${meeting.cohortId}`} className="text-xs text-rose-600 hover:underline">offering ↦</Link>
         </div>
+
+        {/* What this booking IS — full detail */}
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs">
+          <div><dt className="text-slate-400">Location</dt><dd className="font-medium text-slate-700">{location}</dd></div>
+          <div><dt className="text-slate-400">{offCampus ? "Preceptor" : "Instructor"}</dt><dd className={`font-medium ${meeting.staffName ? "text-slate-700" : "text-amber-600"}`}>{meeting.staffName ?? "unstaffed"}</dd></div>
+          <div><dt className="text-slate-400">When</dt><dd className="font-medium text-slate-700">{DAY_FULL[meeting.dayOfWeek] ?? meeting.dayOfWeek} {fmtTime(meeting.startTime)}–{fmtTime(meeting.endTime)} ({meeting.lengthHours}h)</dd></div>
+          <div><dt className="text-slate-400">Runs</dt><dd className="font-medium text-slate-700">{meeting.startLabel} → {meeting.endLabel}</dd></div>
+          <div><dt className="text-slate-400">Students</dt><dd className="font-medium text-slate-700">{meeting.seats}</dd></div>
+          <div><dt className="text-slate-400">Term</dt><dd className="font-medium text-slate-700">Term {meeting.termIndex}</dd></div>
+        </dl>
+
+        {/* Session titles — what actually happens each week */}
+        {titled.length > 0 && (
+          <div className="mt-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Session by session</div>
+            <div className="mt-1 max-h-28 space-y-0.5 overflow-y-auto pr-1">
+              {titled.map((x, i) => (
+                <div key={i} className="flex gap-2 text-[11px]">
+                  <span className="w-10 shrink-0 tabular-nums text-slate-400">Wk {x.week ?? "—"}</span>
+                  <span className="text-slate-600">{x.title}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Day</span>
             <select value={day} onChange={(e) => setDay(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              {DAYS.map((d) => <option key={d} value={d}>{DAY_FULL[d]}</option>)}
+              {ALL_DAYS.map((d) => <option key={d} value={d}>{DAY_FULL[d]}</option>)}
             </select>
           </label>
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Start time</span>
             <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
           </label>
-          {!offCampus && (
+          {!offCampus ? (
             <label className="col-span-2 block">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Room</span>
               <select value={room} onChange={(e) => setRoom(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
                 <option value="">— unroomed —</option>
                 {eligible.map((r) => <option key={r.facilityId} value={r.facilityId} disabled={r.capacity != null && meeting.seats > r.capacity}>{r.name} (cap {r.capacity ?? "—"}){r.capacity != null && meeting.seats > r.capacity ? " — too small" : ""}</option>)}
+              </select>
+            </label>
+          ) : (
+            <label className="col-span-2 block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Clinical site (partner)</span>
+              <select value={site} onChange={(e) => setSite(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+                <option value="">— site TBD —</option>
+                {employers.map((emp) => <option key={emp.id} value={emp.id}>{emp.name}{emp.setting ? ` (${emp.setting})` : ""}</option>)}
               </select>
             </label>
           )}
@@ -308,7 +343,7 @@ function MoveEditor({ meeting, rooms, people, onClose, onSave }: { meeting: CalM
           </label>
         </div>
         <div className="mt-4 flex items-center gap-2">
-          <button onClick={() => onSave({ dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), staffPersonId: staff || null })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Move</button>
+          <button onClick={() => onSave({ dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), employerId: offCampus ? (site || null) : undefined, staffPersonId: staff || null })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
           <button onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">Cancel</button>
         </div>
       </div>

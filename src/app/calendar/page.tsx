@@ -9,11 +9,12 @@ export default async function CalendarPage({ searchParams }: { searchParams: { i
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Master space calendar</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Master calendar</h1>
         <p className="max-w-3xl text-sm text-slate-500">
-          Every program&apos;s real bookings on one timeline — see how hard each room is working, where space is sitting idle,
-          and where two things are fighting for the same room, instructor, or cohort. Click any block to move it; the change
-          flows straight back to that offering&apos;s calendar.
+          Everything on one timeline — campus classes and labs AND every clinical rotation at partner sites (dashed ⚕
+          blocks; &quot;site TBD&quot; until one is assigned). Click any block for its full detail — course, session-by-session
+          titles, location, instructor or preceptor — and move or reassign it; the change flows straight back to that
+          offering&apos;s calendar.
         </p>
       </div>
       {data.institutionId == null ? (
@@ -24,6 +25,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { i
           institutionId={data.institutionId}
           rooms={data.rooms}
           people={data.people}
+          employers={data.employers}
           meetings={data.meetings}
           conflicts={data.conflicts}
           weeks={data.weeks}

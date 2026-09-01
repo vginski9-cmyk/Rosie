@@ -468,7 +468,7 @@ export async function getOffering(cohortId: string) {
   return prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
-      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { _count: { select: { courses: true } } } } } },
+      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { kind: true } } } } } } } },
       cohortTerms: { include: { term: true } },
       stages: { orderBy: { sortOrder: "asc" } },
       _count: { select: { students: true, sessionStaff: true } },
@@ -972,6 +972,8 @@ export interface MasterMeeting {
   staffPersonId: string | null; staffName: string | null;
   termIndex: number; weekStartMs: number; weekEndMs: number;
   startLabel: string; endLabel: string;
+  /** Session titles for this meeting's kind, week by week (from the template). */
+  sessionTitles: { week: number | null; title: string | null }[];
 }
 
 export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?: number }) {
@@ -993,18 +995,19 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     }
     institutionId = institutionId ?? institutions[0]?.id;
   }
-  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
+  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], employers: [] as { id: string; name: string; setting: string | null }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
 
-  const [rooms, calPeople, raw] = await Promise.all([
+  const [rooms, calPeople, calEmployers, raw] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prisma.employer.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, setting: true } }),
     prisma.meetingPattern.findMany({
       where: { cohort: { program: { institutionId } } },
       include: {
         facility: { select: { id: true, name: true, kind: true } },
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
-        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } } } },
+        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
         cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } },
       },
     }),
@@ -1035,6 +1038,8 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
       staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
       termIndex: liveIdx, weekStartMs, weekEndMs,
       startLabel: startMs ? dlabel(weekStartMs) : "—", endLabel: startMs ? dlabel(weekEndMs) : "—",
+      // Session titles for this meeting's kind — what actually happens in the room/at the site, week by week.
+      sessionTitles: m.course.sessions.filter((x) => x.kind === m.kind).map((x) => ({ week: x.week, title: x.title })),
     };
   });
 
@@ -1070,7 +1075,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     peakUtil: roomsOut.reduce((n, r) => Math.max(n, r.utilization), 0),
   };
 
-  return { institutions, institutionId, rooms: roomsOut, people: calPeople, meetings, conflicts, weeks, currentWeekMs, programs, summary };
+  return { institutions, institutionId, rooms: roomsOut, people: calPeople, employers: calEmployers, meetings, conflicts, weeks, currentWeekMs, programs, summary };
 }
 
 /** One meeting's full editing context (for the move/reassign editor). */

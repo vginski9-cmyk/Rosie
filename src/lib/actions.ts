@@ -672,6 +672,25 @@ export async function lockInInstantiation(
   return { cohortId: cohort.id, name };
 }
 
+/** Adjust a locked-in offering's real dates: the start date and each term's
+ *  first day. Calendars, capacity insights, and timing all derive from these
+ *  live, so a shift here moves everything at once. */
+export async function updateOfferingDates(cohortId: string, programId: string, formData: FormData) {
+  const startStr = str(formData.get("startDate"));
+  await prisma.cohort.update({
+    where: { id: cohortId },
+    data: startStr ? { startDate: new Date(startStr), entryYear: new Date(startStr).getFullYear() } : {},
+  });
+  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true } });
+  for (const ct of cts) {
+    const v = str(formData.get(`term_${ct.termId}`));
+    if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v) } });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}`);
+  revalidatePath(`/calendar`);
+}
+
 /** Persist an offering's per-section weekly slots (day/time/room) in bulk. */
 export async function saveSectionSchedules(
   cohortId: string,
@@ -957,7 +976,7 @@ export async function requestPlacement(studentId: string, employerId: string, fa
  *  a change here shows up in every surface. */
 export async function moveMeeting(
   meetingId: string,
-  patch: { dayOfWeek?: string; startTime?: string; lengthHours?: number; facilityId?: string | null; staffPersonId?: string | null },
+  patch: { dayOfWeek?: string; startTime?: string; lengthHours?: number; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null },
 ): Promise<void> {
   const data: Record<string, unknown> = {};
   if (patch.dayOfWeek) data.dayOfWeek = patch.dayOfWeek;
@@ -965,6 +984,7 @@ export async function moveMeeting(
   if (patch.lengthHours != null) data.lengthHours = patch.lengthHours;
   if (patch.facilityId !== undefined) data.facilityId = patch.facilityId || null;
   if (patch.staffPersonId !== undefined) data.staffPersonId = patch.staffPersonId || null;
+  if (patch.employerId !== undefined) data.employerId = patch.employerId || null;
   const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data, include: { cohort: { select: { id: true, programId: true } } } });
   revalidatePath("/calendar");
   revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
