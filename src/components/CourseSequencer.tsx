@@ -41,9 +41,9 @@ function CourseCard({ course, dragging, issues }: { course: SeqCourse; dragging?
         {course.name}
       </div>
       <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-        {course.classCount > 0 && <span className="badge bg-sky-100 text-sky-700">{course.classCount} class</span>}
-        {course.labCount > 0 && <span className="badge bg-violet-100 text-violet-700">{course.labCount} lab</span>}
-        {course.clinicalCount > 0 && <span className="badge bg-rose-100 text-rose-700">{course.clinicalCount} clinical</span>}
+        {course.classCount > 0 && <span className="badge bg-sky-100 text-sky-700">{course.classCount} class sessions</span>}
+        {course.labCount > 0 && <span className="badge bg-violet-100 text-violet-700">{course.labCount} lab sessions</span>}
+        {course.clinicalCount > 0 && <span className="badge bg-rose-100 text-rose-700">{course.clinicalCount} clinical sessions</span>}
       </div>
       {issues && issues.length > 0 && (
         <div className="mt-1.5 rounded bg-amber-50 px-1.5 py-1 text-[10px] font-medium text-amber-800">

@@ -1502,3 +1502,40 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
 
   return { institution, institutions, cohorts, clinicalSites };
 }
+
+/** Everything the per-offering design & sequence page needs: the template's
+ *  session rows PLUS this instantiation's reality — term dates, and each
+ *  course×kind meeting pattern (day, time, room / partner site, staff) so every
+ *  session shows its real date, time, location, and instructor / preceptor. */
+export async function getOfferingDesign(cohortId: string) {
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      program: {
+        include: {
+          institution: { select: { id: true, name: true } },
+          terms: {
+            orderBy: { index: "asc" },
+            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+          },
+        },
+      },
+      cohortTerms: { select: { termId: true, startDate: true } },
+      meetings: {
+        include: {
+          facility: { select: { id: true, name: true } },
+          employer: { select: { id: true, name: true } },
+          staff: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+  if (!cohort) return null;
+  const institutionId = cohort.program.institutionId;
+  const [rooms, people, employers] = await Promise.all([
+    prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prisma.employer.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, setting: true } }),
+  ]);
+  return { cohort, rooms, people, employers };
+}

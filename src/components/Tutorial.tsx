@@ -69,10 +69,19 @@ const TOURS: Tour[] = [
     ],
   },
   {
+    key: "offering-design", match: /^\/programs\/[^/]+\/offerings\/[^/]+\/design$/, title: "Design & sequence — this instantiation",
+    steps: [
+      { h: "The instantiation's own copy", b: "The template is boilerplate; this page is THIS offering's configured reality — every session of every course with its real date, time, location, and instructor or preceptor." },
+      { h: "Edit the weekly pattern", b: "Each course × kind has a weekly booking (day · time · room or partner site · staff). Click edit, change it, save — the same booking updates on the master calendar and every other surface." },
+      { h: "Dates cascade", b: "Session dates derive from this offering's term start dates (set on the offering page) plus each session's Week __ and the booked day. Shift a term and every date below it moves." },
+    ],
+  },
+  {
     key: "offering", match: /^\/programs\/[^/]+\/offerings\/[^/]+$/, title: "A scheduled offering",
     steps: [
-      { h: "This is reality", b: "The template instantiated: real dates, real students, real rooms and people. The tiles show timing, enrollment, staffing coverage and placements." },
-      { h: "Assignments happen here", b: "In Schedule, rooms, sites & staff, click any meeting chip to set its day, time, room or partner site, and instructor or preceptor. No meetings yet? Calendarize the offering first — one click expands the template onto the calendar." },
+      { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
+      { h: "What it needs", b: "The capacity block shows peak-week instructors and preceptors, the clinical settings this run requires, and whether the sites in supply can absorb it." },
+      { h: "Configure the instantiation", b: "Open Design & sequence — this offering to see and edit every session's real date, time, location, and instructor / preceptor. The course sequence board re-sequences the template for all offerings." },
     ],
   },
   {

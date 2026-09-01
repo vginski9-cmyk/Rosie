@@ -162,9 +162,9 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                           {course.code ? <span className="text-slate-400">{course.code} · </span> : null}{course.name}
                         </div>
                         <div className="flex gap-1">
-                          {counts.CLASS > 0 && <span className="badge bg-sky-100 text-sky-700">{counts.CLASS} class</span>}
-                          {counts.LAB > 0 && <span className="badge bg-violet-100 text-violet-700">{counts.LAB} lab</span>}
-                          {counts.CLINICAL > 0 && <span className="badge bg-rose-100 text-rose-700">{counts.CLINICAL} clinical</span>}
+                          {counts.CLASS > 0 && <span className="badge bg-sky-100 text-sky-700">{counts.CLASS} class sessions</span>}
+                          {counts.LAB > 0 && <span className="badge bg-violet-100 text-violet-700">{counts.LAB} lab sessions</span>}
+                          {counts.CLINICAL > 0 && <span className="badge bg-rose-100 text-rose-700">{counts.CLINICAL} clinical sessions</span>}
                         </div>
                       </div>
                       <div className="mt-1 text-xs text-slate-500">

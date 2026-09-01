@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getCohortSchedule, getCapacityModel } from "@/lib/queries";
-import { calendarizeCohort, updateOfferingDates } from "@/lib/actions";
+import { getOffering, getCapacityModel } from "@/lib/queries";
+import { updateOfferingDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
-import { CohortSchedule } from "@/components/CohortSchedule";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
@@ -15,7 +14,6 @@ export const dynamic = "force-dynamic";
 const dateFmt = (d: Date | null | undefined) =>
   d ? new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : "");
-const monthDay = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 const STATUS: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700",
@@ -32,10 +30,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const [sched, capModel] = await Promise.all([
-    getCohortSchedule(params.cohortId),
-    getCapacityModel(),
-  ]);
+  const capModel = await getCapacityModel();
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -87,19 +82,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
     };
   }
 
-  // ── Calendar timeline (the HTML model's "every cohort's terms and courses") ──
-  const WK = 7 * 24 * 3600 * 1000;
-  const termWindows = orderedTerms.map((t) => {
-    const start = termDate.get(t.id) ?? null;
-    const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
-    return { term: t, start, weeks, end: start ? new Date(start.getTime() + weeks * WK) : null };
-  });
-  const dated = termWindows.filter((w) => w.start != null) as { term: (typeof orderedTerms)[number]; start: Date; weeks: number; end: Date }[];
-  const spanStart = dated.length ? Math.min(...dated.map((w) => w.start.getTime())) : null;
-  const spanEnd = dated.length ? Math.max(...dated.map((w) => w.end.getTime())) : null;
-  const pct = (ms: number) => (spanStart != null && spanEnd != null && spanEnd > spanStart ? ((ms - spanStart) / (spanEnd - spanStart)) * 100 : 0);
-  const TERM_COLORS = ["bg-rose-500", "bg-sky-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-cyan-500"];
-
   // Sequence board inputs (template-wide; re-sequencing moves every offering).
   const seqTerms: SeqTerm[] = orderedTerms.map((t) => ({ id: t.id, name: t.name, courseCount: t.courses.length }));
   const seqCourses: SeqCourse[] = orderedTerms.flatMap((t) => t.courses.map((c) => ({
@@ -146,6 +128,18 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
         <Tile label="Students" value={fmt.num(offering._count.students)} />
       </div>
+
+      {/* Design & sequence for THIS instantiation */}
+      <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50/40 px-4 py-3 hover:border-rose-300 hover:bg-rose-50/70">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Design &amp; sequence — this offering ↦</div>
+          <div className="text-xs text-slate-500">
+            Every session of every course with its real date, time, location and instructor / preceptor — configure this
+            instantiation without touching the boilerplate template.
+          </div>
+        </div>
+        <span className="text-rose-600">→</span>
+      </Link>
 
       {/* ── Offering setup: adjust the real dates ─────────────────────────── */}
       <section className="card card-pad space-y-3">
@@ -234,50 +228,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         )}
       </section>
 
-      {/* ── Calendar — this offering's terms and courses on real dates ─────── */}
-      {dated.length > 0 && (
-        <section className="card card-pad space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">Calendar — terms &amp; courses on real dates</h2>
-            <p className="text-sm text-slate-500">Each bar is a course inside its term window. Adjust the dates above and this redraws.</p>
-          </div>
-          <div className="space-y-1.5">
-            {/* Term bands */}
-            <div className="relative h-6">
-              {dated.map((w, i) => (
-                <div key={w.term.id} className={`absolute top-0 flex h-5 items-center overflow-hidden rounded px-1.5 text-[10px] font-semibold text-white ${TERM_COLORS[i % TERM_COLORS.length]}`}
-                  style={{ left: `${pct(w.start.getTime())}%`, width: `${Math.max(2, pct(w.end.getTime()) - pct(w.start.getTime()))}%` }}
-                  title={`${w.term.name}: ${dateFmt(w.start)} → ${dateFmt(w.end)} (${w.weeks} wks)`}>
-                  {w.term.name} · {monthDay(w.start)}
-                </div>
-              ))}
-            </div>
-            {/* Course bars */}
-            {dated.map((w, i) =>
-              w.term.courses.map((c) => (
-                <div key={c.id} className="relative h-6">
-                  <Link href={`/courses/${c.id}`}
-                    className={`absolute top-0 flex h-5 items-center overflow-hidden whitespace-nowrap rounded border px-1.5 text-[10px] font-medium hover:ring-2 hover:ring-rose-300 ${TERM_COLORS[i % TERM_COLORS.length].replace("bg-", "border-").replace("500", "300")} bg-white text-slate-700`}
-                    style={{ left: `${pct(w.start.getTime())}%`, width: `${Math.max(2, pct(w.end.getTime()) - pct(w.start.getTime()))}%` }}
-                    title={`${c.code ?? ""} ${c.name} — ${w.term.name}, ${dateFmt(w.start)} → ${dateFmt(w.end)}`}>
-                    {c.code ?? c.name}
-                    <span className="ml-1 font-normal text-slate-400">{c.name}</span>
-                  </Link>
-                </div>
-              )),
-            )}
-            {/* Today line */}
-            {spanStart != null && spanEnd != null && today.getTime() >= spanStart && today.getTime() <= spanEnd && (
-              <div className="pointer-events-none absolute inset-y-0" />
-            )}
-          </div>
-          <div className="flex justify-between text-[10px] text-slate-400">
-            <span>{spanStart != null ? dateFmt(new Date(spanStart)) : ""}</span>
-            <span>{spanEnd != null ? dateFmt(new Date(spanEnd)) : ""}</span>
-          </div>
-        </section>
-      )}
-
       {/* ── Preferred course sequence (template-wide) ──────────────────────── */}
       <section className="card card-pad space-y-3">
         <div>
@@ -289,30 +239,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           </p>
         </div>
         <CourseSequencer programId={program.id} terms={seqTerms} initialCourses={seqCourses} />
-      </section>
-
-      {/* Schedule, rooms & sections — THE assignment surface for this offering */}
-      <section className="space-y-3">
-        <div className="flex items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Schedule, rooms, sites &amp; staff</h2>
-            <p className="text-sm text-slate-500"><strong>This is where assignments happen.</strong> Every section of every course is a real booking — click any meeting to set its day, time, room (or partner site for clinicals), and instructor / preceptor. Same data as the <Link href="/calendar" className="text-rose-700 hover:underline">master calendar</Link>: change it here, it changes everywhere.</p>
-          </div>
-        </div>
-        {sched && sched.meetings.length > 0 ? (
-          <CohortSchedule meetings={sched.meetings} rooms={sched.rooms} people={sched.people} conflictCount={sched.conflictCount} />
-        ) : (
-          <div className="rounded-xl border border-dashed border-rose-200 bg-rose-50/30 p-6">
-            <p className="text-sm text-slate-600">
-              This offering hasn&apos;t been calendarized yet — its archetype (sequence, hours, ratios) exists outside space
-              and time. Calendarizing expands it into real bookable meetings, auto-placed against room capacity, partner
-              sites, and everything already on the institution&apos;s calendar. Then assign staff per meeting.
-            </p>
-            <form action={calendarizeCohort.bind(null, offering.id, program.id)} className="mt-3">
-              <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Calendarize this offering →</button>
-            </form>
-          </div>
-        )}
       </section>
 
       {/* Quick links */}
