@@ -1102,6 +1102,22 @@ export async function requestPlacement(studentId: string, employerId: string, fa
 /** Move a meeting to a new day / time / room (and optionally staff). Used by the
  *  master space calendar and the offering calendar — both read MeetingPattern, so
  *  a change here shows up in every surface. */
+/** Undo a lock-in: delete the instantiation (cohort) a goal-breakdown slot
+ *  created — its stages, term dates, bookings and overrides cascade away;
+ *  enrolled students are detached, never deleted. The slot goes back to a
+ *  plannable start date. */
+export async function unlockInstantiation(cohortId: string): Promise<void> {
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } } } });
+  if (!co) return;
+  await prisma.cohort.delete({ where: { id: cohortId } });
+  revalidatePath("/calendar");
+  revalidatePath(`/programs/${co.programId}`);
+  if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);
+  revalidatePath("/insights/staffing-need");
+  revalidatePath("/insights/clinical-sites");
+  revalidatePath("/insights/coverage");
+}
+
 export async function moveMeeting(
   meetingId: string,
   patch: { dayOfWeek?: string; startTime?: string; lengthHours?: number; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null },
@@ -1116,6 +1132,10 @@ export async function moveMeeting(
   const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data, include: { cohort: { select: { id: true, programId: true } } } });
   revalidatePath("/calendar");
   revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
+  revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}/design`);
+  revalidatePath("/insights/coverage");
+  revalidatePath("/insights/staffing-need");
+  revalidatePath("/insights/clinical-sites");
 }
 
 // ---------------------------------------------------------------------------

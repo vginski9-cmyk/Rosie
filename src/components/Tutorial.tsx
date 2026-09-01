@@ -26,7 +26,8 @@ const TOURS: Tour[] = [
       { h: "The goal row", b: "One box per year, reading left to right — the stairstep of fully-productive workers this family owes the region. Type in a box to change that year's goal; everything below recalculates." },
       { h: "Click a year", b: "Below the row you get that year's talent-pipeline health targets (the editable % ladder) and the talent-pipeline target metrics for cohorts ending that year — goal vs actual, live from student records." },
       { h: "Who delivers the goal", b: "Drag prepopulated program templates into the box to say which instantiations are responsible — the evening class covers 15, the traditional program covers the rest. Each template shows its max cohort enrollment capacity; if the math needs more seats than a cohort can hold, the box flags it." },
-      { h: "Set dates and lock it in", b: "Give each allocation a start date (the stop date derives from the template's term structure), tune per-term enrollment if you like, then Lock in instantiation — that creates the real offering with term dates and the full set of pipeline targets. It appears under the year immediately." },
+      { h: "Set dates and lock it in", b: "Give each allocation a start date (the stop date derives from the template's term structure), tune per-term enrollment if you like, then Lock in — that creates the real offering with term dates and the full set of pipeline targets. It appears under the year immediately." },
+      { h: "Fluid offerings", b: "The offering count is a suggestion, not a cage: ± offering adds or removes runs (each takes an equal share of the goal), ✕ drops an unlocked slot, and 🔓 Unlock undoes a lock-in — the instantiation is deleted, students are detached, and the slot is yours to re-sequence." },
     ],
   },
   {
@@ -115,8 +116,9 @@ const TOURS: Tour[] = [
   {
     key: "coverage", match: /^\/insights\/coverage/, title: "Daily coverage",
     steps: [
-      { h: "A real month calendar", b: "Scroll month by month with ← → . Every session sits on its exact date, color-coded — blue class, violet lab, rose clinical — with its time, course and how many students where. ⚠ flags holiday collisions." },
-      { h: "Click a day", b: "The panel shows only that day: each session's time, title, students in how many groups, hours and setting, plus how many instructor-led groups and preceptors must be on site." },
+      { h: "A real month calendar — one chip per shift", b: "Scroll month by month with ← → . Every SHIFT is its own chip on its exact date (16 sections = 16 chips, §2 = section 2), color-coded blue class / violet lab / rose clinical, with its time, students and setting. ⚠ flags holiday collisions." },
+      { h: "Drag a shift", b: "Space is fluid: drag any chip onto another weekday and that section's weekly booking moves — the master calendar, staffing and coverage all update instantly." },
+      { h: "Click a day", b: "The panel lists every shift on that day individually — time, section number, students, hours, setting, site and who staffs it — plus the instructor-led groups and preceptors the day needs." },
       { h: "The schedule for sites", b: "Below, every date with what arrives and how many preceptors need to be on site — the list you hand to clinical partners." },
     ],
   },

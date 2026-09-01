@@ -7,7 +7,7 @@
 
 export interface ColSeries { name: string; color: string }
 export interface ColLeaf { label: string; values: number[]; title?: string }
-export interface ColGroup { label: string; leaves: ColLeaf[] }
+export interface ColGroup { label: string; sub?: string; leaves: ColLeaf[] }
 export interface ColBand { label: string; groups: ColGroup[] }
 
 const fmtV = (v: number) => {
@@ -98,6 +98,7 @@ export function ColumnChart({
                   {b.groups.map((g, gi) => (
                     <div key={gi} className={`px-1 py-0.5 text-center text-[10px] font-medium text-slate-600 ${gi > 0 ? "border-l border-slate-100" : ""}`} style={{ minWidth: g.leaves.length * leafMinWidth }}>
                       {g.label}
+                      {g.sub && <span className="block text-[9px] font-normal tabular-nums text-slate-400">{g.sub}</span>}
                     </div>
                   ))}
                 </div>

@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { moveMeeting } from "@/lib/actions";
 import {
-  buildInstances, weeklyNeed, weeklyNeedByKind, settingAsks, shiftBoard, sumBy, peakOf,
+  buildInstances, weeklyNeed, weeklyNeedByKind, settingAsks, shiftBoard, sumBy, peakOf, usHoliday,
   type DatedInstance, type CohortCalendarInput, type WorkloadAssumptions, type SessionInput,
 } from "@/lib/capacitymodel";
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
@@ -13,6 +15,12 @@ import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/
 //   coverage — "How many shifts must be covered on each date?"              (# of Shifts)
 // One filter bar (cohorts · terms · session type), the same dated-instance
 // expansion under all three, so every number traces back to the session table.
+
+/** One booked section — a draggable shift instance on the calendar. */
+export interface ShiftMeeting {
+  id: string; courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number;
+  dayOfWeek: string; startTime: string; loc: string | null; staffName: string | null;
+}
 
 export interface CapacityCohort {
   cohortId: string;
@@ -25,7 +33,8 @@ export interface CapacityCohort {
   students: number;
   enrollmentByTerm: Record<number, number>;
   termStartByIndex: Record<number, string | null>;
-  courses: { code: string | null; title: string; termIndex: number; termName: string; sessions: SessionInput[] }[];
+  meetings?: ShiftMeeting[];
+  courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; sessions: SessionInput[] }[];
   assumptions: WorkloadAssumptions;
 }
 
@@ -48,6 +57,12 @@ const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString
 const fmtDateM = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtMonth = (m: string) => new Date(m + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 const fmtDay = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC" });
+const fmtMD = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
+const fmtT2 = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12;
+  return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`;
+};
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_KEY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
@@ -239,7 +254,7 @@ export function CapacityBoard({ cohorts, view, sites = [], collapsible = false }
 
       {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} />}
       {view === "sites" && <SitesView rows={instances} sites={sites} />}
-      {view === "coverage" && <CoverageView rows={instances} />}
+      {view === "coverage" && <CoverageView rows={instances} cohorts={cohorts} />}
     </div>
   );
 }
@@ -332,62 +347,75 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       k[0] += nz2(r.computed.AA); k[1] += nz2(r.computed.AD);
       s.set(r.session.kind, k);
     }
+    const spanOf = (year: string, sem: string) => {
+      const ws = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem).map((r) => r.mondayIso!).sort();
+      return ws.length ? `${fmtMD(ws[0])} → ${fmtMD(ws[ws.length - 1])}` : undefined;
+    };
     return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
       label: year,
       groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, kinds]) => ({
-        label: sem,
+        label: sem, sub: spanOf(year, sem),
         leaves: KIND_ORDER.filter((k) => kinds.has(k)).map((k) => ({
-          label: KIND_NAME[k], title: `${sem} ${year} · ${KIND_NAME[k]}`, values: kinds.get(k)!,
+          label: KIND_NAME[k], title: `${sem} ${year} (${spanOf(year, sem) ?? ""}) · ${KIND_NAME[k]}`, values: kinds.get(k)!,
         })),
       })),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
-  /** Faculty & preceptor FTEs (weekly): Year → Semester → week of term. */
+  /** Faculty & preceptor FTEs (weekly): Year → Semester → real calendar week. */
   const weekBands: ColBand[] = useMemo(() => {
-    const acc = new Map<string, Map<string, Map<number, [number, number]>>>();
+    const acc = new Map<string, Map<string, Map<string, [number, number]>>>();
     for (const r of rows) {
       const year = r.mondayIso!.slice(0, 4);
       const y = acc.get(year) ?? new Map(); acc.set(year, y);
       const s = y.get(r.semester) ?? new Map(); y.set(r.semester, s);
-      const k = s.get(r.weekOfTerm) ?? [0, 0];
+      const k = s.get(r.mondayIso!) ?? [0, 0];
       k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
-      s.set(r.weekOfTerm, k);
+      s.set(r.mondayIso!, k);
     }
     return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
       label: year,
       groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, wks]) => ({
         label: sem,
-        leaves: [...wks.keys()].sort((a, b) => a - b).map((w) => ({
-          label: String(w), title: `${sem} ${year} · week ${w} of term`, values: wks.get(w)!,
+        leaves: [...wks.keys()].sort().map((w) => ({
+          label: fmtMD(w), title: `${sem} ${year} · week of ${fmtDateM(w)}`, values: wks.get(w)!,
         })),
       })),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
-  /** Clinical staffing by rotation type per week of term — where to shore up. */
+  /** Clinical staffing by rotation type — real dates over years, semesters and
+   *  terms: each band is a semester, each group a real calendar week, each
+   *  column a rotation setting with the days & times its shifts run. */
   const rotBands: ColBand[] = useMemo(() => {
     const clin = rows.filter((r) => r.session.kind === "CLINICAL");
-    const acc = new Map<number, Map<string, [number, number]>>();
+    // band key `${year} ${sem}` → week mondayIso → rotation → [facFTE, preFTE, days/times]
+    const acc = new Map<string, Map<string, Map<string, { v: [number, number]; when: Set<string> }>>>();
     for (const r of clin) {
-      const w = acc.get(r.weekOfTerm) ?? new Map(); acc.set(r.weekOfTerm, w);
+      const bandKey = `${r.semester} ${r.mondayIso!.slice(0, 4)}`;
+      const b = acc.get(bandKey) ?? new Map(); acc.set(bandKey, b);
+      const w = b.get(r.mondayIso!) ?? new Map(); b.set(r.mondayIso!, w);
       const rot = r.session.rotationType ?? "(unspecified)";
-      const k = w.get(rot) ?? [0, 0];
-      k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
-      w.set(rot, k);
+      const cell = w.get(rot) ?? { v: [0, 0] as [number, number], when: new Set<string>() };
+      cell.v[0] += nz2(r.computed.AB); cell.v[1] += nz2(r.computed.AE);
+      if (r.session.dayOfWeek) cell.when.add(`${r.session.dayOfWeek}${r.session.startTime ? ` ${fmtT2(r.session.startTime)}` : ""}`);
+      w.set(rot, cell);
     }
     if (!acc.size) return [];
-    return [{
-      label: "Week of term",
-      groups: [...acc.keys()].sort((a, b) => a - b).map((w) => ({
-        label: String(w),
-        leaves: [...acc.get(w)!.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([rot, v]) => ({
-          label: rot, title: `Week ${w} of term · ${rot}`, values: v,
+    const bandStart = (b: Map<string, unknown>) => [...b.keys()].sort()[0] ?? "";
+    return [...acc.entries()].sort((a, b) => bandStart(a[1]).localeCompare(bandStart(b[1]))).map(([bandKey, weeks]) => ({
+      label: bandKey,
+      groups: [...weeks.keys()].sort().map((w) => ({
+        label: `wk of ${fmtMD(w)}`,
+        leaves: [...weeks.get(w)!.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([rot, cell]) => ({
+          label: `${rot}${cell.when.size ? ` — ${[...cell.when].sort().join(" · ")}` : ""}`,
+          title: `Week of ${fmtDateM(w)} · ${rot}${cell.when.size ? ` (${[...cell.when].sort().join(", ")})` : ""}`,
+          values: cell.v,
         })),
       })),
-    }];
+    }));
   }, [rows]);
 
   // Staffing plan by term: peak weekly need per term.
@@ -476,10 +504,10 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       {rotBands.length > 0 && (
         <section className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="mb-2">
-            <h2 className="text-sm font-semibold text-slate-700">Clinical staffing by rotation type, week by week</h2>
-            <p className="text-[11px] text-slate-400">The clinical-coordinator view: which rotation settings need clinical faculty and preceptors in each week of the term — take each column to that setting&apos;s partner sites.</p>
+            <h2 className="text-sm font-semibold text-slate-700">Clinical staffing by rotation type — real weeks, days &amp; times</h2>
+            <p className="text-[11px] text-slate-400">The clinical-coordinator view: which rotation settings need clinical faculty and preceptors in each real calendar week — each column names the setting and the days &amp; times its shifts run, grouped by week, semester and year. Take a column to that setting&apos;s partner sites.</p>
           </div>
-          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={30} vertLeafLabels />
+          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={40} vertLeafLabels />
         </section>
       )}
 
@@ -790,10 +818,12 @@ function GapChart({ rows, supply }: { rows: DatedInstance[]; supply: number }) {
             );
           })}
         </div>
-        <div className="flex justify-between pr-24 text-[10px] text-slate-400">
-          <span>{fmtShort(weeks[0].mondayIso)}</span>
-          <span>{fmtShort(weeks[weeks.length - 1].mondayIso)}</span>
+        <div className="inline-flex gap-[3px] pr-24">
+          {weeks.map((w, i) => (
+            <span key={w.mondayIso} className="w-7 shrink-0 whitespace-nowrap text-center text-[8px] tabular-nums text-slate-400">{i % 4 === 0 ? fmtMD(w.mondayIso) : ""}</span>
+          ))}
         </div>
+        <div className="pr-24 text-right text-[10px] text-slate-400">{fmtShort(weeks[0].mondayIso)} → {fmtShort(weeks[weeks.length - 1].mondayIso)}</div>
       </div>
     </div>
   );
@@ -923,14 +953,91 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
 }
 
 // ───────────────────────────── 05 · Daily coverage ───────────────────────────
-function CoverageView({ rows }: { rows: DatedInstance[] }) {
-  const board = useMemo(() => shiftBoard(rows), [rows]);
+// EVERY SHIFT IS ITS OWN INSTANCE on the calendar: a session needing 16
+// sections puts 16 chips on its dates — each chip is one section, placed by
+// its own weekly booking, and DRAGGABLE to another weekday (space is fluid;
+// dropping a chip moves that section's weekly booking via the same record the
+// master calendar edits).
+
+interface ShiftChip {
+  key: string;
+  dateIso: string;
+  time: string | null;
+  kind: string;
+  courseCode: string | null; courseTitle: string; sessionTitle: string | null;
+  cohort: string; program: string;
+  section: number; of: number;
+  seats: number; lengthHours: number;
+  setting: string | null;
+  loc: string | null;
+  staffName: string | null;
+  meetingId: string | null;
+  preceptors: number;
+  holiday: string | null;
+}
+
+function CoverageView({ rows, cohorts }: { rows: DatedInstance[]; cohorts: CapacityCohort[] }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const selected = selectedDay ? board.find((d) => d.dateIso === selectedDay) ?? null : null;
-  const byDate = useMemo(() => new Map(board.map((d) => [d.dateIso, d])), [board]);
+  const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+
+  // Per-section bookings: cohort|course|kind → sections in order.
+  const meetingsFor = useMemo(() => {
+    const m = new Map<string, ShiftMeeting[]>();
+    for (const c of cohorts) for (const mt of c.meetings ?? []) {
+      const k = `${c.cohortId}|${mt.courseId}|${mt.kind}`;
+      const l = m.get(k) ?? []; l.push(mt); m.set(k, l);
+    }
+    for (const l of m.values()) l.sort((a, b) => a.sectionIndex - b.sectionIndex);
+    return m;
+  }, [cohorts]);
+
+  // Explode every dated session row into one chip per required section.
+  const shifts: ShiftChip[] = useMemo(() => {
+    const out: ShiftChip[] = [];
+    for (const r of rows) {
+      if (!r.monday) continue;
+      const Y = Math.max(1, Math.round(nz2(r.computed.Y)));
+      const ms = r.courseId ? meetingsFor.get(`${r.cohortId}|${r.courseId}|${r.session.kind}`) ?? [] : [];
+      const seatsDefault = Math.max(1, Math.min(r.session.maxStudents ?? 1, Math.ceil(r.computed.C / Y)));
+      for (let sIdx = 1; sIdx <= Y; sIdx++) {
+        const m = ms.find((x) => x.sectionIndex === sIdx) ?? null;
+        const day = m?.dayOfWeek ?? r.session.dayOfWeek;
+        const off = day != null ? DAY_KEY[day] : undefined;
+        if (off == null) continue; // async / no-day sessions don't land on a date
+        const date = new Date(r.monday.getTime() + off * 86400000);
+        out.push({
+          key: `${r.session.id}|${r.weekOfTerm}|${sIdx}|${r.cohortId}`,
+          dateIso: date.toISOString().slice(0, 10),
+          time: m?.startTime ?? r.session.startTime ?? null,
+          kind: r.session.kind,
+          courseCode: r.courseCode, courseTitle: r.courseTitle, sessionTitle: r.session.title,
+          cohort: r.cohort, program: r.program,
+          section: sIdx, of: Y,
+          seats: m && m.seats > 0 ? m.seats : seatsDefault,
+          lengthHours: r.session.lengthHours,
+          setting: r.session.rotationType, loc: m?.loc ?? r.session.location ?? null,
+          staffName: m?.staffName ?? null,
+          meetingId: m?.id ?? null,
+          preceptors: r.session.kind === "CLINICAL" ? r.session.preceptorsNeeded ?? 0 : 0,
+          holiday: usHoliday(date),
+        });
+      }
+    }
+    return out.sort((a, b) => a.dateIso.localeCompare(b.dateIso) || (a.time ?? "99").localeCompare(b.time ?? "99") || a.section - b.section);
+  }, [rows, meetingsFor]);
+
+  const byDate = useMemo(() => {
+    const m = new Map<string, ShiftChip[]>();
+    for (const c of shifts) { const l = m.get(c.dateIso) ?? []; l.push(c); m.set(c.dateIso, l); }
+    return m;
+  }, [shifts]);
+  const board = useMemo(() => shiftBoard(rows), [rows]);
+  const selected = selectedDay ? byDate.get(selectedDay) ?? null : null;
 
   // Month navigation — start on the first month with anything scheduled.
-  const months = useMemo(() => [...new Set(board.map((d) => d.dateIso.slice(0, 7)))].sort(), [board]);
+  const months = useMemo(() => [...new Set(shifts.map((d) => d.dateIso.slice(0, 7)))].sort(), [shifts]);
   const [month, setMonth] = useState<string | null>(null);
   const cur = month ?? months[0] ?? null;
   const monthIdx = cur ? months.indexOf(cur) : -1;
@@ -941,7 +1048,7 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
     setMonth(d.toISOString().slice(0, 7));
   };
 
-  if (!board.length) return <p className="text-sm text-slate-400">No dated sessions in this slice — days come from the template&apos;s Week __ · day columns and each offering&apos;s real term dates.</p>;
+  if (!shifts.length) return <p className="text-sm text-slate-400">No dated sessions in this slice — days come from the template&apos;s Week __ · day columns and each offering&apos;s real term dates.</p>;
 
   // Build the month grid (Mon-first) for the current month.
   const first = new Date(cur + "-01T00:00:00Z");
@@ -966,11 +1073,25 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
     return m ? `${hh}:${String(m).padStart(2, "0")}${ap} ` : `${hh}${ap} `;
   };
   const monthLabel = cur ? new Date(cur + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" }) : "";
-  const monthTotal = board.filter((d) => d.dateIso.startsWith(cur ?? "")).reduce((n, d) => n + d.shifts, 0);
+  const monthShifts = shifts.filter((c) => c.dateIso.startsWith(cur ?? "")).length;
+
+  const dropOn = (dateIso: string, e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverDay(null);
+    const id = e.dataTransfer.getData("text/rosie-meeting");
+    if (!id) return;
+    const weekday = WEEKDAYS[(new Date(dateIso + "T00:00:00Z").getUTCDay() + 6) % 7];
+    startTransition(async () => { await moveMeeting(id, { dayOfWeek: weekday }); router.refresh(); });
+  };
+
+  const chipLabel = (c: ShiftChip) => `${c.courseCode ?? c.courseTitle}${c.of > 1 ? ` §${c.section}` : ""}`;
+  const chipTip = (c: ShiftChip) =>
+    `${c.time ? c.time + " · " : ""}${c.courseCode ?? c.courseTitle}${c.of > 1 ? ` — shift ${c.section} of ${c.of}` : ""}${c.sessionTitle ? ` — ${c.sessionTitle}` : ""} · ${n0(c.seats)} students · ${c.lengthHours}h${c.setting ? ` @ ${c.setting}` : ""}${c.loc ? ` (${c.loc})` : ""} · ${c.staffName ?? (c.kind === "CLINICAL" ? "no preceptor" : "no instructor")} · ${c.cohort}${c.meetingId ? " — drag to another weekday to move this shift's weekly booking" : ""}`;
 
   return (
     <div className="space-y-4">
-      {/* ── The calendar: exact dates, times, locations — color-coded by kind ── */}
+      {pending && <div className="text-xs text-slate-400">moving shift…</div>}
+      {/* ── The calendar: one chip per SHIFT — drag chips between weekdays ── */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2">
@@ -983,9 +1104,13 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-500" /> Class</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-500" /> Lab</span>
             <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-rose-500" /> Clinical</span>
-            <span className="tabular-nums text-slate-400">{n0(monthTotal)} sessions this month</span>
+            <span className="tabular-nums text-slate-400">{n0(monthShifts)} shifts this month</span>
           </div>
         </div>
+        <p className="border-b border-slate-100 bg-slate-50/60 px-4 py-1.5 text-[11px] text-slate-500">
+          Every shift is its own chip (§2 = section 2 of that session). <strong>Drag a chip onto another weekday</strong> to move that
+          section&apos;s weekly booking — the space is fluid, and the move lands on the master calendar and every insight instantly.
+        </p>
         <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
           {WEEKDAYS.map((d) => <div key={d} className="py-1.5">{d}</div>)}
         </div>
@@ -996,49 +1121,67 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
             const dayNum = Number(dateIso.slice(8, 10));
             const isToday = dateIso === todayIso;
             const isSel = selectedDay === dateIso;
+            const holiday = day?.find((c) => c.holiday)?.holiday ?? null;
             return (
-              <button
+              <div
                 key={i}
                 onClick={() => day && setSelectedDay(isSel ? null : dateIso)}
-                className={`min-h-[92px] border-b border-r border-slate-100 p-1 text-left align-top ${day ? "cursor-pointer hover:bg-slate-50" : "cursor-default"} ${isSel ? "ring-2 ring-inset ring-slate-800" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setDragOverDay(dateIso); }}
+                onDragLeave={() => setDragOverDay((d) => (d === dateIso ? null : d))}
+                onDrop={(e) => dropOn(dateIso, e)}
+                className={`min-h-[92px] border-b border-r border-slate-100 p-1 text-left align-top ${day ? "cursor-pointer hover:bg-slate-50" : ""} ${isSel ? "ring-2 ring-inset ring-slate-800" : ""} ${dragOverDay === dateIso ? "bg-rose-50 ring-2 ring-inset ring-rose-400" : ""}`}
               >
                 <div className="mb-0.5 flex items-center justify-between px-0.5">
                   <span className={`text-[11px] font-semibold ${isToday ? "rounded-full bg-rose-600 px-1.5 text-white" : "text-slate-500"}`}>{dayNum}</span>
-                  {day?.holiday && <span className="truncate text-[8px] font-semibold text-rose-600" title={day.holiday}>⚠ {day.holiday}</span>}
+                  {holiday && <span className="truncate text-[8px] font-semibold text-rose-600" title={holiday}>⚠ {holiday}</span>}
                 </div>
                 <div className="space-y-0.5">
-                  {(day?.details ?? []).slice(0, 3).map((x, j) => (
-                    <div key={j} className={`truncate rounded-r px-1 py-0.5 text-[9.5px] leading-tight ${KIND_COLOR[x.kind] ?? "bg-slate-50"}`}
-                      title={`${x.courseCode ?? x.courseTitle}${x.sessionTitle ? ` — ${x.sessionTitle}` : ""} · ${n0(x.students)} students · ${x.lengthHours}h${x.startTime ? ` from ${x.startTime}` : ""}${x.setting ? ` @ ${x.setting}` : ""} · ${x.cohort}`}>
-                      <span className="font-semibold">{fmtT(x.startTime)}{x.courseCode ?? x.courseTitle}</span>
-                      <span className="block truncate opacity-80">{n0(x.students)} stu{x.setting ? ` @ ${x.setting}` : ""}</span>
+                  {(day ?? []).slice(0, 3).map((c) => (
+                    <div
+                      key={c.key}
+                      draggable={!!c.meetingId}
+                      onDragStart={(e) => { if (c.meetingId) e.dataTransfer.setData("text/rosie-meeting", c.meetingId); }}
+                      className={`truncate rounded-r px-1 py-0.5 text-[9.5px] leading-tight ${KIND_COLOR[c.kind] ?? "bg-slate-50"} ${c.meetingId ? "cursor-grab active:cursor-grabbing" : ""}`}
+                      title={chipTip(c)}
+                    >
+                      <span className="font-semibold">{fmtT(c.time)}{chipLabel(c)}</span>
+                      <span className="block truncate opacity-80">{n0(c.seats)} stu{c.setting ? ` @ ${c.setting}` : ""}</span>
                     </div>
                   ))}
-                  {day && day.details.length > 3 && <div className="px-1 text-[9px] text-slate-400">+{day.details.length - 3} more — click</div>}
+                  {day && day.length > 3 && <div className="px-1 text-[9px] text-slate-400">+{day.length - 3} more shifts — click</div>}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
 
-        {/* Day drill-down: exactly what happens, plus the staffing it takes */}
-        {selected && (
+        {/* Day drill-down: every shift, individually */}
+        {selected && selectedDay && (
           <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-3">
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-sm font-semibold text-slate-800">
-                {fmtDate(selected.dateIso)} — {n0(selected.studentsOnSite)} students · {n0(selected.shifts)} session-group{selected.shifts === 1 ? "" : "s"} · needs {n0(selected.details.filter((x) => x.kind !== "CLINICAL").reduce((n, x) => n + x.sections, 0))} instructor-led group{selected.details.filter((x) => x.kind !== "CLINICAL").reduce((n, x) => n + x.sections, 0) === 1 ? "" : "s"} + {n0(selected.preceptorsOnSite)} preceptor{selected.preceptorsOnSite === 1 ? "" : "s"} on site
-                {selected.holiday && <span className="ml-2 rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-800">⚠ {selected.holiday} — consider moving these</span>}
+                {fmtDate(selectedDay)} — {n0(selected.length)} shift{selected.length === 1 ? "" : "s"} · {n0(selected.reduce((n2, c) => n2 + c.seats, 0))} students · needs {n0(selected.filter((c) => c.kind !== "CLINICAL").length)} instructor-led group{selected.filter((c) => c.kind !== "CLINICAL").length === 1 ? "" : "s"} + {n0(selected.reduce((n2, c) => n2 + c.preceptors, 0))} preceptor{selected.reduce((n2, c) => n2 + c.preceptors, 0) === 1 ? "" : "s"} on site
+                {selected.some((c) => c.holiday) && <span className="ml-2 rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-semibold text-rose-800">⚠ {selected.find((c) => c.holiday)?.holiday} — consider moving these</span>}
               </h3>
               <button onClick={() => setSelectedDay(null)} className="text-xs text-slate-400 hover:text-slate-600">close ✕</button>
             </div>
             <div className="space-y-1.5">
-              {selected.details.map((x, i) => (
-                <div key={i} className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-r-lg px-3 py-1.5 text-xs ${KIND_COLOR[x.kind] ?? "bg-white"}`}>
-                  <span className="font-semibold">{x.startTime ? `${x.startTime} · ` : ""}{x.courseCode ? `${x.courseCode} · ` : ""}{x.courseTitle}</span>
-                  {x.sessionTitle && <span>“{x.sessionTitle}”</span>}
-                  <span className="tabular-nums">{n0(x.students)} students in {n0(x.sections)} group{x.sections === 1 ? "" : "s"} · {x.lengthHours}h</span>
-                  {x.setting && <span className="font-medium">@ {x.setting}</span>}
-                  <span className="ml-auto opacity-70">{x.cohort} · {x.program}</span>
+              {selected.map((c) => (
+                <div
+                  key={c.key}
+                  draggable={!!c.meetingId}
+                  onDragStart={(e) => { if (c.meetingId) e.dataTransfer.setData("text/rosie-meeting", c.meetingId); }}
+                  className={`flex flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-r-lg px-3 py-1.5 text-xs ${KIND_COLOR[c.kind] ?? "bg-white"} ${c.meetingId ? "cursor-grab active:cursor-grabbing" : ""}`}
+                  title={c.meetingId ? "drag onto a calendar day to move this shift's weekly booking to that weekday" : undefined}
+                >
+                  <span className="font-semibold">{c.time ? `${c.time} · ` : ""}{c.courseCode ? `${c.courseCode} · ` : ""}{c.courseTitle}{c.of > 1 ? ` — shift ${c.section}/${c.of}` : ""}</span>
+                  {c.sessionTitle && <span>“{c.sessionTitle}”</span>}
+                  <span className="tabular-nums">{n0(c.seats)} students · {c.lengthHours}h</span>
+                  {c.setting && <span className="font-medium">@ {c.setting}</span>}
+                  {c.loc && <span>{c.loc}</span>}
+                  <span className={c.staffName ? "" : "font-medium text-amber-700"}>{c.staffName ?? (c.kind === "CLINICAL" ? "no preceptor" : "no instructor")}</span>
+                  {c.preceptors > 0 && <span className="tabular-nums">{n0(c.preceptors)} preceptor{c.preceptors === 1 ? "" : "s"}</span>}
+                  <span className="ml-auto opacity-70">{c.cohort} · {c.program}{c.meetingId ? " · ⠿ drag" : ""}</span>
                 </div>
               ))}
             </div>
@@ -1058,7 +1201,7 @@ function CoverageView({ rows }: { rows: DatedInstance[] }) {
               <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2 font-semibold">Date</th>
                 <th className="px-3 py-2 text-right font-semibold">Students</th>
-                <th className="px-3 py-2 text-right font-semibold">Groups</th>
+                <th className="px-3 py-2 text-right font-semibold">Shifts</th>
                 <th className="px-3 py-2 text-right font-semibold">Preceptors on site</th>
                 <th className="px-3 py-2 font-semibold">What arrives</th>
               </tr>

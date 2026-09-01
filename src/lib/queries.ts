@@ -1434,7 +1434,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
+          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
           _count: { select: { students: true } },
         },
       },
@@ -1486,8 +1486,15 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         students: co._count.students,
         enrollmentByTerm, termStartByIndex,
+        // One row per booked section — the calendar's draggable shift instances.
+        meetings: co.meetings.map((m) => ({
+          id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
+          dayOfWeek: m.dayOfWeek, startTime: m.startTime,
+          loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null),
+          staffName: m.staff?.name ?? null,
+        })),
         courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
-          code: c.code, title: c.name, termIndex: t.index, termName: t.name,
+          code: c.code, title: c.name, courseId: c.id, termIndex: t.index, termName: t.name,
           startDate: cdByCourse.get(c.id)?.startDate?.toISOString() ?? null,
           endDate: cdByCourse.get(c.id)?.endDate?.toISOString() ?? null,
           sessions: c.sessions.map((s) => {

@@ -266,6 +266,8 @@ export interface DatedInstance {
   program: string;
   courseCode: string | null;
   courseTitle: string;
+  /** DB course id when known — joins a shift back to its per-section booking. */
+  courseId: string | null;
   termIndex: number;      // 1-based
   termName: string;
   semester: string;       // Fall | Spring | Summer (best effort from the term start month)
@@ -293,6 +295,8 @@ export interface CohortCalendarInput {
   courses: {
     code: string | null;
     title: string;
+    /** DB course id (optional) — lets calendar shifts join their bookings. */
+    courseId?: string | null;
     termIndex: number;
     termName: string;
     /** Per-offering course window: when set, THIS anchors the course's session
@@ -353,7 +357,7 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
       out.push({
         session: s, computed,
         cohortId: input.cohortId, cohort: input.cohort, programId: input.programId, program: input.program,
-        courseCode: c.code, courseTitle: c.title, termIndex: c.termIndex, termName: c.termName, semester,
+        courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, termIndex: c.termIndex, termName: c.termName, semester,
         weekOfTerm: week,
         monday, mondayIso: monday ? isoOf(monday) : null,
         date, dateIso: date ? isoOf(date) : null,

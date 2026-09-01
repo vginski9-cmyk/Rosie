@@ -9,7 +9,7 @@ import {
   type LadderRates,
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
-import { saveFamilyGoalPlan, lockInInstantiation } from "@/lib/actions";
+import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation } from "@/lib/actions";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -91,6 +91,9 @@ interface Alloc {
   goal: number;
   /** Optional per-term enrollment overrides (index 0 = term 1). */
   termOverrides?: (number | null)[];
+  /** User-chosen number of offerings — overrides the suggested count (add or
+   *  subtract runs and sequence them however they add up to the goal). */
+  offeringCount?: number;
   /** The runs of this model that deliver the share — one per needed offering. */
   offerings?: OfferingSlot[];
   /** Legacy single-offering fields (migrated into offerings[0]). */
@@ -229,19 +232,24 @@ export function GoalPlanner({
     setAllocs([...allocs, { programId, goal: Math.max(0, remaining), offerings: [{ startDate: m ? suggestStart(m) : null }] }]);
   };
 
-  /** The runs an allocation needs, sized to the model's max cohort capacity.
-   *  More demand than one cohort can seat is NOT "over capacity" — it just
-   *  takes more offerings of the model. Locked slots are always preserved. */
-  const slotsFor = (a: Alloc, needed: number): OfferingSlot[] => {
+  /** The runs an allocation needs, sized to the model's max cohort capacity —
+   *  but the COUNT is yours: add or subtract offerings (a.offeringCount) and
+   *  sequence them however they add up to the goal. More demand than one
+   *  cohort can seat is NOT "over capacity" — it just takes more offerings.
+   *  Locked slots are always preserved. */
+  const slotsFor = (a: Alloc, suggested: number): OfferingSlot[] => {
     const legacy: OfferingSlot[] = a.offerings ?? (a.startDate != null || a.locked ? [{ startDate: a.startDate ?? null, locked: a.locked, cohortId: a.cohortId, cohortName: a.cohortName }] : []);
     const m = models.find((x) => x.programId === a.programId);
+    const lockedCount = legacy.filter((o) => o.locked).length;
+    const target = Math.max(1, lockedCount, a.offeringCount ?? suggested);
     const out = [...legacy];
-    while (out.length < needed) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null) });
-    while (out.length > needed && !out[out.length - 1].locked) out.pop();
+    while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null) });
+    while (out.length > target && !out[out.length - 1].locked) out.pop();
     return out;
   };
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
   const router = useRouter();
 
   /** Suggested start so the cohort lands its graduates in the selected year. */
@@ -258,6 +266,24 @@ export function GoalPlanner({
     return d.toISOString().slice(0, 10);
   };
   const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+
+  /** Undo a lock-in: deletes the instantiation (confirmed), slot returns to a
+   *  plannable start date. Students are detached, never deleted. */
+  const unlock = async (ai: number, oi: number, slots: OfferingSlot[]) => {
+    const a = allocs[ai];
+    const slot = slots[oi];
+    if (!slot?.locked) return;
+    if (!window.confirm(`Unlock ${slot.cohortName ?? "this offering"}?\n\nThe instantiation is deleted — its schedule, bookings, session overrides and pipeline targets go with it. Enrolled students are kept but detached. The slot returns to a plannable start date.`)) return;
+    setUnlockingId(`${a.programId}:${oi}`);
+    try {
+      if (slot.cohortId) await unlockInstantiation(slot.cohortId);
+      const next = slots.map((x, j) => (j === oi ? { startDate: x.startDate ?? null } : x));
+      setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
+      router.refresh();
+    } finally {
+      setUnlockingId(null);
+    }
+  };
 
   const lockIn = async (ai: number, oi: number, goalShare: number, slots: OfferingSlot[]) => {
     const a = allocs[ai];
@@ -439,6 +465,14 @@ export function GoalPlanner({
                   const capNeeded = Math.round(t.capacity);
                   const nOfferings = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capNeeded / m.maxCapacity)) : 1;
                   const slots = slotsFor(a, nOfferings);
+                  const lockedCount = slots.filter((o) => o.locked).length;
+                  const setCount = (next: number) =>
+                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: slots, offeringCount: Math.max(1, lockedCount, next), startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
+                  const removeSlot = (oi: number) => {
+                    if (slots[oi]?.locked) return;
+                    const next = slots.filter((_, j) => j !== oi);
+                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, offeringCount: Math.max(1, next.length), startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
+                  };
                   const seatsEach = Math.ceil(capNeeded / Math.max(1, slots.length));
                   const goalShare = a.goal / Math.max(1, slots.length);
                   const anyUnlocked = slots.some((o) => !o.locked);
@@ -467,16 +501,28 @@ export function GoalPlanner({
                           {anyUnlocked && !slots.some((o) => o.locked) && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
                         </span>
                       </div>
-                      {/* Capacity → how many offerings of this model it takes */}
+                      {/* Capacity → how many offerings — suggested, but YOURS to add / subtract */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
                         <span className="text-slate-500">needs enrollment capacity <strong className="text-slate-700">{capNeeded}</strong></span>
                         <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "—"}</strong></span>
                         {slots.length > 1 ? (
                           <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-700">
-                            → {slots.length} offerings of this model to deliver ({seatsEach} seats each; course sections size automatically from each course&apos;s session capacity)
+                            {slots.length} offerings of this model ({seatsEach} seats each)
                           </span>
                         ) : (
-                          m.maxCapacity != null && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">fits in one offering</span>
+                          m.maxCapacity != null && seatsEach <= (m.maxCapacity ?? Infinity) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">fits in one offering</span>
+                        )}
+                        <span className="inline-flex items-center gap-1">
+                          <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
+                          <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering — split the same goal across more runs">+ offering</button>
+                        </span>
+                        {slots.length !== nOfferings && (
+                          <span className="text-slate-400">math suggests {nOfferings} — your call</span>
+                        )}
+                        {m.maxCapacity != null && m.maxCapacity > 0 && seatsEach > m.maxCapacity && (
+                          <span className="rounded-full bg-rose-100 px-2 py-0.5 font-medium text-rose-700">
+                            ⚠ {seatsEach} seats each exceeds the model&apos;s max cohort of {Math.round(m.maxCapacity)} — add offerings or shrink this model&apos;s share
+                          </span>
                         )}
                       </div>
 
@@ -490,6 +536,12 @@ export function GoalPlanner({
                                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
                                 <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
                                 {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
+                                <button
+                                  onClick={() => unlock(ai, oi, slots)}
+                                  disabled={unlockingId != null}
+                                  className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="undo the lock-in — deletes the instantiation (students are detached, not deleted) and frees this slot"
+                                >{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
                               </>
                             ) : (
                               <>
@@ -505,13 +557,17 @@ export function GoalPlanner({
                                   className="rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                                   title={!o.startDate ? "set a start date first" : a.goal <= 0 ? "give it a share of the goal first" : "create the real instantiation"}
                                 >{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
+                                {slots.length > 1 && (
+                                  <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>
+                                )}
                               </>
                             )}
                           </div>
                         ))}
                         <p className="text-[10px] text-slate-400">
                           {slots.length > 1 ? "Adjust each offering's start so intakes line up (parallel sections, staggered Fall/Spring starts — your call), then lock each one in. " : ""}
-                          Locking in creates the offering with real term dates and its share of the pipeline targets.
+                          Locking in creates the offering with real term dates and its share of the pipeline targets; Unlock undoes it.
+                          Use ± offering to run more (or fewer) cohorts than the math suggests and sequence them to add up to the goal.
                         </p>
                       </div>
 
