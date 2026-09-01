@@ -7,7 +7,7 @@ import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/Cour
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
-import { buildInstances, weeklyNeed, settingAsks, lastSessionDate, type CohortCalendarInput } from "@/lib/capacitymodel";
+import { buildInstances, lastSessionDate, type CohortCalendarInput } from "@/lib/capacitymodel";
 import { CapacityBoard } from "@/components/CapacityBoard";
 
 export const dynamic = "force-dynamic";
@@ -44,17 +44,12 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—");
   const exactDate = (d: Date | null) => (d ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 
-  // ── This instantiation's capacity math: instructors, preceptors, sites,
-  //    and clinical supply vs demand — same engine as the Insights tabs. ──
+  // ── Real end date + holiday collisions for THIS instantiation (same engine
+  //    as the Insights tabs; the full breakdown lives in the sections below). ──
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === offering.id) ?? null;
   const sites = capModel?.clinicalSites ?? [];
   let lastDay: Date | null = null;
   let holidayHits = 0;
-  let capacity: null | {
-    peakFacFte: number; peakFacHeads: number; peakPreFte: number; peakPreHeads: number;
-    asks: ReturnType<typeof settingAsks>;
-    peakDayStudents: number; peakDayIso: string | null; supply: number; activeSites: number; gap: number;
-  } = null;
   if (capCohort) {
     const input: CohortCalendarInput = {
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
@@ -63,29 +58,8 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       courses: capCohort.courses,
     };
     const instances = buildInstances(input, capCohort.assumptions).filter((i) => i.mondayIso != null);
-    const weekly = weeklyNeed(instances);
-    const peakFacFte = Math.max(0, ...weekly.map((w) => w.facultyFte));
-    const peakPreFte = Math.max(0, ...weekly.map((w) => w.preceptorFte));
-    const clinical = instances.filter((i) => i.session.kind === "CLINICAL");
-    const byDate = new Map<string, number>();
-    for (const r of clinical) {
-      if (!r.dateIso) continue;
-      const students = Math.min(r.computed.C, (r.computed.Y ?? 0) * (r.session.maxStudents ?? 0));
-      byDate.set(r.dateIso, (byDate.get(r.dateIso) ?? 0) + students);
-    }
-    let peakDayStudents = 0; let peakDayIso: string | null = null;
-    for (const [k, v] of byDate) if (v > peakDayStudents) { peakDayStudents = v; peakDayIso = k; }
-    const activeSitesList = sites.filter((x) => x.status === "active");
-    const supply = activeSitesList.reduce((n, x) => n + (x.wblSlots ?? 0), 0);
     lastDay = lastSessionDate(instances);
     holidayHits = instances.filter((i) => i.holiday).length;
-    capacity = {
-      peakFacFte, peakFacHeads: Math.ceil(peakFacFte - 1e-9),
-      peakPreFte, peakPreHeads: Math.ceil(peakPreFte - 1e-9),
-      asks: settingAsks(instances),
-      peakDayStudents, peakDayIso, supply, activeSites: activeSitesList.length,
-      gap: supply - peakDayStudents,
-    };
   }
 
   // Sequence board inputs (template-wide; re-sequencing moves every offering).
@@ -125,6 +99,14 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           <p className="mt-1 text-sm text-slate-500">Ran {exactDate(offering.startDate ?? timing.startDate)} – {exactDate(lastDay ?? timing.endDate)} · completed</p>
         )}
       </div>
+
+      {/* This run's funnel — the talent pipeline, up top */}
+      {offering.stages.length > 0 && (
+        <section className="card card-pad space-y-1">
+          <h2 className="text-lg font-semibold">Talent pipeline — {offering.name}</h2>
+          <FunnelChart programId={program.id} stages={offering.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
+        </section>
+      )}
 
       {/* Counts + timing */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -180,68 +162,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         </div>
       )}
 
-      {/* ── What this instantiation needs ─────────────────────────────────── */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">What this instantiation needs — instructors, preceptors &amp; clinical sites</h2>
-          <p className="text-sm text-slate-500">
-            Computed live from the session table at this offering&apos;s enrollment targets and real dates — the same math as
-            the <Link href="/insights/staffing-need" className="text-rose-700 hover:underline">Insights</Link> tabs, scoped to this run.
-          </p>
-        </div>
-        {capacity ? (
-          <>
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Tile label="Instructors (peak week)" value={String(capacity.peakFacHeads)} sub={`${n1(capacity.peakFacFte)} FTE at the heaviest week`} />
-              <Tile label="Preceptors (peak week)" value={String(capacity.peakPreHeads)} sub={`${n1(capacity.peakPreFte)} FTE at the heaviest week`} />
-              <Tile label="Clinical settings needed" value={String(capacity.asks.length)} sub={capacity.asks.map((a) => a.setting).join(" · ") || "no clinical demand"} />
-              <div className={`rounded-xl border p-5 ${capacity.asks.length === 0 ? "border-slate-200 bg-white" : capacity.supply === 0 ? "border-rose-200 bg-rose-50/50" : capacity.gap >= 0 ? "border-emerald-200 bg-emerald-50/50" : "border-rose-200 bg-rose-50/50"}`}>
-                <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Clinical supply vs demand</div>
-                <div className={`mt-1 text-2xl font-semibold tabular-nums ${capacity.asks.length === 0 ? "text-slate-400" : capacity.supply === 0 || capacity.gap < 0 ? "text-rose-700" : "text-emerald-700"}`}>
-                  {capacity.asks.length === 0 ? "—" : capacity.supply === 0 ? "no supply" : capacity.gap >= 0 ? `fits (+${Math.round(capacity.gap)})` : `short by ${Math.round(-capacity.gap)}`}
-                </div>
-                <div className="mt-1 text-[11px] text-slate-500">
-                  peak day {Math.round(capacity.peakDayStudents)} students on site · {capacity.activeSites} active site{capacity.activeSites === 1 ? "" : "s"} supply {Math.round(capacity.supply)}/day ·{" "}
-                  <Link href="/insights/clinical-sites" className="text-rose-700 hover:underline">full picture ↦</Link>
-                </div>
-              </div>
-            </div>
-            {capacity.asks.length > 0 && (
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
-                <table className="min-w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                      <th className="px-3 py-2 font-semibold">Clinical setting</th>
-                      <th className="px-3 py-2 text-right font-semibold">Students on peak day</th>
-                      <th className="px-3 py-2 text-right font-semibold">Hosted shifts</th>
-                      <th className="px-3 py-2 text-right font-semibold">Preceptor hours</th>
-                      <th className="px-3 py-2 text-right font-semibold">Peak-week preceptor FTE</th>
-                      <th className="px-3 py-2 font-semibold">Days</th>
-                      <th className="px-3 py-2 font-semibold">Window</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {capacity.asks.map((a) => (
-                      <tr key={a.setting} className="border-b border-slate-100">
-                        <td className="px-3 py-1.5 font-medium text-slate-800">{a.setting}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{Math.round(a.studentPeakDay)}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{Math.round(a.sectionsTotal)}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{Math.round(a.preceptorHours)}</td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n1(a.preceptorPeakWeekFte)}</td>
-                        <td className="px-3 py-1.5 text-slate-500">{a.days.join(" · ") || "—"}</td>
-                        <td className="px-3 py-1.5 text-slate-500">{a.firstIso ? `${a.firstIso} → ${a.lastIso ?? ""}` : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-slate-400">Capacity math appears once the offering has term dates.</p>
-        )}
-      </section>
-
       {/* ── Preferred course sequence (template-wide) ──────────────────────── */}
       <section className="card card-pad space-y-3">
         <div>
@@ -272,12 +192,11 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           <div>
             <h2 className="text-lg font-semibold">Instructors &amp; preceptors — how many, and when</h2>
             <p className="text-sm text-slate-500">
-              This offering&apos;s need, week by week: class, lab and clinical faculty FTE (or raw contact hours) with the
-              peaks called out and deadlines derived. Click any week for its day-by-day breakdown; the filters slice by
-              term, course, session type, rotation, day, or date range.
+              The headline numbers below; click either to drop down the full picture — every shift as a bar (class, lab,
+              clinical) with its hours, contact hours, and the people who staff it, day by day, week by week, term by term.
             </p>
           </div>
-          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} collapsible />
         </section>
       )}
 
@@ -295,13 +214,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         </section>
       )}
 
-      {/* This run's funnel */}
-      {offering.stages.length > 0 && (
-        <section className="card card-pad space-y-1">
-          <h2 className="text-lg font-semibold">Talent pipeline — {offering.name}</h2>
-          <FunnelChart programId={program.id} stages={offering.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
-        </section>
-      )}
     </div>
   );
 }

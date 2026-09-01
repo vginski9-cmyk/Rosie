@@ -82,7 +82,7 @@ const TOURS: Tour[] = [
     key: "offering", match: /^\/programs\/[^/]+\/offerings\/[^/]+$/, title: "A scheduled offering",
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
-      { h: "What it needs", b: "The capacity block shows peak-week instructors and preceptors, the clinical settings this run requires, and whether the sites in supply can absorb it." },
+      { h: "What it needs", b: "The pipeline funnel sits up top. Below, the Instructors and Preceptors buttons carry the peak head-counts — click either and the full shift chart drops down: every class, lab and clinical shift as a bar with its hours, contact hours, and who staffs it, day by day." },
       { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. In the sequence board, each course card carries its OWN start and end date inputs — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and the calendar all shift with it." },
       { h: "The calendar", b: "Scroll the month view with ← → : every session on its exact date, color-coded (blue class, violet lab, rose clinical) with time, course and location. Click a day to see exactly what happens that day and who must be on site; ⚠ marks holiday collisions." },
     ],
@@ -105,7 +105,7 @@ const TOURS: Tour[] = [
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
       { h: "The answer, in words", b: "The headline states the peak: N FTE of instructors and M FTE of preceptors, which weeks, and the ÷-by-workload math behind each number — followed by a what-to-do list with real deadlines (preceptor agreements six weeks before the first clinical day)." },
-      { h: "Week by week, day by day", b: "Every row is a real calendar week, split class / lab / clinical, toggling between people (FTE → whole heads) and raw workbook contact hours. Click a week to expand its day-by-day: each date's sessions with times, students, and the instructor-led groups and preceptors it takes." },
+      { h: "Every shift is a bar", b: "The shift chart plays out every session instance — one horizontal bar per shift group, length = shift length, color = class / lab / clinical — labeled with its hours, the contact hours it generates, and the people who staff it. Day by day under week headers (with the week's FTE math), grouped term by term." },
       { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling." },
       { h: "Filters", b: "Every workbook page filter: cohorts, terms, session type, course code, delivery mode, rotation type, clinical mode, day, and a date range — they never remove data from the model, only from the view." },
     ],
