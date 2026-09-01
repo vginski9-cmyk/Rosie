@@ -163,6 +163,8 @@ export interface SessionInput {
   week: number | null;
   /** R — This session occurs on ____. */
   dayOfWeek: string | null;
+  /** Booked start time for this session's meeting, when calendarized (HH:MM). */
+  startTime?: string | null;
   /** S — Notes. */
   notes: string | null;
   /** T — Number of preceptors required to teach full clinical session. */
@@ -273,6 +275,8 @@ export interface DatedInstance {
   date: Date | null;
   dateIso: string | null;
   month: string | null;   // "YYYY-MM"
+  /** Observed holiday this session lands on, if any — flag it, let people adjust. */
+  holiday: string | null;
 }
 
 export interface CohortCalendarInput {
@@ -289,8 +293,31 @@ export interface CohortCalendarInput {
     title: string;
     termIndex: number;
     termName: string;
+    /** Per-offering course window: when set, THIS anchors the course's session
+     *  weeks instead of the term start (8-week course inside a 16-week term).
+     *  Accepts a Date or ISO string (props cross the server/client boundary). */
+    startDate?: Date | string | null;
+    endDate?: Date | string | null;
     sessions: SessionInput[];
   }[];
+}
+
+/** U.S. observed holidays + common institutional breaks a session might land on
+ *  (flagged, never silently moved — the configurer decides what shifts). */
+export function usHoliday(d: Date): string | null {
+  const m = d.getUTCMonth() + 1, day = d.getUTCDate(), wd = d.getUTCDay();
+  if (m === 1 && day === 1) return "New Year's Day";
+  if (m === 1 && wd === 1 && day >= 15 && day <= 21) return "MLK Day";
+  if (m === 5 && wd === 1 && day >= 25) return "Memorial Day";
+  if (m === 6 && day === 19) return "Juneteenth";
+  if (m === 7 && day === 4) return "Independence Day";
+  if (m === 9 && wd === 1 && day <= 7) return "Labor Day";
+  if (m === 10 && wd === 1 && day >= 8 && day <= 14) return "Indigenous Peoples' / Columbus Day";
+  if (m === 11 && day === 11) return "Veterans Day";
+  if (m === 11 && (wd === 4 || wd === 5)) { const thu = wd === 4 ? day : day - 1; if (thu >= 22 && thu <= 28) return wd === 4 ? "Thanksgiving" : "Day after Thanksgiving"; }
+  if (m === 12 && (day === 24 || day === 25)) return day === 25 ? "Christmas Day" : "Christmas Eve";
+  if (m === 12 && day >= 26) return "Winter break";
+  return null;
 }
 
 const seasonOfMonth = (m: number) => (m >= 1 && m <= 5 ? "Spring" : m <= 7 ? "Summer" : "Fall");
@@ -312,7 +339,8 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
   for (const ti of termIdxs) enrollment[ti] = enrollFor(ti);
 
   for (const c of input.courses) {
-    const start = input.termStartByIndex[c.termIndex] ?? null;
+    const courseStart = c.startDate ? (c.startDate instanceof Date ? c.startDate : new Date(c.startDate)) : null;
+    const start = courseStart ?? input.termStartByIndex[c.termIndex] ?? null;
     const semester = start ? seasonOfMonth(start.getUTCMonth() + 1) : "—";
     for (const s of c.sessions) {
       const computed = computeColumns(s, enrollment[c.termIndex] ?? 0, a);
@@ -328,6 +356,7 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
         monday, mondayIso: monday ? isoOf(monday) : null,
         date, dateIso: date ? isoOf(date) : null,
         month: monday ? isoOf(monday).slice(0, 7) : null,
+        holiday: date ? usHoliday(date) : null,
       });
     }
   }
@@ -430,8 +459,16 @@ export function settingAsks(rows: DatedInstance[]): SettingAsk[] {
 export interface ShiftDay {
   dateIso: string;
   shifts: number;               // Σ Y that date
+  studentsOnSite: number;       // Σ min(C, Y×L) that date — people, not shifts
   preceptorsOnSite: number;     // Σ Y × T
-  details: { cohort: string; courseCode: string | null; setting: string | null; lengthHours: number; startTime?: string | null }[];
+  holiday: string | null;
+  details: {
+    cohort: string; program: string;
+    courseCode: string | null; courseTitle: string;
+    sessionTitle: string | null; kind: string;
+    students: number; sections: number; lengthHours: number;
+    setting: string | null; startTime: string | null;
+  }[];
 }
 
 export function shiftBoard(rows: DatedInstance[]): ShiftDay[] {
@@ -445,9 +482,29 @@ export function shiftBoard(rows: DatedInstance[]): ShiftDay[] {
   return [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([dateIso, rs]) => ({
     dateIso,
     shifts: rs.reduce((s, r) => s + nz(r.computed.Y), 0),
+    studentsOnSite: rs.reduce((s, r) => s + Math.min(r.computed.C, nz(r.computed.Y) * nz(r.session.maxStudents)), 0),
     preceptorsOnSite: rs.reduce((s, r) => s + nz(r.computed.Y) * nz(r.session.preceptorsNeeded), 0),
-    details: rs.map((r) => ({ cohort: r.cohort, courseCode: r.courseCode, setting: r.session.rotationType, lengthHours: r.session.lengthHours })),
+    holiday: rs[0]?.holiday ?? null,
+    details: rs.map((r) => ({
+      cohort: r.cohort, program: r.program,
+      courseCode: r.courseCode, courseTitle: r.courseTitle,
+      sessionTitle: r.session.title, kind: r.session.kind,
+      students: Math.min(r.computed.C, nz(r.computed.Y) * nz(r.session.maxStudents)),
+      sections: nz(r.computed.Y), lengthHours: r.session.lengthHours,
+      setting: r.session.rotationType, startTime: r.session.startTime ?? null,
+    })),
   }));
+}
+
+/** The LAST day anything happens — final class, lab, clinical or exam. This is
+ *  the offering's real expected end (a date, not a month). */
+export function lastSessionDate(rows: DatedInstance[]): Date | null {
+  let best: Date | null = null;
+  for (const r of rows) {
+    const d = r.date ?? (r.monday ? new Date(r.monday.getTime() + 4 * 86400000) : null);
+    if (d && (!best || d.getTime() > best.getTime())) best = d;
+  }
+  return best;
 }
 
 /** Weekly staffing need broken out by session type — how many class, lab, and

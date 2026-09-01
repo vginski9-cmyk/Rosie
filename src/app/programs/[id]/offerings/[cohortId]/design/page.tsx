@@ -31,18 +31,34 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   const terms: DsTerm[] = [...program.terms].sort((a, b) => a.index - b.index).map((t) => ({
     id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek,
     startDate: ctByTerm.get(t.id)?.toISOString().slice(0, 10) ?? null,
-    courses: t.courses.map((c) => ({
+    courses: t.courses.map((c) => {
+      const cd = cohort.courseDates.find((x) => x.courseId === c.id);
+      return {
       id: c.id, code: c.code, name: c.name,
+      startDate: cd?.startDate?.toISOString().slice(0, 10) ?? null,
+      endDate: cd?.endDate?.toISOString().slice(0, 10) ?? null,
       sessions: c.sessions.map((s) => ({
         id: s.id, kind: s.kind, number: s.number, title: s.title,
         deliveryMode: s.deliveryMode, location: s.location,
         lengthHours: s.lengthHours, maxStudents: s.maxStudents,
+        facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
+        supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
+        preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
         week: s.week, dayOfWeek: s.dayOfWeek, startTime: s.startTime,
         notes: s.notes, rotationType: s.rotationType, clinicalMode: s.clinicalMode,
       })),
-    })),
+      };
+    }),
   }));
-  const overrides: DsOverride[] = cohort.sessionOverrides.map((o) => ({ sessionId: o.sessionId, week: o.week, dayOfWeek: o.dayOfWeek, startTime: o.startTime, notes: o.notes }));
+  const overrides: DsOverride[] = cohort.sessionOverrides.map((o) => ({
+    sessionId: o.sessionId, week: o.week, dayOfWeek: o.dayOfWeek, startTime: o.startTime, notes: o.notes,
+    title: o.title, deliveryMode: o.deliveryMode, location: o.location,
+    lengthHours: o.lengthHours, maxStudents: o.maxStudents,
+    facultyNeeded: o.facultyNeeded, facultyContactPolicy: o.facultyContactPolicy,
+    supportStaffNeeded: o.supportStaffNeeded, supportContactPolicy: o.supportContactPolicy,
+    preceptorsNeeded: o.preceptorsNeeded, preceptorContactPolicy: o.preceptorContactPolicy,
+    rotationType: o.rotationType, clinicalMode: o.clinicalMode,
+  }));
   const meetings: DsMeeting[] = cohort.meetings.map((m) => ({
     id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
     dayOfWeek: m.dayOfWeek, startTime: m.startTime, lengthHours: m.lengthHours,
@@ -127,6 +143,8 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         rooms={rooms}
         people={people}
         employers={employers}
+        enrollmentByTerm={capCohort?.enrollmentByTerm ?? {}}
+        assumptions={capCohort?.assumptions ?? { facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks, preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks }}
       />
     </div>
   );

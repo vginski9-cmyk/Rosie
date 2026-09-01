@@ -468,8 +468,9 @@ export async function getOffering(cohortId: string) {
   return prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
-      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { kind: true } } } } } } } },
+      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { kind: true, week: true } } } } } } } },
       cohortTerms: { include: { term: true } },
+      courseDates: true,
       stages: { orderBy: { sortOrder: "asc" } },
       _count: { select: { students: true, sessionStaff: true } },
     },
@@ -1431,7 +1432,8 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         include: {
           stages: true,
           cohortTerms: { select: { termId: true, startDate: true } },
-          sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } },
+          sessionOverrides: true,
+          courseDates: { select: { courseId: true, startDate: true, endDate: true } },
           meetings: { select: { courseId: true, kind: true, dayOfWeek: true, startTime: true } },
           _count: { select: { students: true } },
         },
@@ -1464,13 +1466,16 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
       // Templates are timeless — days attach at instantiation. When this offering
       // has calendarized meetings, their day pattern dates the session rows.
       const meetingDay = new Map<string, string>();
+      const meetingTime = new Map<string, string>();
       for (const m of co.meetings) {
         const k = `${m.courseId}|${m.kind}`;
         if (!meetingDay.has(k)) meetingDay.set(k, m.dayOfWeek);
+        if (!meetingTime.has(k)) meetingTime.set(k, m.startTime);
       }
       // Per-instantiation session overrides beat both the template and the
       // meeting-day fallback — this cohort's reality is what the math uses.
       const ovBySession = new Map(co.sessionOverrides.map((o) => [o.sessionId, o]));
+      const cdByCourse = new Map(co.courseDates.map((cd) => [cd.courseId, cd]));
       return {
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
@@ -1478,18 +1483,25 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         enrollmentByTerm, termStartByIndex,
         courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
           code: c.code, title: c.name, termIndex: t.index, termName: t.name,
-          sessions: c.sessions.map((s) => ({
-            id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", number: s.number, title: s.title,
-            deliveryMode: s.deliveryMode, location: s.location,
-            lengthHours: s.lengthHours, maxStudents: s.maxStudents,
-            facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
-            supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
-            week: ovBySession.get(s.id)?.week ?? s.week,
-            dayOfWeek: ovBySession.get(s.id)?.dayOfWeek ?? s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null,
-            notes: s.notes,
-            preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
-            rotationType: s.rotationType, clinicalMode: s.clinicalMode,
-          })),
+          startDate: cdByCourse.get(c.id)?.startDate?.toISOString() ?? null,
+          endDate: cdByCourse.get(c.id)?.endDate?.toISOString() ?? null,
+          sessions: c.sessions.map((s) => {
+            const ov = ovBySession.get(s.id);
+            return {
+              id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", number: s.number,
+              title: ov?.title ?? s.title,
+              deliveryMode: ov?.deliveryMode ?? s.deliveryMode, location: ov?.location ?? s.location,
+              lengthHours: ov?.lengthHours ?? s.lengthHours, maxStudents: ov?.maxStudents ?? s.maxStudents,
+              facultyNeeded: ov?.facultyNeeded ?? s.facultyNeeded, facultyContactPolicy: ov?.facultyContactPolicy ?? s.facultyContactPolicy,
+              supportStaffNeeded: ov?.supportStaffNeeded ?? s.supportStaffNeeded, supportContactPolicy: ov?.supportContactPolicy ?? s.supportContactPolicy,
+              week: ov?.week ?? s.week,
+              dayOfWeek: ov?.dayOfWeek ?? s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null,
+              startTime: ov?.startTime ?? s.startTime ?? meetingTime.get(`${c.id}|${s.kind}`) ?? null,
+              notes: ov?.notes ?? s.notes,
+              preceptorsNeeded: ov?.preceptorsNeeded ?? s.preceptorsNeeded, preceptorContactPolicy: ov?.preceptorContactPolicy ?? s.preceptorContactPolicy,
+              rotationType: ov?.rotationType ?? s.rotationType, clinicalMode: ov?.clinicalMode ?? s.clinicalMode,
+            };
+          }),
         }))),
         assumptions: {
           facContactHours: p.facContactHours, facWorkWeekHours: p.facWorkWeekHours, facTermWeeks: p.facTermWeeks,
@@ -1528,6 +1540,7 @@ export async function getOfferingDesign(cohortId: string) {
       },
       cohortTerms: { select: { termId: true, startDate: true } },
       sessionOverrides: true,
+      courseDates: true,
       meetings: {
         include: {
           facility: { select: { id: true, name: true } },

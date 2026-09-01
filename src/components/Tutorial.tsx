@@ -71,8 +71,8 @@ const TOURS: Tour[] = [
   {
     key: "offering-design", match: /^\/programs\/[^/]+\/offerings\/[^/]+\/design$/, title: "Design & sequence — this instantiation",
     steps: [
-      { h: "In the order it actually happens", b: "Sessions are sorted by week → day → time, classes, labs and clinicals interleaved — so the table reads as the real timeline, with the actual date on every row." },
-      { h: "Click any row to adjust THIS offering", b: "Move a session's week, day or time, or annotate it — the override applies to this instantiation only (rows show an 'edited' chip); the template and every other offering stay untouched. Clear returns to the template." },
+      { h: "In the order it actually happens", b: "Sessions are sorted by week → day → time, classes, labs and clinicals interleaved — the real timeline, with the actual date on every row. Holiday collisions are flagged in red so you can move them." },
+      { h: "Every cell is editable — for THIS offering", b: "Title, delivery, length, capacity, staffing counts, policies, rotation, week, day, time, notes — the same configurability as the template sheet. Formula columns recalculate as you type; Save row stores only what differs from the template ('edited' chip; clear returns to it)." },
       { h: "Edit the weekly pattern", b: "Each course × kind has a weekly booking (day · time · room or partner site · staff). Click edit, change it, save — the same booking updates on the master calendar and every other surface." },
       { h: "Staffing need by week", b: "The table up top shows how many class, lab and clinical faculty (and preceptors) this instantiation needs each calendar week — overrides included. The institution-wide version lives under Insights → Instructors & preceptors." },
     ],
@@ -82,7 +82,7 @@ const TOURS: Tour[] = [
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
       { h: "What it needs", b: "The capacity block shows peak-week instructors and preceptors, the clinical settings this run requires, and whether the sites in supply can absorb it." },
-      { h: "Configure the instantiation", b: "Open Design & sequence — this offering to see and edit every session's real date, time, location, and instructor / preceptor. The course sequence board re-sequences the template for all offerings." },
+      { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. Below the sequence board, set each COURSE's own start and end dates — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and coverage all shift with it." },
     ],
   },
   {

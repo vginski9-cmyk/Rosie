@@ -624,8 +624,18 @@ export async function lockInInstantiation(
   }
   const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, program.terms.length));
 
+  // The class year is when the program actually ENDS from this start date —
+  // walk the term spans (plus ~2-week breaks) to the real finish.
+  const endCursor = new Date(input.startDate);
+  for (let i = 0; i < program.terms.length; i++) {
+    const term = program.terms[i];
+    const weeks = (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1;
+    endCursor.setDate(endCursor.getDate() + weeks * 7 + (i < program.terms.length - 1 ? 14 : 0));
+  }
+  const endYear = endCursor.getFullYear();
+
   // Name it by the year it lands its graduates; disambiguate within the program.
-  let name = `Class of ${input.gradYear}`;
+  let name = `Class of ${endYear}`;
   if (program.cohorts.some((c) => c.name === name)) {
     let n = 2;
     while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++;
@@ -672,26 +682,79 @@ export async function lockInInstantiation(
   return { cohortId: cohort.id, name };
 }
 
-/** Save a per-INSTANTIATION session override: move one session's week / day /
- *  time or annotate it for THIS offering only — the template stays untouched.
- *  Pass empty values to clear a field back to the template's. */
+/** Set one course's real window for THIS offering — courses inside a term run
+ *  different lengths (8-, 12-, 16-week), so each gets its own start and end.
+ *  The start anchors the course's session weeks; clearing both removes the
+ *  override (back to the term's window). */
+export async function saveCourseDates(cohortId: string, courseId: string, programId: string, formData: FormData) {
+  const startStr = str(formData.get("startDate"));
+  const endStr = str(formData.get("endDate"));
+  if (!startStr && !endStr) {
+    await prisma.cohortCourseDates.deleteMany({ where: { cohortId, courseId } });
+  } else {
+    await prisma.cohortCourseDates.upsert({
+      where: { cohortId_courseId: { cohortId, courseId } },
+      update: { startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null },
+      create: { cohortId, courseId, startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null },
+    });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+  revalidatePath(`/insights/staffing-need`);
+  revalidatePath(`/insights/coverage`);
+  revalidatePath(`/insights/clinical-sites`);
+}
+
+/** Save a per-INSTANTIATION session override — EVERY input column of the
+ *  session table can be adjusted for THIS offering (same configurability as
+ *  the template's design & sequence sheet) without touching the template.
+ *  Only fields that DIFFER from the template are stored, so anything left
+ *  matching keeps inheriting future template edits. */
 export async function saveSessionOverride(cohortId: string, sessionId: string, programId: string, formData: FormData) {
-  const week = optNum(formData.get("week"));
-  const dayOfWeek = str(formData.get("dayOfWeek")) || null;
-  const startTime = str(formData.get("startTime")) || null;
-  const notes = str(formData.get("notes")) || null;
-  if (week == null && !dayOfWeek && !startTime && !notes) {
+  const tpl = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!tpl) return;
+  const numDiff = (name: string, tplVal: number | null) => {
+    const v = optNum(formData.get(name));
+    return v != null && v !== tplVal ? v : null;
+  };
+  const strDiff = (name: string, tplVal: string | null) => {
+    const v = str(formData.get(name)) || null;
+    return v != null && v !== tplVal ? v : null;
+  };
+  const data = {
+    week: numDiff("week", tpl.week),
+    dayOfWeek: strDiff("dayOfWeek", tpl.dayOfWeek),
+    startTime: strDiff("startTime", tpl.startTime),
+    notes: strDiff("notes", tpl.notes),
+    title: strDiff("title", tpl.title),
+    deliveryMode: strDiff("deliveryMode", tpl.deliveryMode),
+    location: strDiff("location", tpl.location),
+    lengthHours: numDiff("lengthHours", tpl.lengthHours),
+    maxStudents: (() => { const v = optNum(formData.get("maxStudents")); return v != null && v !== tpl.maxStudents ? Math.round(v) : null; })(),
+    facultyNeeded: numDiff("facultyNeeded", tpl.facultyNeeded),
+    facultyContactPolicy: numDiff("facultyContactPolicy", tpl.facultyContactPolicy),
+    supportStaffNeeded: numDiff("supportStaffNeeded", tpl.supportStaffNeeded),
+    supportContactPolicy: numDiff("supportContactPolicy", tpl.supportContactPolicy),
+    preceptorsNeeded: numDiff("preceptorsNeeded", tpl.preceptorsNeeded),
+    preceptorContactPolicy: numDiff("preceptorContactPolicy", tpl.preceptorContactPolicy),
+    rotationType: strDiff("rotationType", tpl.rotationType),
+    clinicalMode: strDiff("clinicalMode", tpl.clinicalMode),
+  };
+  const empty = Object.values(data).every((v) => v == null);
+  if (empty) {
     await prisma.sessionOverride.deleteMany({ where: { cohortId, sessionId } });
   } else {
     await prisma.sessionOverride.upsert({
       where: { cohortId_sessionId: { cohortId, sessionId } },
-      update: { week, dayOfWeek, startTime, notes },
-      create: { cohortId, sessionId, week, dayOfWeek, startTime, notes },
+      update: data,
+      create: { cohortId, sessionId, ...data },
     });
   }
   revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/insights/staffing-need`);
+  revalidatePath(`/insights/clinical-sites`);
+  revalidatePath(`/insights/coverage`);
 }
 
 /** Clear a per-instantiation session override entirely (back to the template). */
@@ -713,6 +776,34 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
   for (const ct of cts) {
     const v = str(formData.get(`term_${ct.termId}`));
     if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v) } });
+  }
+
+  // The class name tracks when the program actually ends: recompute the real
+  // finish (last term's start + its weeks) and rename "Class of YYYY" to match.
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: { cohortTerms: { include: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, program: { select: { cohorts: { select: { id: true, name: true } } } } },
+  });
+  if (cohort) {
+    let endMs = 0;
+    for (const ct of cohort.cohortTerms) {
+      if (!ct.startDate) continue;
+      const weeks = (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1;
+      endMs = Math.max(endMs, ct.startDate.getTime() + weeks * 7 * 86400000);
+    }
+    const m = cohort.name.match(/^Class of (\d{4})(.*)$/);
+    if (endMs && m) {
+      const endYear = new Date(endMs).getFullYear();
+      if (String(endYear) !== m[1]) {
+        let newName = `Class of ${endYear}${m[2]}`;
+        if (cohort.program.cohorts.some((c) => c.id !== cohortId && c.name === newName)) {
+          let n = 2;
+          while (cohort.program.cohorts.some((c) => c.id !== cohortId && c.name === `Class of ${endYear} (${n})`)) n++;
+          newName = `Class of ${endYear} (${n})`;
+        }
+        await prisma.cohort.update({ where: { id: cohortId }, data: { name: newName } });
+      }
+    }
   }
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${programId}`);

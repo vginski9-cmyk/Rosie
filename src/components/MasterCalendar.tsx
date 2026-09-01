@@ -252,12 +252,12 @@ export function MasterCalendar({
         </div>
       )}
 
-      {editing && <MoveEditor meeting={editing} rooms={rooms} people={people} employers={employers} onClose={() => setEditing(null)} onSave={save} />}
+      {editing && <MoveEditor meeting={editing} weekMs={weekMs} rooms={rooms} people={people} employers={employers} onClose={() => setEditing(null)} onSave={save} />}
     </div>
   );
 }
 
-function MoveEditor({ meeting, rooms, people, employers, onClose, onSave }: { meeting: CalMeeting; rooms: CalRoom[]; people: CalPerson[]; employers: CalEmployer[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null }) => void }) {
+function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave }: { meeting: CalMeeting; weekMs: number; rooms: CalRoom[]; people: CalPerson[]; employers: CalEmployer[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null }) => void }) {
   const [day, setDay] = useState(meeting.dayOfWeek);
   const [time, setTime] = useState(meeting.startTime);
   const [room, setRoom] = useState(meeting.facilityId ?? "");
@@ -267,7 +267,11 @@ function MoveEditor({ meeting, rooms, people, employers, onClose, onSave }: { me
   const staffPool = offCampus ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
   const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
   const location = offCampus ? (meeting.employerName ?? "site TBD") : (meeting.facilityName ?? "unroomed");
-  const titled = meeting.sessionTitles.filter((x) => x.title);
+  // What happens on THIS day: the selected calendar week → the week-of-term →
+  // that week's session(s) for this course + kind. Not the whole curriculum.
+  const WK = 7 * 24 * 3600 * 1000;
+  const weekOfTerm = meeting.weekStartMs ? Math.floor((weekMs - meeting.weekStartMs) / WK) + 1 : null;
+  const thisWeek = weekOfTerm != null ? meeting.sessionTitles.filter((x) => x.week === weekOfTerm && x.title) : [];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -292,20 +296,23 @@ function MoveEditor({ meeting, rooms, people, employers, onClose, onSave }: { me
           <div><dt className="text-slate-400">Term</dt><dd className="font-medium text-slate-700">Term {meeting.termIndex}</dd></div>
         </dl>
 
-        {/* Session titles — what actually happens each week */}
-        {titled.length > 0 && (
-          <div className="mt-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Session by session</div>
-            <div className="mt-1 max-h-28 space-y-0.5 overflow-y-auto pr-1">
-              {titled.map((x, i) => (
-                <div key={i} className="flex gap-2 text-[11px]">
-                  <span className="w-10 shrink-0 tabular-nums text-slate-400">Wk {x.week ?? "—"}</span>
-                  <span className="text-slate-600">{x.title}</span>
-                </div>
+        {/* What happens on THIS day (the selected week) — not the whole curriculum */}
+        <div className="mt-2 rounded-lg bg-rose-50/60 px-3 py-2 ring-1 ring-rose-100">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">
+            This day{weekOfTerm != null ? ` · week ${weekOfTerm} of the term` : ""}
+          </div>
+          {thisWeek.length > 0 ? (
+            <div className="mt-0.5 space-y-0.5">
+              {thisWeek.map((x, i) => (
+                <div key={i} className="text-[12px] font-medium text-slate-800">{x.title}</div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              {weekOfTerm != null && weekOfTerm >= 1 ? `Untitled ${KIND_LABEL[meeting.kind]?.toLowerCase() ?? "session"} — week ${weekOfTerm}` : "Outside this booking's term window"}
+            </div>
+          )}
+        </div>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Day</span>

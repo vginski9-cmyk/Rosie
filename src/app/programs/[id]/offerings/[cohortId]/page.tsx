@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOffering, getCapacityModel } from "@/lib/queries";
-import { updateOfferingDates } from "@/lib/actions";
+import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
-import { buildInstances, weeklyNeed, settingAsks, type CohortCalendarInput } from "@/lib/capacitymodel";
+import { buildInstances, weeklyNeed, settingAsks, lastSessionDate, type CohortCalendarInput } from "@/lib/capacitymodel";
+import { CapacityBoard } from "@/components/CapacityBoard";
 
 export const dynamic = "force-dynamic";
 
@@ -41,11 +42,14 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const realTermStarts = orderedTerms.map((t) => termDate.get(t.id) ?? null);
   const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today, realTermStarts);
   const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—");
+  const exactDate = (d: Date | null) => (d ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 
   // ── This instantiation's capacity math: instructors, preceptors, sites,
   //    and clinical supply vs demand — same engine as the Insights tabs. ──
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === offering.id) ?? null;
   const sites = capModel?.clinicalSites ?? [];
+  let lastDay: Date | null = null;
+  let holidayHits = 0;
   let capacity: null | {
     peakFacFte: number; peakFacHeads: number; peakPreFte: number; peakPreHeads: number;
     asks: ReturnType<typeof settingAsks>;
@@ -73,6 +77,8 @@ export default async function OfferingPage({ params }: { params: { id: string; c
     for (const [k, v] of byDate) if (v > peakDayStudents) { peakDayStudents = v; peakDayIso = k; }
     const activeSitesList = sites.filter((x) => x.status === "active");
     const supply = activeSitesList.reduce((n, x) => n + (x.wblSlots ?? 0), 0);
+    lastDay = lastSessionDate(instances);
+    holidayHits = instances.filter((i) => i.holiday).length;
     capacity = {
       peakFacFte, peakFacHeads: Math.ceil(peakFacFte - 1e-9),
       peakPreFte, peakPreHeads: Math.ceil(peakPreFte - 1e-9),
@@ -109,14 +115,14 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         </div>
         {timing.phase === "in-program" && timing.currentTermName && (
           <p className="mt-1 text-sm text-emerald-700">
-            Now in <strong>{timing.currentTermName}</strong> · week {(timing.weeksElapsed ?? 0) + 1} of {timing.totalWeeks} · expected to finish {monthYear(timing.endDate)}
+            Now in <strong>{timing.currentTermName}</strong> · week {(timing.weeksElapsed ?? 0) + 1} of {timing.totalWeeks} · last day {exactDate(lastDay ?? timing.endDate)}
           </p>
         )}
         {timing.phase === "recruiting" && (
-          <p className="mt-1 text-sm text-sky-700">Starts {monthYear(timing.startDate)} · runs {timing.totalWeeks} weeks · expected to finish {monthYear(timing.endDate)}</p>
+          <p className="mt-1 text-sm text-sky-700">Starts {exactDate(offering.startDate ?? timing.startDate)} · runs {timing.totalWeeks} weeks · last day of class / lab / clinical: <strong>{exactDate(lastDay ?? timing.endDate)}</strong></p>
         )}
         {timing.phase === "graduated" && (
-          <p className="mt-1 text-sm text-slate-500">Ran {monthYear(timing.startDate)} – {monthYear(timing.endDate)} · completed</p>
+          <p className="mt-1 text-sm text-slate-500">Ran {exactDate(offering.startDate ?? timing.startDate)} – {exactDate(lastDay ?? timing.endDate)} · completed</p>
         )}
       </div>
 
@@ -124,7 +130,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
         <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
-        <Tile label="Expected end" value={timing.endDate ? monthYear(timing.endDate) : "—"} sub={`${timing.totalWeeks}-week program`} />
+        <Tile label="Expected end" value={exactDate(lastDay ?? timing.endDate)} sub="last class / lab / clinical / exam" />
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
         <Tile label="Students" value={fmt.num(offering._count.students)} />
       </div>
@@ -165,6 +171,14 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save dates</button>
         </form>
       </section>
+
+      {holidayHits > 0 && (
+        <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
+          ⚠ <strong>{holidayHits} session{holidayHits === 1 ? " lands" : "s land"} on an observed holiday.</strong> Open{" "}
+          <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="font-medium underline">Design &amp; sequence — this offering</Link>{" "}
+          — flagged rows show which holiday; click a row to move that session for this offering.
+        </div>
+      )}
 
       {/* ── What this instantiation needs ─────────────────────────────────── */}
       <section className="space-y-3">
@@ -239,6 +253,58 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           </p>
         </div>
         <CourseSequencer programId={program.id} terms={seqTerms} initialCourses={seqCourses} />
+
+        {/* Per-course dates for THIS offering — 8-, 12-, 16-week courses inside the same term */}
+        <div className="border-t border-slate-100 pt-3">
+          <h3 className="text-sm font-semibold text-slate-700">Course dates — this offering</h3>
+          <p className="mb-2 text-[11px] text-slate-400">
+            Courses inside one term run different lengths. Set each course&apos;s real start and end — the start anchors that
+            course&apos;s session weeks (session dates, staffing and coverage all shift with it); blank = the term&apos;s window.
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="min-w-full text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-2 font-semibold">Course</th>
+                  <th className="px-3 py-2 font-semibold">Term</th>
+                  <th className="px-3 py-2 font-semibold">Starts</th>
+                  <th className="px-3 py-2 font-semibold">Ends</th>
+                  <th className="px-3 py-2 font-semibold">Length</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {orderedTerms.flatMap((t) => t.courses.map((c) => {
+                  const cd = offering.courseDates.find((x) => x.courseId === c.id);
+                  const weeks = (() => {
+                    const weeksOfSessions = c.sessions.map((x) => x.week ?? 0);
+                    return weeksOfSessions.length ? Math.max(...weeksOfSessions) : null;
+                  })();
+                  const len = cd?.startDate && cd?.endDate
+                    ? `${Math.max(1, Math.round((cd.endDate.getTime() - cd.startDate.getTime()) / (7 * 86400000)))} wks (set)`
+                    : weeks ? `~${weeks} wks of sessions` : "—";
+                  return (
+                    <tr key={c.id} className="border-b border-slate-100">
+                      <td className="px-3 py-1.5 font-medium text-slate-800">{c.code ? `${c.code} · ` : ""}{c.name}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{t.name}{termDate.get(t.id) ? ` (${dateFmt(termDate.get(t.id))})` : ""}</td>
+                      <td colSpan={3} className="px-3 py-1.5" >
+                        <form action={saveCourseDates.bind(null, offering.id, c.id, program.id)} className="flex flex-wrap items-center gap-2">
+                          <input type="date" name="startDate" defaultValue={iso(cd?.startDate)} className="rounded border border-slate-300 px-1.5 py-1" />
+                          <span className="text-slate-400">→</span>
+                          <input type="date" name="endDate" defaultValue={iso(cd?.endDate)} className="rounded border border-slate-300 px-1.5 py-1" />
+                          <span className="tabular-nums text-slate-500">{len}</span>
+                          <button className="rounded bg-rose-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-rose-700">Save</button>
+                          {cd && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">custom window</span>}
+                        </form>
+                      </td>
+                      <td />
+                    </tr>
+                  );
+                }))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       {/* Quick links */}
@@ -247,6 +313,22 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
         {program.familyId && <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>}
       </div>
+
+      {/* ── Insights for THIS instantiation: the full boards, scoped to this run ── */}
+      {capCohort && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">Instructors &amp; preceptors needed — this instantiation, week by week</h2>
+            <p className="text-sm text-slate-500">The full staffing board scoped to this run: real weeks, peaks, the staffing plan by term, and the need split by class / lab / clinical.</p>
+          </div>
+          <CapacityBoard cohorts={[capCohort]} view="staffing" />
+          <div className="pt-2">
+            <h2 className="text-lg font-semibold">Daily coverage — this instantiation</h2>
+            <p className="text-sm text-slate-500">Every date this run puts people somewhere: click a day for exactly what happens — course, session, students, setting.</p>
+          </div>
+          <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} />
+        </section>
+      )}
 
       {/* This run's funnel */}
       {offering.stages.length > 0 && (

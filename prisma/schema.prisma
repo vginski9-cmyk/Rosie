@@ -264,6 +264,7 @@ model Course {
   courseType         String? // CORE | GENED | SUPPORT — for flow-chart coloring
 
   sessions Session[]
+  cohortDates CohortCourseDates[]
   courseSkills CourseSkill[]
   grades   StudentCourseGrade[]
   meetings MeetingPattern[]
@@ -441,6 +442,7 @@ model Cohort {
   students    Student[]
   cohortTerms CohortTerm[]
   sessionOverrides SessionOverride[]
+  courseDates CohortCourseDates[]
   sessionStaff SessionInstructor[]
   sectionSchedules SectionSchedule[]
   placements  WblPlacement[]
@@ -463,6 +465,22 @@ model CohortTerm {
   @@index([cohortId])
 }
 
+/// Per-INSTANTIATION course window: courses inside one term run different
+/// lengths (8-, 12-, 14-, 16-week), so each offering can date every course —
+/// the start anchors that course's session weeks; the end marks its last day.
+model CohortCourseDates {
+  id        String  @id @default(cuid())
+  cohortId  String
+  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  courseId  String
+  course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  startDate DateTime?
+  endDate   DateTime?
+
+  @@unique([cohortId, courseId])
+  @@index([cohortId])
+}
+
 /// A per-INSTANTIATION override of one template session: the boilerplate stays
 /// timeless, while a specific offering can move a session's week, day, time,
 /// or annotate it — without touching any other offering.
@@ -472,10 +490,25 @@ model SessionOverride {
   cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   sessionId String
   session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  // Every input column of the session table can be overridden per offering —
+  // null = inherit the template's value. Same shape as Session's inputs.
   week      Int?
   dayOfWeek String?
   startTime String?
   notes     String?
+  title        String?
+  deliveryMode String?
+  location     String?
+  lengthHours  Float?
+  maxStudents  Int?
+  facultyNeeded          Float?
+  facultyContactPolicy   Float?
+  supportStaffNeeded     Float?
+  supportContactPolicy   Float?
+  preceptorsNeeded       Float?
+  preceptorContactPolicy Float?
+  rotationType String?
+  clinicalMode String?
 
   @@unique([cohortId, sessionId])
   @@index([cohortId])

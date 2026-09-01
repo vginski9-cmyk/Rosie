@@ -29,7 +29,12 @@ export function FunnelChart({ stages, programId }: { stages: FunnelStageInput[];
               <div className="w-44 shrink-0 text-right">
                 <div className="text-[13px] font-medium leading-tight text-slate-700 group-hover:text-slate-900">{a.label}</div>
                 {a.targetConversion != null && (
-                  <div className="text-[10px] text-slate-400">{fmt.pct(a.targetConversion)} plan conv.</div>
+                  <div className="text-[10px] text-slate-400">
+                    {fmt.pct(a.targetConversion)} plan conv.
+                    {a.actualConversion != null && (
+                      <span className={a.actualConversion < a.targetConversion ? " text-rose-500" : " text-emerald-600"}> · {fmt.pct(a.actualConversion)} actual</span>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -87,37 +92,6 @@ export function FunnelChart({ stages, programId }: { stages: FunnelStageInput[];
         {programId && <span className="text-rose-600">click any stage to see the students in it</span>}
       </div>
 
-      {/* Detail table */}
-      <div className="overflow-hidden rounded-lg border border-slate-200">
-        <table className="w-full">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="th">Stage</th>
-              <th className="th text-right">Target</th>
-              <th className="th text-right">Actual</th>
-              <th className="th text-right">Plan conv.</th>
-              <th className="th text-right">Actual conv.</th>
-              <th className="th text-right">Attainment</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {analysis.map((a) => (
-              <tr key={a.key} className={programId ? "cursor-pointer hover:bg-slate-50" : ""}>
-                <td className="td font-medium">
-                  {programId ? (
-                    <Link href={`/programs/${programId}/students?stage=${a.key}`} className="text-rose-700 hover:underline">{a.label}</Link>
-                  ) : a.label}
-                </td>
-                <td className="td text-right">{fmt.num(a.target, 0)}</td>
-                <td className="td text-right font-semibold">{fmt.num(a.actual, 0)}</td>
-                <td className="td text-right text-slate-400">{a.targetConversion != null ? fmt.pct(a.targetConversion) : "—"}</td>
-                <td className="td text-right">{a.actualConversion != null ? <span className={a.targetConversion != null && a.actualConversion < a.targetConversion ? "text-rose-600" : "text-emerald-600"}>{fmt.pct(a.actualConversion)}</span> : "—"}</td>
-                <td className="td text-right">{a.attainment != null ? <span className={a.attainment < 1 ? "text-rose-600" : "text-emerald-600"}>{fmt.pct(a.attainment)}</span> : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
   );
 }
