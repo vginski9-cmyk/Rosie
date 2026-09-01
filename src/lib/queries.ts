@@ -1434,7 +1434,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
+          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
           _count: { select: { students: true } },
         },
       },
@@ -1490,6 +1490,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
           dayOfWeek: m.dayOfWeek, startTime: m.startTime,
+          facilityId: m.facilityId, employerId: m.employerId, staffPersonId: m.staffPersonId,
           loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null),
           staffName: m.staff?.name ?? null,
         })),
@@ -1532,7 +1533,14 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
     select: { id: true, name: true, setting: true, city: true, wblSlots: true, status: true },
   });
 
-  return { institution, institutions, cohorts, clinicalSites };
+  // Rooms + staff pools so the coverage calendar can edit each shift's
+  // location and instructor / preceptor in place.
+  const [rooms, people] = await Promise.all([
+    prisma.facility.findMany({ where: { institutionId: institution.id, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
+    prisma.person.findMany({ where: { institutionId: institution.id, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+  ]);
+
+  return { institution, institutions, cohorts, clinicalSites, rooms, people };
 }
 
 /** Everything the per-offering design & sequence page needs: the template's

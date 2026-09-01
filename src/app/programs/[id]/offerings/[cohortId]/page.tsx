@@ -7,8 +7,9 @@ import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/Cour
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
-import { buildInstances, lastSessionDate, type CohortCalendarInput } from "@/lib/capacitymodel";
+import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
 import { CapacityBoard } from "@/components/CapacityBoard";
+import { Collapse } from "@/components/Collapse";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,8 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const sites = capModel?.clinicalSites ?? [];
   let lastDay: Date | null = null;
   let holidayHits = 0;
+  let peakFac = 0;
+  let peakPre = 0;
   if (capCohort) {
     const input: CohortCalendarInput = {
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
@@ -60,7 +63,21 @@ export default async function OfferingPage({ params }: { params: { id: string; c
     const instances = buildInstances(input, capCohort.assumptions).filter((i) => i.mondayIso != null);
     lastDay = lastSessionDate(instances);
     holidayHits = instances.filter((i) => i.holiday).length;
+    const w = weeklyNeedByKind(instances);
+    peakFac = Math.max(0, ...w.map((x) => x.totalFacFte));
+    peakPre = Math.max(0, ...w.map((x) => x.preceptorFte));
   }
+
+  // Enrollment through each term — target ladder from the pipeline, rendered
+  // inside the funnel under "Enrolled" so the whole journey reads top to bottom.
+  const termEnrollment = capCohort
+    ? orderedTerms.map((t) => ({
+        label: `${t.name}`,
+        target: capCohort.enrollmentByTerm[t.index] ?? 0,
+        actual: timing.phase === "in-program" && timing.currentTermName === t.name ? offering._count.students : null,
+        current: timing.phase === "in-program" && timing.currentTermName === t.name,
+      }))
+    : [];
 
   // Sequence board inputs (template-wide; re-sequencing moves every offering).
   const seqTerms: SeqTerm[] = orderedTerms.map((t) => ({ id: t.id, name: t.name, courseCount: t.courses.length }));
@@ -102,10 +119,18 @@ export default async function OfferingPage({ params }: { params: { id: string; c
 
       {/* This run's funnel — the talent pipeline, up top */}
       {offering.stages.length > 0 && (
-        <section className="card card-pad space-y-1">
-          <h2 className="text-lg font-semibold">Talent pipeline — {offering.name}</h2>
-          <FunnelChart programId={program.id} stages={offering.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
-        </section>
+        <Collapse
+          title="Talent pipeline"
+          sub="Goal vs actual at every stage — with enrollment through each term of the program"
+          summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(offering._count.students)} enrolled now</>}
+          defaultOpen
+        >
+          <FunnelChart
+            programId={program.id}
+            stages={offering.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))}
+            termEnrollment={termEnrollment}
+          />
+        </Collapse>
       )}
 
       {/* Counts + timing */}
@@ -130,15 +155,11 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       </Link>
 
       {/* ── Offering setup: adjust the real dates ─────────────────────────── */}
-      <section className="card card-pad space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Offering dates — adjust so everything lines up</h2>
-          <p className="text-sm text-slate-500">
-            The start date and each term&apos;s first day are this offering&apos;s reality. Change them and the calendar,
-            staffing needs, clinical demand, and every insight shift with them. Class start <em>times</em> are set per
-            meeting in the schedule below.
-          </p>
-        </div>
+      <Collapse
+        title="Offering dates"
+        sub="The start date and each term's first day — change them and the calendar, staffing and every insight re-derive"
+        summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)}</>}
+      >
         <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="flex flex-wrap items-end gap-3">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Offering start</span>
@@ -152,7 +173,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           ))}
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save dates</button>
         </form>
-      </section>
+      </Collapse>
 
       {holidayHits > 0 && (
         <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
@@ -163,22 +184,17 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       )}
 
       {/* ── Preferred course sequence (template-wide) ──────────────────────── */}
-      <section className="card card-pad space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Preferred course sequence</h2>
-          <p className="text-sm text-slate-500">
-            Which course sits in which term — drag to re-sequence (template-wide). On each card, set the course&apos;s
-            <strong> real start and end dates for THIS offering</strong> — an 8-week course inside a 16-week term gets its
-            own window, and session dates, the calendar, staffing and coverage all shift with it.
-          </p>
-        </div>
+      <Collapse
+        title="Preferred course sequence"
+        sub="Drag courses between terms; set each course's real start & end dates for THIS offering on its card"
+        summary={<>{seqCourses.length} courses · {seqTerms.length} terms</>}
+      >
         <CourseSequencer
           programId={program.id} terms={seqTerms} initialCourses={seqCourses}
           cohortId={offering.id}
           courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null }]))}
         />
-
-      </section>
+      </Collapse>
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-2">
@@ -187,30 +203,24 @@ export default async function OfferingPage({ params }: { params: { id: string; c
 
       {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}
       {capCohort && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">Instructors &amp; preceptors — how many, and when</h2>
-            <p className="text-sm text-slate-500">
-              The headline numbers below; click either to drop down the full picture — every shift as a bar (class, lab,
-              clinical) with its hours, contact hours, and the people who staff it, day by day, week by week, term by term.
-            </p>
-          </div>
-          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} collapsible />
-        </section>
+        <Collapse
+          title="Instructors & preceptors"
+          sub="How many, and when — semester, week and day views: FTE charts, the peak narrative, and every shift with who staffs it"
+          summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week</>}
+        >
+          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+        </Collapse>
       )}
 
       {/* ── THE calendar for this instantiation: exact dates, times, locations ── */}
       {capCohort && (
-        <section className="space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">Calendar — exact dates, times &amp; locations</h2>
-            <p className="text-sm text-slate-500">
-              Month view, color-coded <span className="font-medium text-sky-700">class</span> / <span className="font-medium text-violet-700">lab</span> / <span className="font-medium text-rose-700">clinical</span>.
-              Every entry shows its time, students, and location; click a day for exactly what happens and the staffing it takes. Scroll months with ← →.
-            </p>
-          </div>
-          <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} />
-        </section>
+        <Collapse
+          title="Calendar"
+          sub="Exact dates, times & locations at four altitudes — semester, month, week, day; drag shifts between days, edit any shift's time, room/site and staff in the day view"
+          summary={<>{exactDate(offering.startDate ?? timing.startDate)} → {exactDate(lastDay ?? timing.endDate)}</>}
+        >
+          <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} rooms={capModel?.rooms ?? []} people={capModel?.people ?? []} />
+        </Collapse>
       )}
 
     </div>

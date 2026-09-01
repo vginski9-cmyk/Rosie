@@ -76,7 +76,7 @@ const TOURS: Tour[] = [
     key: "offering", match: /^\/programs\/[^/]+\/offerings\/[^/]+$/, title: "A scheduled offering",
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
-      { h: "What it needs", b: "The pipeline funnel sits up top. Below, the Instructors and Preceptors buttons carry the peak head-counts — click either and the full shift chart drops down: every class, lab and clinical shift as a bar with its hours, contact hours, and who staffs it, day by day." },
+      { h: "One clear button per section", b: "Talent pipeline (with enrollment through every term inside the funnel), Offering dates, Preferred course sequence, Instructors & preceptors (peak head-counts on the button), and Calendar — each is a drop-down: the button shows the live summary, clicking opens the full picture." },
       { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. In the sequence board, each course card carries its OWN start and end date inputs — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and the calendar all shift with it." },
       { h: "The calendar", b: "Scroll the month view with ← → : every session on its exact date, color-coded (blue class, violet lab, rose clinical) with time, course and location. Click a day to see exactly what happens that day and who must be on site; ⚠ marks holiday collisions." },
     ],
@@ -116,9 +116,9 @@ const TOURS: Tour[] = [
   {
     key: "coverage", match: /^\/insights\/coverage/, title: "Daily coverage",
     steps: [
-      { h: "A real month calendar — one chip per shift", b: "Scroll month by month with ← → . Every SHIFT is its own chip on its exact date (16 sections = 16 chips, §2 = section 2), color-coded blue class / violet lab / rose clinical, with its time, students and setting. ⚠ flags holiday collisions." },
-      { h: "Drag a shift", b: "Space is fluid: drag any chip onto another weekday and that section's weekly booking moves — the master calendar, staffing and coverage all update instantly." },
-      { h: "Click a day", b: "The panel lists every shift on that day individually — time, section number, students, hours, setting, site and who staffs it — plus the instructor-led groups and preceptors the day needs." },
+      { h: "Four altitudes", b: "Semester shows every week of every term at a glance; Month and Week put one chip per SHIFT on the grid (16 sections = 16 chips, §2 = section 2), color-coded class / lab / clinical; Day lists every shift individually. Click any day number or cell to drop into the Day view." },
+      { h: "Drag a shift", b: "Space is fluid: drag any chip onto another day (Month or Week view) and that section's weekly booking moves — the master calendar, staffing and coverage all update instantly." },
+      { h: "Edit a shift exactly", b: "In the Day view every shift has its weekday, time, room or clinical site, and instructor / preceptor editable in place — and the day's numbers are explained: shifts = sessions × sections, students counted once even when they rotate through several sessions." },
       { h: "The schedule for sites", b: "Below, every date with what arrives and how many preceptors need to be on site — the list you hand to clinical partners." },
     ],
   },
