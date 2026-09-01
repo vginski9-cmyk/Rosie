@@ -3,15 +3,20 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveMeeting, saveSessionOverride, clearSessionOverride } from "@/lib/actions";
-import { computeColumns, usHoliday, type WorkloadAssumptions, type SessionInput } from "@/lib/capacitymodel";
+import {
+  CAPACITY_HEADERS, CAPACITY_FORMULAS, computeColumns, usHoliday,
+  type WorkloadAssumptions, type SessionInput,
+} from "@/lib/capacitymodel";
+import { SHEET_COLS, SHEET_FIELD_OF, SHEET_NUM_FIELDS } from "@/components/SessionSheet";
 
-// Design & sequence for ONE instantiation — as configurable as the template's
-// sheet, without touching the template. Every input column is editable inline;
-// edits recalculate the formula columns instantly at THIS offering's
-// enrollment; Save row stores only the fields that differ from the template
-// (a per-offering override). Rows are ordered by when they actually happen
-// (week → day → time), each with its real date; holiday collisions are
-// flagged so the configurer can move them.
+// Design & sequence for ONE instantiation — the EXACT same Raw Data &
+// Calculations schema as the template's sheet (columns A–AE, same headers,
+// same blue-input / green-formula cells), except column C (Enrollment) is
+// THIS offering's per-term enrollment target from its pipeline, and every
+// formula column computes at that enrollment. Save row stores only the
+// fields that differ from the template (a per-offering override). Rows are
+// ordered by when they actually happen (week → day → time), each with its
+// real date; holiday collisions are flagged so the configurer can move them.
 
 export interface DsSession {
   id: string; kind: string; number: number; title: string | null;
@@ -56,10 +61,41 @@ const fmtTime = (t: string | null) => {
   return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`;
 };
 const fmtDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const n1 = (v: number | null) => (v == null ? "—" : (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 }));
+const num = (v: number | null, dp = 2) =>
+  v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp });
+const n0 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+const n1 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const n2 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** One editable row = the template session with this offering's overrides applied. */
 type RowState = DsSession & { overridden: boolean };
+
+/** What a set of rows needs at this offering's enrollment — the template's tallies, at reality. */
+interface Tally {
+  ps: { CLASS: number; LAB: number; CLINICAL: number };
+  sec: { CLASS: number; LAB: number; CLINICAL: number };
+  space: number; facHrs: number; facFte: number; precHrs: number; precFte: number;
+}
+const emptyTally = (): Tally => ({ ps: { CLASS: 0, LAB: 0, CLINICAL: 0 }, sec: { CLASS: 0, LAB: 0, CLINICAL: 0 }, space: 0, facHrs: 0, facFte: 0, precHrs: 0, precFte: 0 });
+const tallyOf = (rs: RowState[], enrollment: number, a: WorkloadAssumptions): Tally => {
+  const t = emptyTally();
+  for (const r of rs) {
+    const k = (r.kind in t.ps ? r.kind : "CLASS") as keyof Tally["ps"];
+    t.ps[k] += r.lengthHours ?? 0;
+    const c = computeColumns(r as unknown as SessionInput, enrollment, a);
+    if (c.divByZero) continue;
+    t.sec[k] += c.Y ?? 0; t.space += c.X ?? 0;
+    t.facHrs += c.Z ?? 0; t.facFte += c.AA ?? 0;
+    t.precHrs += c.AC ?? 0; t.precFte += c.AD ?? 0;
+  }
+  return t;
+};
+const addTally = (a: Tally, b: Tally): Tally => ({
+  ps: { CLASS: a.ps.CLASS + b.ps.CLASS, LAB: a.ps.LAB + b.ps.LAB, CLINICAL: a.ps.CLINICAL + b.ps.CLINICAL },
+  sec: { CLASS: a.sec.CLASS + b.sec.CLASS, LAB: a.sec.LAB + b.sec.LAB, CLINICAL: a.sec.CLINICAL + b.sec.CLINICAL },
+  space: a.space + b.space, facHrs: a.facHrs + b.facHrs, facFte: a.facFte + b.facFte,
+  precHrs: a.precHrs + b.precHrs, precFte: a.precFte + b.precFte,
+});
 
 export function OfferingDesign({
   programId, cohortId, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions,
@@ -72,7 +108,7 @@ export function OfferingDesign({
   rooms: DsRoom[];
   people: DsPerson[];
   employers: DsEmployer[];
-  /** Per-term enrollment target (1-based index) — drives the computed columns. */
+  /** Per-term enrollment target (1-based index) — drives column C and every formula. */
   enrollmentByTerm: Record<number, number>;
   assumptions: WorkloadAssumptions;
 }) {
@@ -138,31 +174,60 @@ export function OfferingDesign({
   };
 
   const inp = "w-full rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[11px] text-blue-900 focus:bg-white focus:outline-blue-500";
-  const calc = "rounded bg-emerald-50/80 px-1.5 py-0.5 text-right font-mono tabular-nums text-emerald-900";
+
+  const OVERRIDE_FIELDS = ["week", "dayOfWeek", "startTime", "notes", "title", "deliveryMode", "location", "lengthHours", "maxStudents", "facultyNeeded", "facultyContactPolicy", "supportStaffNeeded", "supportContactPolicy", "preceptorsNeeded", "preceptorContactPolicy", "rotationType", "clinicalMode"] as (keyof RowState)[];
 
   return (
     <div className="space-y-8">
       {pending && <div className="text-xs text-slate-400">saving…</div>}
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" /> editable for THIS offering (Save row stores only what differs from the template)</span>
-        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" /> live formula at this offering&apos;s enrollment</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" /> live formula at this offering&apos;s enrollment target (column C)</span>
         <span className="inline-flex items-center gap-1"><span className="rounded-full bg-amber-200 px-1.5 text-[9px] font-semibold text-amber-800">edited</span> row overrides the template</span>
         <span className="inline-flex items-center gap-1 text-rose-600">⚠ holiday collision — move it</span>
       </div>
 
-      {terms.map((t) => (
+      {terms.map((t) => {
+        const enrollment = enrollmentByTerm[t.index] ?? 0;
+        // The template's tallies, computed at THIS offering's enrollment target.
+        const courseTallies = new Map<string, Tally>();
+        for (const c of t.courses) {
+          courseTallies.set(c.id, tallyOf(c.sessions.map((s) => rows.get(s.id)!).filter(Boolean), enrollment, assumptions));
+        }
+        const tt = [...courseTallies.values()].reduce(addTally, emptyTally());
+        const secTot = tt.sec.CLASS + tt.sec.LAB + tt.sec.CLINICAL;
+        return (
         <section key={t.id} className="space-y-4">
-          <div className="flex flex-wrap items-baseline gap-3 border-b border-slate-200 pb-2">
-            <h2 className="text-lg font-semibold">{t.name}</h2>
-            <span className="text-sm text-slate-500">
-              {t.startDate ? <>starts <strong className="text-slate-700">{fmtDate(new Date(t.startDate + "T00:00:00Z"))}</strong></> : "no date yet — set it on the offering page"}
-              {" "}· {(t.endWeek ?? 16) - (t.startWeek ?? 1) + 1} instructional weeks · enrollment {enrollmentByTerm[t.index] ?? "—"}
-            </span>
+          <div className="rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/60 to-white p-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">{t.name}</h2>
+                <span className="text-sm text-slate-500">
+                  {t.startDate ? <>starts <strong className="text-slate-700">{fmtDate(new Date(t.startDate + "T00:00:00Z"))}</strong></> : "no date yet — set it on the offering page"}
+                  {" "}· {(t.endWeek ?? 16) - (t.startWeek ?? 1) + 1} instructional weeks
+                </span>
+              </div>
+              <div className="text-right">
+                <div className="text-3xl font-extrabold tabular-nums text-rose-700">{n0(enrollment)}</div>
+                <div className="text-[10px] uppercase tracking-wide text-slate-400" title="Derived from this offering's pipeline targets — this is column C for every session row below">enrollment target (column C)</div>
+              </div>
+            </div>
+            {/* What this term NEEDS at that enrollment — same math as the template sheet, at reality. */}
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white/80 px-3 py-2 text-[11px] ring-1 ring-rose-100">
+              <span className="font-semibold uppercase tracking-wide text-rose-500">Needed @ {n0(enrollment)}</span>
+              <span className="text-slate-600">{n0(secTot)} sections <span className="text-slate-400">({n0(tt.sec.CLASS)} class / {n0(tt.sec.LAB)} lab / {n0(tt.sec.CLINICAL)} clinical)</span></span>
+              <span className="text-slate-600">{n1(tt.space)} space hrs</span>
+              <span className="text-slate-600">faculty <strong className="tabular-nums text-slate-800">{n1(tt.facHrs)}h</strong> → <strong className="tabular-nums text-rose-700">{n2(tt.facFte)}</strong> FTE</span>
+              <span className="text-slate-600">preceptors <strong className="tabular-nums text-slate-800">{n1(tt.precHrs)}h</strong> → <strong className="tabular-nums text-rose-700">{n2(tt.precFte)}</strong> FTE</span>
+            </div>
           </div>
 
           {t.courses.map((c) => {
             const kinds = [...new Set(c.sessions.map((s) => s.kind))];
             const courseRows = c.sessions.map((s) => rows.get(s.id)!).filter(Boolean);
+            const ct = courseTallies.get(c.id) ?? emptyTally();
+            const psTot = ct.ps.CLASS + ct.ps.LAB + ct.ps.CLINICAL;
+            const cSecTot = ct.sec.CLASS + ct.sec.LAB + ct.sec.CLINICAL;
             const ordered = [...courseRows].sort((a, b) => {
               const wa = a.week ?? 999, wb = b.week ?? 999;
               if (wa !== wb) return wa - wb;
@@ -185,6 +250,21 @@ export function OfferingDesign({
                       runs {fmtDate(new Date(c.startDate + "T00:00:00Z"))}{c.endDate ? ` → ${fmtDate(new Date(c.endDate + "T00:00:00Z"))}` : ""}
                     </span>
                   )}
+                </div>
+
+                {/* Per-course tallies — per student + delivery footprint @ this offering's enrollment (mirrors the template page). */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-[11px]">
+                  <span className="font-semibold uppercase tracking-wide text-slate-400">Per student</span>
+                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-sky-500" />{n1(ct.ps.CLASS)}h class</span>
+                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-violet-500" />{n1(ct.ps.LAB)}h lab</span>
+                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-rose-500" />{n1(ct.ps.CLINICAL)}h clinical</span>
+                  <span className="font-semibold text-slate-700">{n1(psTot)}h total</span>
+                  <span className="mx-1 text-slate-300">|</span>
+                  <span className="font-semibold uppercase tracking-wide text-rose-500">@ {n0(enrollment)}</span>
+                  <span className="text-slate-600">{n0(cSecTot)} sections ({n0(ct.sec.CLASS)}/{n0(ct.sec.LAB)}/{n0(ct.sec.CLINICAL)})</span>
+                  <span className="text-slate-600">{n1(ct.space)} space hrs</span>
+                  <span className="text-slate-600">fac <strong className="text-rose-700">{n2(ct.facFte)}</strong> FTE</span>
+                  {ct.precFte > 0 && <span className="text-slate-600">prec <strong className="text-rose-700">{n2(ct.precFte)}</strong> FTE</span>}
                 </div>
 
                 {/* Weekly booking per kind/section — day · time · location · staff. Same record as the master calendar. */}
@@ -217,78 +297,100 @@ export function OfferingDesign({
                   })}
                 </div>
 
-                {/* The fully-editable session sheet, in the order things actually happen */}
+                {/* The Raw Data & Calculations sheet — the template's exact columns (A–AE),
+                    plus this offering's reality: real Date/Time up front, booked location
+                    & staff at the end. C = this offering's enrollment target. */}
                 <div className="overflow-x-auto">
-                  <table className="min-w-[86rem] text-[11px]">
+                  <table className="border-collapse text-[11px]" style={{ minWidth: "236rem" }}>
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                        <th className="px-2 py-2 font-semibold">Date</th>
-                        <th className="px-2 py-2 font-semibold">Wk</th>
-                        <th className="px-2 py-2 font-semibold">Day</th>
-                        <th className="px-2 py-2 font-semibold">Time</th>
-                        <th className="px-2 py-2 font-semibold">Kind</th>
-                        <th className="px-2 py-2 font-semibold">Session title</th>
-                        <th className="px-2 py-2 font-semibold">Delivery</th>
-                        <th className="px-2 py-2 font-semibold" title="Session length (in hours)">Len</th>
-                        <th className="px-2 py-2 font-semibold" title="Max number of students that ONE session can accommodate">Cap</th>
-                        <th className="px-2 py-2 font-semibold" title="Number of faculty required to teach full session">Fac</th>
-                        <th className="px-2 py-2 font-semibold" title="Contact hour policy for faculty">FacPol</th>
-                        <th className="px-2 py-2 font-semibold" title="Number of preceptors required">Prec</th>
-                        <th className="px-2 py-2 font-semibold" title="Contact hour policy for preceptors">PrecPol</th>
-                        <th className="px-2 py-2 font-semibold">Rotation</th>
-                        <th className="px-2 py-2 font-semibold">Notes</th>
-                        <th className="px-2 py-2 text-right font-semibold" title="= ROUNDUP(enrollment ÷ Cap)">Sec</th>
-                        <th className="px-2 py-2 text-right font-semibold" title="= Len × Fac × Sec">FacHr</th>
-                        <th className="px-2 py-2 text-right font-semibold" title="= Sec × Prec × Len × PrecPol">PrecHr</th>
-                        <th className="px-2 py-2 font-semibold">Location · staff</th>
-                        <th className="px-2 py-2 font-semibold" />
+                      <tr className="bg-slate-800 text-left text-slate-100">
+                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "9rem" }}>
+                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
+                          <span className="leading-tight">Date</span>
+                        </th>
+                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "6rem" }}>
+                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
+                          <span className="leading-tight">Start time</span>
+                        </th>
+                        {SHEET_COLS.map(({ c: col, w }) => (
+                          <th key={col} className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: w }}>
+                            <span className="block font-mono text-[9px] text-emerald-300">{col}{["A", "B", "D", "E", "G"].includes(col) ? " · seq" : SHEET_FIELD_OF[col] ? "" : " · fx"}</span>
+                            <span className="leading-tight">{CAPACITY_HEADERS[col as keyof typeof CAPACITY_HEADERS]}</span>
+                          </th>
+                        ))}
+                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "10rem" }}>
+                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
+                          <span className="leading-tight">Booked location · staff</span>
+                        </th>
+                        <th className="px-1.5 py-1.5" />
                       </tr>
                     </thead>
                     <tbody>
                       {ordered.map((r) => {
-                        const enrollment = enrollmentByTerm[t.index] ?? 0;
                         const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
                         const d = sessionDateObj(c.startDate ?? t.startDate, r.week, r.dayOfWeek);
                         const holiday = d && r.dayOfWeek != null ? usHoliday(d) : null;
                         const m = meetingsFor(c.id, r.kind)[0] ?? null;
                         const offCampus = r.kind === "CLINICAL";
-                        const loc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : (r.location ?? "—");
+                        const bookedLoc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : "—";
                         const isDirty = dirty.has(r.id);
+                        const calcVal: Record<string, string> = {
+                          C: num(comp.C, 1), X: num(comp.X), Y: comp.divByZero ? "#DIV/0!" : num(comp.Y, 0), Z: num(comp.Z),
+                          AA: num(comp.AA), AB: num(comp.AB), AC: num(comp.AC), AD: num(comp.AD, 3), AE: num(comp.AE),
+                        };
+                        const seqVal: Record<string, string> = {
+                          A: `Term ${t.index}`, B: t.name, D: c.code ?? "—", E: c.name, G: String(r.number),
+                        };
                         return (
-                          <tr key={r.id} className={`border-b border-slate-50 align-top ${holiday ? "bg-rose-50/60" : r.overridden ? "bg-amber-50/50" : ""}`}>
-                            <td className="whitespace-nowrap px-2 py-1 font-medium text-slate-700">
+                          <tr key={r.id} className={`border-b border-slate-100 align-top ${holiday ? "bg-rose-50/60" : r.overridden ? "bg-amber-50/50" : "hover:bg-slate-50/60"}`}>
+                            <td className="whitespace-nowrap border-r border-slate-100 px-1.5 py-1 font-medium text-slate-700">
                               {d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "—"}
-                              {holiday && <span className="ml-1 rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800" title={`${holiday} — move this session (edit Wk/Day, then Save row)`}>⚠ {holiday}</span>}
+                              {holiday && <span className="ml-1 rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800" title={`${holiday} — move this session (edit Q/R, then Save row)`}>⚠ {holiday}</span>}
                             </td>
-                            <td className="w-12 px-1 py-0.5"><input type="number" min={1} value={r.week ?? ""} onChange={(e) => setField(r.id, "week", e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right`} /></td>
-                            <td className="w-16 px-1 py-0.5">
-                              <select value={r.dayOfWeek ?? ""} onChange={(e) => setField(r.id, "dayOfWeek", e.target.value || null)} className={inp}>
-                                <option value="">—</option>
-                                {ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
-                              </select>
+                            <td className="border-r border-slate-100 px-1 py-0.5">
+                              <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
                             </td>
-                            <td className="w-24 px-1 py-0.5"><input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} /></td>
-                            <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]}</span></td>
-                            <td className="min-w-[16rem] px-1 py-0.5"><input value={r.title ?? ""} onChange={(e) => setField(r.id, "title", e.target.value || null)} className={inp} /></td>
-                            <td className="w-24 px-1 py-0.5"><input value={r.deliveryMode ?? ""} onChange={(e) => setField(r.id, "deliveryMode", e.target.value || null)} className={inp} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" step="any" value={r.lengthHours ?? ""} onChange={(e) => setField(r.id, "lengthHours", Number(e.target.value) || 0)} className={`${inp} text-right`} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" value={r.maxStudents ?? ""} onChange={(e) => setField(r.id, "maxStudents", Number(e.target.value) || 1)} className={`${inp} text-right`} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" step="any" value={r.facultyNeeded ?? ""} onChange={(e) => setField(r.id, "facultyNeeded", Number(e.target.value) || 0)} className={`${inp} text-right`} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" step="any" value={r.facultyContactPolicy ?? ""} onChange={(e) => setField(r.id, "facultyContactPolicy", e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right`} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" step="any" value={r.preceptorsNeeded ?? ""} onChange={(e) => setField(r.id, "preceptorsNeeded", Number(e.target.value) || 0)} className={`${inp} text-right`} /></td>
-                            <td className="w-14 px-1 py-0.5"><input type="number" step="any" value={r.preceptorContactPolicy ?? ""} onChange={(e) => setField(r.id, "preceptorContactPolicy", e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right`} /></td>
-                            <td className="w-28 px-1 py-0.5"><input value={r.rotationType ?? ""} onChange={(e) => setField(r.id, "rotationType", e.target.value || null)} className={inp} /></td>
-                            <td className="min-w-[10rem] px-1 py-0.5"><input value={r.notes ?? ""} onChange={(e) => setField(r.id, "notes", e.target.value || null)} className={inp} /></td>
-                            <td className="px-2 py-1 text-right"><span className={calc} title="= ROUNDUP(enrollment ÷ Cap)">{comp.divByZero ? "#DIV/0!" : comp.Y}</span></td>
-                            <td className="px-2 py-1 text-right"><span className={calc} title="= Len × Fac × Sec">{n1(comp.Z)}</span></td>
-                            <td className="px-2 py-1 text-right"><span className={calc} title="= Sec × Prec × Len × PrecPol">{n1(comp.AC)}</span></td>
-                            <td className="whitespace-nowrap px-2 py-1 text-slate-500">
-                              <span className={m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : ""}>{loc}</span>
+                            {SHEET_COLS.map(({ c: col, kind }) => {
+                              if (kind === "seq" || col === "G") {
+                                return <td key={col} className="border-r border-slate-100 bg-slate-50/70 px-1.5 py-1 text-slate-500" title={CAPACITY_FORMULAS[col]}>{seqVal[col]}</td>;
+                              }
+                              if (kind === "calc") {
+                                const err = col !== "C" && comp.divByZero;
+                                const isEnroll = col === "C";
+                                return (
+                                  <td key={col} title={isEnroll ? "This offering's enrollment target for the term — from its pipeline" : CAPACITY_FORMULAS[col]} className={`border-r border-slate-100 px-1.5 py-1 text-right font-mono tabular-nums ${err ? "bg-rose-50 font-semibold text-rose-700" : isEnroll ? "bg-rose-50/70 font-semibold text-rose-800" : "bg-emerald-50/70 text-emerald-900"}`}>
+                                    {calcVal[col]}
+                                  </td>
+                                );
+                              }
+                              if (col === "F") {
+                                // Session type belongs to the template — shown, not overridable per offering.
+                                return <td key={col} className="border-r border-slate-100 bg-slate-50/70 px-1.5 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]}</span></td>;
+                              }
+                              const field = SHEET_FIELD_OF[col]! as keyof RowState;
+                              const v = r[field];
+                              return (
+                                <td key={col} className="border-r border-slate-100 px-1 py-0.5">
+                                  {col === "R" ? (
+                                    <select value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, "dayOfWeek", e.target.value || null)} className={inp}>
+                                      <option value="">—</option>
+                                      {ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
+                                    </select>
+                                  ) : SHEET_NUM_FIELDS.has(col) ? (
+                                    <input type="number" step="any" value={(v as number | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right font-mono`} />
+                                  ) : (
+                                    <input value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value || null)} className={inp} />
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="whitespace-nowrap border-r border-slate-100 px-2 py-1 text-slate-500">
+                              <span className={m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : ""}>{bookedLoc}</span>
                               <span className={`block ${m?.staffName ? "" : "text-amber-600"}`}>{m?.staffName ?? "unassigned"}</span>
                             </td>
-                            <td className="whitespace-nowrap px-2 py-1">
+                            <td className="whitespace-nowrap px-1.5 py-1">
                               <form action={async (fd) => { await saveSessionOverride(cohortId, r.id, programId, fd); setDirty((dd) => { const n = new Set(dd); n.delete(r.id); return n; }); router.refresh(); }}>
-                                {(["week", "dayOfWeek", "startTime", "notes", "title", "deliveryMode", "lengthHours", "maxStudents", "facultyNeeded", "facultyContactPolicy", "supportStaffNeeded", "supportContactPolicy", "preceptorsNeeded", "preceptorContactPolicy", "rotationType", "clinicalMode"] as (keyof RowState)[]).map((f) => (
+                                {OVERRIDE_FIELDS.map((f) => (
                                   <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />
                                 ))}
                                 <button className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isDirty ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-400"}`}>Save row</button>
@@ -310,7 +412,8 @@ export function OfferingDesign({
           })}
           {t.courses.length === 0 && <p className="text-sm text-slate-400">No courses in this term.</p>}
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

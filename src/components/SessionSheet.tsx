@@ -22,9 +22,11 @@ const num = (v: number | null, dp = 2) =>
 
 // Column model: [key, header, kind] — kind: "seq" (sequence-derived, green),
 // "edit" (blue input), "calc" (green formula).
-type ColKind = "seq" | "edit" | "calc";
-interface Col { c: string; kind: ColKind; w?: string }
-const COLS: Col[] = [
+// Exported so the per-offering sheet (OfferingDesign) renders the EXACT same
+// workbook schema — same columns, same headers, same order.
+export type ColKind = "seq" | "edit" | "calc";
+export interface Col { c: string; kind: ColKind; w?: string }
+export const SHEET_COLS: Col[] = [
   { c: "A", kind: "seq", w: "5.2rem" }, { c: "B", kind: "seq", w: "6.5rem" }, { c: "C", kind: "calc", w: "5rem" },
   { c: "D", kind: "seq", w: "5.5rem" }, { c: "E", kind: "seq", w: "9rem" },
   { c: "F", kind: "edit", w: "5.5rem" }, { c: "G", kind: "seq", w: "4.4rem" }, { c: "H", kind: "edit", w: "13rem" },
@@ -39,8 +41,8 @@ const COLS: Col[] = [
   { c: "AC", kind: "calc", w: "4.8rem" }, { c: "AD", kind: "calc", w: "5.2rem" }, { c: "AE", kind: "calc", w: "5.2rem" },
 ];
 
-const NUM_FIELDS = new Set(["K", "L", "M", "N", "O", "P", "Q", "T", "U"]);
-const FIELD_OF: Record<string, keyof SheetSession> = {
+export const SHEET_NUM_FIELDS = new Set(["K", "L", "M", "N", "O", "P", "Q", "T", "U"]);
+export const SHEET_FIELD_OF: Record<string, keyof SheetSession> = {
   F: "kind", H: "title", I: "deliveryMode", J: "location", K: "lengthHours", L: "maxStudents",
   M: "facultyNeeded", N: "facultyContactPolicy", O: "supportStaffNeeded", P: "supportContactPolicy",
   Q: "week", R: "dayOfWeek", S: "notes", T: "preceptorsNeeded", U: "preceptorContactPolicy",
@@ -87,9 +89,9 @@ export function SessionSheet({
         <table className="border-collapse text-[11px]" style={{ minWidth: "220rem" }}>
           <thead>
             <tr className="bg-slate-800 text-left text-slate-100">
-              {COLS.map(({ c, w }) => (
+              {SHEET_COLS.map(({ c, w }) => (
                 <th key={c} className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: w }}>
-                  <span className="block font-mono text-[9px] text-emerald-300">{c}{["A", "B", "D", "E", "G"].includes(c) ? " · seq" : FIELD_OF[c] ? "" : " · fx"}</span>
+                  <span className="block font-mono text-[9px] text-emerald-300">{c}{["A", "B", "D", "E", "G"].includes(c) ? " · seq" : SHEET_FIELD_OF[c] ? "" : " · fx"}</span>
                   <span className="leading-tight">{CAPACITY_HEADERS[c as keyof typeof CAPACITY_HEADERS]}</span>
                 </th>
               ))}
@@ -110,7 +112,7 @@ export function SessionSheet({
               };
               return (
                 <tr key={r.id} className="border-b border-slate-100 align-top hover:bg-slate-50/60">
-                  {COLS.map(({ c, kind }) => {
+                  {SHEET_COLS.map(({ c, kind }) => {
                     if (kind === "seq" || c === "G") {
                       return <td key={c} className="border-r border-slate-100 bg-slate-50/70 px-1.5 py-1 text-slate-500" title={CAPACITY_FORMULAS[c]}>{seqVal[c]}</td>;
                     }
@@ -122,7 +124,7 @@ export function SessionSheet({
                         </td>
                       );
                     }
-                    const field = FIELD_OF[c]!;
+                    const field = SHEET_FIELD_OF[c]!;
                     const v = r[field];
                     const common = "w-full rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[11px] text-blue-900 focus:bg-white focus:outline-blue-500";
                     return (
@@ -136,7 +138,7 @@ export function SessionSheet({
                             <option value="">—</option>
                             {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
                           </select>
-                        ) : NUM_FIELDS.has(c) ? (
+                        ) : SHEET_NUM_FIELDS.has(c) ? (
                           <input type="number" step="any" value={(v as number | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value === "" ? null : Number(e.target.value))} className={`${common} text-right font-mono`} />
                         ) : (
                           <input value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value || null)} className={common} />
@@ -174,7 +176,7 @@ export function SessionSheet({
               );
             })}
             {ordered.length === 0 && (
-              <tr><td colSpan={COLS.length + 1} className="px-3 py-3 text-xs text-slate-400">No sessions yet — add one below.</td></tr>
+              <tr><td colSpan={SHEET_COLS.length + 1} className="px-3 py-3 text-xs text-slate-400">No sessions yet — add one below.</td></tr>
             )}
           </tbody>
         </table>

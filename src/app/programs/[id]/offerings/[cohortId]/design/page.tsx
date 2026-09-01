@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { getOfferingDesign, getCapacityModel } from "@/lib/queries";
 import { calendarizeCohort } from "@/lib/actions";
 import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/components/OfferingDesign";
-import { buildInstances, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
 
 export const dynamic = "force-dynamic";
 
@@ -13,19 +12,9 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   const { cohort, rooms, people, employers } = data;
   const program = cohort.program;
 
-  // Week-by-week staffing need for THIS instantiation, by session type —
-  // overrides and booked day patterns included (same engine as Insights).
+  // This offering's per-term enrollment targets + workload assumptions —
+  // they drive column C and every formula column on the sheet below.
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === cohort.id) ?? null;
-  const weeklyByKind = capCohort
-    ? weeklyNeedByKind(buildInstances({
-        cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
-        enrollmentByTerm: capCohort.enrollmentByTerm,
-        termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-        courses: capCohort.courses,
-      } as CohortCalendarInput, capCohort.assumptions).filter((i) => i.mondayIso != null))
-    : [];
-  const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1 });
-  const fmtW = (isoStr: string) => new Date(isoStr + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" });
 
   const ctByTerm = new Map(cohort.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
   const terms: DsTerm[] = [...program.terms].sort((a, b) => a.index - b.index).map((t) => ({
@@ -74,9 +63,11 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Design &amp; sequence — {cohort.name}</h1>
         <p className="max-w-3xl text-sm text-slate-500">
           The <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">template</Link> is
-          the boilerplate; this is <strong>this instantiation&apos;s</strong> copy of it — every session of every course with
-          its <strong>real date, time, location, and instructor / preceptor</strong>. Edit any weekly pattern (day, time,
-          room or partner site, staff) and the same booking updates on the{" "}
+          the boilerplate; this is <strong>this instantiation&apos;s</strong> copy of it — the <strong>same Raw Data &amp;
+          Calculations columns (A–AE)</strong>, with column C set to <strong>this offering&apos;s enrollment target per
+          term</strong> so every formula shows what this run actually needs, plus each session&apos;s <strong>real date,
+          time, booked location, and instructor / preceptor</strong>. Edit any weekly pattern (day, time, room or partner
+          site, staff) and the same booking updates on the{" "}
           <Link href="/calendar" className="text-rose-700 hover:underline">master calendar</Link> and everywhere else.
         </p>
       </div>
