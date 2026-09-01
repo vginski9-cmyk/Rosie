@@ -144,3 +144,29 @@ export function gradVerb(gradYear: number, today: Date): string {
   if (gradYear === y) return "graduating";
   return "expected to graduate";
 }
+
+// ---------------------------------------------------------------------------
+// Legit semester boundaries — derived term dates snap to these, because no
+// Spring semester starts in December and no Summer term starts in April.
+// ---------------------------------------------------------------------------
+
+/** The nth Monday of a month (UTC). */
+function nthMonday(year: number, month: number, n: number): Date {
+  const first = new Date(Date.UTC(year, month, 1));
+  const toMonday = (8 - first.getUTCDay()) % 7;
+  return new Date(Date.UTC(year, month, 1 + toMonday + (n - 1) * 7));
+}
+
+/** The next real semester start ON OR AFTER `d`:
+ *  Spring = 2nd Monday of January · Summer = 1st Monday of June ·
+ *  Fall = 3rd Monday of August. */
+export function nextSemesterStart(d: Date): Date {
+  const cands: Date[] = [];
+  for (const y of [d.getUTCFullYear(), d.getUTCFullYear() + 1]) {
+    cands.push(nthMonday(y, 0, 2)); // Spring
+    cands.push(nthMonday(y, 5, 1)); // Summer
+    cands.push(nthMonday(y, 7, 3)); // Fall
+  }
+  cands.sort((a, b) => a.getTime() - b.getTime());
+  return cands.find((c) => c.getTime() >= d.getTime()) ?? cands[cands.length - 1];
+}

@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramFull, getProgramArchetype, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
-import { FunnelChart } from "@/components/FunnelChart";
 import { fmt } from "@/lib/format";
-import type { StageKey } from "@/lib/funnel";
-import { duplicateProgram, deleteProgram, updateFunnelStage, createOffering } from "@/lib/actions";
+import { duplicateProgram, deleteProgram, createOffering } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -113,30 +111,6 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         <Kpi label="Terms in sequence" value={fmt.num(program.terms.length)} />
         <Kpi label="Sessions / student" value={fmt.num(totalSessions)} sub="across the whole sequence" />
       </div>
-
-      {/* Talent-pipeline funnel */}
-      {cohort && (
-        <section className="card card-pad space-y-1">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Talent pipeline — {cohort.name}</h2>
-            <span className="text-xs text-slate-400">target vs. actual · {totalSessions} sessions/student</span>
-          </div>
-          <FunnelChart programId={program.id} stages={cohort.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))} />
-          <details className="mt-3">
-            <summary className="cursor-pointer text-sm font-medium text-rose-700">Edit funnel numbers</summary>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {cohort.stages.map((s) => (
-                <form key={s.id} action={updateFunnelStage.bind(null, s.id, program.id)} className="flex items-center gap-2">
-                  <span className="w-40 shrink-0 text-xs text-slate-600">{s.label}</span>
-                  <input name="target" type="number" step="0.1" defaultValue={s.targetNumber ?? ""} placeholder="target" className="input-sm w-20" />
-                  <input name="actual" type="number" step="0.1" defaultValue={s.actualNumber ?? ""} placeholder="actual" className="input-sm w-20" />
-                  <button className="text-xs text-rose-700">Save</button>
-                </form>
-              ))}
-            </div>
-          </details>
-        </section>
-      )}
 
       {/* Program structure (read-only overview; edit on the structure page) */}
       <section className="space-y-3">

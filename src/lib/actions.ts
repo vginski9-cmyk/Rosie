@@ -624,15 +624,21 @@ export async function lockInInstantiation(
   }
   const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, program.terms.length));
 
-  // The class year is when the program actually ENDS from this start date —
-  // walk the term spans (plus ~2-week breaks) to the real finish.
-  const endCursor = new Date(input.startDate);
+  // Real semesterly term dates: term 1 starts on the chosen date; every later
+  // term starts at the NEXT legit semester boundary (2nd Mon of Jan / 1st Mon
+  // of Jun / 3rd Mon of Aug) after the previous term ends — no "Spring" that
+  // starts in December. The class year is when the last term actually ends.
+  const { nextSemesterStart } = await import("./term");
+  const termStarts: Date[] = [];
+  let cursor = new Date(input.startDate);
   for (let i = 0; i < program.terms.length; i++) {
     const term = program.terms[i];
     const weeks = (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1;
-    endCursor.setDate(endCursor.getDate() + weeks * 7 + (i < program.terms.length - 1 ? 14 : 0));
+    const start = i === 0 ? new Date(cursor) : nextSemesterStart(cursor);
+    termStarts.push(start);
+    cursor = new Date(start.getTime() + weeks * 7 * 86400000);
   }
-  const endYear = endCursor.getFullYear();
+  const endYear = cursor.getUTCFullYear();
 
   // Name it by the year it lands its graduates; disambiguate within the program.
   let name = `Class of ${endYear}`;
@@ -664,12 +670,9 @@ export async function lockInInstantiation(
     })),
   });
 
-  // Real per-term dates cascaded from each template term's week span.
-  const cursor = new Date(startD);
-  for (const term of program.terms) {
-    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: new Date(cursor) } });
-    const weeks = (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1;
-    cursor.setDate(cursor.getDate() + (weeks + 2) * 7); // term length + ~2-week break
+  // Real per-term dates — the semester-snapped starts computed above.
+  for (let i = 0; i < program.terms.length; i++) {
+    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: program.terms[i].id, startDate: termStarts[i] } });
   }
 
   // Calendarize immediately so the data shows up everywhere at once: meetings

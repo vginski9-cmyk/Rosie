@@ -117,7 +117,16 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         )}
       </div>
 
-      {/* This run's funnel — the talent pipeline, up top */}
+      {/* Counts + timing */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
+        <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
+        <Tile label="Expected end" value={exactDate(lastDay ?? timing.endDate)} sub="last class / lab / clinical / exam" />
+        <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
+        <Tile label="Students" value={fmt.num(offering._count.students)} />
+      </div>
+
+      {/* This run's funnel — right under the timing tiles */}
       {offering.stages.length > 0 && (
         <Collapse
           title="Talent pipeline"
@@ -132,15 +141,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           />
         </Collapse>
       )}
-
-      {/* Counts + timing */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
-        <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
-        <Tile label="Expected end" value={exactDate(lastDay ?? timing.endDate)} sub="last class / lab / clinical / exam" />
-        <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
-        <Tile label="Students" value={fmt.num(offering._count.students)} />
-      </div>
 
       {/* Design & sequence for THIS instantiation */}
       <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50/40 px-4 py-3 hover:border-rose-300 hover:bg-rose-50/70">
@@ -195,11 +195,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null }]))}
         />
       </Collapse>
-
-      {/* Quick links */}
-      <div className="flex flex-wrap gap-2">
-        <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
-      </div>
 
       {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}
       {capCohort && (

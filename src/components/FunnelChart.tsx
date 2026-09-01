@@ -25,7 +25,6 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
   const analysis = analyzeFunnel(stages);
   const maxVal = Math.max(1, ...analysis.map((a) => Math.max(a.target ?? 0, a.actual ?? 0)));
   const widthPct = (v?: number | null) => `${Math.max(14, ((v ?? 0) / maxVal) * 100)}%`;
-  const maxTerm = Math.max(1, ...(termEnrollment ?? []).map((t) => t.target));
 
   return (
     <div className="space-y-6">
@@ -97,31 +96,47 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
           return (
             <div key={a.key}>
               {wrapped}
-              {/* Enrollment through EVERY term, right under "Enrolled (Term 1)" */}
-              {a.key === "enrolled" && termEnrollment && termEnrollment.length > 1 && (
-                <div className="my-1 flex items-center gap-3 px-1">
-                  <div className="w-44 shrink-0 text-right">
-                    <div className="text-[11px] font-medium leading-tight text-slate-500">…enrollment through each term</div>
-                    <div className="text-[10px] text-slate-400">planned attrition, term by term</div>
-                  </div>
-                  <div className="flex flex-1 items-stretch justify-center gap-1.5">
-                    {termEnrollment.map((t, i) => {
-                      const prev = i > 0 ? termEnrollment[i - 1] : null;
-                      const conv = prev && prev.target > 0 ? Math.round((t.target / prev.target) * 100) : null;
-                      return (
-                        <div key={i} className={`rounded-lg px-2.5 py-1.5 text-center ring-1 ${t.current ? "bg-emerald-600 text-white ring-emerald-700" : "bg-emerald-50 text-emerald-900 ring-emerald-200"}`}
-                          style={{ minWidth: `${Math.max(12, (t.target / maxTerm) * 100 / termEnrollment.length)}%` }}
-                          title={`${t.label} — target ${t.target} enrolled${t.actual != null ? ` · actual ${t.actual}` : ""}${conv != null ? ` · ${conv}% retained from the prior term` : ""}${t.current ? " · current term" : ""}`}>
-                          <div className="text-lg font-bold tabular-nums leading-tight">{t.actual != null ? `${fmt.num(t.actual)}/` : ""}{fmt.num(t.target)}</div>
-                          <div className={`text-[10px] leading-tight ${t.current ? "text-emerald-100" : "text-emerald-700"}`}>{t.label}{t.current ? " · now" : ""}</div>
-                          {conv != null && <div className={`text-[9px] ${t.current ? "text-emerald-200" : "text-emerald-500"}`}>{conv}% stay</div>}
+              {/* Enrollment through EVERY term — rows exactly like the stages,
+                  Term 2 right under Enrolled (Term 1), then Term 3, … */}
+              {a.key === "enrolled" && termEnrollment && termEnrollment.length > 1 && termEnrollment.slice(1).map((t, i) => {
+                const prev = termEnrollment[i]; // slice(1) → prev is the term above
+                const conv = prev.target > 0 ? t.target / prev.target : null;
+                const attain = t.actual != null && t.target > 0 ? t.actual / t.target : null;
+                const innerPct = t.target > 0 && t.actual != null ? `${Math.min(100, (t.actual / t.target) * 100)}%` : "0%";
+                const color = "#10b981";
+                return (
+                  <div key={t.label} className="group flex items-center gap-3 px-1 py-0.5">
+                    <div className="w-44 shrink-0 text-right">
+                      <div className="text-[13px] font-medium leading-tight text-slate-700">Enrolled — {t.label}{t.current ? <span className="ml-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">now</span> : null}</div>
+                      {conv != null && <div className="text-[10px] text-slate-400">{fmt.pct(conv)} retained from the term above</div>}
+                    </div>
+                    <div className="relative flex-1">
+                      <div
+                        className="relative mx-auto flex h-16 items-center justify-center overflow-hidden rounded-lg ring-1 ring-inset"
+                        style={{ width: widthPct(t.target), background: `${color}1f`, borderColor: color, color }}
+                      >
+                        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 rounded-lg opacity-90" style={{ width: innerPct, background: color }} />
+                        <div className="relative z-10 flex items-baseline gap-1.5 drop-shadow-sm">
+                          <span className="text-3xl font-extrabold tabular-nums text-white mix-blend-luminosity" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}>
+                            {fmt.num(t.actual)}
+                          </span>
+                          <span className="text-lg font-semibold tabular-nums text-slate-700">/ {fmt.num(t.target)}</span>
                         </div>
-                      );
-                    })}
+                      </div>
+                    </div>
+                    <div className="w-28 shrink-0 text-left">
+                      {attain != null ? (
+                        <>
+                          <div className={`text-xl font-bold tabular-nums ${attain < 1 ? "text-rose-600" : "text-emerald-600"}`}>{fmt.pct(attain)}</div>
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">of goal</div>
+                        </>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </div>
                   </div>
-                  <div className="w-28 shrink-0" />
-                </div>
-              )}
+                );
+              })}
             </div>
           );
         })}

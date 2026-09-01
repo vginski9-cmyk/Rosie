@@ -48,8 +48,7 @@ const TOURS: Tour[] = [
   {
     key: "program", match: /^\/programs\/[^/]+$/, title: "A delivery model (template)",
     steps: [
-      { h: "Template vs offerings", b: "This page is the timeless template. The scheduled offerings at the top are its real runs — each shows enrolled and productive against target, and links into its schedule, staffing and WBL." },
-      { h: "The funnel", b: "Target vs actual per stage for the template's planning cohort. Edit targets here; actuals flow from student records." },
+      { h: "Template vs offerings", b: "This page is the timeless template. The scheduled offerings at the top are its real runs — each links into its schedule and staffing. Pipeline analytics live on each offering, where the real targets are." },
     ],
   },
   {
