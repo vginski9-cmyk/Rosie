@@ -183,7 +183,6 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       {/* Quick links */}
       <div className="flex flex-wrap gap-2">
         <Link href={`/programs/${program.id}/students`} className="btn-primary">Students ↦</Link>
-        {program.familyId && <Link href={`/families/${program.familyId}/wbl`} className="btn-primary">WBL design studio ↦</Link>}
       </div>
 
       {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}

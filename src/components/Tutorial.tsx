@@ -45,13 +45,6 @@ const TOURS: Tour[] = [
     ],
   },
   {
-    key: "wbl", match: /^\/families\/[^/]+\/wbl$/, title: "WBL design studio",
-    steps: [
-      { h: "Computed positioning", b: "Learners and partners are positioned by their intake profiles — motivations, constraints, capacities. The quadrants drive which WBL modes fit." },
-      { h: "Fluid capacity", b: "There is no static slot count. Capacity is what's been asked for and what's been secured — request a placement and the partner's live load updates everywhere." },
-    ],
-  },
-  {
     key: "program", match: /^\/programs\/[^/]+$/, title: "A delivery model (template)",
     steps: [
       { h: "Template vs offerings", b: "This page is the timeless template. The scheduled offerings at the top are its real runs — each shows enrolled and productive against target, and links into its schedule, staffing and WBL." },
@@ -105,7 +98,8 @@ const TOURS: Tour[] = [
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
       { h: "The answer, in words", b: "The headline states the peak: N FTE of instructors and M FTE of preceptors, which weeks, and the ÷-by-workload math behind each number — followed by a what-to-do list with real deadlines (preceptor agreements six weeks before the first clinical day)." },
-      { h: "Every shift is a bar", b: "The shift chart plays out every session instance — one horizontal bar per shift group, length = shift length, color = class / lab / clinical — labeled with its hours, the contact hours it generates, and the people who staff it. Day by day under week headers (with the week's FTE math), grouped term by term." },
+      { h: "The pivot charts", b: "FTEs per semester (year → semester → class/lab/clinical — the budgeting view), FTEs per week of term (the shape of the load; where orange overtakes blue, clinicals start), and clinical staffing by rotation type — every column carries its number, blue = faculty, orange = preceptors." },
+      { h: "Every shift is a column", b: "The shift chart plays out every session instance — one vertical column per shift group, height = shift length, color = class / lab / clinical — capped with its hours × shifts and the people who staff it, grouped day by day under week headers, term by term." },
       { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling." },
       { h: "Filters", b: "Every workbook page filter: cohorts, terms, session type, course code, delivery mode, rotation type, clinical mode, day, and a date range — they never remove data from the model, only from the view." },
     ],
@@ -113,7 +107,7 @@ const TOURS: Tour[] = [
   {
     key: "clinical-sites", match: /^\/insights\/clinical-sites/, title: "Clinical sites",
     steps: [
-      { h: "Supply vs demand first", b: "The verdict up top: peak-day clinical demand from every locked-in instantiation against the students/day capacity of the partner sites in supply — fits, or short by N. Add sites and capacities in the Employers directory." },
+      { h: "Supply vs demand first", b: "The verdict up top: peak-day clinical demand from every locked-in instantiation against the students/day capacity of the partner sites in supply — fits, or short by N. Below it, the gap chart paints every clinical week green (covered) or red (students with no slot) against the dashed supply line." },
       { h: "One request block per setting", b: "For each clinical rotation type: students on the heaviest day, hosted shifts, preceptor hours, the days of week, and the calendar window — exactly what to ask a site to host." },
       { h: "Month by month", b: "The table shows the hosted load each setting carries per month, so a site can see its whole year at a glance." },
     ],

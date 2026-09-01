@@ -5,6 +5,7 @@ import {
   buildInstances, weeklyNeed, weeklyNeedByKind, settingAsks, shiftBoard, sumBy, peakOf,
   type DatedInstance, type CohortCalendarInput, type WorkloadAssumptions, type SessionInput,
 } from "@/lib/capacitymodel";
+import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 
 // The capacity workbook's three output tabs, on live data:
 //   staffing — "How many instructors and preceptors do we need, and when?"  (FTEs per Week)
@@ -46,6 +47,7 @@ const nz2 = (v: number | null | undefined) => v ?? 0;
 const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtDateM = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtMonth = (m: string) => new Date(m + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+const fmtDay = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC" });
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_KEY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
@@ -314,6 +316,80 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
   }, [rows]);
   const maxLen = Math.max(1, ...rows.map((r) => r.session.lengthHours ?? 0));
 
+  // ── The workbook's pivot charts, vertical, every cap labeled ──────────────
+  const SEM_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
+  const KIND_ORDER = ["CLASS", "LAB", "CLINICAL"];
+  const KIND_NAME: Record<string, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
+
+  /** Faculty & preceptor FTEs (semesterly): Year → Semester → Session Type. */
+  const semBands: ColBand[] = useMemo(() => {
+    const acc = new Map<string, Map<string, Map<string, [number, number]>>>();
+    for (const r of rows) {
+      const year = r.mondayIso!.slice(0, 4);
+      const y = acc.get(year) ?? new Map(); acc.set(year, y);
+      const s = y.get(r.semester) ?? new Map(); y.set(r.semester, s);
+      const k = s.get(r.session.kind) ?? [0, 0];
+      k[0] += nz2(r.computed.AA); k[1] += nz2(r.computed.AD);
+      s.set(r.session.kind, k);
+    }
+    return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
+      label: year,
+      groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, kinds]) => ({
+        label: sem,
+        leaves: KIND_ORDER.filter((k) => kinds.has(k)).map((k) => ({
+          label: KIND_NAME[k], title: `${sem} ${year} · ${KIND_NAME[k]}`, values: kinds.get(k)!,
+        })),
+      })),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  /** Faculty & preceptor FTEs (weekly): Year → Semester → week of term. */
+  const weekBands: ColBand[] = useMemo(() => {
+    const acc = new Map<string, Map<string, Map<number, [number, number]>>>();
+    for (const r of rows) {
+      const year = r.mondayIso!.slice(0, 4);
+      const y = acc.get(year) ?? new Map(); acc.set(year, y);
+      const s = y.get(r.semester) ?? new Map(); y.set(r.semester, s);
+      const k = s.get(r.weekOfTerm) ?? [0, 0];
+      k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
+      s.set(r.weekOfTerm, k);
+    }
+    return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
+      label: year,
+      groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, wks]) => ({
+        label: sem,
+        leaves: [...wks.keys()].sort((a, b) => a - b).map((w) => ({
+          label: String(w), title: `${sem} ${year} · week ${w} of term`, values: wks.get(w)!,
+        })),
+      })),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  /** Clinical staffing by rotation type per week of term — where to shore up. */
+  const rotBands: ColBand[] = useMemo(() => {
+    const clin = rows.filter((r) => r.session.kind === "CLINICAL");
+    const acc = new Map<number, Map<string, [number, number]>>();
+    for (const r of clin) {
+      const w = acc.get(r.weekOfTerm) ?? new Map(); acc.set(r.weekOfTerm, w);
+      const rot = r.session.rotationType ?? "(unspecified)";
+      const k = w.get(rot) ?? [0, 0];
+      k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
+      w.set(rot, k);
+    }
+    if (!acc.size) return [];
+    return [{
+      label: "Week of term",
+      groups: [...acc.keys()].sort((a, b) => a - b).map((w) => ({
+        label: String(w),
+        leaves: [...acc.get(w)!.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([rot, v]) => ({
+          label: rot, title: `Week ${w} of term · ${rot}`, values: v,
+        })),
+      })),
+    }];
+  }, [rows]);
+
   // Staffing plan by term: peak weekly need per term.
   const byTerm = useMemo(() => {
     const idxs = [...new Set(rows.map((r) => r.termIndex))].sort((a, b) => a - b);
@@ -378,6 +454,35 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
         <Peak k="Average active week" v={active.length ? `${n1(avgFac)} + ${n1(avgPre)} FTE` : "—"} d="instructors + preceptors" />
       </div>
 
+      {/* ── FTEs per semester — what to budget, split class / lab / clinical ── */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-2">
+          <h2 className="text-sm font-semibold text-slate-700">Faculty &amp; preceptor FTEs per semester</h2>
+          <p className="text-[11px] text-slate-400">The budgeting view: semesterly FTE (contact hours ÷ a full-timer&apos;s semester) by year, semester and session type. Tall clinical bars = where preceptor agreements and clinical faculty lines must be funded.</p>
+        </div>
+        <ColumnChart bands={semBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="semesterly" leafMinWidth={46} />
+      </section>
+
+      {/* ── FTEs per week of term — when the load actually lands ── */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-2">
+          <h2 className="text-sm font-semibold text-slate-700">Faculty &amp; preceptor FTEs per week of term</h2>
+          <p className="text-[11px] text-slate-400">The scheduling view: weekly FTE by week of term within each semester — the shape of the load. Where orange overtakes blue, clinicals start and preceptors become the constraint.</p>
+        </div>
+        <ColumnChart bands={weekBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={34} />
+      </section>
+
+      {/* ── Clinical staffing by rotation type — where to shore up ── */}
+      {rotBands.length > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="mb-2">
+            <h2 className="text-sm font-semibold text-slate-700">Clinical staffing by rotation type, week by week</h2>
+            <p className="text-[11px] text-slate-400">The clinical-coordinator view: which rotation settings need clinical faculty and preceptors in each week of the term — take each column to that setting&apos;s partner sites.</p>
+          </div>
+          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={30} vertLeafLabels />
+        </section>
+      )}
+
       {/* ── The shift chart: every instance, day by day / week by week / term by term ── */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
@@ -426,53 +531,47 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
                           </span>
                         )}
                       </div>
-                      {/* Day rows: one bar per instance */}
-                      <div className="space-y-2 px-4 py-2">
-                        {wk.days.map(({ dateIso, list }) => {
-                          const shifts = list.reduce((n2, r) => n2 + nz2(r.computed.Y), 0);
-                          const inst = list.filter((r) => r.session.kind !== "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.facultyNeeded ?? 0), 0);
-                          const pre = list.filter((r) => r.session.kind === "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.preceptorsNeeded ?? 0), 0);
-                          const facH = list.reduce((n2, r) => n2 + nz2(r.computed.Z), 0);
-                          const preH = list.reduce((n2, r) => n2 + nz2(r.computed.AC), 0);
-                          return (
-                            <div key={dateIso}>
-                              <div className="mb-1 text-[11px] font-semibold text-slate-700">
-                                {fmtDate(dateIso)} — <span className="text-slate-800">{n0(shifts)} shift{shifts === 1 ? "" : "s"}</span>
-                                {" "}· <span className="text-emerald-700">{n1(inst)} instructor{inst === 1 ? "" : "s"}</span>
-                                {pre > 0 && <> · <span className="text-amber-700">{n0(pre)} preceptor{pre === 1 ? "" : "s"}</span></>}
-                                <span className="ml-2 font-normal text-slate-400">{n0(facH)} fac contact hrs{preH > 0 ? ` · ${n0(preH)} preceptor hrs` : ""}</span>
-                              </div>
-                              <div className="space-y-1">
-                                {list.map((r, i) => {
-                                  const Y = nz2(r.computed.Y);
-                                  const len = r.session.lengthHours ?? 0;
-                                  const clin = r.session.kind === "CLINICAL";
-                                  const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
-                                  const hrs = clin ? nz2(r.computed.AC) : nz2(r.computed.Z);
-                                  const barCls = r.session.kind === "CLASS" ? "bg-sky-500" : r.session.kind === "LAB" ? "bg-violet-500" : "bg-rose-500";
-                                  return (
-                                    <div key={i} className="flex items-center gap-2 text-[11px]">
-                                      <span className="w-12 shrink-0 text-right font-mono tabular-nums text-slate-500">{r.session.startTime ?? "—"}</span>
-                                      <span className="w-44 shrink-0 truncate font-medium text-slate-700" title={`${r.courseCode ?? r.courseTitle}${r.session.title ? ` — ${r.session.title}` : ""} · ${r.cohort}`}>
-                                        {r.courseCode ?? r.courseTitle} <span className="text-slate-400">{r.session.kind.toLowerCase()}</span>
-                                      </span>
-                                      <div className="flex-1">
-                                        <div className={`flex h-5 items-center whitespace-nowrap rounded-r px-1.5 font-mono text-[10px] font-semibold text-white ${barCls}`} style={{ width: `${Math.max(6, (len / maxLen) * 100)}%` }}>
-                                          {len}h{Y > 1 ? ` × ${n0(Y)} shifts` : " × 1 shift"}
-                                        </div>
+                      {/* Day columns: one vertical bar per instance — height = shift length */}
+                      <div className="overflow-x-auto px-4 py-3">
+                        <div className="flex items-end gap-5">
+                          {wk.days.map(({ dateIso, list }) => {
+                            const shifts = list.reduce((n2, r) => n2 + nz2(r.computed.Y), 0);
+                            const inst = list.filter((r) => r.session.kind !== "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.facultyNeeded ?? 0), 0);
+                            const pre = list.filter((r) => r.session.kind === "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.preceptorsNeeded ?? 0), 0);
+                            const facH = list.reduce((n2, r) => n2 + nz2(r.computed.Z), 0);
+                            const preH = list.reduce((n2, r) => n2 + nz2(r.computed.AC), 0);
+                            return (
+                              <div key={dateIso} className="flex shrink-0 flex-col">
+                                <div className="flex items-end gap-2">
+                                  {list.map((r, i) => {
+                                    const Y = nz2(r.computed.Y);
+                                    const len = r.session.lengthHours ?? 0;
+                                    const clin = r.session.kind === "CLINICAL";
+                                    const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
+                                    const hrs = clin ? nz2(r.computed.AC) : nz2(r.computed.Z);
+                                    const tip = `${r.session.startTime ? r.session.startTime + " · " : ""}${r.courseCode ?? r.courseTitle}${r.session.title ? ` — ${r.session.title}` : ""} · ${len}h × ${n0(Y)} shift${Y === 1 ? "" : "s"} = ${clin ? n0(hrs) : n1(hrs)} ${clin ? "preceptor" : "fac"} contact hrs · ${clin ? n0(people) : n1(people)} ${clin ? "preceptors" : "instructors"}${clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : ""}${clin && nz2(r.computed.Z) > 0 ? ` · +${n1(nz2(r.computed.Z))}h fac oversight` : ""} · ${r.cohort}`;
+                                    return (
+                                      <div key={i} className="flex w-14 shrink-0 flex-col items-center" title={tip}>
+                                        <span className="text-[9px] font-semibold tabular-nums leading-tight text-slate-700">{len}h × {n0(Y)}</span>
+                                        <span className={`text-[9px] tabular-nums leading-tight ${clin ? "text-amber-700" : "text-emerald-700"}`}>{clin ? `${n0(people)} prec` : `${n1(people)} inst`}</span>
+                                        <div className="mt-0.5 w-9 rounded-t-[4px]" style={{ height: Math.max(6, Math.round((len / maxLen) * 110)), background: KIND_COLORS[r.session.kind] ?? "#64748b" }} />
+                                        <span className="mt-1 font-mono text-[9px] leading-tight text-slate-500">{r.session.startTime ?? "—"}</span>
+                                        <span className="w-full truncate text-center text-[9px] font-medium leading-tight text-slate-600">{r.courseCode ?? r.courseTitle}</span>
+                                        <span className="text-[9px] leading-tight text-slate-400">{clin ? `${n0(hrs)}h prec` : `${n1(hrs)}h fac`}</span>
                                       </div>
-                                      <span className="w-72 shrink-0 tabular-nums text-slate-600">
-                                        = <strong className="text-slate-800">{clin ? n0(hrs) : n1(hrs)}</strong> {clin ? "preceptor" : "fac"} contact hrs · <strong className={clin ? "text-amber-700" : "text-emerald-700"}>{clin ? n0(people) : n1(people)} {clin ? `preceptor${people === 1 ? "" : "s"}` : `instructor${people === 1 ? "" : "s"}`}</strong>
-                                        {clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : ""}
-                                        {clin && nz2(r.computed.Z) > 0 ? ` · +${n1(nz2(r.computed.Z))}h fac oversight` : ""}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
+                                <div className="mt-1 border-t-2 border-slate-300 pt-1 text-center text-[10px] font-semibold text-slate-700">
+                                  {fmtDay(dateIso)}
+                                  <span className="block text-[9px] font-normal text-slate-500">
+                                    {n0(shifts)} shift{shifts === 1 ? "" : "s"} · {n1(inst)} inst{pre > 0 ? ` · ${n0(pre)} prec` : ""} · {n0(facH)}h fac{preH > 0 ? ` · ${n0(preH)}h prec` : ""}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
                         {wk.undated.length > 0 && (
                           <p className="text-[11px] text-slate-400">
                             + {wk.undated.length} session{wk.undated.length === 1 ? "" : "s"} without a set day (async / day not set) — counted in the week totals.
@@ -622,11 +721,80 @@ function SitesView({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite
         </div>
       </section>
 
-      {/* Preceptor hours week by week */}
+      {/* Preceptor hours week by week — every cap labeled */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">Preceptor hours, week by week</h2>
-        <WeeklyBars rows={clinical} />
+        <div className="mb-2">
+          <h2 className="text-sm font-semibold text-slate-700">Preceptor contact hours, week by week</h2>
+          <p className="text-[11px] text-slate-400">The hours partner sites must absorb each calendar week — the number on each column is the ask.</p>
+        </div>
+        <ColumnChart
+          bands={[{ label: "", groups: [{ label: "", leaves: [...sumBy(clinical, (i) => i.mondayIso, "preTotal").entries()].filter(([k]) => k != null).sort((a, b) => (a[0] as string).localeCompare(b[0] as string)).map(([k, v]) => ({ label: fmtDateM(k as string).replace(", 20", " '"), title: `Week of ${fmtDateM(k as string)}`, values: [v] })) }] }]}
+          series={[{ name: "Preceptor contact hours", color: PRE_COLOR }]}
+          unit="hrs" leafMinWidth={44} vertLeafLabels
+        />
       </section>
+    </div>
+  );
+}
+
+/** Weekly clinical gap: peak-day students needing a slot vs site supply — the
+ *  shore-up-clinicals chart. Green = covered, red = students without a slot;
+ *  the dashed line is the supply ceiling. */
+function GapChart({ rows, supply }: { rows: DatedInstance[]; supply: number }) {
+  const byWeek = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    if (!r.dateIso || !r.mondayIso) continue;
+    const students = Math.min(r.computed.C, nz2(r.computed.Y) * (r.session.maxStudents ?? 0));
+    const w = byWeek.get(r.mondayIso) ?? new Map<string, number>();
+    w.set(r.dateIso, (w.get(r.dateIso) ?? 0) + students);
+    byWeek.set(r.mondayIso, w);
+  }
+  const weeks = [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mondayIso, days]) => ({ mondayIso, demand: Math.max(0, ...days.values()) }));
+  if (!weeks.length) return null;
+  const H = 130;
+  const max = Math.max(supply, ...weeks.map((w) => w.demand), 1);
+  const supplyY = Math.round((supply / max) * H);
+  const shortWeeks = weeks.filter((w) => w.demand > supply).length;
+  const fmtShort = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" });
+  return (
+    <div className="border-t border-slate-100 px-4 py-3">
+      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">The gap, week by week — students on the heaviest day vs slots the sites offer</div>
+        <div className="flex items-center gap-3 text-[11px] text-slate-600">
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#0ca30c" }} /> covered</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: "#d03b3b" }} /> ⚠ no slot</span>
+          <span className="text-slate-400">- - supply {n0(supply)}/day</span>
+        </div>
+      </div>
+      {shortWeeks > 0 && (
+        <p className="mb-2 text-[11px] font-medium text-rose-700">⚠ {n0(shortWeeks)} of {n0(weeks.length)} clinical weeks exceed site supply — every red block is students with nowhere to go.</p>
+      )}
+      <div className="overflow-x-auto pb-1">
+        <div className="relative inline-flex items-end gap-[3px] border-b border-slate-300 pr-24" style={{ height: H + 16 }}>
+          {/* supply ceiling */}
+          <div className="pointer-events-none absolute inset-x-0 border-t border-dashed border-slate-500" style={{ bottom: supplyY }}>
+            <span className="absolute right-0 -translate-y-1/2 bg-white px-1 text-[9px] text-slate-500">supply {n0(supply)}/day</span>
+          </div>
+          {weeks.map((w) => {
+            const covered = Math.min(w.demand, supply);
+            const over = Math.max(0, w.demand - supply);
+            const hC = Math.round((covered / max) * H);
+            const hO = Math.round((over / max) * H);
+            return (
+              <div key={w.mondayIso} className="flex w-7 shrink-0 flex-col items-center justify-end" title={`Week of ${fmtDateM(w.mondayIso)} — ${n0(w.demand)} students on the heaviest day; supply ${n0(supply)}${over > 0 ? `; ${n0(over)} without a slot` : ""}`}>
+                <span className={`mb-0.5 text-[9px] font-medium tabular-nums leading-none ${over > 0 ? "text-rose-700" : "text-slate-600"}`}>{n0(w.demand)}</span>
+                {over > 0 && <div className="w-full max-w-[20px] rounded-t-[4px]" style={{ height: Math.max(2, hO), background: "#d03b3b" }} />}
+                <div className={`w-full max-w-[20px] ${over > 0 ? "mt-[2px]" : "rounded-t-[4px]"}`} style={{ height: Math.max(2, hC), background: "#0ca30c" }} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-between pr-24 text-[10px] text-slate-400">
+          <span>{fmtShort(weeks[0].mondayIso)}</span>
+          <span>{fmtShort(weeks[weeks.length - 1].mondayIso)}</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -715,6 +883,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
           </div>
         </div>
       )}
+      <GapChart rows={rows} supply={supply} />
       {sites.length === 0 ? (
         <div className="border-t border-slate-100 px-4 py-4 text-sm text-slate-500">
           No clinical sites in supply yet.{" "}
@@ -750,23 +919,6 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
         </div>
       )}
     </section>
-  );
-}
-
-function WeeklyBars({ rows }: { rows: DatedInstance[] }) {
-  const byWeek = sumBy(rows, (i) => i.mondayIso, "preTotal");
-  const keys = [...byWeek.keys()].filter((k): k is string => k != null).sort();
-  const maxV = Math.max(1, ...byWeek.values());
-  if (!keys.length) return <p className="text-xs text-slate-400">No dated preceptor demand in the slice.</p>;
-  return (
-    <div className="overflow-x-auto">
-      <div className="flex items-end gap-[3px]" style={{ height: 120, minWidth: keys.length * 12 }}>
-        {keys.map((k) => (
-          <div key={k} className="flex-1 rounded-t-sm bg-amber-500/90" style={{ height: `${((byWeek.get(k) ?? 0) / maxV) * 100}%` }} title={`Week of ${fmtDate(k)} — ${n0(byWeek.get(k) ?? 0)} preceptor contact hours`} />
-        ))}
-      </div>
-      <div className="mt-1 flex justify-between text-[10px] text-slate-400"><span>{fmtDateM(keys[0])}</span><span>{fmtDateM(keys[keys.length - 1])}</span></div>
-    </div>
   );
 }
 

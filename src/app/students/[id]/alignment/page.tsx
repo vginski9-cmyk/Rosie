@@ -20,7 +20,6 @@ export default async function StudentAlignmentPage({ params }: { params: { id: s
           deficits), and capacities (including what the credentialing system doesn&apos;t count). The panel on the right
           computes the positioning, recommended WBL modes, configuration, and required intake depth live as you tag.
           {" "}{s.program.name}{s.cohort ? <> · {s.cohort.name}</> : null} · {s.status}
-          {s.program.family && <> · <Link href={`/families/${s.program.family.id}/wbl`} className="text-rose-700 hover:underline">family WBL design studio ↦</Link></>}
         </p>
       </div>
       <AlignmentIntake side="LEARNER" studentId={s.id} subjectName={s.name} existing={data.profiles as never} />
