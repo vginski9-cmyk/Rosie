@@ -4,6 +4,9 @@ import { GATE_COOKIE, gateToken, sitePassword } from "@/lib/gate";
 // Every page and API route sits behind the shared password, except the login
 // page itself, the login/logout routes, and static assets.
 export async function middleware(req: NextRequest) {
+  // The static demo build (GitHub Pages) has no server at all — its gate runs
+  // in the browser (DemoGate); the crawler that snapshots it must see the pages.
+  if (process.env.DEMO === "1") return NextResponse.next();
   const { pathname, search } = req.nextUrl;
   const cookie = req.cookies.get(GATE_COOKIE)?.value;
   if (cookie && cookie === (await gateToken(sitePassword()))) return NextResponse.next();

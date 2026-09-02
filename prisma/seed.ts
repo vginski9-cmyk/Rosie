@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
+import { seedRoster } from "./seed-roster";
 
 const prisma = new PrismaClient();
 
@@ -891,7 +892,9 @@ async function main() {
   await prisma.alignmentTag.deleteMany();
   await prisma.alignmentProfile.deleteMany();
   await prisma.intervention.deleteMany();
+  await prisma.shiftMove.deleteMany();
   await prisma.meetingPattern.deleteMany();
+  await prisma.facility.deleteMany();
   await prisma.wblPlacement.deleteMany();
   await prisma.wblSnapshotFactor.deleteMany();
   await prisma.wblSnapshot.deleteMany();
@@ -1105,6 +1108,11 @@ async function main() {
       },
     });
   }
+
+  // ----- Dummy roster: rooms, faculty, preceptors, site agreements, and a few
+  //       locked-in offerings with sections waiting for assignments ----------
+  const roster = await seedRoster(prisma, sandhills.id);
+  console.log("roster:", roster);
 
   const counts = {
     institutions: await prisma.institution.count(),
