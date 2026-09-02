@@ -42,6 +42,8 @@ export function MainNav() {
   const homeActive = pathname === "/";
   const groupActive = (g: Group) => g.items.some((it) => pathname === it.href || pathname.startsWith(it.href + "/"));
 
+  if (pathname === "/login") return null; // the door has no menu
+
   return (
     <nav ref={ref} className="flex items-center gap-1 text-sm">
       <Link href="/" className={`rounded-lg px-3 py-1.5 font-medium ${homeActive ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>North Star</Link>
