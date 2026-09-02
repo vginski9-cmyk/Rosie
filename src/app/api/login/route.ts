@@ -18,10 +18,15 @@ export async function POST(req: NextRequest) {
   const qs = next.split("?")[1];
   if (qs) url.search = qs;
   const res = NextResponse.redirect(url, 303);
+  // Enter the password ONCE. Over https the cookie is SameSite=None + Secure (+
+  // Partitioned) so it is still sent when the site is opened inside an iframe or
+  // preview pane — a Lax cookie is dropped there and the gate re-asks on every
+  // page. Over plain http (local `next start`) a Secure cookie would be dropped
+  // instead, so it falls back to Lax without Secure.
+  const https = req.headers.get("x-forwarded-proto")?.split(",")[0].trim() === "https" || req.nextUrl.protocol === "https:";
   res.cookies.set(GATE_COOKIE, await gateToken(password), {
-    // Secure only when actually served over https — a Secure cookie over plain http is silently dropped and locks everyone out.
-    httpOnly: true, sameSite: "lax", path: "/", maxAge: GATE_MAX_AGE,
-    secure: req.headers.get("x-forwarded-proto") === "https" || req.nextUrl.protocol === "https:",
+    httpOnly: true, path: "/", maxAge: GATE_MAX_AGE,
+    sameSite: https ? "none" : "lax", secure: https, ...(https ? { partitioned: true } : {}),
   });
   return res;
 }
