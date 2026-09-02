@@ -99,6 +99,8 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
     for (const l of m.values()) l.sort((a, b) => a.sectionIndex - b.sectionIndex);
     return m;
   }, [cohorts]);
+  // Each cohort's institution-coded holidays & breaks (ISO → label).
+  const holidayByCohort = useMemo(() => new Map(cohorts.map((c) => [c.cohortId, c.holidays ?? {}])), [cohorts]);
 
   // Explode every dated session row into one shift per required section.
   const shifts: Shift[] = useMemo(() => {
@@ -135,7 +137,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           moved: !!mv,
           facultyPerSection: r.session.facultyNeeded ?? 0,
           preceptorsPerSection: r.session.kind === "CLINICAL" ? r.session.preceptorsNeeded ?? 0 : 0,
-          holiday: usHoliday(new Date(placedIso + "T00:00:00Z")),
+          holiday: holidayByCohort.get(r.cohortId)?.[placedIso] ?? usHoliday(new Date(placedIso + "T00:00:00Z")),
           sessionKey: `${r.cohortId}|${r.session.id}|${r.weekOfTerm}`,
           enrollment: r.computed.C,
         });

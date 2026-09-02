@@ -36,6 +36,7 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program,
     enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+    holidays: c.holidays,
     courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.mondayIso != null)), [cohorts]);
 

@@ -32,6 +32,7 @@ model Institution {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  academicEvents AcademicEvent[]
   programs       Program[]
   programFamilies ProgramFamily[]
   regions        Region[]
@@ -392,6 +393,25 @@ model SessionInstructor {
 /// A schedulable block within an academic term (16/14/12/8/5-week, etc.).
 /// nonHoliday* = count of teachable weekdays after holidays are removed; these
 /// convert "weekly hours" into real per-term session counts.
+/// One coded line of the institution's academic calendar — imported from the
+/// college's web page / PDF / spreadsheet. Semester starts drive the term-date
+/// engine for the years they cover; holidays & breaks flag every session that
+/// lands on them.
+model AcademicEvent {
+  id            String   @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  date          DateTime
+  endDate       DateTime?
+  label         String
+  kind          String   // term_start | term_end | session_start | holiday | other
+  season        String?  // Spring | Summer | Fall
+  source        String?  // the pasted line it was read from
+  createdAt     DateTime @default(now())
+
+  @@index([institutionId, date])
+}
+
 model CalendarBlock {
   id            String  @id @default(cuid())
   institutionId String

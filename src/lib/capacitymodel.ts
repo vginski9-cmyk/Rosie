@@ -292,6 +292,8 @@ export interface CohortCalendarInput {
   enrollmentByTerm: Record<number, number>;
   /** Real start date per term index (1-based); null terms produce undated instances. */
   termStartByIndex: Record<number, Date | null>;
+  /** The institution's coded holidays & breaks (ISO → label) — beat the U.S. defaults. */
+  holidays?: Record<string, string>;
   courses: {
     code: string | null;
     title: string;
@@ -362,7 +364,7 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
         monday, mondayIso: monday ? isoOf(monday) : null,
         date, dateIso: date ? isoOf(date) : null,
         month: monday ? isoOf(monday).slice(0, 7) : null,
-        holiday: date ? usHoliday(date) : null,
+        holiday: date ? input.holidays?.[isoOf(date)] ?? usHoliday(date) : null,
       });
     }
   }

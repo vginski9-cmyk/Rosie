@@ -7,7 +7,8 @@ import {
   CAPACITY_HEADERS, CAPACITY_FORMULAS, computeColumns, usHoliday,
   type WorkloadAssumptions, type SessionInput,
 } from "@/lib/capacitymodel";
-import { SHEET_COLS, SHEET_FIELD_OF, SHEET_NUM_FIELDS } from "@/components/SessionSheet";
+import { SessionFieldGrid, harvestOptions, type FieldRow } from "@/components/SessionFields";
+import type { EditableField } from "@/lib/sessionfields";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -98,8 +99,10 @@ const addTally = (a: Tally, b: Tally): Tally => ({
 });
 
 export function OfferingDesign({
-  programId, cohortId, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions,
+  programId, cohortId, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {},
 }: {
+  /** Institution-coded holidays & breaks (ISO → label) — checked before the U.S. defaults. */
+  holidays?: Record<string, string>;
   programId: string;
   cohortId: string;
   terms: DsTerm[];
@@ -234,15 +237,8 @@ export function OfferingDesign({
     </div>
   );
 
-  // Short field labels for the no-scroll session card (full workbook header on hover).
-  const SHORT: Record<string, string> = {
-    A: "Term", B: "Semester", C: "Enrollment (this offering)", D: "Course code", E: "Course", F: "Session type", G: "Session #",
-    H: "Session title", I: "Delivery mode", J: "Location", K: "Length (hrs)", L: "Max students / session", M: "Faculty / session",
-    N: "Faculty contact policy", O: "Support staff", P: "Support policy", Q: "Week of term", R: "Day", S: "Notes",
-    T: "Preceptors / session", U: "Preceptor policy", V: "Clinical rotation type", W: "Clinical mode",
-    X: "Space hrs", Y: "Sections", Z: "Faculty contact hrs", AA: "Fac hrs · semesterly", AB: "Fac hrs · weekly",
-    AC: "Preceptor contact hrs", AD: "Prec hrs · semesterly", AE: "Prec hrs · weekly",
-  };
+  // Drop-down choices harvested from everything this program already uses.
+  const dataOptions = harvestOptions([...rows.values()] as unknown as Partial<FieldRow>[]);
   const toggleSet = (set: Set<string>, id: string) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); return n; };
 
   return (
@@ -411,7 +407,7 @@ export function OfferingDesign({
                     const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
                     const anchor = c.startDate ?? t.startDate;
                     const d = sessionDateObj(anchor, r.week, r.dayOfWeek);
-                    const holiday = d && r.dayOfWeek != null ? usHoliday(d) : null;
+                    const holiday = d && r.dayOfWeek != null ? holidays[d.toISOString().slice(0, 10)] ?? usHoliday(d) : null;
                     const m = meetingsFor(c.id, r.kind)[0] ?? null;
                     const offCampus = r.kind === "CLINICAL";
                     const bookedLoc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : "—";
@@ -441,51 +437,39 @@ export function OfferingDesign({
                         {/* the full editable card — every workbook column, labeled, wrapped */}
                         {sOpen && (
                           <div className="border-t border-slate-100 px-4 py-3">
-                            <div className="grid gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
-                              {/* this offering: date + time */}
-                              <label className="block">
-                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Date · this offering</span>
-                                {anchor ? (
-                                  <input type="date" value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""} onChange={(e) => {
-                                    if (!e.target.value) return;
-                                    const picked = new Date(e.target.value + "T00:00:00Z"); const a0 = new Date(anchor + "T00:00:00Z");
-                                    let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
-                                    setField(r.id, "week", Math.floor(diff / 7) + 1); setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
-                                  }} className={inp} />
-                                ) : <span className="block text-xs text-slate-400">term not dated</span>}
-                              </label>
-                              <label className="block">
-                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Start time · this offering</span>
-                                <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
-                              </label>
-                              {SHEET_COLS.map(({ c: col, kind }) => {
-                                const label = <span className="block text-[9px] font-semibold uppercase tracking-wide text-slate-400" title={CAPACITY_HEADERS[col as keyof typeof CAPACITY_HEADERS]}><span className="mr-1 font-mono text-emerald-600">{col}</span>{SHORT[col]}</span>;
-                                if (kind === "seq" || col === "G") return <div key={col} className="block">{label}<span className="block rounded bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">{seqVal[col]}</span></div>;
-                                if (kind === "calc") return <div key={col} className="block">{label}<span className={`block rounded px-1.5 py-0.5 text-right font-mono text-[11px] tabular-nums ${col === "C" ? "bg-rose-50 font-semibold text-rose-800" : comp.divByZero ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-900"}`} title={CAPACITY_FORMULAS[col]}>{calcVal[col]}</span></div>;
-                                if (col === "F") return <div key={col} className="block">{label}<span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]}</span></div>;
-                                const field = SHEET_FIELD_OF[col]! as keyof RowState;
-                                const v = r[field];
-                                return (
-                                  <label key={col} className={`block ${col === "H" || col === "S" ? "sm:col-span-2" : ""}`}>
-                                    {label}
-                                    {col === "R" ? (
-                                      <select value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, "dayOfWeek", e.target.value || null)} className={inp}>
-                                        <option value="">—</option>{ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
-                                      </select>
-                                    ) : SHEET_NUM_FIELDS.has(col) ? (
-                                      <input type="number" step="any" value={(v as number | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right font-mono`} />
-                                    ) : (
-                                      <input value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value || null)} className={inp} />
-                                    )}
+                            <SessionFieldGrid
+                              row={r as unknown as FieldRow}
+                              seq={{ A: seqVal.A, B: seqVal.B, D: seqVal.D, E: seqVal.E, G: seqVal.G }}
+                              enrollment={enrollment} assumptions={assumptions} editableKind={false} dataOptions={dataOptions}
+                              onChange={(f: EditableField, v) => setField(r.id, f as keyof RowState, v)}
+                              before={(
+                                <>
+                                  {/* this offering: real date + start time */}
+                                  <label className="block">
+                                    <span className="block text-[10px] font-semibold leading-tight text-amber-700"><span className="mr-1 rounded bg-amber-100 px-1 font-mono text-[9px]">this offering</span>Date this session happens (sets week of term + day)</span>
+                                    {anchor ? (
+                                      <input type="date" value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""} onChange={(e) => {
+                                        if (!e.target.value) return;
+                                        const picked = new Date(e.target.value + "T00:00:00Z"); const a0 = new Date(anchor + "T00:00:00Z");
+                                        let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
+                                        setField(r.id, "week", Math.floor(diff / 7) + 1); setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
+                                      }} className={inp} />
+                                    ) : <span className="block text-xs text-slate-400">term not dated yet — set the offering dates first</span>}
                                   </label>
-                                );
-                              })}
-                              <div className="block">
-                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Booked location · staff</span>
-                                <span className={`block text-[11px] ${m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : "text-slate-600"}`}>{bookedLoc}</span>
-                                <span className={`block text-[11px] ${m?.staffName ? "text-slate-600" : "text-amber-600"}`}>{m?.staffName ?? "unassigned"}</span>
-                              </div>
-                            </div>
+                                  <label className="block">
+                                    <span className="block text-[10px] font-semibold leading-tight text-amber-700"><span className="mr-1 rounded bg-amber-100 px-1 font-mono text-[9px]">this offering</span>Start time</span>
+                                    <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
+                                  </label>
+                                </>
+                              )}
+                              after={(
+                                <div className="block">
+                                  <span className="block text-[10px] font-semibold leading-tight text-amber-700"><span className="mr-1 rounded bg-amber-100 px-1 font-mono text-[9px]">booked</span>Location and instructor / preceptor on the weekly booking</span>
+                                  <span className={`block text-xs ${m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : "text-slate-600"}`}>{bookedLoc}</span>
+                                  <span className={`block text-xs ${m?.staffName ? "text-slate-600" : "text-amber-600"}`}>{m?.staffName ?? "unassigned — assign in the weekly pattern above"}</span>
+                                </div>
+                              )}
+                            />
                             <div className="mt-3 flex items-center gap-3">
                               <form action={async (fd) => { await saveSessionOverride(cohortId, r.id, programId, fd); setDirty((dd) => { const n = new Set(dd); n.delete(r.id); return n; }); router.refresh(); }}>
                                 {OVERRIDE_FIELDS.map((f) => <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />)}

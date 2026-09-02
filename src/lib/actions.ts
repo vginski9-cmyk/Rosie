@@ -123,6 +123,64 @@ export async function updateInstitutionCalendar(institutionId: string, familyId:
   revalidatePath(`/families/${familyId}`);
 }
 
+/** The semester pattern + every imported exact semester start — what the
+ *  term-date engine follows for this institution. */
+async function institutionAnchors(institutionId: string): Promise<import("./term").SemesterAnchors> {
+  const inst = await prisma.institution.findUnique({
+    where: { id: institutionId },
+    select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { where: { kind: "term_start" }, select: { date: true } } },
+  });
+  const { DEFAULT_ANCHORS } = await import("./term");
+  if (!inst) return DEFAULT_ANCHORS;
+  return { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart, knownStarts: inst.academicEvents.map((e) => e.date.toISOString().slice(0, 10)).sort() };
+}
+
+export interface AcademicEventInput { iso: string; endIso: string | null; label: string; kind: string; season: string | null; source?: string | null }
+
+/** Import a pasted academic calendar: the coded events replace whatever was
+ *  coded for the same years, and the semester pattern follows the coded starts. */
+export async function importAcademicCalendar(institutionId: string, familyId: string, payload: {
+  anchors: { springStart: string; summerStart: string; fallStart: string };
+  events: AcademicEventInput[];
+}): Promise<{ saved: number }> {
+  const KINDS = new Set(["term_start", "term_end", "session_start", "holiday", "other"]);
+  const events = payload.events.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.iso) && KINDS.has(e.kind) && e.kind !== "other" && e.label.trim());
+  const years = [...new Set(events.map((e) => Number(e.iso.slice(0, 4))))];
+  const mmdd = (x: string, d: string) => (/^\d{2}-\d{2}$/.test(x) ? x : d);
+  await prisma.$transaction(async (tx) => {
+    for (const y of years) {
+      await tx.academicEvent.deleteMany({ where: { institutionId, date: { gte: new Date(`${y}-01-01T00:00:00Z`), lt: new Date(`${y + 1}-01-01T00:00:00Z`) } } });
+    }
+    if (events.length) {
+      await tx.academicEvent.createMany({
+        data: events.map((e) => ({
+          institutionId, date: new Date(e.iso + "T00:00:00Z"), endDate: e.endIso ? new Date(e.endIso + "T00:00:00Z") : null,
+          label: e.label.trim().slice(0, 200), kind: e.kind, season: e.season, source: e.source?.slice(0, 500) ?? null,
+        })),
+      });
+    }
+    await tx.institution.update({
+      where: { id: institutionId },
+      data: { springStart: mmdd(payload.anchors.springStart, "01-08"), summerStart: mmdd(payload.anchors.summerStart, "05-28"), fallStart: mmdd(payload.anchors.fallStart, "08-15") },
+    });
+  });
+  revalidatePath(`/families/${familyId}`);
+  revalidatePath("/", "layout");
+  return { saved: events.length };
+}
+
+export async function deleteAcademicEvent(id: string, familyId: string): Promise<void> {
+  await prisma.academicEvent.delete({ where: { id } }).catch(() => undefined);
+  revalidatePath(`/families/${familyId}`);
+  revalidatePath("/", "layout");
+}
+
+export async function clearAcademicCalendar(institutionId: string, familyId: string): Promise<void> {
+  await prisma.academicEvent.deleteMany({ where: { institutionId } });
+  revalidatePath(`/families/${familyId}`);
+  revalidatePath("/", "layout");
+}
+
 /** Persist the family's North-Star goal plan (a JSON blob from the goal planner). */
 export async function saveFamilyGoalPlan(familyId: string, planJson: string): Promise<void> {
   await prisma.programFamily.update({ where: { id: familyId }, data: { goalPlan: planJson } });
@@ -701,7 +759,7 @@ export async function lockInInstantiation(
 
   const program = await prisma.program.findUnique({
     where: { id: programId },
-    include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } }, institution: { select: { springStart: true, summerStart: true, fallStart: true } } },
+    include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } } },
   });
   if (!program) throw new Error("Program not found");
 
@@ -721,7 +779,7 @@ export async function lockInInstantiation(
   // starts in December. The class year is when the last term actually ends.
   const { deriveTermStarts } = await import("./term");
   const termWeeks = program.terms.map((term) => (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1);
-  const termStarts = deriveTermStarts(input.startDate, termWeeks, program.institution);
+  const termStarts = deriveTermStarts(input.startDate, termWeeks, await institutionAnchors(program.institutionId));
   const lastStart = termStarts[termStarts.length - 1];
   const endYear = new Date(lastStart.getTime() + termWeeks[termWeeks.length - 1] * 7 * 86400000).getUTCFullYear();
 
@@ -873,9 +931,9 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
   if (str(formData.get("rederive")) === "1" && startStr) {
     // Re-derive every term from the offering start along the institution's academic calendar.
     const { deriveTermStarts } = await import("./term");
-    const inst = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { program: { select: { institution: { select: { springStart: true, summerStart: true, fallStart: true } } } } } });
+    const inst = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { program: { select: { institutionId: true } } } });
     const ordered = [...cts].sort((a, b) => a.term.index - b.term.index);
-    const starts = deriveTermStarts(startStr, ordered.map((ct) => (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1), inst?.program.institution);
+    const starts = deriveTermStarts(startStr, ordered.map((ct) => (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1), inst ? await institutionAnchors(inst.program.institutionId) : undefined);
     for (let i = 0; i < ordered.length; i++) await prisma.cohortTerm.update({ where: { id: ordered[i].id }, data: { startDate: starts[i] } });
   } else {
     for (const ct of cts) {
@@ -1063,6 +1121,109 @@ export async function updateSession(sessionId: string, programId: string, formDa
 export async function deleteSession(sessionId: string, programId: string) {
   await prisma.session.delete({ where: { id: sessionId } });
   revalidatePath(`/programs/${programId}`);
+}
+
+// ---------------------------------------------------------------------------
+// SPREADSHEET IMPORT — a schedule someone already has → the template / an offering
+// ---------------------------------------------------------------------------
+
+type ImportedSession = import("./sheetimport").ImportedSession;
+
+const sessionDataFrom = (r: ImportedSession) => ({
+  title: r.title, lengthHours: r.lengthHours ?? 0, maxStudents: Math.max(1, Math.round(r.maxStudents ?? 1)),
+  facultyNeeded: r.facultyNeeded ?? (r.kind === "CLINICAL" ? 0 : 1), supportStaffNeeded: r.supportStaffNeeded ?? 0,
+  preceptorsNeeded: r.preceptorsNeeded ?? (r.kind === "CLINICAL" ? 1 : 0),
+  week: r.week != null ? Math.round(r.week) : null, dayOfWeek: r.dayOfWeek, startTime: r.startTime, location: r.location,
+  rotationType: r.rotationType, clinicalMode: r.clinicalMode, deliveryMode: r.deliveryMode, notes: r.notes,
+  facultyContactPolicy: r.facultyContactPolicy, supportContactPolicy: r.supportContactPolicy, preceptorContactPolicy: r.preceptorContactPolicy,
+});
+
+/** Import session rows into the TEMPLATE: terms are matched by term number
+ *  (created if missing), courses by code (else title) within the term, and —
+ *  when `replace` is on — the imported course × type's existing sessions are
+ *  replaced by the sheet's rows; otherwise the rows are appended. */
+export async function importProgramSheet(programId: string, sessions: ImportedSession[], opts: { replace: boolean }): Promise<{ terms: number; courses: number; sessions: number }> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: true } } } });
+  if (!program) throw new Error("Program not found");
+  let termsCreated = 0, coursesCreated = 0, sessionsCreated = 0;
+  const termByIndex = new Map(program.terms.map((t) => [t.index, t]));
+  const groups = new Map<string, { termNumber: number; semester: string | null; code: string | null; title: string | null; rows: ImportedSession[] }>();
+  for (const s of sessions) {
+    const tn = Math.max(1, Math.round(s.termNumber ?? 1));
+    const key = `${tn}|${(s.courseCode ?? s.courseTitle ?? "").toLowerCase()}`;
+    const g = groups.get(key) ?? { termNumber: tn, semester: s.semester, code: s.courseCode, title: s.courseTitle, rows: [] };
+    g.rows.push(s); groups.set(key, g);
+  }
+  const cleared = new Set<string>();
+  for (const g of groups.values()) {
+    let term = termByIndex.get(g.termNumber);
+    if (!term) {
+      const prevEnd = Math.max(0, ...[...termByIndex.values()].map((t) => t.endWeek ?? 0));
+      term = await prisma.term.create({
+        data: { programId, index: g.termNumber, name: g.semester ? `Term ${g.termNumber} · ${g.semester}` : `Term ${g.termNumber}`, startWeek: prevEnd + 1, endWeek: prevEnd + 16 },
+        include: { courses: true },
+      });
+      termByIndex.set(g.termNumber, term); termsCreated++;
+    }
+    let course = term.courses.find((c) => (g.code && (c.code ?? "").toLowerCase() === g.code.toLowerCase()) || (!g.code && g.title && c.name.toLowerCase() === g.title.toLowerCase()));
+    if (!course) {
+      const last = await prisma.course.findFirst({ where: { termId: term.id }, orderBy: { sequenceOrder: "desc" } });
+      course = await prisma.course.create({ data: { termId: term.id, code: g.code, name: g.title ?? g.code ?? "Course", sequenceOrder: (last?.sequenceOrder ?? -1) + 1 } });
+      term.courses.push(course); coursesCreated++;
+    }
+    const kinds = [...new Set(g.rows.map((r) => r.kind))];
+    if (opts.replace) {
+      for (const k of kinds) { const ck = `${course.id}|${k}`; if (!cleared.has(ck)) { await prisma.session.deleteMany({ where: { courseId: course.id, kind: k } }); cleared.add(ck); } }
+    }
+    for (const r of g.rows) {
+      const last = await prisma.session.findFirst({ where: { courseId: course.id, kind: r.kind }, orderBy: { number: "desc" } });
+      const number = opts.replace && r.number != null ? Math.round(r.number) : (last?.number ?? 0) + 1;
+      await prisma.session.create({ data: { courseId: course.id, kind: r.kind, number, ...sessionDataFrom(r) } });
+      sessionsCreated++;
+    }
+  }
+  revalidatePath(`/programs/${programId}`);
+  revalidatePath(`/programs/${programId}/structure`);
+  return { terms: termsCreated, courses: coursesCreated, sessions: sessionsCreated };
+}
+
+/** Import session rows into ONE OFFERING as overrides: each row is matched to the
+ *  template session (course code / title → session type → session number) and
+ *  only the cells the sheet fills in — and that differ from the template — are
+ *  stored for this offering. Unmatched rows are reported back, never invented. */
+export async function importOfferingSheet(cohortId: string, programId: string, sessions: ImportedSession[]): Promise<{ matched: number; unmatched: string[] }> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { include: { courses: { include: { sessions: true } } } } } });
+  if (!program) throw new Error("Program not found");
+  const courses = program.terms.flatMap((t) => t.courses);
+  const unmatched: string[] = [];
+  let matched = 0;
+  const seen = new Map<string, number>();
+  for (const r of sessions) {
+    const course = courses.find((c) => (r.courseCode && (c.code ?? "").toLowerCase() === r.courseCode.toLowerCase()) || (r.courseTitle && c.name.toLowerCase() === r.courseTitle.toLowerCase()));
+    if (!course) { unmatched.push(`Row ${r.sourceRow}: no course "${r.courseCode ?? r.courseTitle}" in this program`); continue; }
+    const key = `${course.id}|${r.kind}`;
+    const nth = (seen.get(key) ?? 0) + 1; seen.set(key, nth);
+    const number = r.number != null ? Math.round(r.number) : nth;
+    const tpl = course.sessions.find((s) => s.kind === r.kind && s.number === number);
+    if (!tpl) { unmatched.push(`Row ${r.sourceRow}: ${course.code ?? course.name} has no ${r.kind.toLowerCase()} session #${number}`); continue; }
+    const diffN = (v: number | null, t: number | null) => (v != null && v !== t ? v : null);
+    const diffS = (v: string | null, t: string | null) => (v != null && v !== t ? v : null);
+    const data = {
+      week: r.week != null ? diffN(Math.round(r.week), tpl.week) : null, dayOfWeek: diffS(r.dayOfWeek, tpl.dayOfWeek), startTime: diffS(r.startTime, tpl.startTime),
+      notes: diffS(r.notes, tpl.notes), title: diffS(r.title, tpl.title), deliveryMode: diffS(r.deliveryMode, tpl.deliveryMode), location: diffS(r.location, tpl.location),
+      lengthHours: diffN(r.lengthHours, tpl.lengthHours), maxStudents: r.maxStudents != null ? diffN(Math.round(r.maxStudents), tpl.maxStudents) : null,
+      facultyNeeded: diffN(r.facultyNeeded, tpl.facultyNeeded), facultyContactPolicy: diffN(r.facultyContactPolicy, tpl.facultyContactPolicy),
+      supportStaffNeeded: diffN(r.supportStaffNeeded, tpl.supportStaffNeeded), supportContactPolicy: diffN(r.supportContactPolicy, tpl.supportContactPolicy),
+      preceptorsNeeded: diffN(r.preceptorsNeeded, tpl.preceptorsNeeded), preceptorContactPolicy: diffN(r.preceptorContactPolicy, tpl.preceptorContactPolicy),
+      rotationType: diffS(r.rotationType, tpl.rotationType), clinicalMode: diffS(r.clinicalMode, tpl.clinicalMode),
+    };
+    matched++;
+    if (Object.values(data).every((v) => v == null)) continue;
+    await prisma.sessionOverride.upsert({ where: { cohortId_sessionId: { cohortId, sessionId: tpl.id } }, update: data, create: { cohortId, sessionId: tpl.id, ...data } });
+  }
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+  return { matched, unmatched };
 }
 
 /** Bulk-set day / time / location (and optional length) for every session of a

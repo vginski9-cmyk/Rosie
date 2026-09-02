@@ -5,13 +5,13 @@ import Link from "next/link";
 import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { SessionSheet } from "@/components/SessionSheet";
+import { SheetImport } from "@/components/SheetImport";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
-  addSession, setSessionTiming, updateWorkloadAssumptions,
+  updateWorkloadAssumptions,
 } from "@/lib/actions";
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 type Kind = "CLASS" | "LAB" | "CLINICAL";
 
 export interface DSession {
@@ -81,6 +81,9 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
     }
     return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, courseFootprint, termStudentHrs };
   }, [terms, enrollment]);
+
+  // Every session in the program — its values feed the drop-downs on every row.
+  const allSessions = useMemo(() => terms.flatMap((t) => t.courses.flatMap((c) => c.sessions)), [terms]);
 
   const psTotal = calc.perStudent.CLASS + calc.perStudent.LAB + calc.perStudent.CLINICAL;
   const shTotal = calc.sectionHrs.CLASS + calc.sectionHrs.LAB + calc.sectionHrs.CLINICAL;
@@ -194,6 +197,9 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
         </form>
       </div>
 
+      {/* Bring in a schedule someone already keeps in a spreadsheet */}
+      <SheetImport mode="template" programId={pid} />
+
       {/* Sticky jump-nav: terms, collapse, re-sequence, add term */}
       <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
@@ -225,8 +231,8 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
                 <button onClick={() => toggleTerm(term.id)} className="pb-1 text-slate-400 hover:text-slate-700" title={isCollapsed ? "expand" : "collapse"}>{isCollapsed ? "▸" : "▾"}</button>
                 <form action={updateTerm.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2">
                   <Field label="Term name"><input name="name" defaultValue={term.name} className="inp w-48" /></Field>
-                  <Field label="Start wk"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-16" /></Field>
-                  <Field label="End wk"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-16" /></Field>
+                  <Field label="Starts in program week"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-20" /></Field>
+                  <Field label="Ends in program week"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-20" /></Field>
                   <button className="btn-ghost py-1 text-xs">Save term</button>
                   <span className="pb-1 text-[11px] text-slate-400">{(term.endWeek ?? 0) - (term.startWeek ?? 0) + 1} wks · {term.courses.length} courses · per student {n1(th.CLASS)}h class / {n1(th.LAB)}h lab / {n1(th.CLINICAL)}h clinical</span>
                 </form>
@@ -240,16 +246,16 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
                 <div key={course.id} className="rounded-lg border border-slate-200 p-3">
                   {/* Course catalog — open, single grid */}
                   <form action={updateCourse.bind(null, course.id, pid)} className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <Field label="Code"><input name="code" defaultValue={course.code ?? ""} className="inp w-full" /></Field>
-                    <Field label="Course name"><input name="name" defaultValue={course.name} className="inp w-full" /></Field>
-                    <Field label="Credits"><input name="creditHours" type="number" step="0.5" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
-                    <Field label="Offered"><input name="semesterOffered" defaultValue={course.semesterOffered ?? ""} placeholder="Fall / All" className="inp w-full" /></Field>
-                    <Field label="Class h/wk"><input name="weeklyClassHours" type="number" step="0.5" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
-                    <Field label="Lab h/wk"><input name="weeklyLabHours" type="number" step="0.5" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
-                    <Field label="Clinical h/wk"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
-                    <Field label="Type"><select name="courseType" defaultValue={course.courseType ?? ""} className="inp w-full"><option value="">—</option><option value="CORE">Core</option><option value="GENED">Gen-ed</option><option value="SUPPORT">Support</option></select></Field>
+                    <Field label="Course code"><input name="code" defaultValue={course.code ?? ""} className="inp w-full" /></Field>
+                    <Field label="Course title"><input name="name" defaultValue={course.name} className="inp w-full" /></Field>
+                    <Field label="Credit hours"><input name="creditHours" type="number" step="0.5" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
+                    <Field label="Semester(s) offered"><select name="semesterOffered" defaultValue={course.semesterOffered ?? ""} className="inp w-full"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option><option value="Fall, Spring">Fall, Spring</option><option value="All">All</option></select></Field>
+                    <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="0.5" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
+                    <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="0.5" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
+                    <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
+                    <Field label="Course type"><select name="courseType" defaultValue={course.courseType ?? ""} className="inp w-full"><option value="">—</option><option value="CORE">Core</option><option value="GENED">General education</option><option value="SUPPORT">Support</option></select></Field>
                     <Field label="Description"><input name="description" defaultValue={course.description ?? ""} className="inp w-full" /></Field>
-                    <Field label="Requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full lg:col-span-2" /></Field>
+                    <Field label="Prerequisites / co-requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full lg:col-span-2" /></Field>
                     <div className="flex items-center gap-3">
                       <button className="btn-primary py-1 text-xs">Save course</button>
                       <Link href={`/courses/${course.id}`} className="text-xs text-rose-600 hover:underline">open ↦</Link>
@@ -301,36 +307,8 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
                     }))}
                     enrollment={enrollment}
                     assumptions={assumptions}
+                    allSessions={allSessions}
                   />
-
-                  {/* Add session (open) */}
-                  <form action={addSession.bind(null, course.id, pid)} className="mt-2 flex flex-wrap items-end gap-2 rounded bg-slate-50 p-2">
-                    <Field label="Kind"><select name="kind" className="inp w-24"><option value="CLASS">Class</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option></select></Field>
-                    <Field label="Title"><input name="title" placeholder="Session title" className="inp w-40" /></Field>
-                    <Field label="Wk"><input name="week" type="number" className="inp w-12" /></Field>
-                    <Field label="Day"><select name="dayOfWeek" className="inp w-16"><option value="">—</option>{DAYS.map((d) => <option key={d} value={d}>{d}</option>)}</select></Field>
-                    <Field label="Time"><input name="startTime" type="time" className="inp w-28" /></Field>
-                    <Field label="Len"><input name="lengthHours" type="number" step="0.5" defaultValue="2" className="inp w-14" /></Field>
-                    <Field label="Cap"><input name="maxStudents" type="number" defaultValue="30" className="inp w-14" /></Field>
-                    <Field label="Fac"><input name="facultyNeeded" type="number" step="0.1" defaultValue="1" className="inp w-12" /></Field>
-                    <Field label="Prec"><input name="preceptorsNeeded" type="number" step="0.1" defaultValue="0" className="inp w-12" /></Field>
-                    <Field label="Location"><input name="location" placeholder="Room / site" className="inp w-36" /></Field>
-                    <button className="btn-primary py-1 text-xs">+ Session</button>
-                  </form>
-
-                  {/* Bulk timing for a whole kind */}
-                  <form action={setSessionTiming.bind(null, course.id, pid)} className="mt-2 flex flex-wrap items-end gap-2 text-[11px]">
-                    <span className="pb-1 font-semibold uppercase tracking-wide text-slate-400">Bulk set all</span>
-                    <select name="kind" className="inp w-20"><option value="CLASS">Class</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option></select>
-                    <span className="pb-1 text-slate-400">to</span>
-                    <select name="dayOfWeek" className="inp w-16"><option value="">day</option>{DAYS.map((d) => <option key={d} value={d}>{d}</option>)}</select>
-                    <input name="startTime" type="time" className="inp w-28" />
-                    <input name="lengthHours" type="number" step="0.5" placeholder="len" className="inp w-14" />
-                    <input name="maxStudents" type="number" placeholder="cap" className="inp w-14" />
-                    <input name="location" placeholder="location" className="inp w-40" />
-                    <button className="btn-ghost py-1 text-xs">Apply</button>
-                  </form>
-
                 </div>
               );
             })}
@@ -338,12 +316,12 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
             {/* Add course */}
             {!isCollapsed && (
               <form action={addCourse.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-                <Field label="Code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
-                <Field label="New course name"><input name="name" required placeholder="Course name" className="inp w-56" /></Field>
-                <Field label="Credits"><input name="creditHours" type="number" step="0.5" className="inp w-16" /></Field>
-                <Field label="Class h/wk"><input name="weeklyClassHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
-                <Field label="Lab h/wk"><input name="weeklyLabHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
-                <Field label="Clin h/wk"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue="0" className="inp w-20" /></Field>
+                <Field label="Course code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
+                <Field label="Course title"><input name="name" required placeholder="Course title" className="inp w-56" /></Field>
+                <Field label="Credit hours"><input name="creditHours" type="number" step="0.5" className="inp w-16" /></Field>
+                <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
+                <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
+                <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
                 <button className="btn-primary py-1 text-xs">+ Add course</button>
               </form>
             )}

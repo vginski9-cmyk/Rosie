@@ -150,8 +150,15 @@ export function gradVerb(gradYear: number, today: Date): string {
 // Spring semester starts in December and no Summer term starts in April.
 // ---------------------------------------------------------------------------
 
-export interface SemesterAnchors { springStart: string; summerStart: string; fallStart: string }
+export interface SemesterAnchors {
+  springStart: string; summerStart: string; fallStart: string;
+  /** Exact semester-start dates (ISO) imported from the academic calendar; for the
+   *  years they cover they replace the MM-DD pattern. */
+  knownStarts?: string[];
+}
 export const DEFAULT_ANCHORS: SemesterAnchors = { springStart: "01-08", summerStart: "05-28", fallStart: "08-15" };
+
+const seasonOfMonth = (m: number) => (m <= 4 ? "Spring" : m <= 7 ? "Summer" : "Fall");
 
 /** The Monday on/after `year-MM-DD` (UTC). */
 function mondayOnOrAfter(year: number, mmdd: string): Date {
@@ -166,10 +173,14 @@ function mondayOnOrAfter(year: number, mmdd: string): Date {
  *  MM-DD anchor). Defaults: Spring Jan 8 · Summer May 28 · Fall Aug 15. */
 export function nextSemesterStart(d: Date, anchors: SemesterAnchors = DEFAULT_ANCHORS): Date {
   const cands: Date[] = [];
+  // Imported exact dates first; a season-year they cover skips the pattern.
+  const known = (anchors.knownStarts ?? []).map((s) => new Date(s + "T00:00:00Z"));
+  const covered = new Set(known.map((k) => `${seasonOfMonth(k.getUTCMonth() + 1)}|${k.getUTCFullYear()}`));
+  cands.push(...known);
   for (const y of [d.getUTCFullYear(), d.getUTCFullYear() + 1]) {
-    cands.push(mondayOnOrAfter(y, anchors.springStart || DEFAULT_ANCHORS.springStart));
-    cands.push(mondayOnOrAfter(y, anchors.summerStart || DEFAULT_ANCHORS.summerStart));
-    cands.push(mondayOnOrAfter(y, anchors.fallStart || DEFAULT_ANCHORS.fallStart));
+    if (!covered.has(`Spring|${y}`)) cands.push(mondayOnOrAfter(y, anchors.springStart || DEFAULT_ANCHORS.springStart));
+    if (!covered.has(`Summer|${y}`)) cands.push(mondayOnOrAfter(y, anchors.summerStart || DEFAULT_ANCHORS.summerStart));
+    if (!covered.has(`Fall|${y}`)) cands.push(mondayOnOrAfter(y, anchors.fallStart || DEFAULT_ANCHORS.fallStart));
   }
   cands.sort((a, b) => a.getTime() - b.getTime());
   return cands.find((c) => c.getTime() >= d.getTime()) ?? cands[cands.length - 1];

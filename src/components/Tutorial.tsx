@@ -23,7 +23,8 @@ const TOURS: Tour[] = [
   {
     key: "family", match: /^\/families\/[^/]+$/, title: "The goal page — set it, then break it down",
     steps: [
-      { h: "The goal row", b: "One box per year, reading left to right — the stairstep of fully-productive workers this family owes the region. Type in a box to change that year's goal; everything below recalculates." },
+      { h: "The academic calendar, imported", b: "Paste the college's calendar (from its web page, its PDF, or a spreadsheet) into the Academic calendar drop-down — semester starts, ends, later sessions and every holiday / break are coded automatically; fix any line, save. Every offering's term dates follow the real dates, and sessions that land on a break are flagged." },
+      { h: "The goal row", b: "One box per year, reading left to right — the stairstep of fully-productive workers this family owes the region. Type in a box to change that year's goal; + adds a year before the first or after the last, × removes one." },
       { h: "Click a year", b: "Below the row you get that year's talent-pipeline health targets (the editable % ladder) and the talent-pipeline target metrics for cohorts ending that year — goal vs actual, live from student records." },
       { h: "Who delivers the goal", b: "Drag prepopulated program templates into the box to say which instantiations are responsible — the evening class covers 15, the traditional program covers the rest. Each template shows its max cohort enrollment capacity; if the math needs more seats than a cohort can hold, the box flags it." },
       { h: "Set dates and lock it in", b: "Give each allocation a start date (the stop date derives from the template's term structure), tune per-term enrollment if you like, then Lock in — that creates the real offering with term dates and the full set of pipeline targets. It appears under the year immediately." },
@@ -46,7 +47,8 @@ const TOURS: Tour[] = [
   {
     key: "structure", match: /^\/programs\/[^/]+\/structure$/, title: "Design & sequence — the Raw Data & Calculations sheet",
     steps: [
-      { h: "One row per session", b: "Every class, lab and clinical session of every course, with the capacity workbook's exact columns. Blue cells are editable inputs; green cells are live formulas — hover any to see what drives it." },
+      { h: "Drop in the spreadsheet you already have", b: "The dashed box takes an Excel / CSV file or pasted cells — the workbook's own headers or everyday ones. Columns are recognized, blank term / course cells fill down, sessions are numbered, days and times normalized; check the mapping, import, then edit anything." },
+      { h: "One row per session — every column, full names", b: "Every class, lab and clinical session of every course. Click a row: all workbook columns A–AE with their full headers — Session Delivery Mode, Session Location, Max number of students that ONE session can accommodate, Number of faculty required, contact hour policies, week, day, notes, preceptors, Clinical Rotation Type, Clinical Mode. Drop-downs where there's a choice; every drop-down takes a new option. Blue = input, green = live formula." },
       { h: "The math chain", b: "Sections = ROUNDUP(enrollment ÷ max per session). Space hours = length × sections. Faculty contact hours = length × faculty × sections, then ÷ the workload assumptions for semesterly and weekly. Preceptors: sections × preceptors × length × policy." },
       { h: "Workload assumptions", b: "The card up top holds the divisor cells (full-time contact hours, work week, weeks in term) for faculty and preceptors — change them and every conversion on this page and in Insights shifts." },
       { h: "Run test figures", b: "Drag the enrollment slider and watch the whole chain recompute — then open Insights → Instructors & preceptors, Clinical sites, or Daily coverage to see the same numbers land on real weeks, sites and dates." },
@@ -67,7 +69,8 @@ const TOURS: Tour[] = [
     key: "offering", match: /^\/programs\/[^/]+\/offerings\/[^/]+$/, title: "A scheduled offering",
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
-      { h: "One clear button per section", b: "Talent pipeline (with enrollment through every term inside the funnel), Offering dates, Preferred course sequence, Instructors & preceptors (peak head-counts on the button), and Calendar — each is a drop-down: the button shows the live summary, clicking opens the full picture." },
+      { h: "One clear button per section", b: "Talent pipeline (with enrollment through every term inside the funnel), Offering dates, Preferred course sequence, Instructors & preceptors, and Calendar — each is a drop-down: the button shows the live summary, clicking opens the full picture." },
+      { h: "Instructors & preceptors — who, then how many", b: "The roster first: every instructor and preceptor, the sections each carries, the sections still unstaffed with an assign pick-list, and + Add for someone new. Below it, the need at semester, week and day altitude." },
       { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. In the sequence board, each course card carries its OWN start and end date inputs — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and the calendar all shift with it." },
       { h: "The calendar", b: "Scroll the month view with ← → : every session on its exact date, color-coded (blue class, violet lab, rose clinical) with time, course and location. Click a day to see exactly what happens that day and who must be on site; ⚠ marks holiday collisions." },
     ],
@@ -89,7 +92,8 @@ const TOURS: Tour[] = [
   {
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
-      { h: "The answer, in words", b: "The headline states the peak: N FTE of instructors and M FTE of preceptors, which weeks, and the ÷-by-workload math behind each number — followed by a what-to-do list with real deadlines (preceptor agreements six weeks before the first clinical day)." },
+      { h: "The roster", b: "Who you have across every offering: each instructor and preceptor with the sections they carry, the sections still unstaffed with an assign pick-list, and + Add for someone new." },
+      { h: "The answer, in words", b: "Each altitude opens with a plain statement — we need N instructors and M preceptors in this semester / week / day, at these times — then the charts behind it." },
       { h: "The pivot charts", b: "FTEs per semester (year → semester → class/lab/clinical — the budgeting view), FTEs per week of term (the shape of the load; where orange overtakes blue, clinicals start), and clinical staffing by rotation type — every column carries its number, blue = faculty, orange = preceptors." },
       { h: "Every shift is a column", b: "The shift chart plays out every session instance — one vertical column per shift group, height = shift length, color = class / lab / clinical — capped with its hours × shifts and the people who staff it, grouped day by day under week headers, term by term." },
       { h: "The staffing plan by term", b: "Peak simultaneous need per term, in whole people — hand it to scheduling." },

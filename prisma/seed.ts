@@ -915,6 +915,7 @@ async function main() {
   await prisma.person.deleteMany();
   await prisma.employer.deleteMany();
   await prisma.calendarBlock.deleteMany();
+  await prisma.academicEvent.deleteMany();
   await prisma.institution.deleteMany();
 
   // ----- The workspace: one institution, three jobs, a template library ------

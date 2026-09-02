@@ -301,7 +301,7 @@ export async function getFamily(familyId: string) {
   const family = await prisma.programFamily.findUnique({
     where: { id: familyId },
     include: {
-      institution: true,
+      institution: { include: { academicEvents: { orderBy: { date: "asc" } } } },
       occupation: true,
       programs: {
         orderBy: { name: "asc" },
@@ -1450,6 +1450,12 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
   const institution = institutions.find((i) => i.id === opts?.institutionId) ?? institutions[0];
   if (!institution) return null;
 
+  // The institution's coded holidays & breaks (imported academic calendar) —
+  // every dated session checks against these before the U.S. defaults.
+  const { holidayMap } = await import("./academiccalendar");
+  const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId: institution.id, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
+    .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+
   const programs = await prisma.program.findMany({
     where: { institutionId: institution.id, cohorts: { some: { status: { in: ["planned", "active"] } } } },
     include: {
@@ -1524,7 +1530,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         students: co._count.students,
-        enrollmentByTerm, termStartByIndex,
+        enrollmentByTerm, termStartByIndex, holidays,
         // One row per booked section — the calendar's draggable shift instances.
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
@@ -1600,7 +1606,7 @@ export async function getOfferingDesign(cohortId: string) {
     include: {
       program: {
         include: {
-          institution: { select: { id: true, name: true } },
+          institution: { select: { id: true, name: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } },
           terms: {
             orderBy: { index: "asc" },
             include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },

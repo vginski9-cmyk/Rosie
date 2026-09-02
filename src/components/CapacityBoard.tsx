@@ -42,6 +42,8 @@ export interface CapacityCohort {
   students: number;
   enrollmentByTerm: Record<number, number>;
   termStartByIndex: Record<number, string | null>;
+  /** Institution's coded holidays & breaks (ISO → label). */
+  holidays?: Record<string, string>;
   meetings?: ShiftMeeting[];
   courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; sessions: SessionInput[] }[];
   assumptions: WorkloadAssumptions;
@@ -124,6 +126,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program,
         enrollmentByTerm: c.enrollmentByTerm,
         termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+        holidays: c.holidays,
         courses: c.courses,
       };
       out.push(...buildInstances(input, c.assumptions));

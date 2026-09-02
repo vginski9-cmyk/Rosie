@@ -207,15 +207,20 @@ export function GoalPlanner({
       : { ...p, capByYear: { ...p.capByYear, [k]: Math.max(0, v) } };
   });
   const selectYear = (year: number) => setS((p) => ({ ...p, selectedYear: year }));
-  const addYear = () => setS((p) => {
-    const next = (p.years[p.years.length - 1] ?? new Date().getFullYear()) + 1;
-    const lastG = p.goalsByYear[String(p.years[p.years.length - 1])] ?? 25;
-    const lastC = p.capByYear[String(p.years[p.years.length - 1])] ?? Math.round(capacityFromNorthStar(lastG, p.goal));
-    return { ...p, years: [...p.years, next], goalsByYear: { ...p.goalsByYear, [String(next)]: lastG }, capByYear: { ...p.capByYear, [String(next)]: lastC } };
+  /** Add a year before the first (dir -1) or after the last (dir +1), copying the neighbour's goal. */
+  const addYear = (dir: 1 | -1 = 1) => setS((p) => {
+    const edge = dir === 1 ? p.years[p.years.length - 1] : p.years[0];
+    const next = (edge ?? new Date().getFullYear()) + dir;
+    if (p.years.includes(next)) return p;
+    const g = p.goalsByYear[String(edge)] ?? 25;
+    const c = p.capByYear[String(edge)] ?? Math.round(capacityFromNorthStar(g, p.goal));
+    const years = dir === 1 ? [...p.years, next] : [next, ...p.years];
+    return { ...p, years, goalsByYear: { ...p.goalsByYear, [String(next)]: g }, capByYear: { ...p.capByYear, [String(next)]: c }, selectedYear: next };
   });
-  const removeYear = () => setS((p) => {
+  /** Remove one year (any year, not just the last). */
+  const removeYear = (year: number) => setS((p) => {
     if (p.years.length <= 1) return p;
-    const years = p.years.slice(0, -1);
+    const years = p.years.filter((y) => y !== year);
     return { ...p, years, selectedYear: years.includes(p.selectedYear) ? p.selectedYear : years[years.length - 1] };
   });
 
@@ -332,24 +337,25 @@ export function GoalPlanner({
         <div className="flex items-center justify-between">
           <p className="text-xs text-slate-400">The goal: fully-productive placements in the region, per year. Click a year to say who delivers it.</p>
           <div className="flex items-center gap-1">
-            <button onClick={removeYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="remove last year">−</button>
-            <button onClick={addYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="add a year">+ year</button>
+            <button onClick={() => addYear(-1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[0] - 1} before the first year`}>+ {s.years[0] - 1}</button>
+            <button onClick={() => addYear(1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[s.years.length - 1] + 1} after the last year`}>+ {s.years[s.years.length - 1] + 1}</button>
           </div>
         </div>
 
-        {/* The stairstep: one goal box per year, reading left → right. */}
+        {/* The stairstep: one goal box per year, reading left → right; add a year at either end, remove any. */}
         <div className="pb-1">
           <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             {s.years.map((year) => {
               const selected = year === s.selectedYear;
               const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
-              const derived = s.anchor === "northstar" ? Math.round(capacityForYear(year)) : Math.round(productiveForYear(year));
               const insts = instantiationsByYear[year] ?? [];
-              const actualProductive = insts.reduce((n, i) => n + i.placed, 0);
               return (
-                <button key={year} onClick={() => selectYear(year)}
-                  className={`rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
+                <div key={year} role="button" tabIndex={0} onClick={() => selectYear(year)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectYear(year); }}
+                  className={`relative cursor-pointer rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
                   <span className={`block text-sm font-bold tabular-nums ${selected ? "text-rose-700" : "text-slate-700"}`}>{year}{year === nowYear ? " · now" : ""}</span>
+                  {s.years.length > 1 && insts.length === 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); removeYear(year); }} className="absolute right-2 top-2 rounded px-1 text-xs text-slate-300 hover:bg-rose-100 hover:text-rose-700" title={`remove ${year}`}>×</button>
+                  )}
                   <input
                     type="number" min={0} value={Math.round(goalVal)}
                     onClick={(e) => e.stopPropagation()}
@@ -357,7 +363,7 @@ export function GoalPlanner({
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
                   />
                   <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive placements</span>
-                </button>
+                </div>
               );
             })}
           </div>

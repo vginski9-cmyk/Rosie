@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOffering, getCapacityModel } from "@/lib/queries";
+import { StaffRoster } from "@/components/StaffRoster";
+import { rosterFromCohorts } from "@/lib/roster";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
@@ -58,6 +60,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
       enrollmentByTerm: capCohort.enrollmentByTerm,
       termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex as Record<string, string | null>).map(([k, v]) => [k, v ? new Date(v) : null])),
+      holidays: capCohort.holidays,
       courses: capCohort.courses,
     };
     const instances = buildInstances(input, capCohort.assumptions).filter((i) => i.mondayIso != null);
@@ -163,12 +166,13 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="flex flex-wrap items-end gap-3">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Offering start</span>
-            <input type="date" name="startDate" defaultValue={iso(offering.startDate)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+            {/* keyed by value so a re-derive shows the new dates without a reload */}
+            <input key={`start-${iso(offering.startDate)}`} type="date" name="startDate" defaultValue={iso(offering.startDate)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
           </label>
           {orderedTerms.map((t) => (
             <label key={t.id} className="block">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t.name} starts</span>
-              <input type="date" name={`term_${t.id}`} defaultValue={iso(termDate.get(t.id) ?? null)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+              <input key={`${t.id}-${iso(termDate.get(t.id) ?? null)}`} type="date" name={`term_${t.id}`} defaultValue={iso(termDate.get(t.id) ?? null)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
             </label>
           ))}
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save dates</button>
@@ -201,10 +205,13 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       {capCohort && (
         <Collapse
           title="Instructors & preceptors"
-          sub="How many, and when — semester, week and day views: FTE charts, the peak narrative, and every shift with who staffs it"
+          sub="Who teaches and precepts each section (assign, unassign, add people) — then how many are needed and when, at semester, week and day altitude"
           summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week</>}
         >
-          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+          <div className="space-y-5">
+            <StaffRoster institutionId={capModel!.institution.id} people={capModel?.people ?? []} meetings={rosterFromCohorts([capCohort])} />
+            <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+          </div>
         </Collapse>
       )}
 

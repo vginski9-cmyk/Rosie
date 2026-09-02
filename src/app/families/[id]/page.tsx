@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFamily } from "@/lib/queries";
 import { GoalPlanner } from "@/components/GoalPlanner";
-import { updateInstitutionCalendar } from "@/lib/actions";
+import { AcademicCalendar } from "@/components/AcademicCalendar";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
@@ -122,20 +122,12 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         </div>
       </div>
 
-      {/* Academic calendar — the pattern every derived term date follows */}
-      <form action={updateInstitutionCalendar.bind(null, family.institutionId, family.id)} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div className="mr-2">
-          <div className="text-sm font-semibold text-slate-800">Academic calendar — {family.institution.name}</div>
-          <div className="text-[11px] text-slate-500">Each semester starts on the Monday on/after these dates, every year. Locked-in offerings derive their term dates from this pattern.</div>
-        </div>
-        {([["springStart", "Spring", family.institution.springStart], ["summerStart", "Summer", family.institution.summerStart], ["fallStart", "Fall", family.institution.fallStart]] as const).map(([name, label, val]) => (
-          <label key={name} className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label} starts (MM-DD)</span>
-            <input name={name} defaultValue={val} pattern="\d{2}-\d{2}" className="w-24 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm tabular-nums" />
-          </label>
-        ))}
-        <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Save calendar</button>
-      </form>
+      {/* Academic calendar — imported from the college; every derived term date and holiday flag follows it */}
+      <AcademicCalendar
+        institutionId={family.institutionId} institutionName={family.institution.name} familyId={family.id}
+        anchors={{ springStart: family.institution.springStart, summerStart: family.institution.summerStart, fallStart: family.institution.fallStart }}
+        coded={family.institution.academicEvents.map((e) => ({ id: e.id, iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season }))}
+      />
 
       {/* Design & pathways — delivery models + interventions per target population */}
       <div className="grid gap-3">

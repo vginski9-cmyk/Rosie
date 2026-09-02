@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getOfferingDesign, getCapacityModel } from "@/lib/queries";
 import { calendarizeCohort } from "@/lib/actions";
 import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/components/OfferingDesign";
+import { holidayMap } from "@/lib/academiccalendar";
+import { SheetImport } from "@/components/SheetImport";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +85,8 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         </div>
       )}
 
+      <SheetImport mode="offering" programId={program.id} cohortId={cohort.id} />
+
       <OfferingDesign
         programId={program.id}
         cohortId={cohort.id}
@@ -93,6 +97,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         people={people}
         employers={employers}
         enrollmentByTerm={capCohort?.enrollmentByTerm ?? {}}
+        holidays={holidayMap(program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })))}
         assumptions={capCohort?.assumptions ?? { facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks, preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks }}
       />
     </div>
