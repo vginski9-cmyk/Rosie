@@ -9,7 +9,7 @@ import {
   type LadderRates,
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
-import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation } from "@/lib/actions";
+import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -29,6 +29,10 @@ export interface Instantiation {
   completed: number;
   placed: number;
   status: string;
+  /** Cohort-specific pipeline plan JSON ({ goal, rates, termOverrides }) — null = family defaults. */
+  pipelineRates?: string | null;
+  /** Number of terms in this instantiation's template. */
+  terms?: number;
   phase: string;              // recruiting | in-program | graduated | unscheduled
   currentTerm: string | null; // current term name (when in-program)
   endLabel: string | null;    // expected-end label, e.g. "ends May 2026"
@@ -250,6 +254,9 @@ export function GoalPlanner({
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  /** Offering whose cohort-specific pipeline targets are open in the side panel. */
+  const [targetsFor, setTargetsFor] = useState<string | null>(null);
+  const allInsts = useMemo(() => Object.values(instantiationsByYear).flat(), [instantiationsByYear]);
   const router = useRouter();
 
   /** Suggested start so the cohort lands its graduates in the selected year. */
@@ -315,20 +322,15 @@ export function GoalPlanner({
 
   return (
     <div className="space-y-5">
-      {/* Anchor + save */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
-          <button onClick={() => setS((p) => ({ ...p, anchor: "northstar" }))} className={`px-3 py-1.5 ${s.anchor === "northstar" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: North Star</button>
-          <button onClick={() => setS((p) => ({ ...p, anchor: "capacity" }))} className={`px-3 py-1.5 ${s.anchor === "capacity" ? "bg-rose-600 text-white" : "bg-white text-slate-600"}`}>Anchor: Capacity</button>
-        </div>
-        <span className="ml-auto text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
-        <button onClick={resetBenchmark} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50">Reset rates to benchmark</button>
+      {/* Save state */}
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <span className="text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
       </div>
 
       {/* Multi-year goals — clean numbers, instantiations under each year */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-400">{s.anchor === "northstar" ? "Fully-productive workers each year — set the goal; the class delivering it sits underneath." : "Enrollment capacity each year."} Click a year to plan its full pipeline below.</p>
+          <p className="text-xs text-slate-400">The goal: fully-productive placements in the region, per year. Click a year to say who delivers it.</p>
           <div className="flex items-center gap-1">
             <button onClick={removeYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="remove last year">−</button>
             <button onClick={addYear} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title="add a year">+ year</button>
@@ -336,8 +338,8 @@ export function GoalPlanner({
         </div>
 
         {/* The stairstep: one goal box per year, reading left → right. */}
-        <div className="overflow-x-auto pb-1">
-          <div className="flex items-stretch gap-2">
+        <div className="pb-1">
+          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
             {s.years.map((year) => {
               const selected = year === s.selectedYear;
               const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
@@ -346,7 +348,7 @@ export function GoalPlanner({
               const actualProductive = insts.reduce((n, i) => n + i.placed, 0);
               return (
                 <button key={year} onClick={() => selectYear(year)}
-                  className={`min-w-[128px] shrink-0 rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
+                  className={`rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
                   <span className={`block text-sm font-bold tabular-nums ${selected ? "text-rose-700" : "text-slate-700"}`}>{year}{year === nowYear ? " · now" : ""}</span>
                   <input
                     type="number" min={0} value={Math.round(goalVal)}
@@ -354,12 +356,7 @@ export function GoalPlanner({
                     onChange={(e) => setYearValue(year, Number(e.target.value) || 0)}
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
                   />
-                  <span className="mt-0.5 block text-[10px] text-slate-400">{s.anchor === "northstar" ? `needs ~${derived} enrolled` : `→ ~${derived} productive`}</span>
-                  <span className="mt-0.5 block text-[10px] tabular-nums">
-                    {insts.length > 0
-                      ? <><strong className={attainColor(attain(Math.round(goalVal), actualProductive))}>{actualProductive}</strong> <span className="text-slate-400">placed · {insts.length} class{insts.length === 1 ? "" : "es"}</span></>
-                      : <span className="text-slate-300">{year < nowYear ? "none graduated" : year === nowYear ? "none graduating" : "not planned"}</span>}
-                  </span>
+                  <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive placements</span>
                 </button>
               );
             })}
@@ -376,7 +373,9 @@ export function GoalPlanner({
           ) : (
             <div className="space-y-1.5">
               {(instantiationsByYear[s.selectedYear] ?? []).map((c) => (
-                <Link key={c.id} href={`/programs/${c.programId}/offerings/${c.id}`} className="rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
+                <div key={c.id} className="flex items-stretch gap-2">
+                <button onClick={() => setTargetsFor(targetsFor === c.id ? null : c.id)} className={`shrink-0 rounded-lg border px-2.5 text-[11px] font-medium ${targetsFor === c.id ? "border-rose-400 bg-rose-600 text-white" : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"}`} title="set this offering's own talent-pipeline targets">⚙ targets</button>
+                <Link href={`/programs/${c.programId}/offerings/${c.id}`} className="flex-1 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
                   <span className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium text-slate-800">
                       {c.name} <span className="font-normal text-slate-400">· {c.program}</span>
@@ -398,6 +397,7 @@ export function GoalPlanner({
                     </span>
                   )}
                 </Link>
+                </div>
               ))}
             </div>
           )}
@@ -418,7 +418,7 @@ export function GoalPlanner({
           the instantiations responsible for delivering them. Each model&apos;s <strong>max cohort enrollment capacity</strong> is
           the gating criterion — if the pipeline math needs more seats than a cohort can hold, the box flags it.
         </p>
-        <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
+        <div className={`grid gap-4 ${targetsFor ? "lg:grid-cols-[minmax(200px,240px)_1fr_minmax(320px,380px)]" : "lg:grid-cols-[minmax(220px,280px)_1fr]"}`}>
           {/* Delivery-model cards (drag sources) */}
           <div className="space-y-2">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery models</div>
@@ -536,6 +536,9 @@ export function GoalPlanner({
                                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
                                 <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
                                 {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
+                                {o.cohortId && (
+                                  <button onClick={() => setTargetsFor(targetsFor === o.cohortId ? null : o.cohortId!)} className={`rounded-lg border px-2.5 py-1 font-medium ${targetsFor === o.cohortId ? "border-rose-400 bg-rose-600 text-white" : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"}`} title="set this offering's own talent-pipeline targets (side panel)">⚙ pipeline targets</button>
+                                )}
                                 <button
                                   onClick={() => unlock(ai, oi, slots)}
                                   disabled={unlockingId != null}
@@ -616,9 +619,31 @@ export function GoalPlanner({
               </div>
             )}
           </div>
+
+          {/* Side-by-side: THIS offering's own talent-pipeline targets */}
+          {targetsFor && (() => {
+            const inst = allInsts.find((x) => x.id === targetsFor);
+            if (!inst) return null;
+            return (
+              <OfferingTargetsPanel
+                key={inst.id}
+                inst={inst}
+                defaultRates={s.goal}
+                onClose={() => setTargetsFor(null)}
+                onSaved={() => router.refresh()}
+              />
+            );
+          })()}
         </div>
       </div>
 
+      {/* Family DEFAULT health rates — what new offerings start from; each offering overrides its own */}
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
+          Default health rates for new offerings <span className="font-normal text-slate-400">— every locked-in offering can set its own (⚙ pipeline targets); these are the starting point</span>
+          <button onClick={(e) => { e.preventDefault(); resetBenchmark(); }} className="ml-3 rounded-lg border border-slate-300 px-2 py-0.5 text-[11px] font-normal text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
+        </summary>
+      <div className="border-t border-slate-100 p-4">
       {/* Selected year's full pipeline — two tables */}
       <div>
         <h3 className="mb-2 text-sm font-semibold text-slate-700">{s.selectedYear} pipeline plan <span className="font-normal text-slate-400">— goal rates set the plan; actuals are sourced live from the student database</span></h3>
@@ -696,6 +721,79 @@ export function GoalPlanner({
             </table>
           </div>
         </div>
+      </div>
+      </div>
+      </details>
+    </div>
+  );
+}
+
+// ───────── Cohort-specific talent-pipeline targets (side panel) ─────────
+function OfferingTargetsPanel({ inst, defaultRates, onClose, onSaved }: {
+  inst: Instantiation; defaultRates: LadderRates; onClose: () => void; onSaved: () => void;
+}) {
+  const saved = (() => {
+    try { return inst.pipelineRates ? JSON.parse(inst.pipelineRates) as { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } : null; } catch { return null; }
+  })();
+  const [goal, setGoal] = useState<number>(saved?.goal ?? inst.goalProductive ?? 0);
+  const [rates, setRates] = useState<LadderRates>({ ...defaultRates, ...(saved?.rates ?? {}) });
+  const [termOverrides, setTermOverrides] = useState<(number | null)[]>(saved?.termOverrides ?? []);
+  const [busy, setBusy] = useState(false);
+  const terms = Math.max(1, inst.terms ?? 1);
+  const t = deriveCohortTargets(Math.max(0, goal), rates, terms);
+  const save = async () => {
+    setBusy(true);
+    try { await saveCohortPipeline(inst.id, { goal, rates: { ...rates } as unknown as Record<string, number>, termOverrides }); onSaved(); } finally { setBusy(false); }
+  };
+  const inp = "w-16 rounded border border-slate-200 px-1.5 py-0.5 text-right tabular-nums focus:border-rose-400 focus:outline-none";
+  return (
+    <div className="rounded-xl border border-rose-200 bg-rose-50/30 p-3 text-xs">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-slate-800">{inst.name} — pipeline targets</div>
+          <div className="text-[11px] text-slate-500">{inst.program} · cohort-specific: these rates and this goal belong to THIS offering only</div>
+        </div>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
+      </div>
+      <label className="mb-2 flex items-center gap-2">
+        <span className="font-medium text-slate-700">Goal — fully productive placements</span>
+        <input type="number" min={0} value={goal} onChange={(e) => setGoal(Number(e.target.value) || 0)} className={`${inp} w-20 text-base font-semibold`} />
+      </label>
+      <table className="w-full">
+        <thead><tr className="text-left text-[10px] uppercase tracking-wide text-slate-400"><th className="py-1">Health metric</th><th className="py-1 text-right">Goal %</th><th className="py-1 text-right">Bench</th></tr></thead>
+        <tbody className="divide-y divide-rose-100">
+          {RATE_DEFS.map((d) => (
+            <tr key={d.key}>
+              <td className="py-1 pr-2"><span className="block font-medium text-slate-700">{d.label}</span><span className="block text-[10px] text-slate-400">{d.of}</span></td>
+              <td className="py-1 text-right"><input type="number" step={1} value={Math.round(rates[d.key] * 1000) / 10} onChange={(e) => setRates((r) => ({ ...r, [d.key]: (Number(e.target.value) || 0) / 100 }))} className={inp} />%</td>
+              <td className="py-1 text-right tabular-nums text-slate-400">{Math.round(d.benchmark * 100)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-3 rounded-lg bg-white p-2 ring-1 ring-rose-100">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Derived targets — funnel order</div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-slate-700">
+          <span>Interested</span><span className="text-right font-medium">{Math.round(t.interested)}</span>
+          <span>Qualified</span><span className="text-right font-medium">{Math.round(t.qualified)}</span>
+          <span>Offered</span><span className="text-right font-medium">{Math.round(t.offered)}</span>
+          {t.terms.map((tv, i) => (
+            <span key={i} className="contents">
+              <span className="text-rose-700">Enrolled — Term {i + 1}</span>
+              <span className="text-right">
+                <input type="number" min={0} value={termOverrides[i] ?? Math.round(tv)} onChange={(e) => setTermOverrides((o) => { const n = [...o]; n[i] = e.target.value === "" ? null : Number(e.target.value); return n; })} className={`${inp} ${termOverrides[i] != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : ""}`} title="derived from the goal; type to override this term" />
+              </span>
+            </span>
+          ))}
+          <span>Completing</span><span className="text-right font-medium">{Math.round(t.completing)}</span>
+          <span>Licensed</span><span className="text-right font-medium">{Math.round(t.licensed)}</span>
+          <span>Placed</span><span className="text-right font-medium">{Math.round(t.placed)}</span>
+          <span className="font-semibold text-slate-900">Productive</span><span className="text-right font-semibold text-slate-900">{Math.round(t.productive)}</span>
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <button onClick={save} disabled={busy} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:opacity-50">{busy ? "Saving…" : "Save to this offering"}</button>
+        <button onClick={() => { setRates({ ...defaultRates }); setTermOverrides([]); }} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-white">Use family defaults</button>
       </div>
     </div>
   );

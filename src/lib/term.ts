@@ -150,23 +150,40 @@ export function gradVerb(gradYear: number, today: Date): string {
 // Spring semester starts in December and no Summer term starts in April.
 // ---------------------------------------------------------------------------
 
-/** The nth Monday of a month (UTC). */
-function nthMonday(year: number, month: number, n: number): Date {
-  const first = new Date(Date.UTC(year, month, 1));
-  const toMonday = (8 - first.getUTCDay()) % 7;
-  return new Date(Date.UTC(year, month, 1 + toMonday + (n - 1) * 7));
+export interface SemesterAnchors { springStart: string; summerStart: string; fallStart: string }
+export const DEFAULT_ANCHORS: SemesterAnchors = { springStart: "01-08", summerStart: "05-28", fallStart: "08-15" };
+
+/** The Monday on/after `year-MM-DD` (UTC). */
+function mondayOnOrAfter(year: number, mmdd: string): Date {
+  const [mm, dd] = mmdd.split("-").map(Number);
+  const d = new Date(Date.UTC(year, (mm || 1) - 1, dd || 1));
+  const toMonday = (8 - d.getUTCDay()) % 7;
+  return new Date(d.getTime() + toMonday * 86400000);
 }
 
-/** The next real semester start ON OR AFTER `d`:
- *  Spring = 2nd Monday of January · Summer = 1st Monday of June ·
- *  Fall = 3rd Monday of August. */
-export function nextSemesterStart(d: Date): Date {
+/** The next real semester start ON OR AFTER `d`, following the institution's
+ *  academic-calendar anchors (each semester starts on the Monday on/after its
+ *  MM-DD anchor). Defaults: Spring Jan 8 · Summer May 28 · Fall Aug 15. */
+export function nextSemesterStart(d: Date, anchors: SemesterAnchors = DEFAULT_ANCHORS): Date {
   const cands: Date[] = [];
   for (const y of [d.getUTCFullYear(), d.getUTCFullYear() + 1]) {
-    cands.push(nthMonday(y, 0, 2)); // Spring
-    cands.push(nthMonday(y, 5, 1)); // Summer
-    cands.push(nthMonday(y, 7, 3)); // Fall
+    cands.push(mondayOnOrAfter(y, anchors.springStart || DEFAULT_ANCHORS.springStart));
+    cands.push(mondayOnOrAfter(y, anchors.summerStart || DEFAULT_ANCHORS.summerStart));
+    cands.push(mondayOnOrAfter(y, anchors.fallStart || DEFAULT_ANCHORS.fallStart));
   }
   cands.sort((a, b) => a.getTime() - b.getTime());
   return cands.find((c) => c.getTime() >= d.getTime()) ?? cands[cands.length - 1];
+}
+
+/** Term start dates for a program from a chosen first day: term 1 on that day,
+ *  every later term on the next semester boundary after the previous term ends. */
+export function deriveTermStarts(startIso: string, termWeeks: number[], anchors: SemesterAnchors = DEFAULT_ANCHORS): Date[] {
+  const out: Date[] = [];
+  let cursor = new Date(startIso);
+  for (let i = 0; i < termWeeks.length; i++) {
+    const start = i === 0 ? new Date(cursor) : nextSemesterStart(cursor, anchors);
+    out.push(start);
+    cursor = new Date(start.getTime() + termWeeks[i] * 7 * 86400000);
+  }
+  return out;
 }

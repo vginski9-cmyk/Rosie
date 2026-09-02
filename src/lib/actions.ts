@@ -52,7 +52,13 @@ export async function createProgram(formData: FormData) {
 // ---------------------------------------------------------------------------
 
 export async function createNorthStarGoal(formData: FormData): Promise<void> {
-  const institutionId = str(formData.get("institutionId"));
+  // Any institution — pick an existing one or create a new one on the spot.
+  let institutionId = str(formData.get("institutionId"));
+  const newInstitutionName = str(formData.get("newInstitutionName"));
+  if (newInstitutionName) {
+    const inst = await prisma.institution.create({ data: { name: newInstitutionName } });
+    institutionId = inst.id;
+  }
   if (!institutionId) return;
   const name = str(formData.get("name")) || "New goal";
   const socCode = str(formData.get("socCode"));
@@ -101,6 +107,21 @@ export async function createFamilyProgram(familyId: string, formData: FormData):
 // ---------------------------------------------------------------------------
 // PROGRAM FAMILY — North-Star goal plan
 // ---------------------------------------------------------------------------
+
+/** The institution's academic calendar pattern — each semester starts on the
+ *  Monday on/after its MM-DD anchor; every derived term date follows it. */
+export async function updateInstitutionCalendar(institutionId: string, familyId: string, formData: FormData): Promise<void> {
+  const mmdd = (v: FormDataEntryValue | null, d: string) => { const x = str(v); return /^\d{2}-\d{2}$/.test(x) ? x : d; };
+  await prisma.institution.update({
+    where: { id: institutionId },
+    data: {
+      springStart: mmdd(formData.get("springStart"), "01-08"),
+      summerStart: mmdd(formData.get("summerStart"), "05-28"),
+      fallStart: mmdd(formData.get("fallStart"), "08-15"),
+    },
+  });
+  revalidatePath(`/families/${familyId}`);
+}
 
 /** Persist the family's North-Star goal plan (a JSON blob from the goal planner). */
 export async function saveFamilyGoalPlan(familyId: string, planJson: string): Promise<void> {
@@ -610,7 +631,7 @@ export async function lockInInstantiation(
 
   const program = await prisma.program.findUnique({
     where: { id: programId },
-    include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } } },
+    include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } }, institution: { select: { springStart: true, summerStart: true, fallStart: true } } },
   });
   if (!program) throw new Error("Program not found");
 
@@ -628,17 +649,11 @@ export async function lockInInstantiation(
   // term starts at the NEXT legit semester boundary (2nd Mon of Jan / 1st Mon
   // of Jun / 3rd Mon of Aug) after the previous term ends — no "Spring" that
   // starts in December. The class year is when the last term actually ends.
-  const { nextSemesterStart } = await import("./term");
-  const termStarts: Date[] = [];
-  let cursor = new Date(input.startDate);
-  for (let i = 0; i < program.terms.length; i++) {
-    const term = program.terms[i];
-    const weeks = (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1;
-    const start = i === 0 ? new Date(cursor) : nextSemesterStart(cursor);
-    termStarts.push(start);
-    cursor = new Date(start.getTime() + weeks * 7 * 86400000);
-  }
-  const endYear = cursor.getUTCFullYear();
+  const { deriveTermStarts } = await import("./term");
+  const termWeeks = program.terms.map((term) => (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1);
+  const termStarts = deriveTermStarts(input.startDate, termWeeks, program.institution);
+  const lastStart = termStarts[termStarts.length - 1];
+  const endYear = new Date(lastStart.getTime() + termWeeks[termWeeks.length - 1] * 7 * 86400000).getUTCFullYear();
 
   // Name it by the year it lands its graduates; disambiguate within the program.
   let name = `Class of ${endYear}`;
@@ -784,10 +799,19 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     where: { id: cohortId },
     data: startStr ? { startDate: new Date(startStr), entryYear: new Date(startStr).getFullYear() } : {},
   });
-  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true } });
-  for (const ct of cts) {
-    const v = str(formData.get(`term_${ct.termId}`));
-    if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v) } });
+  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true, term: { select: { index: true, startWeek: true, endWeek: true } } } });
+  if (str(formData.get("rederive")) === "1" && startStr) {
+    // Re-derive every term from the offering start along the institution's academic calendar.
+    const { deriveTermStarts } = await import("./term");
+    const inst = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { program: { select: { institution: { select: { springStart: true, summerStart: true, fallStart: true } } } } } });
+    const ordered = [...cts].sort((a, b) => a.term.index - b.term.index);
+    const starts = deriveTermStarts(startStr, ordered.map((ct) => (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1), inst?.program.institution);
+    for (let i = 0; i < ordered.length; i++) await prisma.cohortTerm.update({ where: { id: ordered[i].id }, data: { startDate: starts[i] } });
+  } else {
+    for (const ct of cts) {
+      const v = str(formData.get(`term_${ct.termId}`));
+      if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v) } });
+    }
   }
 
   // The class name tracks when the program actually ends: recompute the real
@@ -1105,6 +1129,47 @@ export async function requestPlacement(studentId: string, employerId: string, fa
 /** Move a meeting to a new day / time / room (and optionally staff). Used by the
  *  master space calendar and the offering calendar — both read MeetingPattern, so
  *  a change here shows up in every surface. */
+/** Cohort-SPECIFIC talent-pipeline targets: this offering's own health rates
+ *  and goal share, derived backward into its funnel stage targets (and term
+ *  enrollment). Stored on the cohort so every surface (funnel, capacity math,
+ *  insights) reads the same plan. */
+export async function saveCohortPipeline(
+  cohortId: string,
+  input: { goal: number; rates: Record<string, number>; termOverrides?: (number | null)[] },
+): Promise<void> {
+  const { deriveCohortTargets } = await import("./pipeline");
+  const { BENCHMARK_RATES } = await import("./northstar");
+  const co = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    select: { programId: true, program: { select: { familyId: true, terms: { select: { id: true } } } } },
+  });
+  if (!co) return;
+  const rates = { ...BENCHMARK_RATES, ...input.rates } as typeof BENCHMARK_RATES;
+  const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, co.program.terms.length));
+  const targets: Record<string, number> = {
+    interested: t.interested, qualified: t.qualified, offered: t.offered,
+    enrolled: input.termOverrides?.[0] ?? t.capacity, completing: t.completing, licensed: t.licensed,
+    placed: t.placed, productive: t.productive,
+  };
+  for (const s of STAGES) {
+    await prisma.funnelStage.upsert({
+      where: { cohortId_stageKey: { cohortId, stageKey: s.key } },
+      update: { targetNumber: Math.round(targets[s.key] ?? 0) },
+      create: { cohortId, stageKey: s.key, sortOrder: STAGES.indexOf(s), label: s.label, targetNumber: Math.round(targets[s.key] ?? 0) },
+    });
+  }
+  await prisma.cohort.update({
+    where: { id: cohortId },
+    data: { pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides: input.termOverrides ?? [] }), plannedSeats: Math.round(input.termOverrides?.[0] ?? t.capacity) },
+  });
+  if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);
+  revalidatePath(`/programs/${co.programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${co.programId}/offerings/${cohortId}/design`);
+  revalidatePath("/insights/staffing-need");
+  revalidatePath("/insights/clinical-sites");
+  revalidatePath("/insights/coverage");
+}
+
 /** Undo a lock-in: delete the instantiation (cohort) a goal-breakdown slot
  *  created — its stages, term dates, bookings and overrides cascade away;
  *  enrolled students are detached, never deleted. The slot goes back to a
@@ -1118,6 +1183,47 @@ export async function unlockInstantiation(cohortId: string): Promise<void> {
   if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);
   revalidatePath("/insights/staffing-need");
   revalidatePath("/insights/clinical-sites");
+  revalidatePath("/insights/coverage");
+}
+
+/** Move ONE occurrence of a booked section — the shift that would land on
+ *  `fromDateIso` under the weekly pattern happens on `toDate` instead
+ *  (optionally at another time / place / with other staff). The weekly booking
+ *  is untouched, so no other week moves. */
+export async function moveShiftOccurrence(
+  meetingId: string,
+  fromDateIso: string,
+  patch: { toDate?: string; startTime?: string | null; facilityId?: string | null; employerId?: string | null; staffPersonId?: string | null },
+): Promise<void> {
+  const fromDate = new Date(fromDateIso + "T00:00:00Z");
+  const existing = await prisma.shiftMove.findUnique({ where: { meetingId_fromDate: { meetingId, fromDate } } });
+  const toDate = patch.toDate ? new Date(patch.toDate + "T00:00:00Z") : existing?.toDate ?? fromDate;
+  const data = {
+    toDate,
+    startTime: patch.startTime === undefined ? existing?.startTime ?? null : patch.startTime,
+    facilityId: patch.facilityId === undefined ? existing?.facilityId ?? null : patch.facilityId,
+    employerId: patch.employerId === undefined ? existing?.employerId ?? null : patch.employerId,
+    staffPersonId: patch.staffPersonId === undefined ? existing?.staffPersonId ?? null : patch.staffPersonId,
+  };
+  const m = await prisma.shiftMove.upsert({
+    where: { meetingId_fromDate: { meetingId, fromDate } },
+    update: data,
+    create: { meetingId, fromDate, ...data },
+    include: { meeting: { select: { cohortId: true, cohort: { select: { programId: true } } } } },
+  });
+  revalidatePath("/calendar");
+  revalidatePath(`/programs/${m.meeting.cohort.programId}/offerings/${m.meeting.cohortId}`);
+  revalidatePath("/insights/coverage");
+}
+
+/** Put one moved occurrence back on its weekly pattern. */
+export async function clearShiftMove(meetingId: string, fromDateIso: string): Promise<void> {
+  const fromDate = new Date(fromDateIso + "T00:00:00Z");
+  const m = await prisma.shiftMove.findUnique({ where: { meetingId_fromDate: { meetingId, fromDate } }, include: { meeting: { select: { cohortId: true, cohort: { select: { programId: true } } } } } });
+  if (!m) return;
+  await prisma.shiftMove.delete({ where: { id: m.id } });
+  revalidatePath("/calendar");
+  revalidatePath(`/programs/${m.meeting.cohort.programId}/offerings/${m.meeting.cohortId}`);
   revalidatePath("/insights/coverage");
 }
 

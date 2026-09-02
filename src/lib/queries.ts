@@ -1434,7 +1434,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
+          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } }, moves: { select: { fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } } }, orderBy: { sectionIndex: "asc" as const } },
           _count: { select: { students: true } },
         },
       },
@@ -1455,11 +1455,21 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
       const productiveGoal = co.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0;
       const enrolledTarget = co.stages.find((s) => s.stageKey === "enrolled")?.targetNumber ?? null;
       const fallbackSeats = enrolledTarget ?? co.plannedSeats ?? p.defaultCohortSeats ?? co._count.students ?? 24;
+      // Cohort-specific plan (rates + term overrides) beats the family defaults.
+      let coRates = rates;
+      let termOverrides: (number | null)[] = [];
+      if (co.pipelineRates) {
+        try {
+          const saved = JSON.parse(co.pipelineRates) as { rates?: Partial<typeof BENCHMARK_RATES>; termOverrides?: (number | null)[] };
+          if (saved.rates) coRates = { ...rates, ...saved.rates };
+          if (saved.termOverrides) termOverrides = saved.termOverrides;
+        } catch { /* family defaults */ }
+      }
       const derived = productiveGoal > 0
-        ? deriveCohortTargets(productiveGoal, rates, Math.max(1, orderedTerms.length)).terms
+        ? deriveCohortTargets(productiveGoal, coRates, Math.max(1, orderedTerms.length)).terms
         : orderedTerms.map(() => Number(fallbackSeats));
       const enrollmentByTerm: Record<number, number> = {};
-      orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(derived[i] ?? derived[derived.length - 1] ?? 0); });
+      orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(termOverrides[i] ?? derived[i] ?? derived[derived.length - 1] ?? 0); });
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
       const termStartByIndex: Record<number, string | null> = {};
       orderedTerms.forEach((t) => { const d = ctById.get(t.id) ?? null; termStartByIndex[t.index] = d ? d.toISOString() : null; });
@@ -1493,6 +1503,13 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           facilityId: m.facilityId, employerId: m.employerId, staffPersonId: m.staffPersonId,
           loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null),
           staffName: m.staff?.name ?? null,
+          // Per-occurrence moves: one shift bumped to another date / time / place.
+          moves: m.moves.map((mv) => ({
+            fromDate: mv.fromDate.toISOString().slice(0, 10), toDate: mv.toDate.toISOString().slice(0, 10),
+            startTime: mv.startTime, facilityId: mv.facilityId, employerId: mv.employerId, staffPersonId: mv.staffPersonId,
+            loc: mv.employer?.name ? `@ ${mv.employer.name}` : mv.facility?.name ?? null,
+            staffName: mv.staff?.name ?? null,
+          })),
         })),
         courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
           code: c.code, title: c.name, courseId: c.id, termIndex: t.index, termName: t.name,

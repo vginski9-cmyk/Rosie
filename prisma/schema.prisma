@@ -24,6 +24,11 @@ model Institution {
   name         String
   shortName    String?
   serviceArea  String? // free-text description of the geographic service area
+  /// Academic calendar pattern: each semester starts on the Monday on/after this
+  /// MM-DD anchor. Derived term dates (lock-in) follow it, year after year.
+  springStart  String  @default("01-08")
+  summerStart  String  @default("05-28")
+  fallStart    String  @default("08-15")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -65,6 +70,7 @@ model Facility {
 
   sectionSchedules SectionSchedule[]
   meetings MeetingPattern[]
+  shiftMoves ShiftMove[]
 
   @@index([institutionId])
 }
@@ -437,6 +443,9 @@ model Cohort {
   startDate     DateTime?
   /// planned | active | completed | archived
   status        String  @default("planned")
+  /// Cohort-specific talent-pipeline plan: { goal, rates, termOverrides } JSON —
+  /// set from the goal page's per-offering panel; overrides the family defaults.
+  pipelineRates String?
 
   stages      FunnelStage[]
   students    Student[]
@@ -557,6 +566,7 @@ model Person {
   assignments   Assignment[]
   sessionStaff  SessionInstructor[]
   meetings      MeetingPattern[]
+  shiftMoves    ShiftMove[]
 
   @@index([institutionId])
 }
@@ -567,6 +577,29 @@ model Person {
 /// staffing views AND the institution-wide master space calendar all read these,
 /// so a move in one surface shows up everywhere. Clinical meetings live off-campus
 /// (facilityId null / a CLINICAL facility) and don't compete for classroom space.
+/// ONE occurrence of a booked section moved off its weekly pattern: the shift
+/// that would have landed on `fromDate` happens on `toDate` instead (optionally
+/// at a different time / place / with different staff). The weekly booking is
+/// untouched — space is fluid one day at a time.
+model ShiftMove {
+  id            String   @id @default(cuid())
+  meetingId     String
+  meeting       MeetingPattern @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  fromDate      DateTime
+  toDate        DateTime
+  startTime     String?
+  facilityId    String?
+  facility      Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  employerId    String?
+  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  staffPersonId String?
+  staff         Person?   @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+
+  @@unique([meetingId, fromDate])
+  @@index([meetingId])
+}
+
 model MeetingPattern {
   id           String  @id @default(cuid())
   cohortId     String
@@ -592,6 +625,7 @@ model MeetingPattern {
   staffPersonId String?
   staff         Person?  @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
+  moves        ShiftMove[]
 
   @@index([cohortId])
   @@index([courseId])
@@ -621,6 +655,7 @@ model Employer {
   placements WblPlacement[]
   alignmentProfiles AlignmentProfile[]
   meetings MeetingPattern[]
+  shiftMoves ShiftMove[]
 
   @@index([institutionId])
 }

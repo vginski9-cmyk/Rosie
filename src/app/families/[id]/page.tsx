@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFamily } from "@/lib/queries";
 import { GoalPlanner } from "@/components/GoalPlanner";
+import { updateInstitutionCalendar } from "@/lib/actions";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +61,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
       (instantiationsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
+        pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length,
         phase: tm.phase, currentTerm: tm.currentTermName,
         endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
       });
@@ -120,22 +122,28 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         </div>
       </div>
 
+      {/* Academic calendar — the pattern every derived term date follows */}
+      <form action={updateInstitutionCalendar.bind(null, family.institutionId, family.id)} className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <div className="mr-2">
+          <div className="text-sm font-semibold text-slate-800">Academic calendar — {family.institution.name}</div>
+          <div className="text-[11px] text-slate-500">Each semester starts on the Monday on/after these dates, every year. Locked-in offerings derive their term dates from this pattern.</div>
+        </div>
+        {([["springStart", "Spring", family.institution.springStart], ["summerStart", "Summer", family.institution.summerStart], ["fallStart", "Fall", family.institution.fallStart]] as const).map(([name, label, val]) => (
+          <label key={name} className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label} starts (MM-DD)</span>
+            <input name={name} defaultValue={val} pattern="\d{2}-\d{2}" className="w-24 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm tabular-nums" />
+          </label>
+        ))}
+        <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Save calendar</button>
+      </form>
+
       {/* Design & pathways — delivery models + interventions per target population */}
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3">
         <Link href={`/families/${family.id}/design`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
           <div>
             <div className="text-sm font-semibold text-slate-800">Program design &amp; pathways ↦</div>
             <div className="text-xs text-slate-500">
               {credGroups.map((g) => `${g.credential} (${g.programs.length})`).join(" · ")} · delivery models + pipeline interventions per target population
-            </div>
-          </div>
-          <span className="text-rose-600">→</span>
-        </Link>
-        <Link href={`/families/${family.id}/analytics`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-          <div>
-            <div className="text-sm font-semibold text-slate-800">Talent-pipeline analytics ↦</div>
-            <div className="text-xs text-slate-500">
-              funnel ladder, health metrics vs benchmarks, year-by-season pipeline &amp; Y-O-Y — with full number lineage
             </div>
           </div>
           <span className="text-rose-600">→</span>

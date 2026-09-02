@@ -38,14 +38,6 @@ const TOURS: Tour[] = [
     ],
   },
   {
-    key: "analytics", match: /^\/families\/[^/]+\/analytics$/, title: "Talent-pipeline analytics",
-    steps: [
-      { h: "The funnel ladder", b: "Interested → productive, targets vs actuals, with per-term enrollment nested under capacity and a Grand Total — the institution workbook's pivot, live. Click any row to see each cohort's share." },
-      { h: "Health metrics", b: "Every ratio is computed from the ladder rows above and judged against its benchmark. Nothing is entered separately." },
-      { h: "Where every number comes from", b: "Turn on the lineage toggle and every figure shows its formula — how the targets derive backward from the North-Star goal, step by step." },
-    ],
-  },
-  {
     key: "program", match: /^\/programs\/[^/]+$/, title: "A delivery model (template)",
     steps: [
       { h: "Template vs offerings", b: "This page is the timeless template. The scheduled offerings at the top are its real runs — each links into its schedule and staffing. Pipeline analytics live on each offering, where the real targets are." },

@@ -21,6 +21,13 @@ export interface ShiftMeeting {
   dayOfWeek: string; startTime: string;
   facilityId: string | null; employerId: string | null; staffPersonId: string | null;
   loc: string | null; staffName: string | null;
+  /** One-off moves: the occurrence patterned on fromDate happens on toDate instead. */
+  moves?: ShiftMoveInfo[];
+}
+export interface ShiftMoveInfo {
+  fromDate: string; toDate: string; startTime: string | null;
+  facilityId: string | null; employerId: string | null; staffPersonId: string | null;
+  loc: string | null; staffName: string | null;
 }
 
 export interface CapacityCohort {
@@ -454,40 +461,6 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
 
   return (
     <div className="space-y-6">
-      {/* ── The answer, in words — for deans, program directors & clinical coordinators ── */}
-      <section className="rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/60 to-white p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">For deans, program directors &amp; clinical coordinators</div>
-        <p className="mt-1 text-base font-semibold text-slate-800">
-          Peak need: <span className="text-rose-700">{peakFac && peakFac.totalFacFte > 0 ? `${n1(peakFac.totalFacFte)} FTE` : "0"} of instructors</span>
-          {" "}and <span className="text-amber-700">{peakPre && peakPre.preceptorFte > 0 ? `${n1(peakPre.preceptorFte)} FTE` : "0"} of preceptors</span>.
-        </p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600">
-          {peakFac && peakFac.totalFacFte > 0 && <>Instructor peak in the week of <strong>{fmtDateM(peakFac.mondayIso)}</strong> ({n0(facPeakHrs)} contact hrs ÷ {facDiv}). </>}
-          {peakPre && peakPre.preceptorFte > 0 && <>Preceptor peak in the week of <strong>{fmtDateM(peakPre.mondayIso)}</strong> ({n0(prePeakHrs)} preceptor hrs ÷ {preDiv}). </>}
-          {active.length > 0 && <>Across {fmtDateM(active[0].mondayIso)} → {fmtDateM(active[active.length - 1].mondayIso)}.</>}
-        </p>
-        <div className="mt-3 rounded-lg bg-white/80 p-3 ring-1 ring-rose-100">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">What to do</div>
-          <ol className="mt-1 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-slate-700">
-            {peakFac && peakFac.totalFacFte > 0 && (
-              <li>Plan for <strong>{n1(peakFac.totalFacFte)} FTE</strong> of instructor time in the week of <strong>{fmtDateM(peakFac.mondayIso)}</strong> ({n0(facPeakHrs)} faculty contact hours; a typical active week needs {n1(avgFac)} FTE).</li>
-            )}
-            {peakPre && peakPre.preceptorFte > 0 && (
-              <li>Secure <strong>{n1(peakPre.preceptorFte)} FTE</strong> of preceptor time for the week of <strong>{fmtDateM(peakPre.mondayIso)}</strong> ({n0(prePeakHrs)} preceptor hours{peakPreDay ? <>; that means up to <strong>{n0(peakPreDay.value)} preceptors on site in one day</strong>, {fmtDateM(peakPreDay.key as string)}</> : null}).
-                {signByIso && firstClinicalIso && <> Agreements signed before <strong>{fmtDateM(signByIso)}</strong>, six weeks ahead of the first clinical day ({fmtDateM(firstClinicalIso)}).</>}</li>
-            )}
-            <li>Use the week-by-week table — expand any week for the day-by-day — and the staffing plan by term to assign instructors; the filters above slice every number.</li>
-          </ol>
-        </div>
-      </section>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Peak k="Peak faculty need" v={peakFac && peakFac.totalFacFte > 0 ? `${n1(peakFac.totalFacFte)} FTE` : "—"} d={peakFac && peakFac.totalFacFte > 0 ? `${peakFac.facultyHeads} people · week of ${fmtDateM(peakFac.mondayIso)}` : ""} />
-        <Peak k="Peak preceptor need" v={peakPre && peakPre.preceptorFte > 0 ? `${n1(peakPre.preceptorFte)} FTE` : "—"} d={peakPre && peakPre.preceptorFte > 0 ? `${peakPre.preceptorHeads} people · week of ${fmtDateM(peakPre.mondayIso)}` : ""} />
-        <Peak k="Weeks with demand" v={`${active.length}`} d={active.length ? `${fmtDateM(active[0].mondayIso)} → ${fmtDateM(active[active.length - 1].mondayIso)}` : ""} />
-        <Peak k="Average active week" v={active.length ? `${n1(avgFac)} + ${n1(avgPre)} FTE` : "—"} d="instructors + preceptors" />
-      </div>
-
       {/* ── Altitude switcher: semester · week · day ─────────────────────── */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
@@ -503,6 +476,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       </div>
 
       {altitude === "semester" && (<>
+      <TermOrders rows={rows} />
       {/* ── FTEs per semester — what to budget, split class / lab / clinical ── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-2">
@@ -515,6 +489,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       </>)}
 
       {altitude === "week" && (<>
+      <WeekOrders rows={rows} />
       {/* ── FTEs per week of term — when the load actually lands ── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-2">
@@ -538,6 +513,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       </>)}
 
       {altitude === "day" && (<>
+      <DayOrders rows={rows} />
       {/* ── The shift chart: every instance, day by day / week by week / term by term ── */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
@@ -683,6 +659,215 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       </>)}
 
     </div>
+  );
+}
+
+
+// ───────────── Staffing orders — statement first: how many people, at which times ─────────────
+const ceilP = (v: number) => Math.max(0, Math.ceil(v - 1e-9));
+const median = (xs: number[]) => { if (!xs.length) return 0; const a = [...xs].sort((x, y) => x - y); const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+const endTime = (t: string | null, len: number) => {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  const mins = h * 60 + m + Math.round(len * 60);
+  return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+};
+
+/** Semester altitude: one staffing order per term — every week's people, the heaviest week called out. */
+function TermOrders({ rows }: { rows: DatedInstance[] }) {
+  const terms = [...new Set(rows.map((r) => r.termIndex))].sort((a, b) => a - b);
+  return (
+    <div className="space-y-4">
+      {terms.map((ti) => {
+        const tr = rows.filter((r) => r.termIndex === ti);
+        const weeks = weeklyNeedByKind(tr).filter((w) => w.totalFacFte > 0 || w.preceptorFte > 0);
+        if (!weeks.length) return null;
+        const first = weeks[0].mondayIso, last = weeks[weeks.length - 1].mondayIso;
+        const instOf = (w: (typeof weeks)[number]) => ceilP(w.classFte) + ceilP(w.labFte) + ceilP(w.clinicalFacFte);
+        const preOf = (w: (typeof weeks)[number]) => ceilP(w.preceptorFte);
+        const typInst = Math.round(median(weeks.map(instOf)));
+        const typPre = Math.round(median(weeks.map(preOf)));
+        const peak = weeks.reduce((b, w) => (instOf(w) + preOf(w) > instOf(b) + preOf(b) ? w : b), weeks[0]);
+        return (
+          <section key={ti} className="rounded-xl border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 bg-slate-800 px-5 py-3 text-slate-100">
+              <div className="text-base font-semibold">{tr[0].termName} — {tr[0].semester} {first.slice(0, 4)} <span className="font-normal text-slate-300">· {fmtDateM(first)} → {fmtDateM(addDays7(last))} · {weeks.length} weeks</span></div>
+              <p className="mt-1 text-sm leading-relaxed text-slate-200">
+                To run this term, staff <strong className="text-white">{typInst} instructor{typInst === 1 ? "" : "s"}</strong>{typPre > 0 && <> and <strong className="text-amber-300">{typPre} preceptor{typPre === 1 ? "" : "s"}</strong></>} in a typical week.
+                {" "}The heaviest week is the week of <strong className="text-white">{fmtDateM(peak.mondayIso)}</strong>: <strong className="text-white">{instOf(peak)} instructors</strong>{preOf(peak) > 0 && <> + <strong className="text-amber-300">{preOf(peak)} preceptors</strong></>}.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-2 font-semibold">Week of</th>
+                    <th className="px-3 py-2 text-right font-semibold text-sky-700">Class instructors</th>
+                    <th className="px-3 py-2 text-right font-semibold text-violet-700">Lab instructors</th>
+                    <th className="px-3 py-2 text-right font-semibold text-rose-700">Clinical faculty</th>
+                    <th className="px-3 py-2 text-right font-semibold">Instructors, total</th>
+                    <th className="px-3 py-2 text-right font-semibold text-amber-700">Preceptors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {weeks.map((w) => {
+                    const isPeak = w.mondayIso === peak.mondayIso;
+                    return (
+                      <tr key={w.mondayIso} className={`border-b border-slate-100 ${isPeak ? "bg-rose-50" : ""}`}>
+                        <td className="whitespace-nowrap px-4 py-2 font-medium text-slate-700">{fmtDateM(w.mondayIso)}{isPeak && <span className="ml-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">heaviest</span>}</td>
+                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.classFte) || <span className="text-slate-300">·</span>}</td>
+                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.labFte) || <span className="text-slate-300">·</span>}</td>
+                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.clinicalFacFte) || <span className="text-slate-300">·</span>}</td>
+                        <td className="px-3 py-2 text-right text-xl font-bold tabular-nums text-slate-900">{instOf(w)}</td>
+                        <td className="px-3 py-2 text-right text-xl font-bold tabular-nums text-amber-700">{preOf(w) || <span className="font-normal text-slate-300">·</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+const addDays7 = (iso: string) => new Date(new Date(iso + "T00:00:00Z").getTime() + 6 * 86400000).toISOString().slice(0, 10);
+const addDaysN = (iso: string, n: number) => new Date(new Date(iso + "T00:00:00Z").getTime() + n * 86400000).toISOString().slice(0, 10);
+
+/** One time block on one day: who is needed, for what. */
+interface Block { time: string | null; end: string | null; instructors: number; preceptors: number; items: string[]; unassigned: number }
+function blocksFor(dayRows: DatedInstance[]): Block[] {
+  const by = new Map<string, Block>();
+  for (const r of dayRows) {
+    const t = r.session.startTime ?? null;
+    const key = t ?? "—";
+    const b = by.get(key) ?? { time: t, end: endTime(t, r.session.lengthHours), instructors: 0, preceptors: 0, items: [], unassigned: 0 };
+    const Y = nz2(r.computed.Y);
+    const clin = r.session.kind === "CLINICAL";
+    const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
+    if (clin) b.preceptors += people; else b.instructors += people;
+    if (!r.session.staffName) b.unassigned += Y;
+    b.items.push(`${r.courseCode ?? r.courseTitle} ${r.session.kind.toLowerCase()}${Y > 1 ? ` ×${n0(Y)} sections` : ""}${clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : r.session.location ? ` · ${r.session.location}` : ""}${r.session.staffName ? ` · ${r.session.staffName}` : ""}`);
+    if (b.end && r.session.lengthHours) { const e2 = endTime(t, r.session.lengthHours); if (e2 && e2 > b.end) b.end = e2; }
+    by.set(key, b);
+  }
+  return [...by.values()].sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99"));
+}
+
+/** Week altitude: pick a week, read each day as a staffing order by time block. */
+function WeekOrders({ rows }: { rows: DatedInstance[] }) {
+  const mondays = useMemo(() => [...new Set(rows.map((r) => r.mondayIso!).filter(Boolean))].sort(), [rows]);
+  const [idx, setIdx] = useState(0);
+  const monday = mondays[Math.min(idx, mondays.length - 1)];
+  if (!monday) return null;
+  const days = Array.from({ length: 7 }, (_, i) => addDaysN(monday, i));
+  const dayRows = (iso: string) => rows.filter((r) => r.dateIso === iso);
+  const totals = days.map((iso) => { const bs = blocksFor(dayRows(iso)); return { iso, inst: bs.reduce((n, b) => n + b.instructors, 0), pre: bs.reduce((n, b) => n + b.preceptors, 0), blocks: bs }; });
+  const weekInst = Math.max(0, ...totals.map((t) => ceilP(t.inst)));
+  const weekPre = Math.max(0, ...totals.map((t) => ceilP(t.pre)));
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">←</button>
+          <span className="min-w-[14rem] text-center text-base font-semibold text-slate-800">Week of {fmtDateM(monday)}</span>
+          <button onClick={() => setIdx((i) => Math.min(mondays.length - 1, i + 1))} disabled={idx >= mondays.length - 1} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">→</button>
+          <span className="text-xs text-slate-400">{idx + 1} of {mondays.length} weeks</span>
+        </div>
+        <p className="text-sm text-slate-700">
+          This week needs up to <strong>{weekInst} instructor{weekInst === 1 ? "" : "s"}</strong>{weekPre > 0 && <> and <strong className="text-amber-700">{weekPre} preceptor{weekPre === 1 ? "" : "s"}</strong></>} on a single day.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 divide-y divide-slate-100 md:grid-cols-7 md:divide-x md:divide-y-0">
+        {totals.map((t) => (
+          <div key={t.iso} className="p-3">
+            <div className="text-sm font-semibold text-slate-800">{new Date(t.iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC" })}</div>
+            {t.blocks.length === 0 ? (
+              <div className="mt-1 text-xs text-slate-300">nothing scheduled</div>
+            ) : (
+              <>
+                <div className="mt-1 text-2xl font-bold tabular-nums text-slate-900">{ceilP(t.inst)}<span className="text-xs font-medium text-slate-500"> inst</span>{t.pre > 0 && <span className="ml-2 text-amber-700">{ceilP(t.pre)}<span className="text-xs font-medium"> prec</span></span>}</div>
+                <div className="mt-2 space-y-1.5">
+                  {t.blocks.map((b, i) => (
+                    <div key={i} className="rounded-lg bg-slate-50 p-2 text-[11px] leading-snug">
+                      <div className="font-semibold text-slate-700">{b.time ? `${fmtT2(b.time)}${b.end ? ` – ${fmtT2(b.end)}` : ""}` : "time not set"} · {ceilP(b.instructors) ? `${ceilP(b.instructors)} instructor${ceilP(b.instructors) === 1 ? "" : "s"}` : ""}{ceilP(b.instructors) && ceilP(b.preceptors) ? " + " : ""}{ceilP(b.preceptors) ? `${ceilP(b.preceptors)} preceptor${ceilP(b.preceptors) === 1 ? "" : "s"}` : ""}</div>
+                      {b.items.map((it, j) => <div key={j} className="text-slate-500">{it}</div>)}
+                      {b.unassigned > 0 && <div className="font-medium text-amber-700">{n0(b.unassigned)} shift{b.unassigned === 1 ? "" : "s"} unassigned</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** Day altitude: one day as a staffing roster — time, what, who is needed, who is assigned. */
+function DayOrders({ rows }: { rows: DatedInstance[] }) {
+  const dates = useMemo(() => [...new Set(rows.map((r) => r.dateIso!).filter(Boolean))].sort(), [rows]);
+  const [idx, setIdx] = useState(0);
+  const iso = dates[Math.min(idx, dates.length - 1)];
+  if (!iso) return null;
+  const dayRows = rows.filter((r) => r.dateIso === iso).sort((a, b) => (a.session.startTime ?? "99").localeCompare(b.session.startTime ?? "99"));
+  const inst = dayRows.filter((r) => r.session.kind !== "CLINICAL").reduce((n, r) => n + nz2(r.computed.Y) * (r.session.facultyNeeded ?? 0), 0);
+  const pre = dayRows.filter((r) => r.session.kind === "CLINICAL").reduce((n, r) => n + nz2(r.computed.Y) * (r.session.preceptorsNeeded ?? 0), 0);
+  const shifts = dayRows.reduce((n, r) => n + nz2(r.computed.Y), 0);
+  const unassigned = dayRows.filter((r) => !r.session.staffName).reduce((n, r) => n + nz2(r.computed.Y), 0);
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+        <div className="flex items-center gap-2">
+          <button onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">←</button>
+          <span className="min-w-[16rem] text-center text-base font-semibold text-slate-800">{fmtDate(iso)}</span>
+          <button onClick={() => setIdx((i) => Math.min(dates.length - 1, i + 1))} disabled={idx >= dates.length - 1} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40">→</button>
+          <span className="text-xs text-slate-400">{idx + 1} of {dates.length} days</span>
+        </div>
+      </div>
+      <div className="border-b border-slate-100 bg-slate-50 px-5 py-3 text-base text-slate-800">
+        To run this day you need <strong>{ceilP(inst)} instructor{ceilP(inst) === 1 ? "" : "s"}</strong>{pre > 0 && <> and <strong className="text-amber-700">{ceilP(pre)} preceptor{ceilP(pre) === 1 ? "" : "s"}</strong></>} across <strong>{n0(shifts)} shift{shifts === 1 ? "" : "s"}</strong>
+        {unassigned > 0 ? <> — <strong className="text-amber-700">{n0(unassigned)} still have no one assigned</strong>.</> : <> — everyone is assigned.</>}
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 bg-white text-left text-[11px] uppercase tracking-wide text-slate-500">
+            <th className="px-4 py-2 font-semibold">Time</th>
+            <th className="px-3 py-2 font-semibold">Shift</th>
+            <th className="px-3 py-2 text-right font-semibold">Students</th>
+            <th className="px-3 py-2 text-right font-semibold">Hours</th>
+            <th className="px-3 py-2 font-semibold">Needs</th>
+            <th className="px-3 py-2 font-semibold">Where</th>
+            <th className="px-3 py-2 font-semibold">Assigned</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dayRows.map((r, i) => {
+            const Y = nz2(r.computed.Y);
+            const clin = r.session.kind === "CLINICAL";
+            const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
+            const t = r.session.startTime ?? null;
+            return (
+              <tr key={i} className="border-b border-slate-100">
+                <td className="whitespace-nowrap px-4 py-2 font-mono tabular-nums text-slate-700">{t ? `${fmtT2(t)} – ${fmtT2(endTime(t, r.session.lengthHours)!)}` : "not set"}</td>
+                <td className="px-3 py-2">
+                  <span className={`mr-1.5 inline-block h-2.5 w-2.5 rounded-sm ${r.session.kind === "CLASS" ? "bg-sky-500" : r.session.kind === "LAB" ? "bg-violet-500" : "bg-rose-500"}`} />
+                  <span className="font-medium text-slate-800">{r.courseCode ?? r.courseTitle}</span> <span className="text-slate-500">{r.session.kind.toLowerCase()}{Y > 1 ? ` × ${n0(Y)} sections` : ""}</span>
+                  {r.session.title && <span className="block text-xs text-slate-400">“{r.session.title}”</span>}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{n0(Math.min(r.computed.C, Y * (r.session.maxStudents ?? 0)))}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.session.lengthHours}h</td>
+                <td className="px-3 py-2 font-semibold">{clin ? <span className="text-amber-700">{n0(people)} preceptor{people === 1 ? "" : "s"}</span> : <span className="text-emerald-700">{n1(people)} instructor{people === 1 ? "" : "s"}</span>}</td>
+                <td className="px-3 py-2 text-slate-600">{clin ? (r.session.rotationType ? `@ ${r.session.rotationType}` : "setting not set") : (r.session.location ?? "no room")}</td>
+                <td className={`px-3 py-2 ${r.session.staffName ? "text-slate-700" : "font-medium text-amber-700"}`}>{r.session.staffName ?? "unassigned"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
   );
 }
 

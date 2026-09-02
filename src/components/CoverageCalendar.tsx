@@ -16,7 +16,7 @@ import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
-import { moveMeeting } from "@/lib/actions";
+import { moveShiftOccurrence, clearShiftMove } from "@/lib/actions";
 import { usHoliday, type DatedInstance } from "@/lib/capacitymodel";
 import type { CapacityCohort, ShiftMeeting } from "@/components/CapacityBoard";
 
@@ -62,6 +62,9 @@ export interface Shift {
   loc: string | null;
   staffName: string | null;
   meeting: ShiftMeeting | null;
+  /** The date the weekly pattern would put this shift on (the key of a per-occurrence move). */
+  originDate: string;
+  moved: boolean;
   facultyPerSection: number;
   preceptorsPerSection: number;
   holiday: string | null;
@@ -111,22 +114,28 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
         const off = day != null ? DAY_KEY[day] : undefined;
         if (off == null) continue; // async / no-day sessions don't land on a date
         const date = new Date(r.monday.getTime() + off * 86400000);
+        const originIso = date.toISOString().slice(0, 10);
+        // A per-occurrence move bumps THIS date only — the weekly pattern stays.
+        const mv = m?.moves?.find((x) => x.fromDate === originIso) ?? null;
+        const placedIso = mv?.toDate ?? originIso;
         out.push({
           key: `${r.session.id}|${r.weekOfTerm}|${sIdx}|${r.cohortId}`,
-          dateIso: date.toISOString().slice(0, 10),
-          time: m?.startTime ?? r.session.startTime ?? null,
+          dateIso: placedIso,
+          time: mv?.startTime ?? m?.startTime ?? r.session.startTime ?? null,
           kind: r.session.kind,
           courseCode: r.courseCode, courseTitle: r.courseTitle, sessionTitle: r.session.title,
           cohortId: r.cohortId, cohort: r.cohort, program: r.program,
           section: sIdx, of: Y,
           seats: m && m.seats > 0 ? m.seats : seatsDefault,
           lengthHours: r.session.lengthHours,
-          setting: r.session.rotationType, loc: m?.loc ?? r.session.location ?? null,
-          staffName: m?.staffName ?? null,
+          setting: r.session.rotationType, loc: mv?.loc ?? m?.loc ?? r.session.location ?? null,
+          staffName: mv?.staffName ?? m?.staffName ?? null,
           meeting: m,
+          originDate: originIso,
+          moved: !!mv,
           facultyPerSection: r.session.facultyNeeded ?? 0,
           preceptorsPerSection: r.session.kind === "CLINICAL" ? r.session.preceptorsNeeded ?? 0 : 0,
-          holiday: usHoliday(date),
+          holiday: usHoliday(new Date(placedIso + "T00:00:00Z")),
           sessionKey: `${r.cohortId}|${r.session.id}|${r.weekOfTerm}`,
           enrollment: r.computed.C,
         });
@@ -148,10 +157,9 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
     const shift = (e.active.data.current as { shift: Shift } | undefined)?.shift;
     setDragging(null);
     const overIso = e.over?.id as string | undefined;
-    if (!shift?.meeting || !overIso) return;
-    const weekday = WEEKDAYS[(new Date(overIso + "T00:00:00Z").getUTCDay() + 6) % 7];
-    if (weekday === shift.meeting.dayOfWeek) return;
-    startTransition(async () => { await moveMeeting(shift.meeting!.id, { dayOfWeek: weekday }); router.refresh(); });
+    if (!shift?.meeting || !overIso || overIso === shift.dateIso) return;
+    // Exactly this shift, exactly that date — nothing else moves.
+    startTransition(async () => { await moveShiftOccurrence(shift.meeting!.id, shift.originDate, { toDate: overIso }); router.refresh(); });
   };
 
   if (!shifts.length) return <p className="text-sm text-slate-400">No dated sessions in this slice — days come from the template&apos;s Week __ · day columns and each offering&apos;s real term dates.</p>;
@@ -208,8 +216,9 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           </div>
           {(view === "month" || view === "week") && (
             <p className="border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
-              One chip per shift (§3 = section 3 of that session). <strong>Drag a chip onto another day</strong> to move that section&apos;s
-              weekly booking to that weekday; open the <strong>Day</strong> view to set its time, location and staff exactly.
+              One chip per shift (§3 = section 3 of that session). <strong>Drag a chip onto another day</strong> and exactly that
+              one shift moves to exactly that date — nothing else follows it. Open the <strong>Day</strong> view to set a shift&apos;s
+              date, time, location and staff precisely (or put it back on its weekly pattern).
             </p>
           )}
 
@@ -248,7 +257,7 @@ function ShiftChipEl({ shift, size }: { shift: Shift; size: "sm" | "md" }) {
       className={`select-none rounded-r ${KIND_CHIP[shift.kind] ?? "bg-slate-50"} ${shift.meeting ? "cursor-grab touch-none active:cursor-grabbing" : ""} ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
       title={`${fmtT(shift.time)} · ${shift.courseCode ?? shift.courseTitle}${shift.of > 1 ? ` — shift ${shift.section} of ${shift.of}` : ""}${shift.sessionTitle ? ` — ${shift.sessionTitle}` : ""} · ${n0(shift.seats)} students · ${shift.lengthHours}h${shift.setting ? ` @ ${shift.setting}` : ""}${shift.loc ? ` (${shift.loc})` : ""} · ${shift.staffName ?? (shift.kind === "CLINICAL" ? "no preceptor" : "no instructor")} · ${shift.cohort}${shift.meeting ? " — drag to another day, or open Day view to edit time/location/staff" : ""}`}
     >
-      <span className="font-semibold">{fmtT(shift.time)} {shift.courseCode ?? shift.courseTitle}{shift.of > 1 ? ` §${shift.section}` : ""}</span>
+      <span className="font-semibold">{fmtT(shift.time)} {shift.courseCode ?? shift.courseTitle}{shift.of > 1 ? ` §${shift.section}` : ""}{shift.moved ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`moved from ${shift.originDate}`}>moved</span> : null}</span>
       <span className="block truncate opacity-80">{n0(shift.seats)} stu{shift.setting ? ` @ ${shift.setting}` : shift.loc ? ` · ${shift.loc}` : ""}</span>
     </div>
   );
@@ -465,7 +474,7 @@ function DayView({ dateIso, shifts, rooms, people, sites, onSaved }: {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-1.5 font-semibold">Shift</th>
-                  <th className="px-3 py-1.5 font-semibold">Day</th>
+                  <th className="px-3 py-1.5 font-semibold">Date</th>
                   <th className="px-3 py-1.5 font-semibold">Time</th>
                   <th className="px-3 py-1.5 font-semibold">{s0.kind === "CLINICAL" ? "Clinical site" : "Room"}</th>
                   <th className="px-3 py-1.5 font-semibold">{s0.kind === "CLINICAL" ? "Preceptor" : "Instructor"}</th>
@@ -493,34 +502,40 @@ function Stat({ v, k, d }: { v: string; k: string; d: string }) {
   );
 }
 
-/** One shift, editable in place: weekday · time · location · staff.
- *  Saving updates that section's weekly booking (moveMeeting). */
+/** One shift OCCURRENCE, editable in place: date · time · location · staff.
+ *  Saving records a per-occurrence move (this date only); "pattern" puts it
+ *  back on the weekly booking. */
 function ShiftEditorRow({ shift, rooms, people, sites, onSaved }: {
   shift: Shift; rooms: CalRoom[]; people: CalPerson[]; sites: CalSite[]; onSaved: () => void;
 }) {
   const m = shift.meeting;
+  const mv = m?.moves?.find((x) => x.fromDate === shift.originDate) ?? null;
   const [pending, startTransition] = useTransition();
-  const [day, setDay] = useState(m?.dayOfWeek ?? "");
-  const [time, setTime] = useState(m?.startTime ?? shift.time ?? "");
-  const [loc, setLoc] = useState(shift.kind === "CLINICAL" ? m?.employerId ?? "" : m?.facilityId ?? "");
-  const [staff, setStaff] = useState(m?.staffPersonId ?? "");
+  const [date, setDate] = useState(shift.dateIso);
+  const [time, setTime] = useState(shift.time ?? "");
   const clin = shift.kind === "CLINICAL";
-  const dirty = m != null && (day !== m.dayOfWeek || time !== m.startTime || loc !== ((clin ? m.employerId : m.facilityId) ?? "") || staff !== (m.staffPersonId ?? ""));
+  const [loc, setLoc] = useState(clin ? (mv?.employerId ?? m?.employerId ?? "") : (mv?.facilityId ?? m?.facilityId ?? ""));
+  const [staff, setStaff] = useState(mv?.staffPersonId ?? m?.staffPersonId ?? "");
+  const dirty = m != null && (date !== shift.dateIso || time !== (shift.time ?? "") || loc !== (clin ? (mv?.employerId ?? m.employerId ?? "") : (mv?.facilityId ?? m.facilityId ?? "")) || staff !== (mv?.staffPersonId ?? m.staffPersonId ?? ""));
   const staffPool = clin ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
   const eligibleRooms = rooms.filter((r) => (shift.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
   const inp = "rounded border border-slate-300 px-2 py-1 text-sm";
   const save = () => {
     if (!m) return;
     startTransition(async () => {
-      await moveMeeting(m.id, {
-        dayOfWeek: day || undefined,
-        startTime: time || undefined,
+      await moveShiftOccurrence(m.id, shift.originDate, {
+        toDate: date,
+        startTime: time || null,
         facilityId: clin ? undefined : (loc || null),
         employerId: clin ? (loc || null) : undefined,
         staffPersonId: staff || null,
       });
       onSaved();
     });
+  };
+  const reset = () => {
+    if (!m) return;
+    startTransition(async () => { await clearShiftMove(m.id, shift.originDate); onSaved(); });
   };
   if (!m) {
     return (
@@ -535,9 +550,8 @@ function ShiftEditorRow({ shift, rooms, people, sites, onSaved }: {
     <tr className="border-b border-slate-50 align-middle">
       <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">§{shift.section}</td>
       <td className="px-3 py-1.5">
-        <select value={day} onChange={(e) => setDay(e.target.value)} className={inp}>
-          {WEEKDAYS.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
+        {shift.moved && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title={`weekly pattern puts this on ${shift.originDate}`}>moved</span>}
       </td>
       <td className="px-3 py-1.5"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inp} /></td>
       <td className="px-3 py-1.5">
@@ -564,6 +578,7 @@ function ShiftEditorRow({ shift, rooms, people, sites, onSaved }: {
         <button onClick={save} disabled={!dirty || pending} className={`rounded-lg px-3 py-1 text-xs font-medium ${dirty ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-400"}`}>
           {pending ? "Saving…" : "Save"}
         </button>
+        {shift.moved && <button onClick={reset} disabled={pending} className="ml-1 rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-white" title="put this shift back on its weekly pattern">pattern</button>}
       </td>
     </tr>
   );

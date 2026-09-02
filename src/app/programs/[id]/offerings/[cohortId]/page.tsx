@@ -57,7 +57,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
     const input: CohortCalendarInput = {
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
       enrollmentByTerm: capCohort.enrollmentByTerm,
-      termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+      termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex as Record<string, string | null>).map(([k, v]) => [k, v ? new Date(v) : null])),
       courses: capCohort.courses,
     };
     const instances = buildInstances(input, capCohort.assumptions).filter((i) => i.mondayIso != null);
@@ -172,6 +172,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
             </label>
           ))}
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save dates</button>
+          <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="keep the offering start; re-derive every term's first day along the institution's academic calendar (Spring / Summer / Fall anchors set on the goal page)">Save &amp; re-derive terms from start</button>
         </form>
       </Collapse>
 
