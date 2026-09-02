@@ -1469,7 +1469,8 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } }, moves: { select: { fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } } }, orderBy: { sectionIndex: "asc" as const } },
+          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
+          shiftMoves: { select: { sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
           _count: { select: { students: true } },
         },
       },
@@ -1539,13 +1540,15 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}${m.unit?.unitType ? ` · ${m.unit.unitType}` : ""}` : "@ site TBD") : (m.facility?.name ?? null),
           staffName: m.staff?.name ?? null,
           lengthHours: m.lengthHours, termIndex: m.termIndex,
-          // Per-occurrence moves: one shift bumped to another date / time / place.
-          moves: m.moves.map((mv) => ({
-            fromDate: mv.fromDate.toISOString().slice(0, 10), toDate: mv.toDate.toISOString().slice(0, 10),
-            startTime: mv.startTime, facilityId: mv.facilityId, employerId: mv.employerId, staffPersonId: mv.staffPersonId,
-            loc: mv.employer?.name ? `@ ${mv.employer.name}` : mv.facility?.name ?? null,
-            staffName: mv.staff?.name ?? null,
-          })),
+        })),
+        // Per-occurrence moves: ONE shift (session × section, on one date) bumped
+        // to another date / time / place — keyed by the session, so nothing else follows.
+        moves: co.shiftMoves.map((mv) => ({
+          sessionId: mv.sessionId, sectionIndex: mv.sectionIndex,
+          fromDate: mv.fromDate.toISOString().slice(0, 10), toDate: mv.toDate.toISOString().slice(0, 10),
+          startTime: mv.startTime, facilityId: mv.facilityId, employerId: mv.employerId, staffPersonId: mv.staffPersonId,
+          loc: mv.employer?.name ? `@ ${mv.employer.name}` : mv.facility?.name ?? null,
+          staffName: mv.staff?.name ?? null,
         })),
         courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
           code: c.code, title: c.name, courseId: c.id, termIndex: t.index, termName: t.name,

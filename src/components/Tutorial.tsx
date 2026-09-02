@@ -70,7 +70,6 @@ const TOURS: Tour[] = [
     steps: [
       { h: "This is reality", b: "The template instantiated: real dates, real pipeline targets, real people. Adjust the offering's start date and each term's first day right here — everything re-derives." },
       { h: "One clear button per section", b: "Talent pipeline (with enrollment through every term inside the funnel), Offering dates, Preferred course sequence, Instructors & preceptors, and Calendar — each is a drop-down: the button shows the live summary, clicking opens the full picture." },
-      { h: "Instructors & preceptors — who, then how many", b: "The roster first: every instructor and preceptor, the sections each carries, the sections still unstaffed with an assign pick-list, and + Add for someone new. Below it, the need at semester, week and day altitude." },
       { h: "Configure the instantiation", b: "Open Design & sequence — this offering to edit every session for this run. In the sequence board, each course card carries its OWN start and end date inputs — 8-week and 16-week courses inside the same term each get their real window, and session dates, staffing and the calendar all shift with it." },
       { h: "The calendar", b: "Scroll the month view with ← → : every session on its exact date, color-coded (blue class, violet lab, rose clinical) with time, course and location. Click a day to see exactly what happens that day and who must be on site; ⚠ marks holiday collisions." },
     ],
@@ -92,7 +91,6 @@ const TOURS: Tour[] = [
   {
     key: "staffing-need", match: /^\/insights\/staffing-need/, title: "Instructors & preceptors needed",
     steps: [
-      { h: "The roster", b: "Who you have across every offering: each instructor and preceptor with the sections they carry, the sections still unstaffed with an assign pick-list, and + Add for someone new." },
       { h: "The answer, in words", b: "Each altitude opens with a plain statement — we need N instructors and M preceptors in this semester / week / day, at these times — then the charts behind it." },
       { h: "The pivot charts", b: "FTEs per semester (year → semester → class/lab/clinical — the budgeting view), FTEs per week of term (the shape of the load; where orange overtakes blue, clinicals start), and clinical staffing by rotation type — every column carries its number, blue = faculty, orange = preceptors." },
       { h: "Every shift is a column", b: "The shift chart plays out every session instance — one vertical column per shift group, height = shift length, color = class / lab / clinical — capped with its hours × shifts and the people who staff it, grouped day by day under week headers, term by term." },

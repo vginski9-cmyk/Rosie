@@ -1421,40 +1421,48 @@ export async function unlockInstantiation(cohortId: string): Promise<void> {
  *  `fromDateIso` under the weekly pattern happens on `toDate` instead
  *  (optionally at another time / place / with other staff). The weekly booking
  *  is untouched, so no other week moves. */
+/** Move ONE shift occurrence — the session × section of a cohort that its weekly
+ *  pattern puts on `fromDateIso` — to another date / time / place. Keyed by the
+ *  session, so no other shift moves with it; works whether or not the offering
+ *  has weekly bookings yet. */
 export async function moveShiftOccurrence(
-  meetingId: string,
+  key: { cohortId: string; sessionId: string; sectionIndex: number; meetingId?: string | null },
   fromDateIso: string,
   patch: { toDate?: string; startTime?: string | null; facilityId?: string | null; employerId?: string | null; staffPersonId?: string | null },
 ): Promise<void> {
+  const { cohortId, sessionId } = key;
+  const sectionIndex = Math.max(1, Math.round(key.sectionIndex || 1));
   const fromDate = new Date(fromDateIso + "T00:00:00Z");
-  const existing = await prisma.shiftMove.findUnique({ where: { meetingId_fromDate: { meetingId, fromDate } } });
+  const where = { cohortId_sessionId_sectionIndex_fromDate: { cohortId, sessionId, sectionIndex, fromDate } };
+  const existing = await prisma.shiftMove.findUnique({ where });
   const toDate = patch.toDate ? new Date(patch.toDate + "T00:00:00Z") : existing?.toDate ?? fromDate;
   const data = {
     toDate,
+    meetingId: key.meetingId ?? existing?.meetingId ?? null,
     startTime: patch.startTime === undefined ? existing?.startTime ?? null : patch.startTime,
     facilityId: patch.facilityId === undefined ? existing?.facilityId ?? null : patch.facilityId,
     employerId: patch.employerId === undefined ? existing?.employerId ?? null : patch.employerId,
     staffPersonId: patch.staffPersonId === undefined ? existing?.staffPersonId ?? null : patch.staffPersonId,
   };
   const m = await prisma.shiftMove.upsert({
-    where: { meetingId_fromDate: { meetingId, fromDate } },
-    update: data,
-    create: { meetingId, fromDate, ...data },
-    include: { meeting: { select: { cohortId: true, cohort: { select: { programId: true } } } } },
+    where, update: data,
+    create: { cohortId, sessionId, sectionIndex, fromDate, ...data },
+    include: { cohort: { select: { programId: true } } },
   });
   revalidatePath("/calendar");
-  revalidatePath(`/programs/${m.meeting.cohort.programId}/offerings/${m.meeting.cohortId}`);
+  revalidatePath(`/programs/${m.cohort.programId}/offerings/${cohortId}`);
   revalidatePath("/insights/coverage");
 }
 
 /** Put one moved occurrence back on its weekly pattern. */
-export async function clearShiftMove(meetingId: string, fromDateIso: string): Promise<void> {
+export async function clearShiftMove(key: { cohortId: string; sessionId: string; sectionIndex: number }, fromDateIso: string): Promise<void> {
   const fromDate = new Date(fromDateIso + "T00:00:00Z");
-  const m = await prisma.shiftMove.findUnique({ where: { meetingId_fromDate: { meetingId, fromDate } }, include: { meeting: { select: { cohortId: true, cohort: { select: { programId: true } } } } } });
+  const sectionIndex = Math.max(1, Math.round(key.sectionIndex || 1));
+  const m = await prisma.shiftMove.findUnique({ where: { cohortId_sessionId_sectionIndex_fromDate: { cohortId: key.cohortId, sessionId: key.sessionId, sectionIndex, fromDate } }, include: { cohort: { select: { programId: true } } } });
   if (!m) return;
   await prisma.shiftMove.delete({ where: { id: m.id } });
   revalidatePath("/calendar");
-  revalidatePath(`/programs/${m.meeting.cohort.programId}/offerings/${m.meeting.cohortId}`);
+  revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
   revalidatePath("/insights/coverage");
 }
 

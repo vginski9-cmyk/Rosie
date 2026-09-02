@@ -317,6 +317,7 @@ model Session {
   sectionSchedules SectionSchedule[]
   resources SessionResource[]
   overrides SessionOverride[]
+  shiftMoves ShiftMove[]
 
   @@index([courseId])
 }
@@ -471,6 +472,7 @@ model Cohort {
   students    Student[]
   cohortTerms CohortTerm[]
   sessionOverrides SessionOverride[]
+  shiftMoves ShiftMove[]
   courseDates CohortCourseDates[]
   sessionStaff SessionInstructor[]
   sectionSchedules SectionSchedule[]
@@ -652,10 +654,18 @@ model RotationSetting {
 /// that would have landed on `fromDate` happens on `toDate` instead (optionally
 /// at a different time / place / with different staff). The weekly booking is
 /// untouched — space is fluid one day at a time.
+/// One shift occurrence (a session × section of a cohort, on the date its weekly
+/// pattern puts it) moved to another date / time / place. Keyed by the SESSION so
+/// exactly one chip moves — never every session that shares a weekly booking.
 model ShiftMove {
   id            String   @id @default(cuid())
-  meetingId     String
-  meeting       MeetingPattern @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  cohortId      String
+  cohort        Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sectionIndex  Int      @default(1)
+  meetingId     String?
+  meeting       MeetingPattern? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   fromDate      DateTime
   toDate        DateTime
   startTime     String?
@@ -669,8 +679,8 @@ model ShiftMove {
   staff         Person?   @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
 
-  @@unique([meetingId, fromDate])
-  @@index([meetingId])
+  @@unique([cohortId, sessionId, sectionIndex, fromDate])
+  @@index([cohortId])
 }
 
 model MeetingPattern {

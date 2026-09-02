@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOffering, getCapacityModel } from "@/lib/queries";
-import { StaffRoster } from "@/components/StaffRoster";
-import { rosterFromCohorts } from "@/lib/roster";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
@@ -205,13 +203,10 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       {capCohort && (
         <Collapse
           title="Instructors & preceptors"
-          sub="Who teaches and precepts each section (assign, unassign, add people) — then how many are needed and when, at semester, week and day altitude"
+          sub="How many, and when — semester, week and day views: FTE charts and every shift with who staffs it"
           summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week</>}
         >
-          <div className="space-y-5">
-            <StaffRoster institutionId={capModel!.institution.id} people={capModel?.people ?? []} meetings={rosterFromCohorts([capCohort])} />
-            <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
-          </div>
+          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
         </Collapse>
       )}
 

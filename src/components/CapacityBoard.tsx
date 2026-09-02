@@ -22,10 +22,10 @@ export interface ShiftMeeting {
   facilityId: string | null; employerId: string | null; unitId?: string | null; staffPersonId: string | null;
   loc: string | null; staffName: string | null;
   lengthHours?: number; termIndex?: number;
-  /** One-off moves: the occurrence patterned on fromDate happens on toDate instead. */
-  moves?: ShiftMoveInfo[];
 }
+/** One-off move: the occurrence of session × section patterned on fromDate happens on toDate instead. */
 export interface ShiftMoveInfo {
+  sessionId: string; sectionIndex: number;
   fromDate: string; toDate: string; startTime: string | null;
   facilityId: string | null; employerId: string | null; staffPersonId: string | null;
   loc: string | null; staffName: string | null;
@@ -45,6 +45,8 @@ export interface CapacityCohort {
   /** Institution's coded holidays & breaks (ISO → label). */
   holidays?: Record<string, string>;
   meetings?: ShiftMeeting[];
+  /** Per-occurrence shift moves for this cohort (one chip, one date). */
+  moves?: ShiftMoveInfo[];
   courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; sessions: SessionInput[] }[];
   assumptions: WorkloadAssumptions;
 }
