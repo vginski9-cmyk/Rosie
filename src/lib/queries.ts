@@ -275,6 +275,37 @@ export async function getClinicalSupply(institutionId?: string) {
   return { institution: inst, sites, rotations };
 }
 
+/** The 365-day clinical asset map for an institution: every physical asset with
+ *  its site, per-date exceptions, learner bookings in a window, and the
+ *  rotation-type → setting-code join. */
+export async function getAssetMap(institutionId: string, from: string, to: string) {
+  const [assetsRaw, rotations, bookingsRaw] = await Promise.all([
+    prisma.clinicalAsset.findMany({
+      where: { employer: { institutionId } },
+      orderBy: [{ employer: { name: "asc" } }, { settingCode: "asc" }, { assetNumber: "asc" }],
+      include: {
+        employer: { select: { id: true, name: true, externalId: true, county: true, ring: true, facilityType: true, agreementStatus: true, status: true } },
+        dayOverrides: { where: { date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } }, select: { date: true, shiftBlocks: true, note: true } },
+      },
+    }),
+    prisma.rotationSetting.findMany({ where: { institutionId }, orderBy: { rotationType: "asc" }, select: { rotationType: true, settingCode: true, unitCategory: true } }),
+    prisma.assetBooking.findMany({
+      where: { asset: { employer: { institutionId } }, date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } },
+      include: { cohort: { select: { name: true, program: { select: { name: true } } } } },
+      orderBy: [{ date: "asc" }, { block: "asc" }],
+    }),
+  ]);
+  const assets = assetsRaw.map((a) => ({
+    id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: a.employer.name, facilityExternalId: a.employer.externalId,
+    county: a.employer.county, ring: a.employer.ring, facilityType: a.employer.facilityType, agreementStatus: a.employer.agreementStatus, facilityStatus: a.employer.status,
+    settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
+    hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes,
+  }));
+  const overrides = assetsRaw.flatMap((a) => a.dayOverrides.map((o) => ({ assetId: a.id, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note })));
+  const bookings = bookingsRaw.map((b) => ({ id: b.id, assetId: b.assetId, cohortId: b.cohortId, sessionId: b.sessionId, sectionIndex: b.sectionIndex, meetingId: b.meetingId, date: b.date.toISOString().slice(0, 10), block: b.block, students: b.students, note: b.note, cohort: b.cohort.name, program: b.cohort.program.name }));
+  return { assets, overrides, bookings, rotations };
+}
+
 export async function getInstitutionsLite() {
   return prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 }
@@ -692,6 +723,7 @@ export async function getEmployer(id: string) {
     include: {
       institution: { select: { id: true, name: true } },
       units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
+      assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } } } },
       meetings: {
         orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
         include: { cohort: { select: { id: true, name: true, programId: true, program: { select: { name: true } } } }, course: { select: { code: true, name: true } }, unit: { select: { id: true, unitType: true } }, staff: { select: { name: true } } },

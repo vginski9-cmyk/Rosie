@@ -353,6 +353,52 @@ async function loadAssetMap(institutionId: string) {
   return { facilities: map.facilities.length, units: map.units.length };
 }
 
+/** The radiography 365-day PHYSICAL asset map (partner workbook): one row per
+ *  radiographic room / ED room / portable / C-arm / fluoro room with its
+ *  operating rule, plus any per-date exceptions, plus the rotation-type →
+ *  setting-code join the demand model needs. Learner rule defaults to 1
+ *  learner per asset per shift. */
+async function loadRadAssetMap(institutionId: string) {
+  type RadMap = { year: number; assets: { assetId: string; facilityId: string; facilityName: string; settingCode: string; setting: string; assetType: string; assetNumber: number; operatingRule: string; serves: string | null; days: string; shiftBlocks: string; hoursPerShift: number }[]; exceptions: { assetId: string; date: string; shiftBlocks: string }[] };
+  const map = JSON.parse(readFileSync(join(__dirname, "templates", "rad-asset-map.json"), "utf8")) as RadMap;
+  const employers = await prisma.employer.findMany({ where: { institutionId }, select: { id: true, externalId: true, name: true } });
+  const byExt = new Map(employers.map((e) => [e.externalId, e.id]));
+  const byName = new Map(employers.map((e) => [e.name.toLowerCase(), e.id]));
+  const assetIds = new Map<string, string>();
+  const facilities = new Set<string>();
+  for (const a of map.assets) {
+    const employerId = byExt.get(a.facilityId) ?? byName.get(a.facilityName.toLowerCase());
+    if (!employerId) continue;
+    facilities.add(employerId);
+    const row = await prisma.clinicalAsset.create({
+      data: {
+        employerId, externalId: a.assetId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber,
+        operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves,
+        learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED",
+      },
+    });
+    assetIds.set(a.assetId, row.id);
+  }
+  for (const x of map.exceptions) {
+    const assetId = assetIds.get(x.assetId); if (!assetId) continue;
+    await prisma.assetDay.create({ data: { assetId, date: new Date(x.date + "T00:00:00Z"), shiftBlocks: x.shiftBlocks } });
+  }
+  // Rotation type → setting code (which physical assets serve each rotation).
+  const ROT: [string, string | null, string][] = [
+    ["General Radiography", "GEN", "Imaging"], ["Chest & Bone", "GEN", "Imaging"], ["Pediatrics", "GEN", "Imaging"], ["Outpatient Imaging", "GEN", "Imaging"],
+    ["Trauma / Emergency", "ED", "Emergency"], ["Operating Room & Mobile", "OR", "Surgical"], ["Fluoroscopy / GI", "FLUORO", "Imaging"],
+    ["Vascular / Special Procedures", "FLUORO", "Imaging"], ["Computed Tomography", null, "Imaging"], ["Portables / Inpatient", "PORT", "Imaging"],
+    ["Operating Room", "OR", "Surgical"], ["Radiography", "GEN", "Imaging"], ["Emergency", "ED", "Emergency"], ["Imaging", "GEN", "Imaging"],
+  ];
+  for (const [rotationType, settingCode, unitCategory] of ROT) {
+    await prisma.rotationSetting.upsert({
+      where: { institutionId_rotationType: { institutionId, rotationType } },
+      update: { settingCode }, create: { institutionId, rotationType, unitCategory, settingCode },
+    });
+  }
+  return { assets: assetIds.size, facilities: facilities.size, exceptions: map.exceptions.length, rotations: ROT.length };
+}
+
 async function createProgram(opts: {
   institutionId: string;
   occupationId: string;
@@ -916,6 +962,9 @@ async function main() {
   await prisma.region.deleteMany();
   await prisma.occupation.deleteMany();
   await prisma.person.deleteMany();
+  await prisma.assetBooking.deleteMany();
+  await prisma.assetDay.deleteMany();
+  await prisma.clinicalAsset.deleteMany();
   await prisma.employer.deleteMany();
   await prisma.calendarBlock.deleteMany();
   await prisma.academicEvent.deleteMany();
@@ -969,6 +1018,8 @@ async function main() {
   const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates." } });
   const assets = await loadAssetMap(sandhills.id);
   console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
+  const radMap = await loadRadAssetMap(sandhills.id);
+  console.log(`radiography 365-day asset map: ${radMap.assets} physical assets across ${radMap.facilities} sites, ${radMap.exceptions} date exceptions, ${radMap.rotations} rotation → setting codes`);
   const maFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", description: "Medical Assisting program templates producing medical assistants for the Sandhills region." } });
 
   // ----- The prepopulated template library ----------------------------------

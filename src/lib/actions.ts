@@ -446,10 +446,109 @@ export async function upsertRotationSetting(institutionId: string, formData: For
   if (!rotationType) return;
   await prisma.rotationSetting.upsert({
     where: { institutionId_rotationType: { institutionId, rotationType } },
-    update: { unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")) },
-    create: { institutionId, rotationType, unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")) },
+    update: { unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")), ...(formData.has("settingCode") ? { settingCode: str(formData.get("settingCode")) || null } : {}) },
+    create: { institutionId, rotationType, unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")), settingCode: str(formData.get("settingCode")) || null },
   });
   revalidatePath("/insights/clinical-sites");
+}
+
+// ---------------------------------------------------------------------------
+// 365-DAY CLINICAL ASSET MAP — physical assets, per-date exceptions, learner bookings
+// ---------------------------------------------------------------------------
+
+const assetDataFrom = (fd: FormData) => {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => fd.get(`day_${d}`) != null);
+  const blocks = ["Day", "Evening", "Night"].filter((b) => fd.get(`block_${b}`) != null);
+  return {
+    externalId: str(fd.get("externalId")) || null,
+    settingCode: (str(fd.get("settingCode")) || "GEN").toUpperCase().slice(0, 12),
+    setting: str(fd.get("setting")) || "General diagnostic radiography",
+    assetType: str(fd.get("assetType")) || "Fixed radiographic room",
+    assetNumber: Math.max(1, Math.round(numOr(fd.get("assetNumber"), 1))),
+    operatingRule: str(fd.get("operatingRule")) || "Custom",
+    days: (days.length ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"]).join(","),
+    shiftBlocks: (blocks.length ? blocks : ["Day"]).join(","),
+    hoursPerShift: numOr(fd.get("hoursPerShift"), 8),
+    serves: str(fd.get("serves")) || null,
+    learnersPerShift: Math.max(0, Math.round(numOr(fd.get("learnersPerShift"), 1))),
+    preceptorsPerShift: Math.max(0, Math.round(numOr(fd.get("preceptorsPerShift"), 1))),
+    dataSource: str(fd.get("dataSource")) || "ESTIMATE",
+    status: str(fd.get("status")) || "active",
+    notes: str(fd.get("notes")) || null,
+  };
+};
+const revalidateAssets = (employerId?: string) => { revalidatePath("/insights/clinical-sites"); if (employerId) revalidatePath(`/employers/${employerId}`); };
+
+export async function createClinicalAsset(employerId: string, formData: FormData): Promise<void> {
+  await prisma.clinicalAsset.create({ data: { employerId, ...assetDataFrom(formData) } });
+  revalidateAssets(employerId);
+}
+export async function updateClinicalAsset(assetId: string, employerId: string, formData: FormData): Promise<void> {
+  await prisma.clinicalAsset.update({ where: { id: assetId }, data: assetDataFrom(formData) });
+  revalidateAssets(employerId);
+}
+export async function deleteClinicalAsset(assetId: string, employerId: string): Promise<void> {
+  await prisma.clinicalAsset.delete({ where: { id: assetId } });
+  revalidateAssets(employerId);
+}
+
+/** Mark one date as an exception for an asset: `shiftBlocks` = the blocks it
+ *  runs that day ("" = closed); null removes the exception (back to its rule). */
+export async function setAssetDay(assetId: string, dateIso: string, shiftBlocks: string | null, note?: string | null): Promise<void> {
+  const date = new Date(dateIso + "T00:00:00Z");
+  const a = await prisma.clinicalAsset.findUnique({ where: { id: assetId }, select: { employerId: true } });
+  if (shiftBlocks == null) await prisma.assetDay.deleteMany({ where: { assetId, date } });
+  else await prisma.assetDay.upsert({ where: { assetId_date: { assetId, date } }, update: { shiftBlocks, note: note ?? null }, create: { assetId, date, shiftBlocks, note: note ?? null } });
+  revalidateAssets(a?.employerId);
+}
+
+/** Book learners onto a physical asset for one date × shift block. */
+export async function bookAsset(input: { assetId: string; cohortId: string; sessionId?: string | null; sectionIndex?: number; meetingId?: string | null; date: string; block: string; students?: number; note?: string | null }): Promise<{ ok: boolean; reason?: string }> {
+  const asset = await prisma.clinicalAsset.findUnique({ where: { id: input.assetId }, include: { bookings: { where: { date: new Date(input.date + "T00:00:00Z"), block: input.block } } } });
+  if (!asset) return { ok: false, reason: "asset not found" };
+  const students = Math.max(1, Math.round(input.students ?? 1));
+  const used = asset.bookings.reduce((n, b) => n + b.students, 0);
+  if (used + students > asset.learnersPerShift) return { ok: false, reason: `only ${Math.max(0, asset.learnersPerShift - used)} learner seat(s) left on this asset for that shift` };
+  await prisma.assetBooking.create({ data: { assetId: input.assetId, cohortId: input.cohortId, sessionId: input.sessionId ?? null, sectionIndex: Math.max(1, Math.round(input.sectionIndex ?? 1)), meetingId: input.meetingId ?? null, date: new Date(input.date + "T00:00:00Z"), block: input.block, students, note: input.note ?? null } });
+  revalidateAssets(asset.employerId);
+  return { ok: true };
+}
+export async function unbookAsset(bookingId: string): Promise<void> {
+  const b = await prisma.assetBooking.delete({ where: { id: bookingId }, include: { asset: { select: { employerId: true } } } }).catch(() => null);
+  revalidateAssets(b?.asset.employerId);
+}
+
+/** Import a parsed partner workbook: sites matched by facility_id (externalId)
+ *  then name (created if new), the file's assets REPLACE those sites' assets,
+ *  and 365-map exceptions are stored per date. */
+export async function importAssetMap(institutionId: string, parsed: import("./assetmap").ParsedAssetMap): Promise<{ sites: number; newSites: number; assets: number; exceptions: number }> {
+  const employers = await prisma.employer.findMany({ where: { institutionId }, select: { id: true, externalId: true, name: true } });
+  const byExt = new Map(employers.filter((e) => e.externalId).map((e) => [e.externalId!, e.id]));
+  const byName = new Map(employers.map((e) => [e.name.toLowerCase(), e.id]));
+  const siteOf = new Map<string, string>(); let newSites = 0;
+  for (const a of parsed.assets) {
+    const key = a.facilityExternalId || a.facilityName.toLowerCase();
+    if (siteOf.has(key)) continue;
+    let id = byExt.get(a.facilityExternalId) ?? byName.get(a.facilityName.toLowerCase());
+    if (!id) {
+      const e = await prisma.employer.create({ data: { institutionId, name: a.facilityName || a.facilityExternalId, externalId: a.facilityExternalId || null, county: a.county, ring: a.ring, facilityType: a.facilityType, setting: a.facilityType, status: "active", agreementStatus: "none" } });
+      id = e.id; newSites++;
+    }
+    siteOf.set(key, id);
+  }
+  const touched = [...new Set(siteOf.values())];
+  await prisma.clinicalAsset.deleteMany({ where: { employerId: { in: touched } } });
+  const ids = new Map<string, string>();
+  for (const a of parsed.assets) {
+    const employerId = siteOf.get(a.facilityExternalId || a.facilityName.toLowerCase())!;
+    const row = await prisma.clinicalAsset.create({ data: { employerId, externalId: a.externalId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED" } });
+    ids.set(a.externalId, row.id);
+  }
+  let exceptions = 0;
+  for (const x of parsed.exceptions) { const assetId = ids.get(x.assetId); if (!assetId) continue; await prisma.assetDay.create({ data: { assetId, date: new Date(x.date + "T00:00:00Z"), shiftBlocks: x.shiftBlocks } }); exceptions++; }
+  revalidatePath("/insights/clinical-sites"); revalidatePath("/employers");
+  for (const id of touched) revalidatePath(`/employers/${id}`);
+  return { sites: touched.length, newSites, assets: parsed.assets.length, exceptions };
 }
 /** Host a clinical section at a site + functional unit (weekly booking). */
 export async function assignSectionSite(meetingId: string, employerId: string | null, unitId: string | null): Promise<void> {

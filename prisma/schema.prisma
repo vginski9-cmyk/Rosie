@@ -469,6 +469,7 @@ model Cohort {
   pipelineRates String?
 
   stages      FunnelStage[]
+  assetBookings AssetBooking[]
   students    Student[]
   cohortTerms CohortTerm[]
   sessionOverrides SessionOverride[]
@@ -637,12 +638,82 @@ model ClinicalUnit {
 
 /// How a program's clinical ROTATION TYPE maps to the asset map's unit
 /// categories — the join between clinical demand and physical supply.
+/// One PHYSICAL clinical asset — a fixed radiographic room, an ED room, a
+/// portable unit, a mobile C-arm, a fluoroscopy room, an OR suite … — the grain
+/// of the 365-day asset map. Its operating rule (days × shift blocks) is the
+/// physical ceiling; the learner rule (learners per shift) is layered on top.
+model ClinicalAsset {
+  id            String   @id @default(cuid())
+  employerId    String
+  employer      Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  externalId    String?  // asset_id, e.g. H001-GEN-01
+  settingCode   String   // GEN | ED | PORT | OR | FLUORO | CT | MRI | …
+  setting       String   // "General diagnostic radiography"
+  assetType     String   // "Fixed radiographic room"
+  assetNumber   Int      @default(1)
+  operatingRule String   @default("24x7") // 24x7 | Weekday Day | Custom
+  days          String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+  shiftBlocks   String   @default("Day,Evening,Night")
+  hoursPerShift Float    @default(8)
+  serves        String?  // populations / case mix the asset supports
+  /// Learner rule: students the asset can host per shift (1 for a radiographic room).
+  learnersPerShift Int   @default(1)
+  preceptorsPerShift Int @default(1)
+  dataSource    String   @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
+  status        String   @default("active")
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  dayOverrides  AssetDay[]
+  bookings      AssetBooking[]
+
+  @@index([employerId])
+}
+
+/// A date on which an asset departs from its operating rule — closed for the
+/// day, or running a different set of shift blocks (holiday, maintenance,
+/// surge). The 365-day map is the rule plus these exceptions.
+model AssetDay {
+  id       String  @id @default(cuid())
+  assetId  String
+  asset    ClinicalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  date     DateTime
+  /// Shift blocks actually operating that day (csv); empty = closed.
+  shiftBlocks String @default("")
+  note     String?
+
+  @@unique([assetId, date])
+}
+
+/// A learner shift booked onto a specific asset on a specific date and shift
+/// block — the assignment that turns "supply vs demand" into a schedule.
+model AssetBooking {
+  id           String   @id @default(cuid())
+  assetId      String
+  asset        ClinicalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  cohortId     String
+  cohort       Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId    String?
+  sectionIndex Int      @default(1)
+  meetingId    String?
+  date         DateTime
+  block        String   // Day | Evening | Night
+  students     Int      @default(1)
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@index([assetId, date])
+  @@index([cohortId])
+}
+
 model RotationSetting {
   id            String @id @default(cuid())
   institutionId String
   rotationType  String
   unitCategory  String
   unitType      String?
+  /// Asset-map setting code this rotation is served by (GEN / ED / PORT / OR / FLUORO …).
+  settingCode   String?
   /// patients per student for this rotation (tightens the students-per-shift ceiling)
   patientsPerStudent Float?
   notes         String?
@@ -752,6 +823,7 @@ model Employer {
   sourceNote    String?
 
   units ClinicalUnit[]
+  assets ClinicalAsset[]
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
