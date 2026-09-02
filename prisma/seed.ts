@@ -285,6 +285,73 @@ const surgTerms: TermSeed[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// CLINICAL ASSET MAP — the region's physical clinical supply (Sandhills /
+// Pinehurst MSA: 61 facilities, 174 functional units) from the asset-map
+// workbook. Facilities become Employer partners (agreement status "none"
+// until someone secures them); functional units carry the capacity math.
+// ---------------------------------------------------------------------------
+interface AssetMap {
+  facilities: { facilityId: string; name: string; organization: string | null; county: string | null; ring: string | null; city: string | null; facilityType: string | null; licensedAcuteBeds: number | null; nursingHomeBeds: number | null; adultCareBeds: number | null; totalOrs: number | null; annualSurgicalCases: number | null; status: string | null; sourceNote: string | null }[];
+  units: { unitId: string; facilityId: string; unitType: string; unitCategory: string; unitName: string | null; capacityCount: number | null; uom: string | null; dataSource: string | null; shiftsPerDay: number | null; shiftLengthHrs: number | null; shiftBlocks: string[]; days: Record<string, number>; studentsPerShift: number | null; studentsPerPreceptor: number | null; preceptorsPerShift: number | null; notes: string | null }[];
+  eligibility: { program: string; required_experience: string; eligible_unit_types: string }[];
+}
+async function loadAssetMap(institutionId: string) {
+  const map = JSON.parse(readFileSync(join(__dirname, "templates", "asset-map.json"), "utf8")) as AssetMap;
+  const byFacility = new Map<string, string>();
+  for (const f of map.facilities) {
+    const e = await prisma.employer.create({
+      data: {
+        institutionId, name: f.name, externalId: f.facilityId, organization: f.organization, county: f.county, ring: f.ring, city: f.city,
+        facilityType: f.facilityType, setting: f.facilityType,
+        licensedBeds: f.licensedAcuteBeds != null ? Math.round(Number(f.licensedAcuteBeds)) : null,
+        nursingHomeBeds: f.nursingHomeBeds != null ? Math.round(Number(f.nursingHomeBeds)) : null,
+        adultCareBeds: f.adultCareBeds != null ? Math.round(Number(f.adultCareBeds)) : null,
+        operatingRooms: f.totalOrs != null ? Math.round(Number(f.totalOrs)) : null,
+        annualSurgicalCases: f.annualSurgicalCases != null ? Math.round(Number(f.annualSurgicalCases)) : null,
+        status: f.status && /open/i.test(f.status) ? "active" : "prospect",
+        agreementStatus: "none", sourceNote: f.sourceNote,
+      },
+    });
+    byFacility.set(f.facilityId, e.id);
+  }
+  for (const u of map.units) {
+    const employerId = byFacility.get(u.facilityId);
+    if (!employerId) continue;
+    await prisma.clinicalUnit.create({
+      data: {
+        employerId, externalId: u.unitId, unitType: u.unitType, unitCategory: u.unitCategory, unitName: u.unitName,
+        capacityCount: u.capacityCount != null ? Number(u.capacityCount) : null, uom: u.uom, dataSource: u.dataSource ?? "ESTIMATE",
+        shiftsPerDay: Math.max(1, Math.round(Number(u.shiftsPerDay ?? 1))), shiftLengthHrs: Number(u.shiftLengthHrs ?? 8),
+        shiftBlocks: (u.shiftBlocks.length ? u.shiftBlocks : ["Day"]).join(","),
+        days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => u.days[d]).join(","),
+        studentsPerShift: Math.round(Number(u.studentsPerShift ?? 0)), studentsPerPreceptor: Math.max(1, Math.round(Number(u.studentsPerPreceptor ?? 1))),
+        preceptorsPerShift: Math.round(Number(u.preceptorsPerShift ?? 0)), notes: u.notes,
+      },
+    });
+  }
+  // Rotation type → unit category defaults (the join the demand model needs).
+  const ROT: [string, string, string | null][] = [
+    ["Operating Room", "Surgical", "Operating Room Suite"],
+    ["Ambulatory Surgery", "Surgical", "Ambulatory OR Suite"],
+    ["Med-Surg", "Inpatient beds", "Med-Surg / Telemetry"], ["Medical-Surgical", "Inpatient beds", "Med-Surg / Telemetry"],
+    ["ICU", "Inpatient beds", "ICU / CCU"], ["Critical Care", "Inpatient beds", "ICU / CCU"],
+    ["Obstetrics", "Inpatient beds", "OB / Labor & Delivery"], ["Pediatrics", "Inpatient beds", "Pediatrics"],
+    ["Emergency", "Emergency", "Emergency Department"], ["Behavioral Health", "Behavioral health", "Behavioral Health"], ["Mental Health", "Behavioral health", "Behavioral Health"],
+    ["Long-Term Care", "Long-term care beds", "SNF Nursing Unit"], ["Skilled Nursing", "Long-term care beds", "SNF Nursing Unit"], ["Adult Care", "Adult care beds", "Adult Care Unit"],
+    ["Imaging", "Imaging", null], ["Radiography", "Imaging", "Imaging - Radiography"], ["CT", "Imaging", "Imaging - CT"], ["MRI", "Imaging", "Imaging - MRI"],
+    ["Laboratory", "Laboratory", "Clinical Laboratory"],
+    ["Doctor's Office", "Ambulatory office", null], ["Community Health", "Community", null],
+  ];
+  for (const [rotationType, unitCategory, unitType] of ROT) {
+    await prisma.rotationSetting.upsert({
+      where: { institutionId_rotationType: { institutionId, rotationType } },
+      update: {}, create: { institutionId, rotationType, unitCategory, unitType },
+    });
+  }
+  return { facilities: map.facilities.length, units: map.units.length };
+}
+
 async function createProgram(opts: {
   institutionId: string;
   occupationId: string;
@@ -896,6 +963,8 @@ async function main() {
   // ----- Families (one per job) ---------------------------------------------
   const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region." } });
   const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates." } });
+  const assets = await loadAssetMap(sandhills.id);
+  console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
   const maFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", description: "Medical Assisting program templates producing medical assistants for the Sandhills region." } });
 
   // ----- The prepopulated template library ----------------------------------

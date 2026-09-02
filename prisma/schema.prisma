@@ -577,6 +577,57 @@ model Person {
 /// staffing views AND the institution-wide master space calendar all read these,
 /// so a move in one surface shows up everywhere. Clinical meetings live off-campus
 /// (facilityId null / a CLINICAL facility) and don't compete for classroom space.
+/// A FUNCTIONAL UNIT inside a clinical site — the asset map's master grain.
+/// Capacity math happens here: beds/rooms/stations × shifts × days →
+/// students per shift, preceptors per shift, weekly student slots.
+model ClinicalUnit {
+  id            String   @id @default(cuid())
+  employerId    String
+  employer      Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  externalId    String?  // asset-map unit_id (C001…)
+  unitType      String   // Med-Surg / Telemetry · ICU / CCU · Operating Room Suite · SNF Nursing Unit …
+  unitCategory  String   // Inpatient beds · Surgical · Emergency · Imaging · Laboratory · Long-term care beds · Adult care beds · Behavioral health
+  unitName      String?
+  capacityCount Float?
+  uom           String?  // beds | rooms | bays | scanners | stations
+  /// VERIFIED (licensure/SMFP) | ESTIMATE (derived from licensed beds) | GAP (unknown)
+  dataSource    String   @default("ESTIMATE")
+  shiftsPerDay  Int      @default(2)
+  shiftLengthHrs Float   @default(12)
+  /// Comma list of shift blocks the unit runs: Day,Evening,Night
+  shiftBlocks   String   @default("Day,Night")
+  /// Comma list of weekdays the unit can host students: Mon,Tue,…
+  days          String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+  studentsPerShift Int   @default(0)
+  studentsPerPreceptor Int @default(1)
+  preceptorsPerShift Int @default(0)
+  natcepEligible Boolean?
+  status        String   @default("active") // active | inactive
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  meetings   MeetingPattern[]
+  shiftMoves ShiftMove[]
+
+  @@index([employerId])
+  @@index([unitCategory])
+}
+
+/// How a program's clinical ROTATION TYPE maps to the asset map's unit
+/// categories — the join between clinical demand and physical supply.
+model RotationSetting {
+  id            String @id @default(cuid())
+  institutionId String
+  rotationType  String
+  unitCategory  String
+  unitType      String?
+  /// patients per student for this rotation (tightens the students-per-shift ceiling)
+  patientsPerStudent Float?
+  notes         String?
+
+  @@unique([institutionId, rotationType])
+}
+
 /// ONE occurrence of a booked section moved off its weekly pattern: the shift
 /// that would have landed on `fromDate` happens on `toDate` instead (optionally
 /// at a different time / place / with different staff). The weekly booking is
@@ -592,6 +643,8 @@ model ShiftMove {
   facility      Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  unitId        String?
+  unit          ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
   staffPersonId String?
   staff         Person?   @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
@@ -622,6 +675,9 @@ model MeetingPattern {
   /// this puts the rotation on the same master calendar, attributed to the partner.
   employerId   String?
   employer     Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  /// The functional unit (bed unit / OR suite / …) inside the site that hosts this section.
+  unitId       String?
+  unit         ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
   staffPersonId String?
   staff         Person?  @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
@@ -649,7 +705,23 @@ model Employer {
   contactEmail  String?
   contactPhone  String?
   city          String?
+  /// ── Clinical asset map (facility level) ──
+  externalId    String?  // asset-map facility_id (H001…)
+  organization  String?  // licensee / health system
+  facilityType  String?  // Acute care hospital | Ambulatory surgery center | Nursing home | …
+  county        String?
+  ring          String?  // Core | Ring 1 | Ring 2
+  licensedBeds  Int?
+  nursingHomeBeds Int?
+  adultCareBeds Int?
+  operatingRooms Int?
+  annualSurgicalCases Int?
+  /// Agreement lifecycle with THIS institution: none | prospect | asked | secured | declined
+  agreementStatus String @default("none")
+  agreementNotes  String?
+  sourceNote    String?
 
+  units ClinicalUnit[]
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]

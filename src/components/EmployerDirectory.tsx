@@ -13,9 +13,15 @@ export interface DirEmployer {
   status: string;
   contactName: string | null;
   institution: { id: string; name: string };
-  _count: { people: number };
+  _count: { people: number; units?: number; meetings?: number };
   wbl: { asked: number; secured: number; periods: WblPeriod[] };
+  // clinical asset map
+  organization?: string | null; facilityType?: string | null; county?: string | null; ring?: string | null;
+  licensedBeds?: number | null; nursingHomeBeds?: number | null; adultCareBeds?: number | null; operatingRooms?: number | null;
+  agreementStatus?: string;
+  units?: { unitCategory: string; studentsPerShift: number; shiftsPerDay: number; days: string; status: string }[];
 }
+const AGREEMENT_BADGE: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 export interface InstLite { id: string; name: string }
 
 const STATUSES = ["prospect", "active", "paused", "archived"];
@@ -31,7 +37,14 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
   const [fStatus, setFStatus] = useState("");
   const [fYear, setFYear] = useState("");
   const [fSeason, setFSeason] = useState("");
+  const [fCounty, setFCounty] = useState("");
+  const [fRing, setFRing] = useState("");
+  const [fType, setFType] = useState("");
+  const [fAgree, setFAgree] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const counties = useMemo(() => [...new Set(employers.map((e) => e.county).filter((x): x is string => !!x))].sort(), [employers]);
+  const rings = useMemo(() => [...new Set(employers.map((e) => e.ring).filter((x): x is string => !!x))].sort(), [employers]);
+  const types = useMemo(() => [...new Set(employers.map((e) => e.facilityType).filter((x): x is string => !!x))].sort(), [employers]);
 
   const years = useMemo(() => {
     const s = new Set<number>();
@@ -57,15 +70,19 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
     return employers.filter((e) => {
       if (fInst && e.institution.id !== fInst) return false;
       if (fStatus && e.status !== fStatus) return false;
+      if (fCounty && e.county !== fCounty) return false;
+      if (fRing && e.ring !== fRing) return false;
+      if (fType && e.facilityType !== fType) return false;
+      if (fAgree && (e.agreementStatus ?? "none") !== fAgree) return false;
       if (needle && !(e.name.toLowerCase().includes(needle) || (e.city ?? "").toLowerCase().includes(needle) || (e.setting ?? "").toLowerCase().includes(needle))) return false;
       return true;
     });
-  }, [employers, q, fInst, fStatus]);
+  }, [employers, q, fInst, fStatus, fCounty, fRing, fType, fAgree]);
 
   const totals = filtered.reduce((acc, e) => { const s = scoped(e); return { asked: acc.asked + s.asked, secured: acc.secured + s.secured }; }, { asked: 0, secured: 0 });
   const fillRate = totals.asked > 0 ? Math.round((totals.secured / totals.asked) * 100) : 0;
   const periodLabel = periodActive ? `${fSeason || "all"} ${fYear || "years"}`.trim() : "all-time";
-  const anyFilter = q || fInst || fStatus || periodActive;
+  const anyFilter = q || fInst || fStatus || periodActive || fCounty || fRing || fType || fAgree;
 
   return (
     <div className="space-y-4">
@@ -102,7 +119,23 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
             {SEASONS.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
-        {anyFilter && <button onClick={() => { setQ(""); setFInst(""); setFStatus(""); setFYear(""); setFSeason(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Facility type</span>
+          <select value={fType} onChange={(e) => setFType(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">County</span>
+          <select value={fCounty} onChange={(e) => setFCounty(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{counties.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring</span>
+          <select value={fRing} onChange={(e) => setFRing(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{rings.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Agreement</span>
+          <select value={fAgree} onChange={(e) => setFAgree(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{["none", "prospect", "asked", "secured", "declined"].map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        </label>
+        {anyFilter && <button onClick={() => { setQ(""); setFInst(""); setFStatus(""); setFYear(""); setFSeason(""); setFCounty(""); setFRing(""); setFType(""); setFAgree(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
         <button onClick={() => setShowAdd((v) => !v)} className="ml-auto rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{showAdd ? "Close" : "+ Add partner"}</button>
       </div>
 
@@ -120,11 +153,12 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
         <table className="min-w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-              <th className="px-3 py-2 text-left font-semibold">Partner</th>
-              <th className="px-3 py-2 text-left font-semibold">Setting</th>
-              <th className="px-3 py-2 text-left font-semibold">Institution</th>
-              <th className="px-3 py-2 text-center font-semibold">Asked</th>
-              <th className="px-3 py-2 text-center font-semibold">Secured</th>
+              <th className="px-3 py-2 text-left font-semibold">Site</th>
+              <th className="px-3 py-2 text-left font-semibold">Type · county · ring</th>
+              <th className="px-3 py-2 text-right font-semibold">Beds / ORs</th>
+              <th className="px-3 py-2 text-left font-semibold">Units · students / shift</th>
+              <th className="px-3 py-2 text-left font-semibold">Agreement</th>
+              <th className="px-3 py-2 text-center font-semibold">Rotations asked / secured</th>
               <th className="px-3 py-2 text-left font-semibold">Status</th>
             </tr>
           </thead>
@@ -136,17 +170,22 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                 <tr key={e.id} className="hover:bg-slate-50/60">
                   <td className="px-3 py-2">
                     <Link href={`/employers/${e.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{e.name}</Link>
-                    {e.city && <span className="block text-[11px] text-slate-400">{e.city}</span>}
+                    <span className="block text-[11px] text-slate-400">{[e.organization, e.city].filter(Boolean).join(" · ")}</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-500">{e.setting ?? "—"}</td>
-                  <td className="px-3 py-2 text-slate-500">{e.institution.name}</td>
-                  <td className="px-3 py-2 text-center tabular-nums text-slate-600">{s.asked || "—"}</td>
-                  <td className={`px-3 py-2 text-center tabular-nums ${gap ? "font-semibold text-amber-600" : s.secured ? "text-emerald-600" : "text-slate-400"}`}>{s.secured || "—"}</td>
+                  <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county, e.ring].filter(Boolean).join(" · ") || "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-600">{e.licensedBeds ?? e.nursingHomeBeds ?? "—"}{e.operatingRooms ? ` / ${e.operatingRooms} OR` : ""}</td>
+                  <td className="px-3 py-2 text-slate-600">{(() => {
+                    const byCat = new Map<string, number>();
+                    for (const u of e.units ?? []) if (u.status === "active") byCat.set(u.unitCategory, (byCat.get(u.unitCategory) ?? 0) + u.studentsPerShift);
+                    return byCat.size ? [...byCat.entries()].map(([c, n]) => `${c} ${n}`).join(" · ") : <span className="text-slate-300">no units</span>;
+                  })()}</td>
+                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT_BADGE[e.agreementStatus ?? "none"]}`}>{e.agreementStatus ?? "none"}</span></td>
+                  <td className={`px-3 py-2 text-center tabular-nums ${gap ? "font-semibold text-amber-600" : s.secured ? "text-emerald-600" : "text-slate-400"}`}>{s.asked || s.secured ? `${s.asked} / ${s.secured}` : "—"}</td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[e.status] ?? "bg-slate-100 text-slate-600"}`}>{e.status}</span></td>
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">No partners match these filters.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">No sites match these filters.</td></tr>}
           </tbody>
         </table>
       </div>

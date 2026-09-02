@@ -99,7 +99,8 @@ const TOURS: Tour[] = [
   {
     key: "clinical-sites", match: /^\/insights\/clinical-sites/, title: "Clinical sites",
     steps: [
-      { h: "Supply vs demand first", b: "The verdict up top: peak-day clinical demand from every locked-in instantiation against the students/day capacity of the partner sites in supply — fits, or short by N. Below it, the gap chart paints every clinical week green (covered) or red (students with no slot) against the dashed supply line." },
+      { h: "Verdict by setting", b: "Supply is the clinical asset map — every site's functional units (beds, ORs, stations) with their shift blocks, days open and students per shift. Demand is every dated clinical section, mapped from rotation type to unit category. Each setting gets a verdict: covered by SECURED sites, room exists but not secured, or not enough physical room." },
+      { h: "Day grid, gaps, assignment", b: "The Day grid shows students each category can host by weekday × Day/Evening/Night block (secured first, physical in parentheses). Gaps by date lists every date-block where demand exceeds secured supply. Assign sections puts each clinical section at a site + unit; Sites & agreements tracks who is prospect / asked / secured." },
       { h: "One request block per setting", b: "For each clinical rotation type: students on the heaviest day, hosted shifts, preceptor hours, the days of week, and the calendar window — exactly what to ask a site to host." },
       { h: "Month by month", b: "The table shows the hosted load each setting carries per month, so a site can see its whole year at a glance." },
     ],

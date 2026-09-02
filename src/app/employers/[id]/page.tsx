@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getEmployer } from "@/lib/queries";
-import { updateEmployer, updatePlacementStatus, deletePlacement } from "@/lib/actions";
+import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +96,35 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           <Field name="contactName" label="Contact name" defaultValue={e.contactName} />
           <Field name="contactEmail" label="Contact email" type="email" defaultValue={e.contactEmail} />
           <Field name="contactPhone" label="Contact phone" defaultValue={e.contactPhone} />
+          {/* ── Clinical asset map: facility level ── */}
+          <div className="sm:col-span-2 lg:col-span-4 mt-2 border-t border-slate-100 pt-3 text-[10px] font-semibold uppercase tracking-wide text-rose-500">Clinical asset map — facility</div>
+          <Field name="organization" label="Organization / licensee" defaultValue={e.organization} />
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Facility type</span>
+            <select name="facilityType" defaultValue={e.facilityType ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">—</option>
+              {["Acute care hospital", "Specialty hospital", "Ambulatory surgery center", "Nursing home", "Combination home (NH + adult care)", "Adult care home", "Physician office / clinic", "Imaging center", "Behavioral health facility", "Home health / hospice", "Public health / community", "Other"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+          <Field name="county" label="County" defaultValue={e.county} />
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring (drive time)</span>
+            <select name="ring" defaultValue={e.ring ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">—</option>{["Core", "Ring 1", "Ring 2", "Outside"].map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+          <Field name="licensedBeds" label="Licensed acute beds" type="number" defaultValue={e.licensedBeds != null ? String(e.licensedBeds) : ""} />
+          <Field name="nursingHomeBeds" label="Nursing home beds" type="number" defaultValue={e.nursingHomeBeds != null ? String(e.nursingHomeBeds) : ""} />
+          <Field name="adultCareBeds" label="Adult care beds" type="number" defaultValue={e.adultCareBeds != null ? String(e.adultCareBeds) : ""} />
+          <Field name="operatingRooms" label="Operating rooms" type="number" defaultValue={e.operatingRooms != null ? String(e.operatingRooms) : ""} />
+          <Field name="annualSurgicalCases" label="Annual surgical cases" type="number" defaultValue={e.annualSurgicalCases != null ? String(e.annualSurgicalCases) : ""} />
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Agreement with us</span>
+            <select name="agreementStatus" defaultValue={e.agreementStatus} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium">
+              {["none", "prospect", "asked", "secured", "declined"].map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </label>
+          <Field name="agreementNotes" label="Agreement notes (who, when, terms)" defaultValue={e.agreementNotes} />
           <label className="block sm:col-span-2 lg:col-span-4">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Notes</span>
             <textarea name="notes" defaultValue={e.notes ?? ""} rows={2} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
@@ -104,6 +133,85 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save details</button>
           </div>
         </form>
+      </section>
+
+      {/* ── Functional units — the asset map's master grain ── */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Functional units <span className="text-sm font-normal text-slate-400">— where the capacity math happens</span></h2>
+          <p className="text-sm text-slate-500">Each unit: what it is, how many beds / rooms / stations, which shift blocks it runs and on which days, and how many students and preceptors a shift takes. Weekly student slots = students per shift × shifts per day × days open.</p>
+        </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
+              <tr><th className="px-2 py-2 font-semibold">Unit type</th><th className="px-2 py-2 font-semibold">Category</th><th className="px-2 py-2 font-semibold">Capacity</th><th className="px-2 py-2 font-semibold">Source</th><th className="px-2 py-2 font-semibold">Shifts / day · hrs</th><th className="px-2 py-2 font-semibold">Blocks</th><th className="px-2 py-2 font-semibold">Days open</th><th className="px-2 py-2 font-semibold">Students / shift</th><th className="px-2 py-2 font-semibold">Students / preceptor</th><th className="px-2 py-2 font-semibold">Preceptors / shift</th><th className="px-2 py-2 text-right font-semibold">Weekly slots</th><th className="px-2 py-2" /></tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {[...e.units, null].map((u, i) => {
+                const isNew = u == null;
+                const days = (u?.days ?? "Mon,Tue,Wed,Thu,Fri").split(",");
+                const blocks = (u?.shiftBlocks ?? "Day").split(",");
+                const weekly = u ? u.studentsPerShift * blocks.length * days.length : 0;
+                const fid = isNew ? "unit-new" : `unit-${u.id}`;
+                return (
+                  <tr key={u?.id ?? "new"} className={isNew ? "bg-rose-50/30" : ""}>
+                    <td className="px-2 py-1.5"><input form={fid} name="unitType" defaultValue={u?.unitType ?? ""} placeholder={isNew ? "new unit type" : ""} className="w-40 rounded border border-slate-300 px-1.5 py-1" /></td>
+                    <td className="px-2 py-1.5">
+                      <select form={fid} name="unitCategory" defaultValue={u?.unitCategory ?? "Inpatient beds"} className="rounded border border-slate-300 px-1.5 py-1">
+                        {["Inpatient beds", "Surgical", "Emergency", "Imaging", "Laboratory", "Long-term care beds", "Adult care beds", "Behavioral health", "Ambulatory office", "Community"].map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="capacityCount" type="number" step="any" defaultValue={u?.capacityCount ?? ""} className="w-16 rounded border border-slate-300 px-1.5 py-1 text-right" /> <input form={fid} name="uom" defaultValue={u?.uom ?? "beds"} className="w-16 rounded border border-slate-300 px-1.5 py-1" /></td>
+                    <td className="px-2 py-1.5"><select form={fid} name="dataSource" defaultValue={u?.dataSource ?? "ESTIMATE"} className="rounded border border-slate-300 px-1.5 py-1">{["VERIFIED", "ESTIMATE", "GAP"].map((d) => <option key={d} value={d}>{d}</option>)}</select></td>
+                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="shiftsPerDay" type="number" defaultValue={u?.shiftsPerDay ?? 2} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /> × <input form={fid} name="shiftLengthHrs" type="number" step="any" defaultValue={u?.shiftLengthHrs ?? 12} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" />h</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{["Day", "Evening", "Night"].map((b) => <label key={b} className="mr-1.5 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`block_${b}`} defaultChecked={blocks.includes(b)} />{b[0]}</label>)}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <label key={d} className="mr-1 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`day_${d}`} defaultChecked={days.includes(d)} />{d[0]}</label>)}</td>
+                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerShift" type="number" defaultValue={u?.studentsPerShift ?? 0} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerPreceptor" type="number" defaultValue={u?.studentsPerPreceptor ?? 1} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5"><input form={fid} name="preceptorsPerShift" type="number" defaultValue={u?.preceptorsPerShift ?? 0} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5 text-right font-mono tabular-nums">{isNew ? "—" : weekly}</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap">
+                      {isNew ? (
+                        <form id={fid} action={createClinicalUnit.bind(null, e.id)}><button className="rounded bg-rose-600 px-2 py-1 font-medium text-white hover:bg-rose-700">+ Add unit</button></form>
+                      ) : (
+                        <span className="inline-flex items-center gap-1">
+                          <form id={fid} action={updateClinicalUnit.bind(null, u.id, e.id)}><input type="hidden" name="status" value={u.status} /><button className="rounded bg-slate-800 px-2 py-1 font-medium text-white hover:bg-slate-700">Save</button></form>
+                          <form action={deleteClinicalUnit.bind(null, u.id, e.id)}><button className="rounded px-1.5 py-1 text-slate-300 hover:text-rose-600" title="delete unit">✕</button></form>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ── Sections hosted here ── */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">Clinical sections hosted here <span className="text-sm font-normal text-slate-400">— weekly bookings assigned to this site</span></h2>
+        {e.meetings.length === 0 ? (
+          <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">Nothing assigned yet — assign sections under Insights → Clinical sites → Assign sections.</p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="min-w-full text-xs">
+              <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {e.meetings.map((m) => (
+                  <tr key={m.id}>
+                    <td className="px-3 py-1.5"><Link href={`/programs/${m.cohort.programId}/offerings/${m.cohort.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{m.cohort.name}</Link><span className="block text-slate-400">{m.cohort.program.name}</span></td>
+                    <td className="px-3 py-1.5">{m.course.code ?? m.course.name} §{m.sectionIndex}/{m.sectionCount}</td>
+                    <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {m.lengthHours}h</td>
+                    <td className="px-3 py-1.5">{m.unit?.unitType ?? <span className="text-amber-600">unit not set</span>}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td>
+                    <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Partner alignment intake */}

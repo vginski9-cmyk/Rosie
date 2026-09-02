@@ -12,13 +12,13 @@ export default async function EmployersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Employer partners</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Clinical sites &amp; employer partners</h1>
         <p className="max-w-3xl text-sm text-slate-500">
-          The supply side of work-based learning — every clinical / employer partner and the rotations they actually host.
-          Capacity is read live from placement records (what programs <em>asked</em> for vs what was <em>secured</em>),
-          not a static slot count, because real availability shifts week to week. Onboard a new partner, then open one to
-          manage its details and placements.
-          {" "}{employers.length} partners · {active} active · {secured} of {asked} rotations secured.
+          The physical supply of clinical placement: every hospital, surgery center, nursing home and office in the region
+          — with its beds, operating rooms and <strong>functional units</strong> (the shift structure, days open, students
+          and preceptors per shift) — and where each one stands on an agreement with you. Open a site to configure its
+          units and see the sections it hosts.
+          {" "}{employers.length} sites · {active} open · {secured} of {asked} rotations secured.
         </p>
       </div>
       <EmployerDirectory employers={employers} institutions={institutions} />

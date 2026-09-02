@@ -115,6 +115,10 @@ export function OfferingDesign({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Drill-down navigation: terms → courses → sessions (first term open by default).
+  const [openTerms, setOpenTerms] = useState<Set<string>>(() => new Set(terms[0] ? [terms[0].id] : []));
+  const [openCourses, setOpenCourses] = useState<Set<string>>(new Set());
+  const [openSessions, setOpenSessions] = useState<Set<string>>(new Set());
 
   // Local editable copy of every session (override-merged) so formula columns
   // recalculate as you type — like the template sheet, but per offering.
@@ -182,57 +186,163 @@ export function OfferingDesign({
 
   const OVERRIDE_FIELDS = ["week", "dayOfWeek", "startTime", "notes", "title", "deliveryMode", "location", "lengthHours", "maxStudents", "facultyNeeded", "facultyContactPolicy", "supportStaffNeeded", "supportContactPolicy", "preceptorsNeeded", "preceptorContactPolicy", "rotationType", "clinicalMode"] as (keyof RowState)[];
 
+  // ── Roll-up analytics: hours per student by kind, delivery mix, clinical settings ──
+  type Mix = { hrs: { CLASS: number; LAB: number; CLINICAL: number }; modes: Record<string, number>; settings: Map<string, { sessions: number; hrs: number }>; sessions: number };
+  const modeOf = (dm: string | null) => { const v = (dm ?? "").toLowerCase(); return v.includes("online") ? "online" : v.includes("hybrid") ? "hybrid" : "in-person"; };
+  const emptyMix = (): Mix => ({ hrs: { CLASS: 0, LAB: 0, CLINICAL: 0 }, modes: { "in-person": 0, hybrid: 0, online: 0 }, settings: new Map(), sessions: 0 });
+  const mixOf = (rs: RowState[]): Mix => {
+    const m = emptyMix();
+    for (const r of rs) {
+      const k = (r.kind in m.hrs ? r.kind : "CLASS") as keyof Mix["hrs"];
+      m.hrs[k] += r.lengthHours ?? 0; m.sessions += 1; m.modes[modeOf(r.deliveryMode)] += 1;
+      if (r.kind === "CLINICAL") { const key = r.rotationType ?? "(setting not set)"; const cur = m.settings.get(key) ?? { sessions: 0, hrs: 0 }; cur.sessions += 1; cur.hrs += r.lengthHours ?? 0; m.settings.set(key, cur); }
+    }
+    return m;
+  };
+  const addMix = (a: Mix, b: Mix): Mix => {
+    const m = emptyMix();
+    for (const k of ["CLASS", "LAB", "CLINICAL"] as const) m.hrs[k] = a.hrs[k] + b.hrs[k];
+    for (const k of Object.keys(m.modes)) m.modes[k] = (a.modes[k] ?? 0) + (b.modes[k] ?? 0);
+    m.sessions = a.sessions + b.sessions;
+    for (const src of [a.settings, b.settings]) for (const [k, v] of src) { const cur = m.settings.get(k) ?? { sessions: 0, hrs: 0 }; cur.sessions += v.sessions; cur.hrs += v.hrs; m.settings.set(k, cur); }
+    return m;
+  };
+  const courseMix = new Map<string, Mix>();
+  const termMix = new Map<string, Mix>();
+  for (const t of terms) {
+    let tm = emptyMix();
+    for (const c of t.courses) { const cm = mixOf(c.sessions.map((s) => rows.get(s.id)!).filter(Boolean)); courseMix.set(c.id, cm); tm = addMix(tm, cm); }
+    termMix.set(t.id, tm);
+  }
+  const allMix = [...termMix.values()].reduce(addMix, emptyMix());
+  const hrsTot = (m: Mix) => m.hrs.CLASS + m.hrs.LAB + m.hrs.CLINICAL;
+
+  const MixStrip = ({ m, size = "sm" }: { m: Mix; size?: "sm" | "lg" }) => (
+    <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${size === "lg" ? "text-sm" : "text-[11px]"}`}>
+      <span className="inline-flex items-center gap-1 text-slate-700"><span className="h-2 w-2 rounded-full bg-sky-500" /><strong>{n1(m.hrs.CLASS)}h</strong> class</span>
+      <span className="inline-flex items-center gap-1 text-slate-700"><span className="h-2 w-2 rounded-full bg-violet-500" /><strong>{n1(m.hrs.LAB)}h</strong> lab</span>
+      <span className="inline-flex items-center gap-1 text-slate-700"><span className="h-2 w-2 rounded-full bg-rose-500" /><strong>{n1(m.hrs.CLINICAL)}h</strong> clinical</span>
+      <span className="font-semibold text-slate-900">{n1(hrsTot(m))}h total / student</span>
+      <span className="text-slate-300">|</span>
+      <span className="text-slate-600">{n0(m.sessions)} sessions: <strong>{n0(m.modes["in-person"])}</strong> in-person · <strong>{n0(m.modes.hybrid)}</strong> hybrid · <strong>{n0(m.modes.online)}</strong> online</span>
+      {m.settings.size > 0 && (
+        <>
+          <span className="text-slate-300">|</span>
+          <span className="text-slate-600">clinical settings: {[...m.settings.entries()].map(([k, v]) => `${k} (${n0(v.sessions)} sessions · ${n1(v.hrs)}h)`).join(" · ")}</span>
+        </>
+      )}
+    </div>
+  );
+
+  // Short field labels for the no-scroll session card (full workbook header on hover).
+  const SHORT: Record<string, string> = {
+    A: "Term", B: "Semester", C: "Enrollment (this offering)", D: "Course code", E: "Course", F: "Session type", G: "Session #",
+    H: "Session title", I: "Delivery mode", J: "Location", K: "Length (hrs)", L: "Max students / session", M: "Faculty / session",
+    N: "Faculty contact policy", O: "Support staff", P: "Support policy", Q: "Week of term", R: "Day", S: "Notes",
+    T: "Preceptors / session", U: "Preceptor policy", V: "Clinical rotation type", W: "Clinical mode",
+    X: "Space hrs", Y: "Sections", Z: "Faculty contact hrs", AA: "Fac hrs · semesterly", AB: "Fac hrs · weekly",
+    AC: "Preceptor contact hrs", AD: "Prec hrs · semesterly", AE: "Prec hrs · weekly",
+  };
+  const toggleSet = (set: Set<string>, id: string) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); return n; };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {pending && <div className="text-xs text-slate-400">saving…</div>}
+
+      {/* ── Whole-instantiation analytics ─────────────────────────────────── */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">This instantiation — what a student sits through, and how it&apos;s delivered</div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {(["CLASS", "LAB", "CLINICAL"] as const).map((k) => (
+            <div key={k} className="rounded-lg bg-slate-50 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">{KIND_LABEL[k]} hours / student</div>
+              <div className={`text-2xl font-bold tabular-nums ${k === "CLASS" ? "text-sky-700" : k === "LAB" ? "text-violet-700" : "text-rose-700"}`}>{n1(allMix.hrs[k])}h</div>
+            </div>
+          ))}
+          <div className="rounded-lg bg-slate-800 p-3 text-white">
+            <div className="text-[10px] uppercase tracking-wide text-slate-300">Total hours / student</div>
+            <div className="text-2xl font-bold tabular-nums">{n1(hrsTot(allMix))}h</div>
+          </div>
+        </div>
+        <div className="mt-3"><MixStrip m={allMix} size="lg" /></div>
+        {/* Per-term roll-up */}
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="py-1.5 pr-3 font-semibold">Term</th>
+                <th className="py-1.5 pr-3 text-right font-semibold text-sky-700">Class h</th>
+                <th className="py-1.5 pr-3 text-right font-semibold text-violet-700">Lab h</th>
+                <th className="py-1.5 pr-3 text-right font-semibold text-rose-700">Clinical h</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">Total h</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">In-person</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">Hybrid</th>
+                <th className="py-1.5 pr-3 text-right font-semibold">Online</th>
+                <th className="py-1.5 font-semibold">Clinical settings</th>
+              </tr>
+            </thead>
+            <tbody>
+              {terms.map((t) => { const m = termMix.get(t.id) ?? emptyMix(); return (
+                <tr key={t.id} className="border-b border-slate-100 tabular-nums">
+                  <td className="py-1.5 pr-3 font-medium text-slate-700">{t.name}</td>
+                  <td className="py-1.5 pr-3 text-right">{n1(m.hrs.CLASS)}</td>
+                  <td className="py-1.5 pr-3 text-right">{n1(m.hrs.LAB)}</td>
+                  <td className="py-1.5 pr-3 text-right">{n1(m.hrs.CLINICAL)}</td>
+                  <td className="py-1.5 pr-3 text-right font-semibold">{n1(hrsTot(m))}</td>
+                  <td className="py-1.5 pr-3 text-right">{n0(m.modes["in-person"])}</td>
+                  <td className="py-1.5 pr-3 text-right">{n0(m.modes.hybrid)}</td>
+                  <td className="py-1.5 pr-3 text-right">{n0(m.modes.online)}</td>
+                  <td className="py-1.5 text-slate-600">{[...m.settings.entries()].map(([k, v]) => `${k} (${n0(v.sessions)})`).join(" · ") || "—"}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" /> editable for THIS offering (Save row stores only what differs from the template)</span>
-        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" /> live formula at this offering&apos;s enrollment target (column C)</span>
-        <span className="inline-flex items-center gap-1"><span className="rounded-full bg-amber-200 px-1.5 text-[9px] font-semibold text-amber-800">edited</span> row overrides the template</span>
-        <span className="inline-flex items-center gap-1 text-rose-600">⚠ holiday collision — move it</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" /> editable for THIS offering (Save stores only what differs from the template)</span>
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" /> live formula at this offering&apos;s enrollment target</span>
+        <span className="inline-flex items-center gap-1"><span className="rounded-full bg-amber-200 px-1.5 text-[9px] font-semibold text-amber-800">edited</span> overrides the template</span>
+        <span className="inline-flex items-center gap-1 text-rose-600">⚠ holiday collision</span>
+        <span className="ml-auto text-slate-400">Click a term → its courses drop down → click a course → its sessions → click a session to edit every field, no scrolling.</span>
       </div>
 
+      {/* ── Terms → courses → sessions, as drop-downs ─────────────────────── */}
       {terms.map((t) => {
         const enrollment = enrollmentByTerm[t.index] ?? 0;
-        // The template's tallies, computed at THIS offering's enrollment target.
         const courseTallies = new Map<string, Tally>();
-        for (const c of t.courses) {
-          courseTallies.set(c.id, tallyOf(c.sessions.map((s) => rows.get(s.id)!).filter(Boolean), enrollment, assumptions));
-        }
+        for (const c of t.courses) courseTallies.set(c.id, tallyOf(c.sessions.map((s) => rows.get(s.id)!).filter(Boolean), enrollment, assumptions));
         const tt = [...courseTallies.values()].reduce(addTally, emptyTally());
         const secTot = tt.sec.CLASS + tt.sec.LAB + tt.sec.CLINICAL;
+        const tm = termMix.get(t.id) ?? emptyMix();
+        const tOpen = openTerms.has(t.id);
         return (
-        <section key={t.id} className="space-y-4">
-          <div className="rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/60 to-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">{t.name}</h2>
-                <span className="text-sm text-slate-500">
-                  {t.startDate ? <>starts <strong className="text-slate-700">{fmtDate(new Date(t.startDate + "T00:00:00Z"))}</strong></> : "no date yet — set it on the offering page"}
-                  {" "}· {(t.endWeek ?? 16) - (t.startWeek ?? 1) + 1} instructional weeks
-                </span>
+        <section key={t.id} className="overflow-hidden rounded-xl border border-rose-200 bg-white shadow-sm">
+          <button onClick={() => setOpenTerms((o) => toggleSet(o, t.id))} className="flex w-full flex-wrap items-center justify-between gap-4 bg-gradient-to-br from-rose-50/70 to-white px-5 py-4 text-left hover:from-rose-100/70">
+            <div>
+              <div className="text-lg font-semibold text-slate-900">{tOpen ? "▾" : "▸"} {t.name} <span className="text-sm font-normal text-slate-500">· {t.courses.length} course{t.courses.length === 1 ? "" : "s"}</span></div>
+              <div className="text-sm text-slate-500">
+                {t.startDate ? <>starts <strong className="text-slate-700">{fmtDate(new Date(t.startDate + "T00:00:00Z"))}</strong></> : "no date yet — set it on the offering page"}
+                {" "}· {(t.endWeek ?? 16) - (t.startWeek ?? 1) + 1} instructional weeks
               </div>
-              <div className="text-right">
-                <div className="text-3xl font-extrabold tabular-nums text-rose-700">{n0(enrollment)}</div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-400" title="Derived from this offering's pipeline targets — this is column C for every session row below">enrollment target (column C)</div>
-              </div>
+              <div className="mt-1"><MixStrip m={tm} /></div>
             </div>
-            {/* What this term NEEDS at that enrollment — same math as the template sheet, at reality. */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-white/80 px-3 py-2 text-[11px] ring-1 ring-rose-100">
-              <span className="font-semibold uppercase tracking-wide text-rose-500">Needed @ {n0(enrollment)}</span>
-              <span className="text-slate-600">{n0(secTot)} sections <span className="text-slate-400">({n0(tt.sec.CLASS)} class / {n0(tt.sec.LAB)} lab / {n0(tt.sec.CLINICAL)} clinical)</span></span>
-              <span className="text-slate-600">{n1(tt.space)} space hrs</span>
-              <span className="text-slate-600">faculty <strong className="tabular-nums text-slate-800">{n1(tt.facHrs)}h</strong> → <strong className="tabular-nums text-rose-700">{n2(tt.facFte)}</strong> FTE</span>
-              <span className="text-slate-600">preceptors <strong className="tabular-nums text-slate-800">{n1(tt.precHrs)}h</strong> → <strong className="tabular-nums text-rose-700">{n2(tt.precFte)}</strong> FTE</span>
+            <div className="text-right">
+              <div className="text-3xl font-extrabold tabular-nums text-rose-700">{n0(enrollment)}</div>
+              <div className="text-[10px] uppercase tracking-wide text-slate-400">enrollment target</div>
+              <div className="mt-1 text-[11px] text-slate-600">{n0(secTot)} sections · faculty <strong className="text-rose-700">{n2(tt.facFte)}</strong> FTE{tt.precFte > 0 && <> · preceptors <strong className="text-rose-700">{n2(tt.precFte)}</strong> FTE</>}</div>
             </div>
-          </div>
+          </button>
 
+          {tOpen && (
+          <div className="space-y-3 border-t border-rose-100 p-4">
           {t.courses.map((c) => {
             const kinds = [...new Set(c.sessions.map((s) => s.kind))];
             const ct = courseTallies.get(c.id) ?? emptyTally();
-            const psTot = ct.ps.CLASS + ct.ps.LAB + ct.ps.CLINICAL;
+            const cm = courseMix.get(c.id) ?? emptyMix();
             const cSecTot = ct.sec.CLASS + ct.sec.LAB + ct.sec.CLINICAL;
-            // Order by the SAVED chronology (unsaved edits don't reshuffle rows mid-typing).
+            const cOpen = openCourses.has(c.id);
             const ordered = c.sessions
               .map((s) => savedRows.get(s.id)!)
               .filter(Boolean)
@@ -248,36 +358,25 @@ export function OfferingDesign({
               })
               .map((s) => rows.get(s.id) ?? s);
             return (
-              <div key={c.id} className="rounded-xl border border-slate-200 bg-white">
-                <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
-                  <span className="font-semibold text-slate-800">{c.code ? `${c.code} · ` : ""}{c.name}</span>
-                  <span className="text-xs text-slate-400">
-                    {kinds.map((k) => `${c.sessions.filter((s) => s.kind === k).length} ${KIND_LABEL[k].toLowerCase()} sessions`).join(" · ")}
-                  </span>
-                  {c.startDate && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700" title="this offering runs this course on its own window (set on the offering page)">
-                      runs {fmtDate(new Date(c.startDate + "T00:00:00Z"))}{c.endDate ? ` → ${fmtDate(new Date(c.endDate + "T00:00:00Z"))}` : ""}
-                    </span>
-                  )}
-                </div>
+              <div key={c.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <button onClick={() => setOpenCourses((o) => toggleSet(o, c.id))} className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
+                  <div>
+                    <div className="font-semibold text-slate-800">{cOpen ? "▾" : "▸"} {c.code ? `${c.code} · ` : ""}{c.name}
+                      <span className="ml-2 text-xs font-normal text-slate-400">{kinds.map((k) => `${c.sessions.filter((s) => s.kind === k).length} ${KIND_LABEL[k].toLowerCase()}`).join(" · ")}</span>
+                      {c.startDate && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">runs {fmtDate(new Date(c.startDate + "T00:00:00Z"))}{c.endDate ? ` → ${fmtDate(new Date(c.endDate + "T00:00:00Z"))}` : ""}</span>}
+                    </div>
+                    <div className="mt-1"><MixStrip m={cm} /></div>
+                  </div>
+                  <div className="text-right text-[11px] text-slate-600">
+                    <div>@ {n0(enrollment)}: <strong>{n0(cSecTot)}</strong> sections ({n0(ct.sec.CLASS)}/{n0(ct.sec.LAB)}/{n0(ct.sec.CLINICAL)}) · {n1(ct.space)} space hrs</div>
+                    <div>fac <strong className="text-rose-700">{n2(ct.facFte)}</strong> FTE{ct.precFte > 0 && <> · prec <strong className="text-rose-700">{n2(ct.precFte)}</strong> FTE</>}</div>
+                  </div>
+                </button>
 
-                {/* Per-course tallies — per student + delivery footprint @ this offering's enrollment (mirrors the template page). */}
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-[11px]">
-                  <span className="font-semibold uppercase tracking-wide text-slate-400">Per student</span>
-                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-sky-500" />{n1(ct.ps.CLASS)}h class</span>
-                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-violet-500" />{n1(ct.ps.LAB)}h lab</span>
-                  <span className="inline-flex items-center gap-1 text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-rose-500" />{n1(ct.ps.CLINICAL)}h clinical</span>
-                  <span className="font-semibold text-slate-700">{n1(psTot)}h total</span>
-                  <span className="mx-1 text-slate-300">|</span>
-                  <span className="font-semibold uppercase tracking-wide text-rose-500">@ {n0(enrollment)}</span>
-                  <span className="text-slate-600">{n0(cSecTot)} sections ({n0(ct.sec.CLASS)}/{n0(ct.sec.LAB)}/{n0(ct.sec.CLINICAL)})</span>
-                  <span className="text-slate-600">{n1(ct.space)} space hrs</span>
-                  <span className="text-slate-600">fac <strong className="text-rose-700">{n2(ct.facFte)}</strong> FTE</span>
-                  {ct.precFte > 0 && <span className="text-slate-600">prec <strong className="text-rose-700">{n2(ct.precFte)}</strong> FTE</span>}
-                </div>
-
+                {cOpen && (
+                <div className="border-t border-slate-100">
                 {/* Weekly booking per kind/section — day · time · location · staff. Same record as the master calendar. */}
-                <div className="space-y-1.5 border-b border-slate-100 px-4 py-2.5">
+                <div className="space-y-1.5 border-b border-slate-100 bg-slate-50/50 px-4 py-2.5">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Weekly pattern for this offering — location &amp; staff live here (one booking per section)</div>
                   {kinds.map((k) => {
                     const ms = meetingsFor(c.id, k);
@@ -306,141 +405,112 @@ export function OfferingDesign({
                   })}
                 </div>
 
-                {/* The Raw Data & Calculations sheet — the template's exact columns (A–AE),
-                    plus this offering's reality: real Date/Time up front, booked location
-                    & staff at the end. C = this offering's enrollment target. */}
-                <div className="overflow-x-auto">
-                  <table className="border-collapse text-[11px]" style={{ minWidth: "236rem" }}>
-                    <thead>
-                      <tr className="bg-slate-800 text-left text-slate-100">
-                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "9rem" }}>
-                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
-                          <span className="leading-tight">Date</span>
-                        </th>
-                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "6rem" }}>
-                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
-                          <span className="leading-tight">Start time</span>
-                        </th>
-                        {SHEET_COLS.map(({ c: col, w }) => (
-                          <th key={col} className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: w }}>
-                            <span className="block font-mono text-[9px] text-emerald-300">{col}{["A", "B", "D", "E", "G"].includes(col) ? " · seq" : SHEET_FIELD_OF[col] ? "" : " · fx"}</span>
-                            <span className="leading-tight">{CAPACITY_HEADERS[col as keyof typeof CAPACITY_HEADERS]}</span>
-                          </th>
-                        ))}
-                        <th className="border-r border-slate-700 px-1.5 py-1.5 align-bottom font-medium" style={{ minWidth: "10rem" }}>
-                          <span className="block font-mono text-[9px] text-amber-300">this offering</span>
-                          <span className="leading-tight">Booked location · staff</span>
-                        </th>
-                        <th className="px-1.5 py-1.5" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ordered.map((r) => {
-                        const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
-                        const d = sessionDateObj(c.startDate ?? t.startDate, r.week, r.dayOfWeek);
-                        const holiday = d && r.dayOfWeek != null ? usHoliday(d) : null;
-                        const m = meetingsFor(c.id, r.kind)[0] ?? null;
-                        const offCampus = r.kind === "CLINICAL";
-                        const bookedLoc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : "—";
-                        const isDirty = dirty.has(r.id);
-                        const calcVal: Record<string, string> = {
-                          C: num(comp.C, 1), X: num(comp.X), Y: comp.divByZero ? "#DIV/0!" : num(comp.Y, 0), Z: num(comp.Z),
-                          AA: num(comp.AA), AB: num(comp.AB), AC: num(comp.AC), AD: num(comp.AD, 3), AE: num(comp.AE),
-                        };
-                        const seqVal: Record<string, string> = {
-                          A: `Term ${t.index}`, B: t.name, D: c.code ?? "—", E: c.name, G: String(r.number),
-                        };
-                        return (
-                          <tr key={r.id} className={`border-b border-slate-100 align-top ${holiday ? "bg-rose-50/60" : r.overridden ? "bg-amber-50/50" : "hover:bg-slate-50/60"}`}>
-                            <td className="whitespace-nowrap border-r border-slate-100 px-1.5 py-1 font-medium text-slate-700">
-                              {(() => {
-                                const anchor = c.startDate ?? t.startDate;
-                                if (!anchor) return <>—</>;
+                {/* Sessions: one summary line each; click to open the full editable card — every workbook column, no scrolling. */}
+                <div className="divide-y divide-slate-100">
+                  {ordered.map((r) => {
+                    const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
+                    const anchor = c.startDate ?? t.startDate;
+                    const d = sessionDateObj(anchor, r.week, r.dayOfWeek);
+                    const holiday = d && r.dayOfWeek != null ? usHoliday(d) : null;
+                    const m = meetingsFor(c.id, r.kind)[0] ?? null;
+                    const offCampus = r.kind === "CLINICAL";
+                    const bookedLoc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : "—";
+                    const isDirty = dirty.has(r.id);
+                    const sOpen = openSessions.has(r.id);
+                    const calcVal: Record<string, string> = {
+                      C: num(comp.C, 1), X: num(comp.X), Y: comp.divByZero ? "#DIV/0!" : num(comp.Y, 0), Z: num(comp.Z),
+                      AA: num(comp.AA), AB: num(comp.AB), AC: num(comp.AC), AD: num(comp.AD, 3), AE: num(comp.AE),
+                    };
+                    const seqVal: Record<string, string> = { A: `Term ${t.index}`, B: t.name, D: c.code ?? "—", E: c.name, G: String(r.number) };
+                    return (
+                      <div key={r.id} className={holiday ? "bg-rose-50/60" : r.overridden ? "bg-amber-50/40" : ""}>
+                        {/* summary line */}
+                        <button onClick={() => setOpenSessions((o) => toggleSet(o, r.id))} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-left text-xs hover:bg-slate-50">
+                          <span className="w-4 text-slate-400">{sOpen ? "▾" : "▸"}</span>
+                          <span className="w-36 font-medium text-slate-700">{d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "no date"}</span>
+                          <span className="w-14 font-mono text-slate-500">{fmtTime(r.startTime)}</span>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]} #{r.number}</span>
+                          <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>
+                          <span className="tabular-nums text-slate-500">{r.lengthHours}h · cap {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{offCampus && r.rotationType ? ` · @ ${r.rotationType}` : ""}</span>
+                          <span className="tabular-nums text-emerald-800">{calcVal.Y} sec · {num(comp.Z, 1)} fac h{offCampus ? ` · ${num(comp.AC, 0)} prec h` : ""}</span>
+                          {holiday && <span className="rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800">⚠ {holiday}</span>}
+                          {r.overridden && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">edited</span>}
+                          {isDirty && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">unsaved</span>}
+                        </button>
+
+                        {/* the full editable card — every workbook column, labeled, wrapped */}
+                        {sOpen && (
+                          <div className="border-t border-slate-100 px-4 py-3">
+                            <div className="grid gap-x-3 gap-y-2 sm:grid-cols-3 lg:grid-cols-6">
+                              {/* this offering: date + time */}
+                              <label className="block">
+                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Date · this offering</span>
+                                {anchor ? (
+                                  <input type="date" value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""} onChange={(e) => {
+                                    if (!e.target.value) return;
+                                    const picked = new Date(e.target.value + "T00:00:00Z"); const a0 = new Date(anchor + "T00:00:00Z");
+                                    let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
+                                    setField(r.id, "week", Math.floor(diff / 7) + 1); setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
+                                  }} className={inp} />
+                                ) : <span className="block text-xs text-slate-400">term not dated</span>}
+                              </label>
+                              <label className="block">
+                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Start time · this offering</span>
+                                <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
+                              </label>
+                              {SHEET_COLS.map(({ c: col, kind }) => {
+                                const label = <span className="block text-[9px] font-semibold uppercase tracking-wide text-slate-400" title={CAPACITY_HEADERS[col as keyof typeof CAPACITY_HEADERS]}><span className="mr-1 font-mono text-emerald-600">{col}</span>{SHORT[col]}</span>;
+                                if (kind === "seq" || col === "G") return <div key={col} className="block">{label}<span className="block rounded bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600">{seqVal[col]}</span></div>;
+                                if (kind === "calc") return <div key={col} className="block">{label}<span className={`block rounded px-1.5 py-0.5 text-right font-mono text-[11px] tabular-nums ${col === "C" ? "bg-rose-50 font-semibold text-rose-800" : comp.divByZero ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-900"}`} title={CAPACITY_FORMULAS[col]}>{calcVal[col]}</span></div>;
+                                if (col === "F") return <div key={col} className="block">{label}<span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]}</span></div>;
+                                const field = SHEET_FIELD_OF[col]! as keyof RowState;
+                                const v = r[field];
                                 return (
-                                  <input
-                                    type="date"
-                                    value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""}
-                                    title="Pick the real date — week & day recompute; Save row stores it for this offering"
-                                    onChange={(e) => {
-                                      if (!e.target.value) return;
-                                      const picked = new Date(e.target.value + "T00:00:00Z");
-                                      const a0 = new Date(anchor + "T00:00:00Z");
-                                      let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000);
-                                      if (diff < 0) diff = 0;
-                                      setField(r.id, "week", Math.floor(diff / 7) + 1);
-                                      setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
-                                    }}
-                                    className={inp}
-                                  />
+                                  <label key={col} className={`block ${col === "H" || col === "S" ? "sm:col-span-2" : ""}`}>
+                                    {label}
+                                    {col === "R" ? (
+                                      <select value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, "dayOfWeek", e.target.value || null)} className={inp}>
+                                        <option value="">—</option>{ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
+                                      </select>
+                                    ) : SHEET_NUM_FIELDS.has(col) ? (
+                                      <input type="number" step="any" value={(v as number | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right font-mono`} />
+                                    ) : (
+                                      <input value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value || null)} className={inp} />
+                                    )}
+                                  </label>
                                 );
-                              })()}
-                              <span className="block text-[10px] text-slate-500">{d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "no date yet"}</span>
-                              {holiday && <span className="rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800" title={`${holiday} — pick a new date (or edit Q/R), then Save row`}>⚠ {holiday}</span>}
-                            </td>
-                            <td className="border-r border-slate-100 px-1 py-0.5">
-                              <input type="time" value={r.startTime ?? ""} onChange={(e) => setField(r.id, "startTime", e.target.value || null)} className={inp} />
-                            </td>
-                            {SHEET_COLS.map(({ c: col, kind }) => {
-                              if (kind === "seq" || col === "G") {
-                                return <td key={col} className="border-r border-slate-100 bg-slate-50/70 px-1.5 py-1 text-slate-500" title={CAPACITY_FORMULAS[col]}>{seqVal[col]}</td>;
-                              }
-                              if (kind === "calc") {
-                                const err = col !== "C" && comp.divByZero;
-                                const isEnroll = col === "C";
-                                return (
-                                  <td key={col} title={isEnroll ? "This offering's enrollment target for the term — from its pipeline" : CAPACITY_FORMULAS[col]} className={`border-r border-slate-100 px-1.5 py-1 text-right font-mono tabular-nums ${err ? "bg-rose-50 font-semibold text-rose-700" : isEnroll ? "bg-rose-50/70 font-semibold text-rose-800" : "bg-emerald-50/70 text-emerald-900"}`}>
-                                    {calcVal[col]}
-                                  </td>
-                                );
-                              }
-                              if (col === "F") {
-                                // Session type belongs to the template — shown, not overridable per offering.
-                                return <td key={col} className="border-r border-slate-100 bg-slate-50/70 px-1.5 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]}</span></td>;
-                              }
-                              const field = SHEET_FIELD_OF[col]! as keyof RowState;
-                              const v = r[field];
-                              return (
-                                <td key={col} className="border-r border-slate-100 px-1 py-0.5">
-                                  {col === "R" ? (
-                                    <select value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, "dayOfWeek", e.target.value || null)} className={inp}>
-                                      <option value="">—</option>
-                                      {ALL_DAYS.map((dd) => <option key={dd} value={dd}>{dd}</option>)}
-                                    </select>
-                                  ) : SHEET_NUM_FIELDS.has(col) ? (
-                                    <input type="number" step="any" value={(v as number | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value === "" ? null : Number(e.target.value))} className={`${inp} text-right font-mono`} />
-                                  ) : (
-                                    <input value={(v as string | null) ?? ""} onChange={(e) => setField(r.id, field, e.target.value || null)} className={inp} />
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td className="whitespace-nowrap border-r border-slate-100 px-2 py-1 text-slate-500">
-                              <span className={m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : ""}>{bookedLoc}</span>
-                              <span className={`block ${m?.staffName ? "" : "text-amber-600"}`}>{m?.staffName ?? "unassigned"}</span>
-                            </td>
-                            <td className="whitespace-nowrap px-1.5 py-1">
+                              })}
+                              <div className="block">
+                                <span className="block text-[9px] font-semibold uppercase tracking-wide text-amber-700">Booked location · staff</span>
+                                <span className={`block text-[11px] ${m && ((offCampus && !m.employerId) || (!offCampus && !m.facilityId)) ? "font-medium text-amber-600" : "text-slate-600"}`}>{bookedLoc}</span>
+                                <span className={`block text-[11px] ${m?.staffName ? "text-slate-600" : "text-amber-600"}`}>{m?.staffName ?? "unassigned"}</span>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex items-center gap-3">
                               <form action={async (fd) => { await saveSessionOverride(cohortId, r.id, programId, fd); setDirty((dd) => { const n = new Set(dd); n.delete(r.id); return n; }); router.refresh(); }}>
-                                {OVERRIDE_FIELDS.map((f) => (
-                                  <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />
-                                ))}
-                                <button className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${isDirty ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-400"}`}>Save row</button>
+                                {OVERRIDE_FIELDS.map((f) => <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />)}
+                                <button className={`rounded-lg px-3 py-1.5 text-xs font-medium ${isDirty ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-400"}`}>Save this session for this offering</button>
                               </form>
                               {r.overridden && (
-                                <button onClick={async () => { await clearSessionOverride(cohortId, r.id, programId); router.refresh(); }} className="mt-0.5 block text-[9px] text-amber-700 hover:underline" title="remove this offering's override — back to the template">
-                                  <span className="rounded-full bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-800">edited</span> clear
+                                <button onClick={async () => { await clearSessionOverride(cohortId, r.id, programId); router.refresh(); }} className="text-[11px] text-amber-700 hover:underline" title="remove this offering's override — back to the template">
+                                  <span className="rounded-full bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-800">edited</span> clear → template
                                 </button>
                               )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                </div>
+                )}
               </div>
             );
           })}
           {t.courses.length === 0 && <p className="text-sm text-slate-400">No courses in this term.</p>}
+          </div>
+          )}
         </section>
         );
       })}

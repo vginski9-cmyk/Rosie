@@ -342,6 +342,65 @@ export async function deletePerson(personId: string): Promise<void> {
 // EMPLOYERS — partner intake / management
 // ---------------------------------------------------------------------------
 
+// ── Functional units (the asset map's master grain) ──
+function unitDataFrom(formData: FormData) {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => str(formData.get(`day_${d}`)) === "on" || str(formData.get(`day_${d}`)) === "1");
+  const blocks = ["Day", "Evening", "Night"].filter((b) => str(formData.get(`block_${b}`)) === "on" || str(formData.get(`block_${b}`)) === "1");
+  return {
+    unitType: str(formData.get("unitType")) || "Unit",
+    unitCategory: str(formData.get("unitCategory")) || "Inpatient beds",
+    unitName: str(formData.get("unitName")) || null,
+    capacityCount: optNum(formData.get("capacityCount")),
+    uom: str(formData.get("uom")) || null,
+    dataSource: str(formData.get("dataSource")) || "ESTIMATE",
+    shiftsPerDay: Math.max(1, Math.round(numOr(formData.get("shiftsPerDay"), blocks.length || 1))),
+    shiftLengthHrs: numOr(formData.get("shiftLengthHrs"), 8),
+    shiftBlocks: (blocks.length ? blocks : ["Day"]).join(","),
+    days: (days.length ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"]).join(","),
+    studentsPerShift: Math.max(0, Math.round(numOr(formData.get("studentsPerShift"), 0))),
+    studentsPerPreceptor: Math.max(1, Math.round(numOr(formData.get("studentsPerPreceptor"), 1))),
+    preceptorsPerShift: Math.max(0, Math.round(numOr(formData.get("preceptorsPerShift"), 0))),
+    natcepEligible: str(formData.get("natcepEligible")) === "yes" ? true : str(formData.get("natcepEligible")) === "no" ? false : null,
+    status: str(formData.get("status")) || "active",
+    notes: str(formData.get("notes")) || null,
+  };
+}
+export async function createClinicalUnit(employerId: string, formData: FormData): Promise<void> {
+  await prisma.clinicalUnit.create({ data: { employerId, ...unitDataFrom(formData) } });
+  revalidatePath(`/employers/${employerId}`); revalidatePath("/insights/clinical-sites");
+}
+export async function updateClinicalUnit(unitId: string, employerId: string, formData: FormData): Promise<void> {
+  await prisma.clinicalUnit.update({ where: { id: unitId }, data: unitDataFrom(formData) });
+  revalidatePath(`/employers/${employerId}`); revalidatePath("/insights/clinical-sites");
+}
+export async function deleteClinicalUnit(unitId: string, employerId: string): Promise<void> {
+  await prisma.clinicalUnit.delete({ where: { id: unitId } });
+  revalidatePath(`/employers/${employerId}`); revalidatePath("/insights/clinical-sites");
+}
+/** Agreement lifecycle with a site: none | prospect | asked | secured | declined. */
+export async function updateEmployerAgreement(employerId: string, status: string): Promise<void> {
+  await prisma.employer.update({ where: { id: employerId }, data: { agreementStatus: status || "none" } });
+  revalidatePath("/insights/clinical-sites"); revalidatePath("/employers"); revalidatePath(`/employers/${employerId}`);
+}
+/** Rotation type → unit category (the demand ↔ supply join), per institution. */
+export async function upsertRotationSetting(institutionId: string, formData: FormData): Promise<void> {
+  const rotationType = str(formData.get("rotationType"));
+  if (!rotationType) return;
+  await prisma.rotationSetting.upsert({
+    where: { institutionId_rotationType: { institutionId, rotationType } },
+    update: { unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")) },
+    create: { institutionId, rotationType, unitCategory: str(formData.get("unitCategory")) || "Inpatient beds", unitType: str(formData.get("unitType")) || null, patientsPerStudent: optNum(formData.get("patientsPerStudent")) },
+  });
+  revalidatePath("/insights/clinical-sites");
+}
+/** Host a clinical section at a site + functional unit (weekly booking). */
+export async function assignSectionSite(meetingId: string, employerId: string | null, unitId: string | null): Promise<void> {
+  const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data: { employerId, unitId }, include: { cohort: { select: { programId: true } } } });
+  revalidatePath("/insights/clinical-sites"); revalidatePath("/calendar");
+  revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
+  if (employerId) revalidatePath(`/employers/${employerId}`);
+}
+
 export async function createEmployer(formData: FormData): Promise<void> {
   const institutionId = str(formData.get("institutionId"));
   if (!institutionId) return;
@@ -363,6 +422,7 @@ export async function createEmployer(formData: FormData): Promise<void> {
 }
 
 export async function updateEmployer(employerId: string, formData: FormData): Promise<void> {
+  const intOr = (name: string) => { const v = optNum(formData.get(name)); return v == null ? null : Math.round(v); };
   await prisma.employer.update({
     where: { id: employerId },
     data: {
@@ -375,8 +435,18 @@ export async function updateEmployer(employerId: string, formData: FormData): Pr
       contactEmail: str(formData.get("contactEmail")) || null,
       contactPhone: str(formData.get("contactPhone")) || null,
       notes: str(formData.get("notes")) || null,
+      // clinical asset map (facility level)
+      organization: str(formData.get("organization")) || null,
+      facilityType: str(formData.get("facilityType")) || null,
+      county: str(formData.get("county")) || null,
+      ring: str(formData.get("ring")) || null,
+      licensedBeds: intOr("licensedBeds"), nursingHomeBeds: intOr("nursingHomeBeds"), adultCareBeds: intOr("adultCareBeds"),
+      operatingRooms: intOr("operatingRooms"), annualSurgicalCases: intOr("annualSurgicalCases"),
+      agreementStatus: str(formData.get("agreementStatus")) || "none",
+      agreementNotes: str(formData.get("agreementNotes")) || null,
     },
   });
+  revalidatePath("/insights/clinical-sites");
   revalidatePath("/employers");
   revalidatePath(`/employers/${employerId}`);
 }

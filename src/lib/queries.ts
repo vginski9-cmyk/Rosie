@@ -252,6 +252,29 @@ export async function getNorthStarHome(currentYear?: number): Promise<JobNorthSt
 }
 
 /** Minimal institution list (for create forms). */
+/** The clinical SUPPLY side: every site with its functional units (the asset
+ *  map), the rotation-type → unit-category join, and each site's agreement
+ *  status — what the day-grid supply vs demand comparison runs on. */
+export async function getClinicalSupply(institutionId?: string) {
+  const inst = institutionId
+    ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
+    : await prisma.institution.findFirst({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  if (!inst) return null;
+  const [sites, rotations] = await Promise.all([
+    prisma.employer.findMany({
+      where: { institutionId: inst.id },
+      orderBy: [{ ring: "asc" }, { name: "asc" }],
+      select: {
+        id: true, name: true, organization: true, facilityType: true, county: true, ring: true, city: true, status: true, agreementStatus: true,
+        licensedBeds: true, nursingHomeBeds: true, adultCareBeds: true, operatingRooms: true, wblSlots: true,
+        units: { where: { status: "active" }, select: { id: true, unitType: true, unitCategory: true, unitName: true, capacityCount: true, uom: true, dataSource: true, shiftsPerDay: true, shiftLengthHrs: true, shiftBlocks: true, days: true, studentsPerShift: true, studentsPerPreceptor: true, preceptorsPerShift: true } },
+      },
+    }),
+    prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, orderBy: { rotationType: "asc" } }),
+  ]);
+  return { institution: inst, sites, rotations };
+}
+
 export async function getInstitutionsLite() {
   return prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 }
@@ -628,8 +651,9 @@ export async function getEmployersDirectory() {
       orderBy: { name: "asc" },
       include: {
         institution: { select: { id: true, name: true } },
-        _count: { select: { people: true } },
+        _count: { select: { people: true, units: true, meetings: true } },
         placements: { select: { status: true, startDate: true } },
+        units: { select: { unitCategory: true, studentsPerShift: true, shiftsPerDay: true, days: true, status: true } },
       },
     }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -667,6 +691,11 @@ export async function getEmployer(id: string) {
     where: { id },
     include: {
       institution: { select: { id: true, name: true } },
+      units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
+      meetings: {
+        orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
+        include: { cohort: { select: { id: true, name: true, programId: true, program: { select: { name: true } } } }, course: { select: { code: true, name: true } }, unit: { select: { id: true, unitType: true } }, staff: { select: { name: true } } },
+      },
       placements: {
         orderBy: { createdAt: "desc" },
         include: {
@@ -1434,7 +1463,7 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
           cohortTerms: { select: { termId: true, startDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
-          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } }, moves: { select: { fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } } }, orderBy: { sectionIndex: "asc" as const } },
+          meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } }, moves: { select: { fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } } }, orderBy: { sectionIndex: "asc" as const } },
           _count: { select: { students: true } },
         },
       },
@@ -1500,9 +1529,10 @@ export async function getCapacityModel(opts?: { institutionId?: string }) {
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
           dayOfWeek: m.dayOfWeek, startTime: m.startTime,
-          facilityId: m.facilityId, employerId: m.employerId, staffPersonId: m.staffPersonId,
-          loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null),
+          facilityId: m.facilityId, employerId: m.employerId, unitId: m.unitId, staffPersonId: m.staffPersonId,
+          loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}${m.unit?.unitType ? ` · ${m.unit.unitType}` : ""}` : "@ site TBD") : (m.facility?.name ?? null),
           staffName: m.staff?.name ?? null,
+          lengthHours: m.lengthHours, termIndex: m.termIndex,
           // Per-occurrence moves: one shift bumped to another date / time / place.
           moves: m.moves.map((mv) => ({
             fromDate: mv.fromDate.toISOString().slice(0, 10), toDate: mv.toDate.toISOString().slice(0, 10),

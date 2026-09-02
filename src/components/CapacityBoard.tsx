@@ -19,8 +19,9 @@ import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/Cov
 export interface ShiftMeeting {
   id: string; courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number;
   dayOfWeek: string; startTime: string;
-  facilityId: string | null; employerId: string | null; staffPersonId: string | null;
+  facilityId: string | null; employerId: string | null; unitId?: string | null; staffPersonId: string | null;
   loc: string | null; staffName: string | null;
+  lengthHours?: number; termIndex?: number;
   /** One-off moves: the occurrence patterned on fromDate happens on toDate instead. */
   moves?: ShiftMoveInfo[];
 }
