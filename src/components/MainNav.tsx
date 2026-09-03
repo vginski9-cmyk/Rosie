@@ -22,7 +22,8 @@ const GROUPS: Group[] = [
   { label: "Directory", items: [
     { label: "Students", href: "/students" },
     { label: "People (faculty & staff)", href: "/people" },
-    { label: "Employers & clinical sites", href: "/employers" },
+    { label: "Clinical sites by program", href: "/clinical" },
+    { label: "All partner organizations", href: "/employers" },
     { label: "Facilities", href: "/facilities" },
   ] },
 ];

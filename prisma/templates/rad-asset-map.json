@@ -1816,5 +1816,440 @@
    "setting": "Diagnostic fluoroscopy",
    "assetType": "R&F / fluoroscopy room"
   }
- ]
+ ],
+ "serviceAreas": [
+  {
+   "code": "GEN",
+   "name": "General fixed-room inpatient and outpatient radiography",
+   "settingCodes": "GEN"
+  },
+  {
+   "code": "ED",
+   "name": "Emergency and trauma radiography",
+   "settingCodes": "ED"
+  },
+  {
+   "code": "PORT",
+   "name": "Mobile/portable radiography",
+   "settingCodes": "PORT"
+  },
+  {
+   "code": "OR",
+   "name": "Operating room and C-arm",
+   "settingCodes": "OR"
+  },
+  {
+   "code": "FLUORO",
+   "name": "Diagnostic fluoroscopy",
+   "settingCodes": "FLUORO"
+  },
+  {
+   "code": "CT",
+   "name": "Advanced modalities, primarily CT",
+   "settingCodes": "CT"
+  },
+  {
+   "code": "COMP",
+   "name": "Competency completion, remediation and targeted rotations",
+   "settingCodes": "GEN,ED,PORT,OR,FLUORO"
+  }
+ ],
+ "courseAllocation": [
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 80
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-151",
+   "courseName": "Clinical Education I",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 16
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 30
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 8
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 4
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 6
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-181",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 130
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 45
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 25
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 20
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 20
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-161",
+   "courseName": "Clinical Education II",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 35
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 15
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 15
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 15
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 5
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 5
+  },
+  {
+   "courseCode": "RAD-171",
+   "courseName": "Clinical Education III",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 30
+  },
+  {
+   "courseCode": "RAD-281",
+   "courseName": "Clinical Elective",
+   "courseWeeks": 10,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 0
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 135
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 65
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 40
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 45
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 29
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 15
+  },
+  {
+   "courseCode": "RAD-251",
+   "courseName": "Clinical Education IV",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 7
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "GEN",
+   "hoursPerStudent": 100
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "ED",
+   "hoursPerStudent": 57
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "PORT",
+   "hoursPerStudent": 36
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "OR",
+   "hoursPerStudent": 40
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "FLUORO",
+   "hoursPerStudent": 20
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "CT",
+   "hoursPerStudent": 50
+  },
+  {
+   "courseCode": "RAD-261",
+   "courseName": "Clinical Education V",
+   "courseWeeks": 16,
+   "students": 40,
+   "area": "COMP",
+   "hoursPerStudent": 33
+  }
+ ],
+ "clinicalModel": {
+  "model": "hours",
+  "notes": "Hours-based: each clinical education course requires set hours per student in each service area (partner workbook, RAD PROGRAM COURSE ALLOCATION). 1,176 clinical hours per student across the program."
+ }
 }

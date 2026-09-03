@@ -112,10 +112,17 @@ model ProgramFamily {
   /// Serialized North-Star goal plan (anchor, rates, term retention, demand) —
   /// edited in the family hub's goal planner. JSON blob for portability.
   goalPlan      String?
+  /// How this job's clinicals are administered: hours (set hours per service
+  /// area), competency (cases / competencies per setting), mixed.
+  clinicalModel String  @default("hours")
+  clinicalNotes String?
   createdAt     DateTime @default(now())
 
   programs Program[]
   interventions Intervention[]
+  serviceAreas ServiceArea[]
+  familySites FamilySite[]
+  allocations SettingAllocation[]
 
   @@index([institutionId])
 }
@@ -271,6 +278,7 @@ model Course {
   courseType         String? // CORE | GENED | SUPPORT — for flow-chart coloring
 
   sessions Session[]
+  clinicalRequirements CourseClinicalRequirement[]
   cohortDates CohortCourseDates[]
   courseSkills CourseSkill[]
   grades   StudentCourseGrade[]
@@ -638,6 +646,78 @@ model ClinicalUnit {
 
 /// How a program's clinical ROTATION TYPE maps to the asset map's unit
 /// categories — the join between clinical demand and physical supply.
+/// A clinical SERVICE AREA of one program family — "General fixed-room
+/// inpatient and outpatient radiography", "Operating room and C-arm" … — the
+/// rows of the family's clinical requirement grid, each served by one or more
+/// asset settings (setting codes) and/or functional-unit categories.
+model ServiceArea {
+  id             String @id @default(cuid())
+  familyId       String
+  family         ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  code           String  // GEN | ED | PORT | OR | FLUORO | CT | COMP …
+  name           String
+  settingCodes   String  @default("") // csv of asset setting codes that serve it
+  unitCategories String  @default("") // csv of functional-unit categories that serve it
+  sortOrder      Int     @default(0)
+  notes          String?
+
+  requirements CourseClinicalRequirement[]
+
+  @@unique([familyId, code])
+}
+
+/// The clinical requirement one course places on one service area, per
+/// student: hours (hours-based programs) and/or cases (competency-based).
+model CourseClinicalRequirement {
+  id              String @id @default(cuid())
+  courseId        String
+  course          Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  serviceAreaId   String
+  serviceArea     ServiceArea @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
+  hoursPerStudent Float  @default(0)
+  casesPerStudent Float?
+  notes           String?
+
+  @@unique([courseId, serviceAreaId])
+}
+
+/// A clinical site's relationship with ONE program family — the same hospital
+/// can be secured for radiography and only a prospect for surgical technology.
+model FamilySite {
+  id              String @id @default(cuid())
+  familyId        String
+  family          ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  employerId      String
+  employer        Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  agreementStatus String  @default("none") // none | prospect | asked | secured | declined
+  contactName     String?
+  contactEmail    String?
+  notes           String?
+
+  @@unique([familyId, employerId])
+}
+
+/// Shifts a site makes available to ONE program family in one setting — the
+/// allocated supply layered between the physical ceiling and what is booked.
+/// "Moore Regional offers Radiography 15 Day shifts a week in GEN, 1 learner each."
+model SettingAllocation {
+  id               String @id @default(cuid())
+  familyId         String
+  family           ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  employerId       String
+  employer         Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  settingCode      String
+  block            String  // Day | Evening | Night
+  shiftsPerWeek    Float   @default(0)
+  hoursPerShift    Float   @default(8)
+  learnersPerShift Int     @default(1)
+  from             DateTime?
+  to               DateTime?
+  notes            String?
+
+  @@unique([familyId, employerId, settingCode, block])
+}
+
 /// One PHYSICAL clinical asset — a fixed radiographic room, an ED room, a
 /// portable unit, a mobile C-arm, a fluoroscopy room, an OR suite … — the grain
 /// of the 365-day asset map. Its operating rule (days × shift blocks) is the
@@ -824,6 +904,8 @@ model Employer {
 
   units ClinicalUnit[]
   assets ClinicalAsset[]
+  familySites FamilySite[]
+  allocations SettingAllocation[]
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]

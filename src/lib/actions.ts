@@ -453,6 +453,92 @@ export async function upsertRotationSetting(institutionId: string, formData: For
 }
 
 // ---------------------------------------------------------------------------
+// CLINICAL MODEL BY PROGRAM FAMILY — service areas, requirement grid, sites, allocations
+// ---------------------------------------------------------------------------
+
+const revalidateFamilyClinical = (familyId: string) => { revalidatePath(`/families/${familyId}/clinical`); revalidatePath("/clinical"); revalidatePath("/insights/clinical-sites"); };
+
+export async function updateFamilyClinicalModel(familyId: string, formData: FormData): Promise<void> {
+  await prisma.programFamily.update({ where: { id: familyId }, data: { clinicalModel: str(formData.get("clinicalModel")) || "hours", clinicalNotes: str(formData.get("clinicalNotes")) || null } });
+  revalidateFamilyClinical(familyId);
+}
+
+export async function upsertServiceArea(familyId: string, formData: FormData): Promise<void> {
+  const code = str(formData.get("code")).toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 12);
+  if (!code) return;
+  const data = { name: str(formData.get("name")) || code, settingCodes: str(formData.get("settingCodes")).toUpperCase().split(",").map((s) => s.trim()).filter(Boolean).join(","), unitCategories: str(formData.get("unitCategories")).split(",").map((s) => s.trim()).filter(Boolean).join(","), notes: str(formData.get("notes")) || null };
+  const count = await prisma.serviceArea.count({ where: { familyId } });
+  await prisma.serviceArea.upsert({ where: { familyId_code: { familyId, code } }, update: data, create: { familyId, code, sortOrder: count, ...data } });
+  revalidateFamilyClinical(familyId);
+}
+export async function deleteServiceArea(areaId: string, familyId: string): Promise<void> {
+  await prisma.serviceArea.delete({ where: { id: areaId } }).catch(() => undefined);
+  revalidateFamilyClinical(familyId);
+}
+
+/** Save one course's row of the requirement grid: `req_<serviceAreaId>` hours per student (and optional `cases_<id>`). */
+export async function saveCourseRequirements(courseId: string, familyId: string, formData: FormData): Promise<void> {
+  for (const [k, v] of formData.entries()) {
+    if (!k.startsWith("req_")) continue;
+    const serviceAreaId = k.slice(4);
+    const hours = optNum(v) ?? 0;
+    const cases = optNum(formData.get(`cases_${serviceAreaId}`));
+    if (hours <= 0 && cases == null) { await prisma.courseClinicalRequirement.deleteMany({ where: { courseId, serviceAreaId } }); continue; }
+    await prisma.courseClinicalRequirement.upsert({ where: { courseId_serviceAreaId: { courseId, serviceAreaId } }, update: { hoursPerStudent: hours, casesPerStudent: cases }, create: { courseId, serviceAreaId, hoursPerStudent: hours, casesPerStudent: cases } });
+  }
+  revalidateFamilyClinical(familyId);
+}
+
+export async function upsertFamilySite(familyId: string, employerId: string, formData: FormData): Promise<void> {
+  const data = { agreementStatus: str(formData.get("agreementStatus")) || "none", contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, notes: str(formData.get("notes")) || null };
+  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
+  revalidateFamilyClinical(familyId);
+}
+export async function removeFamilySite(familyId: string, employerId: string): Promise<void> {
+  await prisma.familySite.deleteMany({ where: { familyId, employerId } });
+  await prisma.settingAllocation.deleteMany({ where: { familyId, employerId } });
+  revalidateFamilyClinical(familyId);
+}
+
+/** The shifts a site allocates to this family in one setting: Day / Evening / Night shifts per week (0 removes the block). */
+export async function saveSettingAllocation(familyId: string, employerId: string, formData: FormData): Promise<void> {
+  const settingCode = str(formData.get("settingCode")).toUpperCase();
+  if (!settingCode) return;
+  const hoursPerShift = numOr(formData.get("hoursPerShift"), 8);
+  const learnersPerShift = Math.max(0, Math.round(numOr(formData.get("learnersPerShift"), 1)));
+  const fromRaw = str(formData.get("from")), toRaw = str(formData.get("to"));
+  const from = fromRaw ? new Date(fromRaw + "T00:00:00Z") : null, to = toRaw ? new Date(toRaw + "T00:00:00Z") : null;
+  for (const block of ["Day", "Evening", "Night"]) {
+    const shifts = numOr(formData.get(`shifts_${block}`), 0);
+    if (shifts <= 0) { await prisma.settingAllocation.deleteMany({ where: { familyId, employerId, settingCode, block } }); continue; }
+    await prisma.settingAllocation.upsert({ where: { familyId_employerId_settingCode_block: { familyId, employerId, settingCode, block } }, update: { shiftsPerWeek: shifts, hoursPerShift, learnersPerShift, from, to }, create: { familyId, employerId, settingCode, block, shiftsPerWeek: shifts, hoursPerShift, learnersPerShift, from, to } });
+  }
+  // Allocating shifts implies a relationship for this family.
+  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: {}, create: { familyId, employerId, agreementStatus: "asked" } });
+  revalidateFamilyClinical(familyId);
+}
+
+/** Import a course-allocation sheet (Course · Course weeks · Rotation/service area · Total hours per student) into the family's grid. */
+export async function importCourseAllocation(familyId: string, rows: { courseCode: string; areaName: string; hoursPerStudent: number }[]): Promise<{ saved: number; unmatched: string[] }> {
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, include: { serviceAreas: true, programs: { include: { terms: { include: { courses: true } } } } } });
+  if (!fam) return { saved: 0, unmatched: ["family not found"] };
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const courses = new Map(fam.programs.flatMap((p) => p.terms.flatMap((t) => t.courses)).filter((c) => c.code).map((c) => [norm(c.code!), c.id]));
+  const areas = new Map(fam.serviceAreas.flatMap((a) => [[norm(a.name), a.id], [norm(a.code), a.id]] as [string, string][]));
+  const unmatched: string[] = []; let saved = 0;
+  for (const r of rows) {
+    const courseId = courses.get(norm(r.courseCode)); const areaId = areas.get(norm(r.areaName));
+    if (!courseId) { unmatched.push(`course ${r.courseCode}`); continue; }
+    if (!areaId) { unmatched.push(`service area "${r.areaName}"`); continue; }
+    if (r.hoursPerStudent <= 0) { await prisma.courseClinicalRequirement.deleteMany({ where: { courseId, serviceAreaId: areaId } }); continue; }
+    await prisma.courseClinicalRequirement.upsert({ where: { courseId_serviceAreaId: { courseId, serviceAreaId: areaId } }, update: { hoursPerStudent: r.hoursPerStudent }, create: { courseId, serviceAreaId: areaId, hoursPerStudent: r.hoursPerStudent } });
+    saved++;
+  }
+  revalidateFamilyClinical(familyId);
+  return { saved, unmatched: [...new Set(unmatched)] };
+}
+
+// ---------------------------------------------------------------------------
 // 365-DAY CLINICAL ASSET MAP — physical assets, per-date exceptions, learner bookings
 // ---------------------------------------------------------------------------
 

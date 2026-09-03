@@ -306,6 +306,71 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   return { assets, overrides, bookings, rotations };
 }
 
+/** Every program family with its clinical model and the sites / assets that serve it — the "clinical sites by program" index. */
+export async function getFamiliesClinical() {
+  const fams = await prisma.programFamily.findMany({
+    orderBy: { name: "asc" },
+    include: { institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" } }, familySites: { select: { agreementStatus: true } }, _count: { select: { programs: true, allocations: true } } },
+  });
+  return fams.map((f) => ({
+    id: f.id, name: f.name, institution: f.institution.name, institutionId: f.institution.id, occupation: f.occupation?.title ?? null, soc: f.occupation?.socCode ?? null,
+    clinicalModel: f.clinicalModel, clinicalNotes: f.clinicalNotes, programs: f._count.programs, allocations: f._count.allocations,
+    areas: f.serviceAreas.map((a) => ({ code: a.code, name: a.name })),
+    sites: f.familySites.length, secured: f.familySites.filter((s) => s.agreementStatus === "secured").length, asked: f.familySites.filter((s) => s.agreementStatus === "asked").length,
+  }));
+}
+
+/** ONE family's clinical picture: model, service areas, the requirement grid
+ *  over its templates' courses, the sites that serve it (family-level
+ *  agreement + what each holds), the shifts allocated to it, and the course
+ *  windows of its offerings (students × real dates) that drive demand. */
+export async function getFamilyClinical(familyId: string) {
+  const fam = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    include: {
+      institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } },
+      serviceAreas: { orderBy: { sortOrder: "asc" }, include: { requirements: true } },
+      programs: { orderBy: { name: "asc" }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { clinicalRequirements: true } } } }, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { id: true } } } },
+      familySites: { include: { employer: { select: { id: true } } } },
+      allocations: { include: { employer: { select: { name: true, county: true, ring: true } } } },
+    },
+  });
+  if (!fam) return null;
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean)));
+  const catSet = new Set(fam.serviceAreas.flatMap((a) => a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean)));
+  const employers = await prisma.employer.findMany({
+    where: { institutionId: fam.institutionId },
+    orderBy: [{ ring: "asc" }, { name: "asc" }],
+    include: { assets: { where: { status: "active" }, select: { id: true, settingCode: true, setting: true, assetType: true, shiftBlocks: true, days: true, hoursPerShift: true, learnersPerShift: true } }, units: { where: { status: "active" }, select: { unitCategory: true, unitType: true, studentsPerShift: true, capacityCount: true, uom: true } } },
+  });
+  const fsByEmp = new Map(fam.familySites.map((s) => [s.employerId, s]));
+  const sites = employers
+    .filter((e) => fsByEmp.has(e.id) || e.assets.some((a) => settingSet.has(a.settingCode)) || e.units.some((u) => catSet.has(u.unitCategory)))
+    .map((e) => {
+      const fs = fsByEmp.get(e.id);
+      const relevantAssets = e.assets.filter((a) => settingSet.has(a.settingCode));
+      const bySetting: Record<string, { assets: number; setting: string; weeklyShifts: number }> = {};
+      for (const a of relevantAssets) { const s = bySetting[a.settingCode] ?? { assets: 0, setting: a.setting, weeklyShifts: 0 }; s.assets++; s.weeklyShifts += a.shiftBlocks.split(",").length * a.days.split(",").length; bySetting[a.settingCode] = s; }
+      const units = e.units.filter((u) => catSet.has(u.unitCategory));
+      return {
+        id: e.id, name: e.name, externalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, city: e.city, status: e.status,
+        globalAgreement: e.agreementStatus, agreementStatus: fs?.agreementStatus ?? "none", contactName: fs?.contactName ?? e.contactName, contactEmail: fs?.contactEmail ?? e.contactEmail, notes: fs?.notes ?? null,
+        bySetting, units: units.map((u) => ({ category: u.unitCategory, type: u.unitType, studentsPerShift: u.studentsPerShift, capacity: u.capacityCount, uom: u.uom })),
+        allocations: fam.allocations.filter((al) => al.employerId === e.id).map((al) => ({ id: al.id, settingCode: al.settingCode, block: al.block, shiftsPerWeek: al.shiftsPerWeek, hoursPerShift: al.hoursPerShift, learnersPerShift: al.learnersPerShift, from: al.from?.toISOString().slice(0, 10) ?? null, to: al.to?.toISOString().slice(0, 10) ?? null })),
+      };
+    });
+  const programs = fam.programs.map((p) => ({
+    id: p.id, name: p.name, cohorts: p.cohorts.length,
+    courses: p.terms.flatMap((t) => t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, termIndex: t.index, termName: t.name, weeks: (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1, weeklyClinicalHours: c.weeklyClinicalHours, requirements: c.clinicalRequirements.map((r) => ({ serviceAreaId: r.serviceAreaId, hoursPerStudent: r.hoursPerStudent, casesPerStudent: r.casesPerStudent })) }))),
+  }));
+  const allocations = fam.allocations.map((al) => ({ employerId: al.employerId, facilityName: al.employer.name, county: al.employer.county, ring: al.employer.ring, settingCode: al.settingCode, block: al.block, shiftsPerWeek: al.shiftsPerWeek, hoursPerShift: al.hoursPerShift, learnersPerShift: al.learnersPerShift, from: al.from?.toISOString().slice(0, 10) ?? null, to: al.to?.toISOString().slice(0, 10) ?? null }));
+  return {
+    family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null, clinicalModel: fam.clinicalModel, clinicalNotes: fam.clinicalNotes },
+    serviceAreas: fam.serviceAreas.map((a) => ({ id: a.id, code: a.code, name: a.name, settingCodes: a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean), unitCategories: a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean), sortOrder: a.sortOrder, notes: a.notes })),
+    programs, sites, allocations, settingCodes: [...settingSet],
+  };
+}
+
 export async function getInstitutionsLite() {
   return prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
 }

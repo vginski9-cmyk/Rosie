@@ -140,6 +140,13 @@ export default async function FamilyPage({ params }: { params: { id: string } })
           </div>
           <span className="text-rose-600">→</span>
         </Link>
+        <Link href={`/families/${family.id}/clinical`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
+          <div>
+            <div className="text-sm font-semibold text-slate-800">Clinical sites, assets &amp; supply vs demand — this job ↦</div>
+            <div className="text-xs text-slate-500">How this job&apos;s clinicals are administered ({family.institution.name}), its service areas and requirement grid, the sites and physical assets that serve it, shifts allocated to it, and hours supply vs demand week by week</div>
+          </div>
+          <span className="text-rose-600">→</span>
+        </Link>
       </div>
 
       {/* North-Star goal planner — set the goal + adjust every % in a row, autocalculated */}

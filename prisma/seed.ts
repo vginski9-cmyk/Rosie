@@ -399,6 +399,100 @@ async function loadRadAssetMap(institutionId: string) {
   return { assets: assetIds.size, facilities: facilities.size, exceptions: map.exceptions.length, rotations: ROT.length };
 }
 
+/** Each job's CLINICAL MODEL: how its clinicals are administered (hours vs
+ *  competencies), its service areas and which physical settings / unit
+ *  categories serve them, the requirement grid (course × area, hours per
+ *  student — the workbook's RAD PROGRAM COURSE ALLOCATION), the sites that
+ *  matter to THIS family with a family-level agreement, and the shifts each
+ *  secured site has allocated to the family. */
+async function loadClinicalModels(institutionId: string) {
+  type RadMap = { clinicalModel: { model: string; notes: string }; serviceAreas: { code: string; name: string; settingCodes: string }[]; courseAllocation: { courseCode: string; courseName: string; courseWeeks: number; students: number; area: string; hoursPerStudent: number }[] };
+  const map = JSON.parse(readFileSync(join(__dirname, "templates", "rad-asset-map.json"), "utf8")) as RadMap;
+  const families = await prisma.programFamily.findMany({ where: { institutionId }, include: { programs: { include: { terms: { orderBy: { index: "asc" }, include: { courses: true } } } } } });
+  const employers = await prisma.employer.findMany({ where: { institutionId }, include: { assets: { select: { settingCode: true, shiftBlocks: true, operatingRule: true } }, units: { select: { unitCategory: true } } } });
+  let areas = 0, reqs = 0, sites = 0, allocations = 0;
+
+  for (const fam of families) {
+    const isRad = /radiograph/i.test(fam.name);
+    const isSurg = /surgical/i.test(fam.name);
+    const isCna = /nurse aide|cna/i.test(fam.name);
+    const isMa = /medical assist/i.test(fam.name);
+    const model = isRad ? map.clinicalModel : isSurg
+      ? { model: "competency", notes: "Competency / case-based: CAAHEP requires a documented case log (120 cases across specialties, 30 first-scrub in general surgery) rather than a fixed hour count — supply is OR suites and ASC procedure rooms with a preceptor per learner." }
+      : isCna ? { model: "hours", notes: "Hours-based: NC NATCEP requires a minimum of clinical hours in a skilled nursing setting under RN supervision (currently 16 h clinical in the 75-h minimum), delivered in short blocks at long-term care sites." }
+      : { model: "hours", notes: "Hours-based practicum: 160-hour unpaid externship in an ambulatory office / clinic setting (CAAHEP), plus competency check-offs in administrative and clinical skills." };
+    await prisma.programFamily.update({ where: { id: fam.id }, data: { clinicalModel: model.model, clinicalNotes: model.notes } });
+
+    const areaDefs: { code: string; name: string; settingCodes: string; unitCategories: string }[] = isRad
+      ? map.serviceAreas.map((a) => ({ ...a, unitCategories: "Imaging" }))
+      : isSurg ? [{ code: "OR", name: "Operating room — scrub / first assist", settingCodes: "ORS,OR", unitCategories: "Surgical" }, { code: "ASC", name: "Ambulatory surgery center procedures", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "SPD", name: "Sterile processing", settingCodes: "", unitCategories: "Surgical" }, { code: "AMB", name: "Physician office / clinic observation", settingCodes: "AMB", unitCategories: "Ambulatory office" }]
+      : isCna ? [{ code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" }, { code: "ACH", name: "Adult care home", settingCodes: "LTC", unitCategories: "Adult care beds" }, { code: "MS", name: "Hospital medical-surgical unit", settingCodes: "BEDS", unitCategories: "Inpatient beds" }]
+      : [{ code: "AMB", name: "Ambulatory office / clinic externship", settingCodes: "AMB", unitCategories: "Ambulatory office" }, { code: "LAB", name: "Laboratory / phlebotomy", settingCodes: "", unitCategories: "Laboratory" }, { code: "IMG", name: "Imaging front office", settingCodes: "GEN", unitCategories: "Imaging" }];
+    const areaByCode = new Map<string, string>();
+    for (let i = 0; i < areaDefs.length; i++) {
+      const a = areaDefs[i];
+      const row = await prisma.serviceArea.create({ data: { familyId: fam.id, code: a.code, name: a.name, settingCodes: a.settingCodes, unitCategories: a.unitCategories, sortOrder: i } });
+      areaByCode.set(a.code, row.id); areas++;
+    }
+
+    // Requirement grid — radiography from the workbook; other families from each clinical course's catalog hours.
+    if (isRad) {
+      for (const p of fam.programs) {
+        if (!/^Radiography$/.test(p.name)) continue;
+        const byCode = new Map(p.terms.flatMap((t) => t.courses).map((c) => [c.code, c]));
+        // The two clinical electives the workbook budgets hours for.
+        const ensure = async (code: string, name: string, termIndex: number) => {
+          if (byCode.has(code)) return byCode.get(code)!;
+          const term = p.terms.find((t) => t.index === termIndex) ?? p.terms[0];
+          const c = await prisma.course.create({ data: { termId: term.id, code, name, sequenceOrder: 99, creditHours: 2, courseType: "CORE", description: "Clinical elective — hours budgeted in the partner workbook's course allocation." } });
+          byCode.set(code, c); return c;
+        };
+        await ensure("RAD-181", "RAD Clinical Elective", 1); await ensure("RAD-281", "RAD Clinical Elective II", 3);
+        for (const r of map.courseAllocation) {
+          const course = byCode.get(r.courseCode); const areaId = areaByCode.get(r.area);
+          if (!course || !areaId) continue;
+          await prisma.courseClinicalRequirement.create({ data: { courseId: course.id, serviceAreaId: areaId, hoursPerStudent: r.hoursPerStudent } });
+          reqs++;
+        }
+      }
+    } else {
+      const primary = areaByCode.get(areaDefs[0].code)!;
+      for (const p of fam.programs) for (const t of p.terms) for (const c of t.courses) {
+        if (c.weeklyClinicalHours <= 0) continue;
+        const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+        await prisma.courseClinicalRequirement.create({ data: { courseId: c.id, serviceAreaId: primary, hoursPerStudent: c.weeklyClinicalHours * weeks, casesPerStudent: isSurg ? 30 : null } });
+        reqs++;
+      }
+    }
+
+    // Sites for this family: anything with assets in its settings or units in its categories.
+    const settingSet = new Set(areaDefs.flatMap((a) => a.settingCodes.split(",").filter(Boolean)));
+    const catSet = new Set(areaDefs.flatMap((a) => a.unitCategories.split(",").filter(Boolean)));
+    for (const e of employers) {
+      const hasAsset = e.assets.some((a) => settingSet.has(a.settingCode));
+      const hasUnit = e.units.some((u) => catSet.has(u.unitCategory));
+      if (!hasAsset && !hasUnit) continue;
+      // Family-level agreement: the global one for the family that "owns" the site's primary use, a notch lower elsewhere.
+      const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || (isMa && e.units.some((u) => u.unitCategory === "Ambulatory office"));
+      const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
+      await prisma.familySite.create({ data: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
+      sites++;
+      // Shifts the site has allocated to this family: secured radiography sites offer a slice of each setting's physical ceiling.
+      if (isRad && status === "secured") {
+        const perSetting = new Map<string, { n: number; blocks: Set<string> }>();
+        for (const a of e.assets) { if (!settingSet.has(a.settingCode)) continue; const s = perSetting.get(a.settingCode) ?? { n: 0, blocks: new Set() }; s.n++; a.shiftBlocks.split(",").forEach((b) => s.blocks.add(b)); perSetting.set(a.settingCode, s); }
+        for (const [code, s] of perSetting) {
+          const dayShifts = s.n * (s.blocks.has("Night") ? 5 : 4); // ~ one learner slot per asset per weekday
+          await prisma.settingAllocation.create({ data: { familyId: fam.id, employerId: e.id, settingCode: code, block: "Day", shiftsPerWeek: dayShifts, hoursPerShift: 8, learnersPerShift: 1 } });
+          allocations++;
+          if (s.blocks.has("Evening")) { await prisma.settingAllocation.create({ data: { familyId: fam.id, employerId: e.id, settingCode: code, block: "Evening", shiftsPerWeek: Math.max(1, Math.round(s.n * 1.5)), hoursPerShift: 8, learnersPerShift: 1 } }); allocations++; }
+        }
+      }
+    }
+  }
+  return { families: families.length, areas, requirements: reqs, sites, allocations };
+}
+
 async function createProgram(opts: {
   institutionId: string;
   occupationId: string;
@@ -962,6 +1056,10 @@ async function main() {
   await prisma.region.deleteMany();
   await prisma.occupation.deleteMany();
   await prisma.person.deleteMany();
+  await prisma.settingAllocation.deleteMany();
+  await prisma.familySite.deleteMany();
+  await prisma.courseClinicalRequirement.deleteMany();
+  await prisma.serviceArea.deleteMany();
   await prisma.assetBooking.deleteMany();
   await prisma.assetDay.deleteMany();
   await prisma.clinicalAsset.deleteMany();
@@ -1164,6 +1262,8 @@ async function main() {
   //       locked-in offerings with sections waiting for assignments ----------
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
+  const clinical = await loadClinicalModels(sandhills.id);
+  console.log("clinical models by family:", clinical);
 
   const counts = {
     institutions: await prisma.institution.count(),
