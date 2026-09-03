@@ -19,7 +19,7 @@ const FACILITY_TYPES = ["Acute care hospital", "Specialty hospital", "Ambulatory
 
 export interface SmFamily { id: string; name: string; institutionId: string; institution: string; occupation: string | null; soc: string | null }
 export interface SmSetting { id: string; code: string; name: string; settingCodes: string; unitCategories: string; notes: string | null }
-export interface SmSite { id: string; name: string; externalId: string | null; organization: string | null; county: string | null; ring: string | null; facilityType: string | null; city: string | null; status: string; agreementStatus: string; contactName: string | null; contactEmail: string | null; notes: string | null; assets: BuilderAsset[] }
+export interface SmSite { id: string; name: string; externalId: string | null; organization: string | null; county: string | null; ring: string | null; facilityType: string | null; address: string | null; city: string | null; state: string | null; zip: string | null; status: string; agreementStatus: string; contactName: string | null; contactEmail: string | null; notes: string | null; assets: BuilderAsset[] }
 export interface SmOrg { id: string; name: string; county: string | null; ring: string | null; facilityType: string | null }
 
 export function SupplyMapBoard({ family, settings, sites, overrides, organizations, year }: { family: SmFamily; settings: SmSetting[]; sites: SmSite[]; overrides: AssetDayOverride[]; organizations: SmOrg[]; year: number }) {
@@ -107,7 +107,9 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
             <label className="block"><span className="block text-[10px] text-slate-400">Site id (partner code)</span><input name="externalId" placeholder="H019" className="w-full rounded border border-slate-300 px-2 py-1 font-mono" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">County</span><input name="county" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">Ring</span><select name="ring" className="w-full rounded border border-slate-300 px-2 py-1">{["Core", "Ring 1", "Ring 2", "Ring 3"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+            <label className="block sm:col-span-2"><span className="block text-[10px] text-slate-400">Street address</span><input name="address" placeholder="155 Memorial Dr" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">City</span><input name="city" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
+            <label className="block"><span className="block text-[10px] text-slate-400">State · ZIP</span><div className="flex gap-1"><input name="state" defaultValue="NC" className="w-12 rounded border border-slate-300 px-2 py-1" /><input name="zip" placeholder="28374" className="w-full rounded border border-slate-300 px-2 py-1" /></div></label>
             <label className="block"><span className="block text-[10px] text-slate-400">Agreement for {family.name}</span><select name="agreementStatus" className="w-full rounded border border-slate-300 px-2 py-1">{AGREEMENTS.map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
             <label className="block"><span className="block text-[10px] text-slate-400">Contact name</span><input name="contactName" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">Contact email</span><input name="contactEmail" type="email" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
@@ -122,7 +124,7 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
                 <button onClick={() => setOpen(isOpen ? null : s.id)} className="min-w-0 flex-1 text-left">
                   <div className="text-base font-semibold text-slate-900">{isOpen ? "▾" : "▸"} {s.name} <span className="text-xs font-normal text-slate-400">{s.externalId ?? ""}</span></div>
-                  <div className="text-xs text-slate-500">{[s.facilityType, s.county && `${s.county} County`, s.ring, s.city].filter(Boolean).join(" · ")}</div>
+                  <div className="text-xs text-slate-500">{[s.facilityType, s.county && `${s.county} County`, s.ring].filter(Boolean).join(" · ")}{(s.address || s.city) ? <> · <span className="text-slate-600">{[s.address, [s.city, s.state].filter(Boolean).join(", "), s.zip].filter(Boolean).join(" · ")}</span></> : <> · <span className="text-amber-600">no address</span></>}</div>
                   <div className="mt-1 text-sm text-slate-700">{s.assets.length === 0 ? <span className="text-slate-400">no assets yet</span> : <>{s.assets.length} assets · {t.settings.map((x) => `${x.settingCode} ${x.assets}`).join(" · ")} · <strong>{n0(t.grand.total)}</strong> shifts · <strong>{n0(t.grand.hours)}</strong> hrs in {yr}</>}</div>
                 </button>
                 <form action={async (fd) => { await upsertFamilySite(family.id, s.id, fd); refresh(); }} className="flex items-center gap-1 text-xs">

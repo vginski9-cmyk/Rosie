@@ -6,6 +6,8 @@ import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { SessionSheet } from "@/components/SessionSheet";
 import { SheetImport } from "@/components/SheetImport";
+import { ClinicalAnalytics } from "@/components/ClinicalAnalytics";
+import { type AnalyticsCourse, shiftOf } from "@/lib/clinicalanalytics";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
@@ -34,7 +36,7 @@ const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0
 const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 const n2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptions }: { programId: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
+export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [showSeq, setShowSeq] = useState(false);
@@ -84,6 +86,18 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
 
   // Every session in the program — its values feed the drop-downs on every row.
   const allSessions = useMemo(() => terms.flatMap((t) => t.courses.flatMap((c) => c.sessions)), [terms]);
+
+  // Clinical analytics input: every course with its term and week count.
+  const analyticsCourses: AnalyticsCourse[] = useMemo(() => terms.flatMap((t) => t.courses.map((c) => ({
+    id: c.id, code: c.code, name: c.name, termName: t.name, termIndex: t.index, weeks: Math.max(1, (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1),
+    sessions: c.sessions.map((s) => ({ id: s.id, kind: s.kind, lengthHours: s.lengthHours, maxStudents: s.maxStudents, preceptorsNeeded: s.preceptorsNeeded, facultyNeeded: s.facultyNeeded, deliveryMode: s.deliveryMode, location: s.location, rotationType: s.rotationType, clinicalMode: s.clinicalMode, startTime: s.startTime, dayOfWeek: s.dayOfWeek, week: s.week })),
+  }))), [terms]);
+  // Per-course clinical settings / modes / shifts, for the tally line under each course.
+  const courseClinical = (c: DCourse) => {
+    const clin = c.sessions.filter((s) => s.kind === "CLINICAL");
+    const agg = (key: (s: DSession) => string | null | undefined) => { const m = new Map<string, number>(); for (const s of clin) { const k = key(s)?.trim() || "(not set)"; m.set(k, (m.get(k) ?? 0) + s.lengthHours); } return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+    return { settings: agg((s) => s.rotationType), modes: agg((s) => s.clinicalMode), shifts: agg((s) => shiftOf(s.startTime)), days: agg((s) => s.dayOfWeek), n: clin.length };
+  };
 
   const psTotal = calc.perStudent.CLASS + calc.perStudent.LAB + calc.perStudent.CLINICAL;
   const shTotal = calc.sectionHrs.CLASS + calc.sectionHrs.LAB + calc.sectionHrs.CLINICAL;
@@ -138,6 +152,9 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
           </div>
         </div>
       </div>
+
+      {/* Clinical analytics — settings, modes, shifts, days; top line and per course */}
+      <ClinicalAnalytics subject={programName ? `${programName} (template)` : "this template"} courses={analyticsCourses} enrollment={enrollment} />
 
       {/* Workload assumption helpers (capacity model columns AH–AN) */}
       <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -280,6 +297,15 @@ export function ProgramDesigner({ programId, terms, defaultEnrollment, assumptio
                         <span className="text-slate-600">{n0(spTot)} space hrs</span>
                         <span className="text-slate-600">fac <strong className="text-rose-700">{n2(fp.facFte)}</strong> FTE</span>
                         {fp.precFte > 0 && <span className="text-slate-600">prec <strong className="text-rose-700">{n2(fp.precFte)}</strong> FTE</span>}
+                        {(() => { const cc = courseClinical(course); if (!cc.n) return null; return (
+                          <span className="flex basis-full flex-wrap items-center gap-1 pt-1">
+                            <span className="font-semibold uppercase tracking-wide text-rose-500">Clinical</span>
+                            <span className="text-slate-500">settings:</span>{cc.settings.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{k} {n1(h)}h</span>)}
+                            <span className="ml-1 text-slate-500">modes:</span>{cc.modes.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-violet-200 bg-violet-50 text-violet-800"}`}>{k} {n1(h)}h</span>)}
+                            <span className="ml-1 text-slate-500">shifts:</span>{cc.shifts.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{k} {n1(h)}h</span>)}
+                            <span className="ml-1 text-slate-500">days:</span>{cc.days.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{k} {n1(h)}h</span>)}
+                          </span>
+                        ); })()}
                         <span className="flex-1" />
                         <form action={deleteCourse.bind(null, course.id, pid)}><button className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button></form>
                       </div>

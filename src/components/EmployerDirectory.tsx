@@ -10,6 +10,7 @@ export interface DirEmployer {
   name: string;
   setting: string | null;
   city: string | null;
+  address?: string | null; state?: string | null; zip?: string | null;
   status: string;
   contactName: string | null;
   institution: { id: string; name: string };
@@ -74,7 +75,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
       if (fRing && e.ring !== fRing) return false;
       if (fType && e.facilityType !== fType) return false;
       if (fAgree && (e.agreementStatus ?? "none") !== fAgree) return false;
-      if (needle && !(e.name.toLowerCase().includes(needle) || (e.city ?? "").toLowerCase().includes(needle) || (e.setting ?? "").toLowerCase().includes(needle))) return false;
+      if (needle && !(e.name.toLowerCase().includes(needle) || (e.city ?? "").toLowerCase().includes(needle) || (e.address ?? "").toLowerCase().includes(needle) || (e.zip ?? "").includes(needle) || (e.setting ?? "").toLowerCase().includes(needle))) return false;
       return true;
     });
   }, [employers, q, fInst, fStatus, fCounty, fRing, fType, fAgree]);
@@ -89,7 +90,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Search</span>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="name, city, setting…" className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="name, address, city, setting…" className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
         </label>
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Institution</span>
@@ -170,7 +171,8 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                 <tr key={e.id} className="hover:bg-slate-50/60">
                   <td className="px-3 py-2">
                     <Link href={`/employers/${e.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{e.name}</Link>
-                    <span className="block text-[11px] text-slate-400">{[e.organization, e.city].filter(Boolean).join(" · ")}</span>
+                    <span className="block text-[11px] text-slate-400">{e.organization}</span>
+                    <span className="block text-[11px] text-slate-500">{[e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · ") || <span className="text-amber-600">no address</span>}</span>
                   </td>
                   <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county, e.ring].filter(Boolean).join(" · ") || "—"}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{e.licensedBeds ?? e.nursingHomeBeds ?? "—"}{e.operatingRooms ? ` / ${e.operatingRooms} OR` : ""}</td>
@@ -213,6 +215,14 @@ function AddForm({ institutions, onDone }: { institutions: InstLite[]; onDone: (
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">City</span>
         <input name="city" placeholder="Fayetteville" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Street address</span>
+        <input name="address" placeholder="1638 Owen Dr" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">State · ZIP</span>
+        <div className="flex gap-1"><input name="state" placeholder="NC" defaultValue="NC" className="w-14 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" /><input name="zip" placeholder="28304" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" /></div>
       </label>
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Students / day (clinical capacity)</span>

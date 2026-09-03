@@ -46,6 +46,7 @@ export default async function StructureEditor({ params }: { params: { id: string
 
       <ProgramDesigner
         programId={program.id}
+        programName={program.name}
         terms={terms}
         defaultEnrollment={defaultEnrollment}
         assumptions={{

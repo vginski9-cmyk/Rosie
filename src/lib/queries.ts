@@ -393,7 +393,7 @@ export async function getFamilySupply(familyId: string) {
     .map((e) => {
       const fs = fsByEmp.get(e.id);
       return {
-        id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, county: e.county, ring: e.ring, facilityType: e.facilityType, city: e.city, status: e.status,
+        id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, county: e.county, ring: e.ring, facilityType: e.facilityType, address: e.address, city: e.city, state: e.state, zip: e.zip, status: e.status,
         agreementStatus: fs?.agreementStatus ?? "none", contactName: fs?.contactName ?? e.contactName, contactEmail: fs?.contactEmail ?? e.contactEmail, notes: fs?.notes ?? null,
         assets: e.assets.filter((a) => settingSet.size === 0 || settingSet.has(a.settingCode) || !!fs).map((a) => ({
           id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status,

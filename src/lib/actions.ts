@@ -629,7 +629,7 @@ export async function addFamilySite(familyId: string, formData: FormData): Promi
   let employerId = str(formData.get("employerId"));
   if (!employerId) {
     const name = str(formData.get("name")); if (!name) throw new Error("site name required");
-    const e = await prisma.employer.create({ data: { institutionId: fam.institutionId, name, externalId: str(formData.get("externalId")) || null, facilityType: str(formData.get("facilityType")) || null, setting: str(formData.get("facilityType")) || null, county: str(formData.get("county")) || null, ring: str(formData.get("ring")) || null, city: str(formData.get("city")) || null, organization: str(formData.get("organization")) || null, contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, status: "active", agreementStatus: "none" } });
+    const e = await prisma.employer.create({ data: { institutionId: fam.institutionId, name, externalId: str(formData.get("externalId")) || null, facilityType: str(formData.get("facilityType")) || null, setting: str(formData.get("facilityType")) || null, county: str(formData.get("county")) || null, ring: str(formData.get("ring")) || null, address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || null, zip: str(formData.get("zip")) || null, organization: str(formData.get("organization")) || null, contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, status: "active", agreementStatus: "none" } });
     employerId = e.id;
   }
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: {}, create: { familyId, employerId, agreementStatus: str(formData.get("agreementStatus")) || "none" } });
@@ -725,7 +725,10 @@ export async function createEmployer(formData: FormData): Promise<void> {
       institutionId,
       name: str(formData.get("name")) || "New partner",
       setting: str(formData.get("setting")) || null,
+      address: str(formData.get("address")) || null,
       city: str(formData.get("city")) || null,
+      state: str(formData.get("state")) || null,
+      zip: str(formData.get("zip")) || null,
       wblSlots: optNum(formData.get("wblSlots")) ?? null,
       status: str(formData.get("status")) || "prospect",
       contactName: str(formData.get("contactName")) || null,
@@ -744,7 +747,10 @@ export async function updateEmployer(employerId: string, formData: FormData): Pr
     data: {
       name: str(formData.get("name")) || "Partner",
       setting: str(formData.get("setting")) || null,
+      address: str(formData.get("address")) || null,
       city: str(formData.get("city")) || null,
+      state: str(formData.get("state")) || null,
+      zip: str(formData.get("zip")) || null,
       wblSlots: optNum(formData.get("wblSlots")) ?? null,
       status: str(formData.get("status")) || "active",
       contactName: str(formData.get("contactName")) || null,

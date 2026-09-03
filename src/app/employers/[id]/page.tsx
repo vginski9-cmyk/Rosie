@@ -51,8 +51,9 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{e.name}</h1>
             <p className="text-sm text-slate-500">
-              {[e.setting, e.city, e.institution.name].filter(Boolean).join(" · ")}
+              {[e.setting, e.institution.name].filter(Boolean).join(" · ")}
             </p>
+            <p className="text-sm text-slate-700">{[e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · ") || <span className="text-amber-700">No address on file — add one below.</span>}</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{e.status}</span>
@@ -93,7 +94,10 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         <form action={updateEmployer.bind(null, e.id)} className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="name" label="Name" defaultValue={e.name} required />
           <Field name="setting" label="Setting" defaultValue={e.setting} />
+          <Field name="address" label="Street address" defaultValue={e.address} />
           <Field name="city" label="City" defaultValue={e.city} />
+          <Field name="state" label="State" defaultValue={e.state} />
+          <Field name="zip" label="ZIP" defaultValue={e.zip} />
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Status</span>
             <select name="status" defaultValue={e.status} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">

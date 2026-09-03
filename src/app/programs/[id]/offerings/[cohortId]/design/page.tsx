@@ -90,6 +90,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
       <OfferingDesign
         programId={program.id}
         cohortId={cohort.id}
+        cohortName={cohort.name}
         terms={terms}
         meetings={meetings}
         overrides={overrides}

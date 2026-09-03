@@ -140,6 +140,25 @@ const CLASS_SLOTS = ["08:00", "09:30", "11:00", "12:30"];
 const LAB_SLOTS = ["13:00", "14:30", "16:00"];
 const CLASS_DAYS: [string, string][] = [["Mon", "Wed"], ["Tue", "Thu"], ["Wed", "Fri"], ["Mon", "Thu"]];
 const LAB_DAYS = ["Tue", "Thu", "Fri", "Mon"];
+const CLINICAL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+
+// ── Dummy street addresses for seeded sites ─────────────────────────────────
+// Every partner and clinical site needs an address. The license data gives a
+// county (and sometimes a city); the street number and name are generated
+// deterministically from the site name so reseeding is stable.
+const COUNTY_SEATS: Record<string, { city: string; zip: string }> = {
+  Cumberland: { city: "Fayetteville", zip: "28304" }, Moore: { city: "Pinehurst", zip: "28374" }, Randolph: { city: "Asheboro", zip: "27203" },
+  Harnett: { city: "Lillington", zip: "27546" }, Chatham: { city: "Siler City", zip: "27344" }, Lee: { city: "Sanford", zip: "27330" },
+  Hoke: { city: "Raeford", zip: "28376" }, Richmond: { city: "Rockingham", zip: "28379" }, Scotland: { city: "Laurinburg", zip: "28352" },
+  Anson: { city: "Wadesboro", zip: "28170" }, Montgomery: { city: "Troy", zip: "27371" },
+};
+const STREETS = ["Memorial Dr", "Owen Dr", "Hospital Dr", "Page Rd", "Medical Center Blvd", "Carthage St", "Sunset Ave", "Fayetteville Rd", "Highway 24", "Main St", "Church St", "Wicker St", "Robeson St", "Raeford Rd", "Ramsey St", "Rockingham Rd", "Cypress Rd", "Morganton Rd", "Aberdeen Rd", "Dawson St"];
+function dummyAddress(name: string, county: string | null, city: string | null) {
+  const h = [...name].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+  const seat = (county && COUNTY_SEATS[county]) || { city: "Pinehurst", zip: "28374" };
+  return { address: `${100 + (h % 4900)} ${STREETS[h % STREETS.length]}`, city: city ?? seat.city, state: "NC", zip: seat.zip };
+}
 
 /** Auto-generate richly detailed session-by-session rows from catalog hours. */
 function genSessions(c: CourseSeed, weeks: number) {
@@ -153,13 +172,13 @@ function genSessions(c: CourseSeed, weeks: number) {
   if (c.weeklyClassHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lecture?.[i] ?? `${c.name} — Unit ${i + 1}`;
-      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null, facultyContactPolicy: 2.5, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
+      rows.push({ kind: "CLASS", number: i + 1, title, lengthHours: c.weeklyClassHours, maxStudents: 30, facultyNeeded: 1, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: i % 2 === 0 ? classD1 : classD2, startTime: classStart, deliveryMode: i % 5 === 4 ? "Hybrid" : "In-person", location: "Classroom", rotationType: null, clinicalMode: null, facultyContactPolicy: 2.5, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
     }
   }
   if (c.weeklyLabHours > 0) {
     for (let i = 0; i < weeks; i++) {
       const title = bank.lab?.[i] ?? `${c.name} Lab — Week ${i + 1}`;
-      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: null, clinicalMode: null, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
+      rows.push({ kind: "LAB", number: i + 1, title, lengthHours: c.weeklyLabHours, maxStudents: 12, facultyNeeded: 2, supportStaffNeeded: 0, preceptorsNeeded: 0, week: i + 1, dayOfWeek: labDay, startTime: labStart, deliveryMode: "In-person", location: i % 6 === 5 ? "Simulation lab" : "Skills lab", rotationType: null, clinicalMode: null, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: null } as any);
     }
   }
   if (c.weeklyClinicalHours > 0) {
@@ -168,7 +187,11 @@ function genSessions(c: CourseSeed, weeks: number) {
     const shiftLen = c.weeklyClinicalHours >= 18 ? 12 : 8; // heavier clinical terms run 12-hr shifts
     for (let i = 0; i < clinWeeks; i++) {
       const rotation = CLINICAL_ROTATIONS[i % CLINICAL_ROTATIONS.length];
-      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: null, startTime: null, location: null, rotationType: rotation, clinicalMode: p.mode, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: 1 } as any);
+      // Shift structure: mostly day shifts, an evening every fourth week, a night
+      // shift on 12-hour terms every sixth week — so the shift analytics have shape.
+      const clinDay = CLINICAL_DAYS[(h + i) % CLINICAL_DAYS.length];
+      const clinStart = shiftLen === 12 ? (i % 6 === 5 ? "19:00" : "07:00") : (i % 4 === 3 ? "15:00" : "07:00");
+      rows.push({ kind: "CLINICAL", number: i + 1, title: `${rotation} Rotation — Week ${i + 1}`, lengthHours: shiftLen, maxStudents: p.maxStudents, facultyNeeded: p.faculty, supportStaffNeeded: 0, preceptorsNeeded: p.preceptors, week: i + 1, dayOfWeek: clinDay, startTime: clinStart, deliveryMode: "In-person", location: "Clinical site", rotationType: rotation, clinicalMode: i % 5 === 4 && p.mode === "Preceptor-led" ? "Instructor-led" : p.mode, facultyContactPolicy: 2, supportContactPolicy: 2, preceptorContactPolicy: 1 } as any);
     }
   }
   return rows;
@@ -301,9 +324,11 @@ async function loadAssetMap(institutionId: string) {
   const map = JSON.parse(readFileSync(join(__dirname, "templates", "asset-map.json"), "utf8")) as AssetMap;
   const byFacility = new Map<string, string>();
   for (const f of map.facilities) {
+    const addr = dummyAddress(f.name, f.county, f.city);
     const e = await prisma.employer.create({
       data: {
-        institutionId, name: f.name, externalId: f.facilityId, organization: f.organization, county: f.county, ring: f.ring, city: f.city,
+        institutionId, name: f.name, externalId: f.facilityId, organization: f.organization, county: f.county, ring: f.ring,
+        address: addr.address, city: addr.city, state: addr.state, zip: addr.zip,
         facilityType: f.facilityType, setting: f.facilityType,
         licensedBeds: f.licensedAcuteBeds != null ? Math.round(Number(f.licensedAcuteBeds)) : null,
         nursingHomeBeds: f.nursingHomeBeds != null ? Math.round(Number(f.nursingHomeBeds)) : null,

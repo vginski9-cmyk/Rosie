@@ -892,7 +892,11 @@ model Employer {
   contactName   String?
   contactEmail  String?
   contactPhone  String?
+  /// Street address of the site — every partner and clinical site has one.
+  address       String?
   city          String?
+  state         String?
+  zip           String?
   /// ── Clinical asset map (facility level) ──
   externalId    String?  // asset-map facility_id (H001…)
   organization  String?  // licensee / health system

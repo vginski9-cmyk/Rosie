@@ -9,6 +9,8 @@ import {
 } from "@/lib/capacitymodel";
 import { SessionFieldGrid, harvestOptions, type FieldRow } from "@/components/SessionFields";
 import type { EditableField } from "@/lib/sessionfields";
+import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnalytics";
+import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -99,8 +101,9 @@ const addTally = (a: Tally, b: Tally): Tally => ({
 });
 
 export function OfferingDesign({
-  programId, cohortId, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {},
+  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {},
 }: {
+  cohortName?: string;
   /** Institution-coded holidays & breaks (ISO → label) — checked before the U.S. defaults. */
   holidays?: Record<string, string>;
   programId: string;
@@ -237,6 +240,20 @@ export function OfferingDesign({
     </div>
   );
 
+  // Clinical analytics — the override-merged rows, at each term's enrollment
+  // target (the program-wide figure uses the largest term target), plus the
+  // partner sites each course's clinical sections are booked at.
+  const analyticsCourses: AnalyticsCourse[] = terms.flatMap((t) => t.courses.map((c) => ({
+    id: c.id, code: c.code, name: c.name, termName: t.name, termIndex: t.index, weeks: Math.max(1, (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1),
+    sessions: c.sessions.map((s) => rows.get(s.id) ?? s).map((r) => ({ id: r.id, kind: r.kind, lengthHours: r.lengthHours, maxStudents: r.maxStudents, preceptorsNeeded: r.preceptorsNeeded, facultyNeeded: r.facultyNeeded, deliveryMode: r.deliveryMode, location: r.location, rotationType: r.rotationType, clinicalMode: r.clinicalMode, startTime: r.startTime, dayOfWeek: r.dayOfWeek, week: r.week })),
+  })));
+  const analyticsEnrollment = Math.max(0, ...Object.values(enrollmentByTerm));
+  const analyticsSites: AnalyticsSite[] = (() => {
+    const m = new Map<string, AnalyticsSite>();
+    for (const mt of meetings) { if (mt.kind !== "CLINICAL" || !mt.employerName) continue; const k = `${mt.courseId}|${mt.employerName}`; const cur = m.get(k) ?? { courseId: mt.courseId, siteName: mt.employerName, sections: 0 }; cur.sections += 1; m.set(k, cur); }
+    return [...m.values()];
+  })();
+
   // Drop-down choices harvested from everything this program already uses.
   const dataOptions = harvestOptions([...rows.values()] as unknown as Partial<FieldRow>[]);
   const toggleSet = (set: Set<string>, id: string) => { const n = new Set(set); n.has(id) ? n.delete(id) : n.add(id); return n; };
@@ -295,6 +312,8 @@ export function OfferingDesign({
           </table>
         </div>
       </section>
+
+      <ClinicalAnalytics subject={cohortName ?? "this offering"} courses={analyticsCourses} enrollment={analyticsEnrollment} sites={analyticsSites} accent="sky" />
 
       <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" /> editable for THIS offering (Save stores only what differs from the template)</span>
