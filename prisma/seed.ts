@@ -412,8 +412,9 @@ async function loadRadAssetMap(institutionId: string) {
   const ROT: [string, string | null, string][] = [
     ["General Radiography", "GEN", "Imaging"], ["Chest & Bone", "GEN", "Imaging"], ["Pediatrics", "GEN", "Imaging"], ["Outpatient Imaging", "GEN", "Imaging"],
     ["Trauma / Emergency", "ED", "Emergency"], ["Operating Room & Mobile", "OR", "Surgical"], ["Fluoroscopy / GI", "FLUORO", "Imaging"],
-    ["Vascular / Special Procedures", "FLUORO", "Imaging"], ["Computed Tomography", null, "Imaging"], ["Portables / Inpatient", "PORT", "Imaging"],
+    ["Vascular / Special Procedures", "FLUORO", "Imaging"], ["Computed Tomography", "CT", "Imaging"], ["Portables / Inpatient", "PORT", "Imaging"],
     ["Operating Room", "OR", "Surgical"], ["Radiography", "GEN", "Imaging"], ["Emergency", "ED", "Emergency"], ["Imaging", "GEN", "Imaging"],
+    ["CT", "CT", "Imaging"], ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "LTC", "Adult care beds"],
   ];
   for (const [rotationType, settingCode, unitCategory] of ROT) {
     await prisma.rotationSetting.upsert({
@@ -421,7 +422,42 @@ async function loadRadAssetMap(institutionId: string) {
       update: { settingCode }, create: { institutionId, rotationType, unitCategory, settingCode },
     });
   }
-  return { assets: assetIds.size, facilities: facilities.size, exceptions: map.exceptions.length, rotations: ROT.length };
+  // Beyond the radiography workbook: CT scanners at the two big hospitals, and a
+  // long-term-care nursing unit at every nursing home — so the nurse-aide and CT
+  // demand has physical supply to be placed on (dummy, clearly marked ESTIMATE).
+  let extra = 0;
+  const hospitals = await prisma.employer.findMany({ where: { institutionId, externalId: { in: ["H001", "H012"] } }, select: { id: true, externalId: true } });
+  for (const h of hospitals) for (let n = 1; n <= 2; n++) {
+    await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId}-CT-${String(n).padStart(2, "0")}`, settingCode: "CT", setting: "Computed tomography", assetType: "CT scanner", assetNumber: n, operatingRule: "24x7", days: "Mon,Tue,Wed,Thu,Fri,Sat,Sun", shiftBlocks: "Day,Evening,Night", hoursPerShift: 8, serves: "Routine, trauma, contrast", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE" } });
+    extra++;
+  }
+  const homes = await prisma.employer.findMany({ where: { institutionId, nursingHomeBeds: { gt: 0 } }, select: { id: true, externalId: true, nursingHomeBeds: true } });
+  for (const h of homes) {
+    const learners = Math.max(2, Math.min(6, Math.round((h.nursingHomeBeds ?? 60) / 30)));
+    await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId ?? "NH"}-LTC-01`, settingCode: "LTC", setting: "Long-term care nursing unit", assetType: "SNF nursing unit", assetNumber: 1, operatingRule: "Weekday Day+Evening", days: "Mon,Tue,Wed,Thu,Fri", shiftBlocks: "Day,Evening", hoursPerShift: 8, serves: "Skilled nursing residents", learnersPerShift: learners, preceptorsPerShift: 1, dataSource: "ESTIMATE" } });
+    extra++;
+  }
+  return { assets: assetIds.size + extra, facilities: facilities.size, exceptions: map.exceptions.length, rotations: ROT.length };
+}
+
+/** Enrolled students on every offering — one per planned seat, numbered by seat
+ *  (sectionIndex = seat number), so the scheduler can hand each one a section
+ *  and a site-by-site itinerary. Dummy names, deterministic. */
+async function seedOfferingStudents() {
+  const FIRST = ["Ava", "Liam", "Maya", "Noah", "Zoe", "Ethan", "Isla", "Mason", "Nora", "Lucas", "Aria", "Caleb", "Leah", "Owen", "Ruby", "Eli", "Jade", "Milo", "Iris", "Jonah", "Tessa", "Reid", "Cora", "Silas", "Wren", "Amir", "Lena", "Otis", "Sage", "Theo", "Vera", "Kai", "Elle", "Rowan", "Nia", "Beau", "Ada", "Cruz", "Faye", "Hugo", "Ines", "Jude", "Kira", "Luca", "Mira", "Nash", "Opal", "Pax", "Remy", "Skye"];
+  const LAST = ["Abbott", "Baker", "Cole", "Dawson", "Ellis", "Foster", "Gibson", "Hale", "Ingram", "Jarvis", "Keller", "Lowe", "Mercer", "Nolan", "Osei", "Pratt", "Quinn", "Reyes", "Sutton", "Tate", "Underwood", "Vance", "Whitfield", "Xiong", "Yates", "Zimmer", "Bynum", "Clark", "Dunn", "Everett"];
+  let made = 0;
+  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true } }, _count: { select: { students: true } } } });
+  for (const co of cohorts) {
+    if (co._count.students > 0) continue;
+    const seats = Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
+    const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+    await prisma.student.createMany({
+      data: Array.from({ length: seats }, (_, i) => ({ programId: co.program.id, cohortId: co.id, name: `${FIRST[(h + i * 7) % FIRST.length]} ${LAST[(h * 3 + i * 11) % LAST.length]}`, email: null, status: "enrolled", stageKey: "enrolled", entryYear: co.entryYear, sectionIndex: i + 1 })),
+    });
+    made += seats;
+  }
+  return made;
 }
 
 /** Each job's CLINICAL MODEL: how its clinicals are administered (hours vs
@@ -1287,6 +1323,7 @@ async function main() {
   //       locked-in offerings with sections waiting for assignments ----------
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
+  console.log("offering students:", await seedOfferingStudents());
   const clinical = await loadClinicalModels(sandhills.id);
   console.log("clinical models by family:", clinical);
 

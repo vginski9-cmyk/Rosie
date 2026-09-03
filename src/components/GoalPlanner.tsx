@@ -243,7 +243,8 @@ export function GoalPlanner({
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
     const m = models.find((x) => x.programId === programId);
-    setAllocs([...allocs, { programId, goal: Math.max(0, remaining), offerings: [{ startDate: m ? suggestStart(m) : null, goal: Math.max(0, remaining), termOverrides: [] }] }]);
+    // A new model starts empty — every offering's goal is typed in on its own slot.
+    setAllocs([...allocs, { programId, goal: 0, offerings: [{ startDate: m ? suggestStart(m) : null, goal: 0, termOverrides: [] }] }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —

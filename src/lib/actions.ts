@@ -1853,3 +1853,73 @@ export async function calendarizeCohort(cohortId: string, programId: string): Pr
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath("/calendar");
 }
+
+// ---------------------------------------------------------------------------
+// CLINICAL SCHEDULER — apply a recommended plan
+// ---------------------------------------------------------------------------
+const AUTO_PLAN_NOTE = "auto-plan";
+
+export interface PlanAssignmentInput {
+  assetId: string; employerId: string; cohortId: string; sessionId: string; sectionIndex: number; courseId: string | null;
+  date: string; block: string; seats: number; seatsPerSection: number; preceptorIds: string[]; instructorId: string | null;
+  /** Seats per asset when the section spreads across several rooms at the site (defaults to the lead asset with all seats). */
+  parts?: { assetId: string; seats: number }[];
+  /** When a section is split across sites, this piece covers section seats (seatOffset, seatOffset + seats]. */
+  seatOffset?: number;
+}
+
+/** Write a recommended plan to the database: learner bookings on assets (one
+ *  per placed section), each clinical section's meeting pattern pointed at its
+ *  main site and lead preceptor, and a planned placement per student per site.
+ *  Earlier auto-plan rows for the same offerings are replaced; anything booked
+ *  by hand is left alone. */
+export async function applySchedulerPlan(institutionId: string, assignments: PlanAssignmentInput[]): Promise<{ bookings: number; placements: number; meetings: number }> {
+  const cohortIds = [...new Set(assignments.map((a) => a.cohortId))];
+  if (cohortIds.length === 0) return { bookings: 0, placements: 0, meetings: 0 };
+  await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
+  await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
+  await prisma.assetBooking.createMany({
+    data: assignments.flatMap((a) => (a.parts?.length ? a.parts : [{ assetId: a.assetId, seats: a.seats }]).map((pt) => ({ assetId: pt.assetId, cohortId: a.cohortId, sessionId: a.sessionId, sectionIndex: a.sectionIndex, date: new Date(a.date + "T00:00:00Z"), block: a.block, students: Math.max(1, Math.round(pt.seats)), note: AUTO_PLAN_NOTE }))),
+  });
+
+  // Each (cohort, course, section)'s MAIN site + lead preceptor → the meeting pattern the calendar reads.
+  const bySection = new Map<string, { employer: Map<string, number>; preceptor: Map<string, number> }>();
+  for (const a of assignments) {
+    if (!a.courseId) continue;
+    const k = `${a.cohortId}|${a.courseId}|${a.sectionIndex}`;
+    const s = bySection.get(k) ?? { employer: new Map(), preceptor: new Map() };
+    s.employer.set(a.employerId, (s.employer.get(a.employerId) ?? 0) + 1);
+    for (const p of a.preceptorIds) s.preceptor.set(p, (s.preceptor.get(p) ?? 0) + 1);
+    bySection.set(k, s);
+  }
+  let meetings = 0;
+  const top = (m: Map<string, number>) => [...m.entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null;
+  for (const [k, s] of bySection) {
+    const [cohortId, courseId, sec] = k.split("|");
+    const r = await prisma.meetingPattern.updateMany({ where: { cohortId, courseId, kind: "CLINICAL", sectionIndex: Number(sec) }, data: { employerId: top(s.employer), staffPersonId: top(s.preceptor) } });
+    meetings += r.count;
+  }
+
+  // Students follow their section: one planned placement per student × site, dated by that site's first and last shift.
+  const students = await prisma.student.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, sectionIndex: true } });
+  const placements: { studentId: string; employerId: string; cohortId: string; startDate: Date; endDate: Date; status: string; notes: string }[] = [];
+  for (const st of students) {
+    const mine = assignments.filter((a) => { if (a.cohortId !== st.cohortId) return false; const per = Math.max(1, a.seatsPerSection); const sec = Math.max(1, Math.ceil(Math.max(1, st.sectionIndex) / per)); if (sec !== a.sectionIndex) return false; const ord = st.sectionIndex - (sec - 1) * per; const off = a.seatOffset ?? 0; return ord > off && ord <= off + a.seats; });
+    const bySite = new Map<string, { from: string; to: string }>();
+    for (const a of mine) { const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w); }
+    for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: "planned", notes: AUTO_PLAN_NOTE });
+  }
+  if (placements.length) await prisma.wblPlacement.createMany({ data: placements });
+
+  revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/insights/clinical-sites"); revalidatePath("/insights/coverage");
+  for (const c of cohortIds) revalidatePath(`/programs/[id]/offerings/${c}`, "page");
+  return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings };
+}
+
+/** Remove everything a plan wrote for these offerings (hand-made bookings stay). */
+export async function clearSchedulerPlan(cohortIds: string[]): Promise<void> {
+  if (!cohortIds.length) return;
+  await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
+  await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
+  revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/insights/clinical-sites");
+}

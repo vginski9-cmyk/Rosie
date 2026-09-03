@@ -1778,3 +1778,22 @@ export async function getOfferingDesign(cohortId: string) {
   ]);
   return { cohort, rooms, people, employers };
 }
+
+/** Everything the clinical scheduler needs beyond the capacity model: the asset
+ *  map over the window, preceptors (with their site) and instructors, each
+ *  offering's students by section, and every family's own site agreements. */
+export async function getSchedulerData(institutionId: string, from: string, to: string) {
+  const [map, people, students, familySites] = await Promise.all([
+    getAssetMap(institutionId, from, to),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
+    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true } }),
+    prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true } }),
+  ]);
+  return {
+    ...map,
+    preceptors: people.filter((p) => p.role === "preceptor").map((p) => ({ id: p.id, name: p.name, employerId: p.employerId, role: p.role })),
+    instructors: people.filter((p) => p.role === "instructor").map((p) => ({ id: p.id, name: p.name, role: p.role })),
+    students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex })),
+    familyAgreements: familySites,
+  };
+}

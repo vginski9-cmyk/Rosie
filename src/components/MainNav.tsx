@@ -12,6 +12,7 @@ type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
   { label: "Insights", items: [
+    { label: "Clinical scheduler — supply vs demand", href: "/scheduler" },
     { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
     { label: "Clinical sites", href: "/insights/clinical-sites" },
     { label: "Daily coverage", href: "/insights/coverage" },
