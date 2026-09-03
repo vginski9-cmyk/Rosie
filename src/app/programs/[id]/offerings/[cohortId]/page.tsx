@@ -10,6 +10,8 @@ import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { Collapse } from "@/components/Collapse";
+import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
+import { BENCHMARK_RATES, type LadderRates } from "@/lib/northstar";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +82,20 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       }))
     : [];
 
+  // THIS offering's saved plan (goal · per-term enrollment · rates), with the
+  // family's default rates underneath.
+  let defaultRates: LadderRates = { ...BENCHMARK_RATES };
+  if (program.family?.goalPlan) { try { const gp = JSON.parse(program.family.goalPlan) as { goal?: Partial<LadderRates> }; if (gp.goal) defaultRates = { ...defaultRates, ...gp.goal }; } catch { /* benchmarks */ } }
+  let savedPlan: { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } = {};
+  if (offering.pipelineRates) { try { savedPlan = JSON.parse(offering.pipelineRates); } catch { /* none */ } }
+  const ownRates: Partial<LadderRates> = {};
+  for (const [k, v] of Object.entries(savedPlan.rates ?? {})) if (typeof v === "number" && v !== defaultRates[k as keyof LadderRates]) ownRates[k as keyof LadderRates] = v;
+  const initialTargets = {
+    goal: savedPlan.goal ?? offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0,
+    termOverrides: savedPlan.termOverrides ?? [],
+    rates: ownRates,
+  };
+
   // Sequence board inputs (template-wide; re-sequencing moves every offering).
   const seqTerms: SeqTerm[] = orderedTerms.map((t) => ({ id: t.id, name: t.name, courseCount: t.courses.length }));
   const seqCourses: SeqCourse[] = orderedTerms.flatMap((t) => t.courses.map((c) => ({
@@ -135,6 +151,9 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(offering._count.students)} enrolled now</>}
           defaultOpen
         >
+          <div className="mb-4">
+            <OfferingPipelineEditor cohortId={offering.id} initial={initialTargets} termNames={orderedTerms.map((t) => t.name)} defaultRates={defaultRates} />
+          </div>
           <FunnelChart
             programId={program.id}
             stages={offering.stages.map((s) => ({ key: s.stageKey as StageKey, label: s.label, target: s.targetNumber, actual: s.actualNumber }))}

@@ -629,7 +629,7 @@ export async function getOffering(cohortId: string) {
   return prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
-      program: { include: { institution: true, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { kind: true, week: true } } } } } } } },
+      program: { include: { institution: true, family: { select: { id: true, name: true, goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { kind: true, week: true } } } } } } } },
       cohortTerms: { include: { term: true } },
       courseDates: true,
       stages: { orderBy: { sortOrder: "asc" } },

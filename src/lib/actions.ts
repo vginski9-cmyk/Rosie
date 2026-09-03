@@ -1016,7 +1016,7 @@ export async function createOffering(programId: string, formData: FormData) {
 export async function lockInInstantiation(
   programId: string,
   familyId: string,
-  input: { gradYear: number; goal: number; startDate: string },
+  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number> },
 ): Promise<{ cohortId: string; name: string }> {
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
@@ -1035,7 +1035,11 @@ export async function lockInInstantiation(
       if (saved.goal) rates = { ...rates, ...saved.goal };
     } catch { /* benchmarks */ }
   }
+  // …unless this offering set its own rates on its slot.
+  if (input.rates) rates = { ...rates, ...(input.rates as Partial<typeof BENCHMARK_RATES>) };
   const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, program.terms.length));
+  const termOverrides = (input.termOverrides ?? []).map((v) => (v == null ? null : Math.max(0, Math.round(v))));
+  const term1 = termOverrides[0] ?? t.capacity;
 
   // Real semesterly term dates: term 1 starts on the chosen date; every later
   // term starts at the NEXT legit semester boundary (2nd Mon of Jan / 1st Mon
@@ -1060,14 +1064,16 @@ export async function lockInInstantiation(
     data: {
       programId, name, status: "planned", startDate: startD,
       entryYear: startD.getFullYear(), isExplicit: true,
-      plannedSeats: Math.round(t.capacity),
+      plannedSeats: Math.round(term1),
+      // The slot's own plan travels with the offering: goal, per-term enrollment, rates.
+      pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides }),
     },
   });
 
   // Funnel targets — the whole derived ladder, stage by stage.
   const stageTargets: Record<string, number> = {
     interested: t.interested, qualified: t.qualified, offered: t.offered,
-    enrolled: t.capacity, completing: t.completing, licensed: t.licensed,
+    enrolled: term1, completing: t.completing, licensed: t.licensed,
     placed: t.placed, productive: t.productive,
   };
   await prisma.funnelStage.createMany({

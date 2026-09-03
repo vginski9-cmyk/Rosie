@@ -10,6 +10,7 @@ import {
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
+import { OfferingTargetsEditor, type OfferingTargets } from "@/components/OfferingTargetsEditor";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -82,6 +83,12 @@ export interface DeliveryModel {
 interface OfferingSlot {
   /** Planned first day (ISO date). Required to lock in. */
   startDate: string | null;
+  /** THIS offering's share of the goal — fully-productive placements it covers. */
+  goal?: number;
+  /** THIS offering's per-term enrollment (index 0 = term 1); null = derived from its goal. */
+  termOverrides?: (number | null)[];
+  /** THIS offering's own health rates (only the keys that differ from the family defaults). */
+  rates?: Partial<LadderRates>;
   /** Locked in: the real cohort this run became. */
   locked?: boolean;
   cohortId?: string | null;
@@ -91,9 +98,9 @@ interface OfferingSlot {
 /** One slice of a year's goal, assigned to a delivery model. */
 interface Alloc {
   programId: string;
-  /** Fully-productive workers this model is responsible for (across all its offerings). */
+  /** Fully-productive workers this model is responsible for — the SUM of its offerings' goals (kept in sync). */
   goal: number;
-  /** Optional per-term enrollment overrides (index 0 = term 1). */
+  /** Legacy model-level per-term overrides — migrated onto the offerings. */
   termOverrides?: (number | null)[];
   /** User-chosen number of offerings — overrides the suggested count (add or
    *  subtract runs and sequence them however they add up to the goal). */
@@ -232,13 +239,11 @@ export function GoalPlanner({
   const yearKey = String(s.selectedYear);
   const allocs: Alloc[] = s.allocationsByYear?.[yearKey] ?? [];
   const yearGoal = Math.round(s.anchor === "northstar" ? (s.goalsByYear[yearKey] ?? 0) : productiveForYear(s.selectedYear));
-  const allocated = allocs.reduce((n, a) => n + a.goal, 0);
-  const remaining = yearGoal - allocated;
   const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
     const m = models.find((x) => x.programId === programId);
-    setAllocs([...allocs, { programId, goal: Math.max(0, remaining), offerings: [{ startDate: m ? suggestStart(m) : null }] }]);
+    setAllocs([...allocs, { programId, goal: Math.max(0, remaining), offerings: [{ startDate: m ? suggestStart(m) : null, goal: Math.max(0, remaining), termOverrides: [] }] }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —
@@ -252,15 +257,43 @@ export function GoalPlanner({
     const lockedCount = legacy.filter((o) => o.locked).length;
     const target = Math.max(1, lockedCount, a.offeringCount ?? suggested);
     const out = [...legacy];
-    while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null) });
+    while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null), goal: 0, termOverrides: [] });
     while (out.length > target && !out[out.length - 1].locked) out.pop();
+    // Legacy plans kept ONE goal and ONE set of term overrides per delivery model —
+    // split them evenly so every offering owns its own numbers from here on.
+    if (out.some((o) => o.goal == null)) {
+      const missing = out.filter((o) => o.goal == null).length;
+      const known = out.reduce((n, o) => n + (o.goal ?? 0), 0);
+      const each = Math.max(0, a.goal - known) / Math.max(1, missing);
+      const ov = (a.termOverrides ?? []).map((v) => (v == null ? null : Math.round(v / Math.max(1, out.length))));
+      return out.map((o) => (o.goal == null ? { ...o, goal: Math.round(each * 10) / 10, termOverrides: o.termOverrides ?? ov } : o));
+    }
     return out;
+  };
+  /** A model's goal is whatever its offerings add up to. */
+  const allocGoal = (a: Alloc) => slotsFor(a, 1).reduce((n, o) => n + (o.goal ?? 0), 0);
+  /** Only the rate keys that differ from the family defaults count as "own". */
+  const ownRatesOf = (r: Partial<LadderRates> | undefined): Partial<LadderRates> => { const out: Partial<LadderRates> = {}; for (const [k, v] of Object.entries(r ?? {})) if (typeof v === "number" && v !== s.goal[k as keyof LadderRates]) out[k as keyof LadderRates] = v; return out; };
+  /** What a slot's editor shows: its own fields, else (locked, older plan) the cohort's saved plan. */
+  const slotTargets = (o: OfferingSlot): OfferingTargets => {
+    if (o.goal == null && o.locked && o.cohortId) {
+      const inst = allInsts.find((x) => x.id === o.cohortId);
+      try { const saved = inst?.pipelineRates ? JSON.parse(inst.pipelineRates) as { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } : null; if (saved) return { goal: saved.goal ?? inst?.goalProductive ?? 0, termOverrides: saved.termOverrides ?? [], rates: ownRatesOf(saved.rates) }; } catch { /* fall through */ }
+      return { goal: inst?.goalProductive ?? 0, termOverrides: [], rates: {} };
+    }
+    return { goal: o.goal ?? 0, termOverrides: o.termOverrides ?? [], rates: o.rates ?? {} };
+  };
+  const allocated = allocs.reduce((n, a) => n + allocGoal(a), 0);
+  const remaining = yearGoal - allocated;
+  /** Locked offerings save straight to their cohort (debounced) — the plan JSON and the cohort stay in step. */
+  const pendingSaves = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const persistLocked = (cohortId: string, v: OfferingTargets) => {
+    clearTimeout(pendingSaves.current[cohortId]);
+    pendingSaves.current[cohortId] = setTimeout(() => { saveCohortPipeline(cohortId, { goal: v.goal, rates: { ...s.goal, ...v.rates } as unknown as Record<string, number>, termOverrides: v.termOverrides }).then(() => router.refresh()).catch(() => undefined); }, 800);
   };
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
-  /** Offering whose cohort-specific pipeline targets are open in the side panel. */
-  const [targetsFor, setTargetsFor] = useState<string | null>(null);
   const allInsts = useMemo(() => Object.values(instantiationsByYear).flat(), [instantiationsByYear]);
   const router = useRouter();
 
@@ -297,14 +330,15 @@ export function GoalPlanner({
     }
   };
 
-  const lockIn = async (ai: number, oi: number, goalShare: number, slots: OfferingSlot[]) => {
+  const lockIn = async (ai: number, oi: number, slots: OfferingSlot[]) => {
     const a = allocs[ai];
     const m = models.find((x) => x.programId === a.programId);
     const slot = slots[oi];
     if (!m || !slot?.startDate || slot.locked) return;
+    const tv = slotTargets(slot);
     setLockingId(`${a.programId}:${oi}`);
     try {
-      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: goalShare, startDate: slot.startDate });
+      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? ({ ...s.goal, ...tv.rates } as unknown as Record<string, number>) : undefined });
       const next = slots.map((x, i) => (i === oi ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
@@ -380,7 +414,6 @@ export function GoalPlanner({
             <div className="space-y-1.5">
               {(instantiationsByYear[s.selectedYear] ?? []).map((c) => (
                 <div key={c.id} className="flex items-stretch gap-2">
-                <button onClick={() => setTargetsFor(targetsFor === c.id ? null : c.id)} className={`shrink-0 rounded-lg border px-2.5 text-[11px] font-medium ${targetsFor === c.id ? "border-rose-400 bg-rose-600 text-white" : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"}`} title="set this offering's own talent-pipeline targets">⚙ targets</button>
                 <Link href={`/programs/${c.programId}/offerings/${c.id}`} className="flex-1 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
                   <span className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium text-slate-800">
@@ -424,7 +457,7 @@ export function GoalPlanner({
           the instantiations responsible for delivering them. Each model&apos;s <strong>max cohort enrollment capacity</strong> is
           the gating criterion — if the pipeline math needs more seats than a cohort can hold, the box flags it.
         </p>
-        <div className={`grid gap-4 ${targetsFor ? "lg:grid-cols-[minmax(200px,240px)_1fr_minmax(320px,380px)]" : "lg:grid-cols-[minmax(220px,280px)_1fr]"}`}>
+        <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
           {/* Delivery-model cards (drag sources) */}
           <div className="space-y-2">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery models</div>
@@ -467,157 +500,91 @@ export function GoalPlanner({
                 {allocs.map((a, ai) => {
                   const m = models.find((x) => x.programId === a.programId);
                   if (!m) return null;
-                  const t = deriveCohortTargets(a.goal, s.goal, Math.max(1, m.terms));
+                  const goalSum = allocGoal(a);
+                  const t = deriveCohortTargets(goalSum, s.goal, Math.max(1, m.terms));
                   const capNeeded = Math.round(t.capacity);
                   const nOfferings = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capNeeded / m.maxCapacity)) : 1;
                   const slots = slotsFor(a, nOfferings);
                   const lockedCount = slots.filter((o) => o.locked).length;
-                  const setCount = (next: number) =>
-                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: slots, offeringCount: Math.max(1, lockedCount, next), startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
-                  const removeSlot = (oi: number) => {
-                    if (slots[oi]?.locked) return;
-                    const next = slots.filter((_, j) => j !== oi);
-                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, offeringCount: Math.max(1, next.length), startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
+                  const withSlots = (next: OfferingSlot[], extra: Partial<Alloc> = {}) =>
+                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, ...extra, offerings: next, goal: next.reduce((n, o) => n + (o.goal ?? 0), 0), termOverrides: undefined, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
+                  const setCount = (next: number) => withSlots(slots, { offeringCount: Math.max(1, lockedCount, next) });
+                  const removeSlot = (oi: number) => { if (slots[oi]?.locked) return; const next = slots.filter((_, j) => j !== oi); withSlots(next, { offeringCount: Math.max(1, next.length) }); };
+                  const setSlot = (oi: number, patch: Partial<OfferingSlot>) => withSlots(slots.map((o, j) => (j === oi ? { ...o, ...patch } : o)));
+                  const setSlotTargets = (oi: number, patch: Partial<OfferingTargets>) => {
+                    const cur = slotTargets(slots[oi]);
+                    const v: OfferingTargets = { ...cur, ...patch };
+                    setSlot(oi, { goal: v.goal, termOverrides: v.termOverrides, rates: v.rates });
+                    if (slots[oi].locked && slots[oi].cohortId) persistLocked(slots[oi].cohortId!, v);
                   };
-                  const seatsEach = Math.ceil(capNeeded / Math.max(1, slots.length));
-                  const goalShare = a.goal / Math.max(1, slots.length);
-                  const anyUnlocked = slots.some((o) => !o.locked);
                   const allLocked = slots.length > 0 && slots.every((o) => o.locked);
-                  const share = yearGoal > 0 ? Math.round((a.goal / yearGoal) * 100) : 0;
-                  const setSlot = (oi: number, patch: Partial<OfferingSlot>) =>
-                    setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: slots.map((o, j) => (j === oi ? { ...o, ...patch } : o)), startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
-                  const setGoal = (v: number) => setAllocs(allocs.map((x, i) => (i === ai ? { ...x, goal: Math.max(0, v) } : x)));
-                  const setTermOverride = (ti: number, v: number | null) => setAllocs(allocs.map((x, i) => {
-                    if (i !== ai) return x;
-                    const o = [...(x.termOverrides ?? Array(m.terms).fill(null))];
-                    o[ti] = v;
-                    return { ...x, termOverrides: o };
-                  }));
+                  const share = yearGoal > 0 ? Math.round((goalSum / yearGoal) * 100) : 0;
+                  const termNames = Array.from({ length: Math.max(1, m.terms) }, (_, i) => `Term ${i + 1}`);
                   return (
                     <div key={a.programId} className={`rounded-lg border bg-white p-3 ${allLocked ? "border-emerald-200" : "border-slate-200"}`}>
                       <div className="flex flex-wrap items-center gap-3">
                         <span className="text-sm font-semibold text-slate-800">{m.name}</span>
                         <span className="text-[11px] text-slate-400">{m.credential ?? ""} · {m.terms} terms</span>
                         <span className="ml-auto flex items-center gap-2 text-xs">
-                          <label className="flex items-center gap-1">
-                            <span className="text-slate-500">covers</span>
-                            <input type="number" min={0} value={a.goal} disabled={allLocked} onChange={(e) => setGoal(Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right font-semibold tabular-nums focus:border-rose-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400" />
-                            <span className="text-slate-500">productive ({share}%)</span>
-                          </label>
-                          {anyUnlocked && !slots.some((o) => o.locked) && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
+                          <span className="text-slate-500">its offerings cover</span>
+                          <strong className="tabular-nums text-slate-800">{Math.round(goalSum * 10) / 10}</strong>
+                          <span className="text-slate-500">productive ({share}%)</span>
+                          {lockedCount === 0 && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
                         </span>
                       </div>
-                      {/* Capacity → how many offerings — suggested, but YOURS to add / subtract */}
+                      {/* How many offerings — suggested from the model's max cohort, but YOURS to add / subtract */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
-                        <span className="text-slate-500">needs enrollment capacity <strong className="text-slate-700">{capNeeded}</strong></span>
+                        <span className="text-slate-500">at the family&apos;s rates that needs enrollment capacity <strong className="text-slate-700">{capNeeded}</strong></span>
                         <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "—"}</strong></span>
-                        {slots.length > 1 ? (
-                          <span className="rounded-full bg-sky-100 px-2 py-0.5 font-medium text-sky-700">
-                            {slots.length} offerings of this model ({seatsEach} seats each)
-                          </span>
-                        ) : (
-                          m.maxCapacity != null && seatsEach <= (m.maxCapacity ?? Infinity) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">fits in one offering</span>
-                        )}
                         <span className="inline-flex items-center gap-1">
                           <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
-                          <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering — split the same goal across more runs">+ offering</button>
+                          <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering of this model — give it its own goal and enrollment below">+ offering</button>
                         </span>
-                        {slots.length !== nOfferings && (
-                          <span className="text-slate-400">math suggests {nOfferings} — your call</span>
-                        )}
-                        {m.maxCapacity != null && m.maxCapacity > 0 && seatsEach > m.maxCapacity && (
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 font-medium text-rose-700">
-                            ⚠ {seatsEach} seats each exceeds the model&apos;s max cohort of {Math.round(m.maxCapacity)} — add offerings or shrink this model&apos;s share
-                          </span>
-                        )}
+                        {slots.length !== nOfferings && <span className="text-slate-400">math suggests {nOfferings} — your call</span>}
                       </div>
 
-                      {/* The offerings — adjust each start date so intakes line up, then lock each in */}
-                      <div className="mt-2 space-y-1.5">
-                        {slots.map((o, oi) => (
-                          <div key={oi} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-slate-50/70 px-2.5 py-1.5 text-xs">
-                            <span className="w-16 shrink-0 font-semibold text-slate-500">Offering {slots.length > 1 ? oi + 1 : ""}</span>
-                            {o.locked ? (
-                              <>
-                                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
-                                <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
-                                {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
-                                {o.cohortId && (
-                                  <button onClick={() => setTargetsFor(targetsFor === o.cohortId ? null : o.cohortId!)} className={`rounded-lg border px-2.5 py-1 font-medium ${targetsFor === o.cohortId ? "border-rose-400 bg-rose-600 text-white" : "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"}`} title="set this offering's own talent-pipeline targets (side panel)">⚙ pipeline targets</button>
+                      {/* THE OFFERINGS — each with its own start, goal, enrollment per term and rates */}
+                      <div className="mt-2 space-y-2">
+                        {slots.map((o, oi) => {
+                          const tv = slotTargets(o);
+                          const own = deriveCohortTargets(Math.max(0, tv.goal), { ...s.goal, ...tv.rates }, Math.max(1, m.terms));
+                          const seats = tv.termOverrides[0] ?? Math.round(own.capacity);
+                          const over = m.maxCapacity != null && m.maxCapacity > 0 && seats > m.maxCapacity;
+                          return (
+                            <div key={oi} className={`rounded-lg border px-3 py-2 ${o.locked ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200 bg-slate-50/70"}`}>
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+                                <span className="w-20 shrink-0 font-semibold text-slate-600">Offering {slots.length > 1 ? oi + 1 : ""}</span>
+                                {o.locked ? (
+                                  <>
+                                    <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
+                                    <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
+                                    {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
+                                    <span className="text-[10px] text-slate-400">edits below save to this offering</span>
+                                    <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the instantiation (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <label className="flex items-center gap-1.5">
+                                      <span className="text-slate-500">starts</span>
+                                      <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
+                                    </label>
+                                    <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
+                                    <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{seats} seats in term 1{over ? ` — over this model's max cohort of ${Math.round(m.maxCapacity ?? 0)}` : ""}</span>
+                                    <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className="ml-auto rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real instantiation with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
+                                    {slots.length > 1 && <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>}
+                                  </>
                                 )}
-                                <button
-                                  onClick={() => unlock(ai, oi, slots)}
-                                  disabled={unlockingId != null}
-                                  className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                  title="undo the lock-in — deletes the instantiation (students are detached, not deleted) and frees this slot"
-                                >{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
-                              </>
-                            ) : (
-                              <>
-                                <label className="flex items-center gap-1.5">
-                                  <span className="text-slate-500">starts</span>
-                                  <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
-                                </label>
-                                <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
-                                <span className="tabular-nums text-slate-400">≈ {seatsEach} seats · covers {Math.round(goalShare * 10) / 10} productive</span>
-                                <button
-                                  onClick={() => lockIn(ai, oi, goalShare, slots)}
-                                  disabled={!o.startDate || a.goal <= 0 || lockingId != null}
-                                  className="rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                                  title={!o.startDate ? "set a start date first" : a.goal <= 0 ? "give it a share of the goal first" : "create the real instantiation"}
-                                >{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
-                                {slots.length > 1 && (
-                                  <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
+                              </div>
+                              <div className="mt-2">
+                                <OfferingTargetsEditor value={tv} termNames={termNames} defaultRates={s.goal} onChange={(patch) => setSlotTargets(oi, patch)} dense />
+                              </div>
+                            </div>
+                          );
+                        })}
                         <p className="text-[10px] text-slate-400">
-                          {slots.length > 1 ? "Adjust each offering's start so intakes line up (parallel sections, staggered Fall/Spring starts — your call), then lock each one in. " : ""}
-                          Locking in creates the offering with real term dates and its share of the pipeline targets; Unlock undoes it.
-                          Use ± offering to run more (or fewer) cohorts than the math suggests and sequence them to add up to the goal.
+                          Every offering has its own goal, its own enrollment for each term, and (if you want) its own health rates — the delivery model is just the sum of them.
+                          Lock in creates the real instantiation with exactly these numbers; after that, editing here saves to the offering itself, and the offering page shows the same editor.
                         </p>
-                      </div>
-
-                      {/* Per-instantiation pipeline targets, respecting THIS model's term count */}
-                      <div className="mt-2 overflow-x-auto">
-                        <table className="min-w-full text-[11px]">
-                          <thead>
-                            <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
-                              <th className="py-1 pr-3 font-medium">Interested</th><th className="py-1 pr-3 font-medium">Qualified</th><th className="py-1 pr-3 font-medium">Offered</th>
-                              {t.terms.map((_, i) => <th key={i} className="py-1 pr-3 font-medium text-rose-500">T{i + 1} enrolled</th>)}
-                              <th className="py-1 pr-3 font-medium">Completing</th><th className="py-1 pr-3 font-medium">Licensed</th><th className="py-1 pr-3 font-medium">Placed</th><th className="py-1 pr-0 font-medium">Productive</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr className="tabular-nums text-slate-700">
-                              <td className="py-1 pr-3">{Math.round(t.interested)}</td>
-                              <td className="py-1 pr-3">{Math.round(t.qualified)}</td>
-                              <td className="py-1 pr-3">{Math.round(t.offered)}</td>
-                              {t.terms.map((tv, i) => {
-                                const ov = a.termOverrides?.[i] ?? null;
-                                return (
-                                  <td key={i} className="py-1 pr-3">
-                                    <input
-                                      type="number" min={0}
-                                      value={ov ?? Math.round(tv)}
-                                      disabled={allLocked}
-                                      onChange={(e) => setTermOverride(i, e.target.value === "" ? null : Number(e.target.value))}
-                                      className={`w-14 rounded border px-1 py-0.5 text-right ${ov != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : "border-slate-200 text-slate-700"}`}
-                                      title={ov != null ? "override — clear to return to the derived figure" : "derived from the goal; type to override this term's enrollment"}
-                                    />
-                                  </td>
-                                );
-                              })}
-                              <td className="py-1 pr-3">{Math.round(t.completing)}</td>
-                              <td className="py-1 pr-3">{Math.round(t.licensed)}</td>
-                              <td className="py-1 pr-3">{Math.round(t.placed)}</td>
-                              <td className="py-1 pr-0 font-semibold">{Math.round(t.productive)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                        <p className="mt-0.5 text-[10px] text-slate-400">Targets derived backward from this instantiation&apos;s {a.goal}-productive goal through the family&apos;s health rates, across its {m.terms} terms. Type in a term cell to override enrollment for that term.</p>
                       </div>
                     </div>
                   );
@@ -625,21 +592,6 @@ export function GoalPlanner({
               </div>
             )}
           </div>
-
-          {/* Side-by-side: THIS offering's own talent-pipeline targets */}
-          {targetsFor && (() => {
-            const inst = allInsts.find((x) => x.id === targetsFor);
-            if (!inst) return null;
-            return (
-              <OfferingTargetsPanel
-                key={inst.id}
-                inst={inst}
-                defaultRates={s.goal}
-                onClose={() => setTargetsFor(null)}
-                onSaved={() => router.refresh()}
-              />
-            );
-          })()}
         </div>
       </div>
 
@@ -730,77 +682,6 @@ export function GoalPlanner({
       </div>
       </div>
       </details>
-    </div>
-  );
-}
-
-// ───────── Cohort-specific talent-pipeline targets (side panel) ─────────
-function OfferingTargetsPanel({ inst, defaultRates, onClose, onSaved }: {
-  inst: Instantiation; defaultRates: LadderRates; onClose: () => void; onSaved: () => void;
-}) {
-  const saved = (() => {
-    try { return inst.pipelineRates ? JSON.parse(inst.pipelineRates) as { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } : null; } catch { return null; }
-  })();
-  const [goal, setGoal] = useState<number>(saved?.goal ?? inst.goalProductive ?? 0);
-  const [rates, setRates] = useState<LadderRates>({ ...defaultRates, ...(saved?.rates ?? {}) });
-  const [termOverrides, setTermOverrides] = useState<(number | null)[]>(saved?.termOverrides ?? []);
-  const [busy, setBusy] = useState(false);
-  const terms = Math.max(1, inst.terms ?? 1);
-  const t = deriveCohortTargets(Math.max(0, goal), rates, terms);
-  const save = async () => {
-    setBusy(true);
-    try { await saveCohortPipeline(inst.id, { goal, rates: { ...rates } as unknown as Record<string, number>, termOverrides }); onSaved(); } finally { setBusy(false); }
-  };
-  const inp = "w-16 rounded border border-slate-200 px-1.5 py-0.5 text-right tabular-nums focus:border-rose-400 focus:outline-none";
-  return (
-    <div className="rounded-xl border border-rose-200 bg-rose-50/30 p-3 text-xs">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">{inst.name} — pipeline targets</div>
-          <div className="text-[11px] text-slate-500">{inst.program} · cohort-specific: these rates and this goal belong to THIS offering only</div>
-        </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-700">✕</button>
-      </div>
-      <label className="mb-2 flex items-center gap-2">
-        <span className="font-medium text-slate-700">Goal — fully productive placements</span>
-        <input type="number" min={0} value={goal} onChange={(e) => setGoal(Number(e.target.value) || 0)} className={`${inp} w-20 text-base font-semibold`} />
-      </label>
-      <table className="w-full">
-        <thead><tr className="text-left text-[10px] uppercase tracking-wide text-slate-400"><th className="py-1">Health metric</th><th className="py-1 text-right">Goal %</th><th className="py-1 text-right">Bench</th></tr></thead>
-        <tbody className="divide-y divide-rose-100">
-          {RATE_DEFS.map((d) => (
-            <tr key={d.key}>
-              <td className="py-1 pr-2"><span className="block font-medium text-slate-700">{d.label}</span><span className="block text-[10px] text-slate-400">{d.of}</span></td>
-              <td className="py-1 text-right"><input type="number" step={1} value={Math.round(rates[d.key] * 1000) / 10} onChange={(e) => setRates((r) => ({ ...r, [d.key]: (Number(e.target.value) || 0) / 100 }))} className={inp} />%</td>
-              <td className="py-1 text-right tabular-nums text-slate-400">{Math.round(d.benchmark * 100)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="mt-3 rounded-lg bg-white p-2 ring-1 ring-rose-100">
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Derived targets — funnel order</div>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 tabular-nums text-slate-700">
-          <span>Interested</span><span className="text-right font-medium">{Math.round(t.interested)}</span>
-          <span>Qualified</span><span className="text-right font-medium">{Math.round(t.qualified)}</span>
-          <span>Offered</span><span className="text-right font-medium">{Math.round(t.offered)}</span>
-          {t.terms.map((tv, i) => (
-            <span key={i} className="contents">
-              <span className="text-rose-700">Enrolled — Term {i + 1}</span>
-              <span className="text-right">
-                <input type="number" min={0} value={termOverrides[i] ?? Math.round(tv)} onChange={(e) => setTermOverrides((o) => { const n = [...o]; n[i] = e.target.value === "" ? null : Number(e.target.value); return n; })} className={`${inp} ${termOverrides[i] != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : ""}`} title="derived from the goal; type to override this term" />
-              </span>
-            </span>
-          ))}
-          <span>Completing</span><span className="text-right font-medium">{Math.round(t.completing)}</span>
-          <span>Licensed</span><span className="text-right font-medium">{Math.round(t.licensed)}</span>
-          <span>Placed</span><span className="text-right font-medium">{Math.round(t.placed)}</span>
-          <span className="font-semibold text-slate-900">Productive</span><span className="text-right font-semibold text-slate-900">{Math.round(t.productive)}</span>
-        </div>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        <button onClick={save} disabled={busy} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:opacity-50">{busy ? "Saving…" : "Save to this offering"}</button>
-        <button onClick={() => { setRates({ ...defaultRates }); setTermOverrides([]); }} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-500 hover:bg-white">Use family defaults</button>
-      </div>
     </div>
   );
 }
