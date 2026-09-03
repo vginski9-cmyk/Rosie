@@ -20,12 +20,19 @@ export interface AssetLite {
   agreementStatus?: string; facilityStatus?: string;
   settingCode: string; setting: string; assetType: string; assetNumber: number;
   operatingRule: string; days: string; shiftBlocks: string; hoursPerShift: number;
+  /** Shift structure, block by block (start HH:MM, length in hours). */
+  dayStart?: string; dayHours?: number; eveningStart?: string; eveningHours?: number; nightStart?: string; nightHours?: number;
   serves: string | null; learnersPerShift: number; preceptorsPerShift: number; dataSource: string; status: string;
 }
 export interface AssetDayOverride { assetId: string; date: string; shiftBlocks: string; note?: string | null }
 export interface AssetBookingLite { id: string; assetId: string; cohortId: string; sessionId: string | null; sectionIndex: number; date: string; block: string; students: number; cohort?: string; program?: string; courseCode?: string | null }
 
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+/** Length of one block's shift on this asset (falls back to the asset's default). */
+export const shiftHours = (a: AssetLite, block: ShiftBlock): number => (block === "Day" ? a.dayHours : block === "Evening" ? a.eveningHours : a.nightHours) ?? a.hoursPerShift;
+export const shiftStart = (a: AssetLite, block: ShiftBlock): string => (block === "Day" ? a.dayStart : block === "Evening" ? a.eveningStart : a.nightStart) ?? (block === "Day" ? "07:00" : block === "Evening" ? "15:00" : "23:00");
+/** Hours a block runs in HH:MM–HH:MM form. */
+export function shiftSpan(a: AssetLite, block: ShiftBlock): string { const st = shiftStart(a, block); const [h, m] = st.split(":").map(Number); const end = (h * 60 + m + Math.round(shiftHours(a, block) * 60)) % (24 * 60); return `${st}–${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`; }
 export const isoAdd = (iso: string, days: number) => new Date(new Date(iso + "T00:00:00Z").getTime() + days * 86400000).toISOString().slice(0, 10);
 export function* isoRange(from: string, to: string) { for (let d = from; d <= to; d = isoAdd(d, 1)) yield d; }
 
@@ -70,12 +77,12 @@ export function assetTotals(assets: AssetLite[], overrides: AssetDayOverride[], 
     const perBlock: Record<ShiftBlock, number> = { Day: 0, Evening: 0, Night: 0 };
     for (const iso of isoRange(from, to)) for (const b of blocksOn(a, iso, ov.get(overrideKey(a.id, iso)))) perBlock[b]++;
     st.day += perBlock.Day; st.evening += perBlock.Evening; st.night += perBlock.Night;
-    st.total += perBlock.Day + perBlock.Evening + perBlock.Night; st.hours += (perBlock.Day + perBlock.Evening + perBlock.Night) * a.hoursPerShift;
+    st.total += perBlock.Day + perBlock.Evening + perBlock.Night; st.hours += perBlock.Day * shiftHours(a, "Day") + perBlock.Evening * shiftHours(a, "Evening") + perBlock.Night * shiftHours(a, "Night");
     bySetting.set(a.settingCode, st);
     for (const b of ASSET_BLOCKS) {
       const k = `${a.employerId}|${a.settingCode}|${b}`;
       const ft = byFacility.get(k) ?? { employerId: a.employerId, facility: a.facilityName, settingCode: a.settingCode, setting: a.setting, assets: 0, block: b, daysAvailable: 0, assetShifts: 0, hours: 0 };
-      ft.assets++; ft.assetShifts += perBlock[b]; ft.daysAvailable = Math.max(ft.daysAvailable, perBlock[b]); ft.hours += perBlock[b] * a.hoursPerShift;
+      ft.assets++; ft.assetShifts += perBlock[b]; ft.daysAvailable = Math.max(ft.daysAvailable, perBlock[b]); ft.hours += perBlock[b] * shiftHours(a, b);
       byFacility.set(k, ft);
     }
   }
@@ -177,7 +184,7 @@ export function assetsAvailable(assets: AssetLite[], overrides: AssetDayOverride
 }
 
 // ── The partner workbook: read it in, write it out ───────────────────────────
-export interface ParsedAsset { externalId: string; facilityExternalId: string; facilityName: string; county: string | null; ring: string | null; facilityType: string | null; settingCode: string; setting: string; assetType: string; assetNumber: number; operatingRule: string; days: string; shiftBlocks: string; hoursPerShift: number; serves: string | null }
+export interface ParsedAsset { externalId: string; facilityExternalId: string; facilityName: string; county: string | null; ring: string | null; facilityType: string | null; settingCode: string; setting: string; assetType: string; assetNumber: number; operatingRule: string; days: string; shiftBlocks: string; hoursPerShift: number; serves: string | null; dayStart?: string; dayHours?: number; eveningStart?: string; eveningHours?: number; nightStart?: string; nightHours?: number }
 export interface ParsedAssetMap { assets: ParsedAsset[]; exceptions: AssetDayOverride[]; mapDates: { from: string; to: string } | null; issues: string[] }
 
 const norm = (v: unknown) => String(v ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
@@ -220,6 +227,9 @@ export function parseAssetMapWorkbook(sheets: Record<string, unknown[][]>): Pars
       assetType: String(g(r, "asset_type") ?? "").trim(), assetNumber: Number(g(r, "asset_number") ?? 1) || 1, operatingRule: rule,
       days: d?.days ?? (dayShifts >= 300 ? ALL_DAYS : "Mon,Tue,Wed,Thu,Fri"), shiftBlocks: d?.shiftBlocks ?? (blocksFromCounts || "Day"),
       hoursPerShift: Number(g(r, "hours_per_shift") ?? 8) || 8, serves: (g(r, "serves") as string | null) ?? null,
+      dayStart: (g(r, "day_start") as string | null) ?? undefined, dayHours: g(r, "day_hours") != null ? Number(g(r, "day_hours")) : undefined,
+      eveningStart: (g(r, "evening_start") as string | null) ?? undefined, eveningHours: g(r, "evening_hours") != null ? Number(g(r, "evening_hours")) : undefined,
+      nightStart: (g(r, "night_start") as string | null) ?? undefined, nightHours: g(r, "night_hours") != null ? Number(g(r, "night_hours")) : undefined,
     });
   }
   const exceptions: AssetDayOverride[] = [];
@@ -235,6 +245,8 @@ export function parseAssetMapWorkbook(sheets: Record<string, unknown[][]>): Pars
       if (!lo || iso < lo) lo = iso; if (!hi || iso > hi) hi = iso;
       const a = byId.get(id); if (!a) { issues.push(`365 map row for unknown asset ${id}`); continue; }
       const got = [Number(gm(r, "day_shift")) ? "Day" : null, Number(gm(r, "evening_shift")) ? "Evening" : null, Number(gm(r, "night_shift")) ? "Night" : null].filter(Boolean) as string[];
+      const hd = Number(gm(r, "hours_day_shift")), he = Number(gm(r, "hours_evening_shift")), hn = Number(gm(r, "hours_night_shift"));
+      if (hd > 0 && a.dayHours == null) a.dayHours = hd; if (he > 0 && a.eveningHours == null) a.eveningHours = he; if (hn > 0 && a.nightHours == null) a.nightHours = hn;
       const lite: AssetLite = { id, externalId: id, employerId: "", facilityName: a.facilityName, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED", status: "active" };
       const expect = blocksOn(lite, iso);
       if (expect.join(",") !== got.join(",")) exceptions.push({ assetId: id, date: iso, shiftBlocks: got.join(",") });
@@ -255,9 +267,9 @@ export function assetMapWorkbook(assets: AssetLite[], overrides: AssetDayOverrid
     ...t.settings.map((s) => [s.setting, s.assets, s.day, s.evening, s.night, s.total, s.hours]),
   ];
   const ASSET_MAP: unknown[][] = [["Clinical asset map"], ["One row per physical asset."], [],
-    ["asset_id", "facility_id", "facility_name", "county", "ring", "facility_type", "setting_code", "setting", "asset_type", "asset_number", "operating_rule", "serves", "day_shifts", "evening_shifts", "night_shifts", "total_annual_shifts", "annual_asset_hours", "learners_per_shift", "preceptors_per_shift", "agreement_status", "data_source"]];
+    ["asset_id", "facility_id", "facility_name", "county", "ring", "facility_type", "setting_code", "setting", "asset_type", "asset_number", "operating_rule", "serves", "day_shifts", "evening_shifts", "night_shifts", "total_annual_shifts", "annual_asset_hours", "learners_per_shift", "preceptors_per_shift", "agreement_status", "data_source", "day_start", "day_hours", "evening_start", "evening_hours", "night_start", "night_hours"]];
   const SHIFT_MAP: unknown[][] = [["365-day shift map"], ["One row per asset × date."], [],
-    ["asset_day_id", "date", "day_of_week", "asset_id", "facility_id", "facility_name", "setting_code", "setting", "asset_type", "asset_number", "day_shift", "evening_shift", "night_shift", "total_shifts", "total_hours", "serves"]];
+    ["asset_day_id", "date", "day_of_week", "asset_id", "facility_id", "facility_name", "setting_code", "setting", "asset_type", "asset_number", "day_shift", "hours_day_shift", "evening_shift", "hours_evening_shift", "night_shift", "hours_night_shift", "total_shifts", "total_hours", "serves"]];
   const DOW: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
   for (const a of assets) {
     if (a.status === "archived") continue;
@@ -265,10 +277,11 @@ export function assetMapWorkbook(assets: AssetLite[], overrides: AssetDayOverrid
     for (const iso of isoRange(from, to)) {
       const bl = blocksOn(a, iso, ov.get(overrideKey(a.id, iso)));
       for (const b of bl) per[b]++;
-      if (bl.length) SHIFT_MAP.push([`${a.externalId ?? a.id}-${iso}`, iso, DOW[weekdayOfIso(iso)], a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.settingCode, a.setting, a.assetType, a.assetNumber, bl.includes("Day") ? 1 : 0, bl.includes("Evening") ? 1 : 0, bl.includes("Night") ? 1 : 0, bl.length, bl.length * a.hoursPerShift, a.serves ?? ""]);
+      if (bl.length) SHIFT_MAP.push([`${a.externalId ?? a.id}-${iso}`, iso, DOW[weekdayOfIso(iso)], a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.settingCode, a.setting, a.assetType, a.assetNumber, bl.includes("Day") ? 1 : 0, bl.includes("Day") ? shiftHours(a, "Day") : 0, bl.includes("Evening") ? 1 : 0, bl.includes("Evening") ? shiftHours(a, "Evening") : 0, bl.includes("Night") ? 1 : 0, bl.includes("Night") ? shiftHours(a, "Night") : 0, bl.length, bl.reduce((n, b) => n + shiftHours(a, b), 0), a.serves ?? ""]);
     }
     const total = per.Day + per.Evening + per.Night;
-    ASSET_MAP.push([a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.county ?? "", a.ring ?? "", a.facilityType ?? "", a.settingCode, a.setting, a.assetType, a.assetNumber, a.operatingRule, a.serves ?? "", per.Day, per.Evening, per.Night, total, total * a.hoursPerShift, a.learnersPerShift, a.preceptorsPerShift, a.agreementStatus ?? "", a.dataSource]);
+    const hours = per.Day * shiftHours(a, "Day") + per.Evening * shiftHours(a, "Evening") + per.Night * shiftHours(a, "Night");
+    ASSET_MAP.push([a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.county ?? "", a.ring ?? "", a.facilityType ?? "", a.settingCode, a.setting, a.assetType, a.assetNumber, a.operatingRule, a.serves ?? "", per.Day, per.Evening, per.Night, total, hours, a.learnersPerShift, a.preceptorsPerShift, a.agreementStatus ?? "", a.dataSource, shiftStart(a, "Day"), shiftHours(a, "Day"), shiftStart(a, "Evening"), shiftHours(a, "Evening"), shiftStart(a, "Night"), shiftHours(a, "Night")]);
   }
   const FACILITY_TOTALS: unknown[][] = [["Facility × setting × shift totals"], [], [],
     ["facility_id", "facility_name", "setting_code", "setting", "physical_assets", "shift", "days_available", "asset_shifts", "hours_per_shift", "asset_hours"],

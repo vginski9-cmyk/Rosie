@@ -456,7 +456,7 @@ export async function upsertRotationSetting(institutionId: string, formData: For
 // CLINICAL MODEL BY PROGRAM FAMILY — service areas, requirement grid, sites, allocations
 // ---------------------------------------------------------------------------
 
-const revalidateFamilyClinical = (familyId: string) => { revalidatePath(`/families/${familyId}/clinical`); revalidatePath("/clinical"); revalidatePath("/insights/clinical-sites"); };
+const revalidateFamilyClinical = (familyId: string) => { revalidatePath(`/families/${familyId}/clinical`); revalidatePath("/clinical"); revalidatePath("/insights/clinical-sites"); revalidatePath("/programs/[id]/structure", "page"); };
 
 export async function updateFamilyClinicalModel(familyId: string, formData: FormData): Promise<void> {
   await prisma.programFamily.update({ where: { id: familyId }, data: { clinicalModel: str(formData.get("clinicalModel")) || "hours", clinicalNotes: str(formData.get("clinicalNotes")) || null } });
@@ -563,7 +563,79 @@ const assetDataFrom = (fd: FormData) => {
     notes: str(fd.get("notes")) || null,
   };
 };
-const revalidateAssets = (employerId?: string) => { revalidatePath("/insights/clinical-sites"); if (employerId) revalidatePath(`/employers/${employerId}`); };
+const revalidateAssets = (employerId?: string) => { revalidatePath("/insights/clinical-sites"); revalidatePath("/clinical"); revalidatePath("/families", "layout"); if (employerId) revalidatePath(`/employers/${employerId}`); };
+
+export interface AssetInput {
+  externalId?: string | null; settingCode: string; setting: string; assetType: string; assetNumber?: number; operatingRule?: string;
+  days: string[]; blocks: { block: "Day" | "Evening" | "Night"; start: string; hours: number }[];
+  serves?: string | null; learnersPerShift?: number; preceptorsPerShift?: number; dataSource?: string; notes?: string | null;
+}
+const assetRowFrom = (d: AssetInput) => {
+  const b = (name: "Day" | "Evening" | "Night") => d.blocks.find((x) => x.block === name);
+  const days = d.days.filter((x) => ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].includes(x));
+  const blocks = (["Day", "Evening", "Night"] as const).filter((x) => b(x));
+  const rule = days.length === 7 && blocks.length === 3 ? "24x7" : days.length === 5 && !days.includes("Sat") && blocks.join() === "Day" ? "Weekday Day" : (d.operatingRule && d.operatingRule !== "24x7" && d.operatingRule !== "Weekday Day" ? d.operatingRule : "Custom");
+  return {
+    externalId: d.externalId?.trim() || null, settingCode: d.settingCode.trim().toUpperCase().slice(0, 12) || "GEN", setting: d.setting.trim() || d.settingCode,
+    assetType: d.assetType.trim() || "Asset", assetNumber: Math.max(1, Math.round(d.assetNumber ?? 1)), operatingRule: rule,
+    days: (days.length ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"]).join(","), shiftBlocks: (blocks.length ? blocks : ["Day"]).join(","),
+    dayStart: b("Day")?.start || "07:00", dayHours: b("Day")?.hours || 8, eveningStart: b("Evening")?.start || "15:00", eveningHours: b("Evening")?.hours || 8, nightStart: b("Night")?.start || "23:00", nightHours: b("Night")?.hours || 8,
+    hoursPerShift: b("Day")?.hours || b("Evening")?.hours || b("Night")?.hours || 8,
+    serves: d.serves?.trim() || null, learnersPerShift: Math.max(0, Math.round(d.learnersPerShift ?? 1)), preceptorsPerShift: Math.max(0, Math.round(d.preceptorsPerShift ?? 1)),
+    dataSource: d.dataSource || "ESTIMATE", notes: d.notes?.trim() || null,
+  };
+};
+
+/** Create or update ONE physical asset with its full shift structure (days × blocks × start × length). */
+export async function saveClinicalAsset(employerId: string, assetId: string | null, input: AssetInput): Promise<{ id: string }> {
+  const data = assetRowFrom(input);
+  const row = assetId ? await prisma.clinicalAsset.update({ where: { id: assetId }, data }) : await prisma.clinicalAsset.create({ data: { employerId, ...data } });
+  revalidateAssets(employerId);
+  return { id: row.id };
+}
+/** "Add N more like this" — copies of an asset, numbered on from the highest in that setting. */
+export async function duplicateClinicalAsset(assetId: string, count: number): Promise<void> {
+  const a = await prisma.clinicalAsset.findUnique({ where: { id: assetId } });
+  if (!a) return;
+  const max = await prisma.clinicalAsset.aggregate({ where: { employerId: a.employerId, settingCode: a.settingCode }, _max: { assetNumber: true } });
+  let n = (max._max.assetNumber ?? 0);
+  const { id: _id, createdAt: _c, externalId, ...rest } = a; void _id; void _c;
+  const base = externalId?.replace(/-\d+$/, "") ?? null;
+  for (let i = 0; i < Math.min(50, Math.max(1, Math.round(count))); i++) {
+    n++;
+    await prisma.clinicalAsset.create({ data: { ...rest, assetNumber: n, externalId: base ? `${base}-${String(n).padStart(2, "0")}` : null } });
+  }
+  revalidateAssets(a.employerId);
+}
+/** Close (or set the blocks of) a set of assets across a date range — holidays, maintenance, surges. */
+export async function setAssetDays(assetIds: string[], fromIso: string, toIso: string, shiftBlocks: string | null, note?: string | null): Promise<void> {
+  const from = new Date(fromIso + "T00:00:00Z"), to = new Date(toIso + "T00:00:00Z");
+  if (!(from <= to) || (to.getTime() - from.getTime()) / 86400000 > 400) return;
+  let employerId: string | undefined;
+  for (const assetId of assetIds.slice(0, 200)) {
+    const a = await prisma.clinicalAsset.findUnique({ where: { id: assetId }, select: { employerId: true } }); if (!a) continue; employerId = a.employerId;
+    for (let d = new Date(from); d <= to; d = new Date(d.getTime() + 86400000)) {
+      if (shiftBlocks == null) await prisma.assetDay.deleteMany({ where: { assetId, date: d } });
+      else await prisma.assetDay.upsert({ where: { assetId_date: { assetId, date: d } }, update: { shiftBlocks, note: note ?? null }, create: { assetId, date: d, shiftBlocks, note: note ?? null } });
+    }
+  }
+  revalidateAssets(employerId);
+}
+
+/** Add a site to a family's clinical supply map: an existing organization from the directory, or a new one. */
+export async function addFamilySite(familyId: string, formData: FormData): Promise<{ employerId: string }> {
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { institutionId: true } });
+  if (!fam) throw new Error("family not found");
+  let employerId = str(formData.get("employerId"));
+  if (!employerId) {
+    const name = str(formData.get("name")); if (!name) throw new Error("site name required");
+    const e = await prisma.employer.create({ data: { institutionId: fam.institutionId, name, externalId: str(formData.get("externalId")) || null, facilityType: str(formData.get("facilityType")) || null, setting: str(formData.get("facilityType")) || null, county: str(formData.get("county")) || null, ring: str(formData.get("ring")) || null, city: str(formData.get("city")) || null, organization: str(formData.get("organization")) || null, contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, status: "active", agreementStatus: "none" } });
+    employerId = e.id;
+  }
+  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: {}, create: { familyId, employerId, agreementStatus: str(formData.get("agreementStatus")) || "none" } });
+  revalidateFamilyClinical(familyId); revalidatePath("/employers");
+  return { employerId };
+}
 
 export async function createClinicalAsset(employerId: string, formData: FormData): Promise<void> {
   await prisma.clinicalAsset.create({ data: { employerId, ...assetDataFrom(formData) } });
@@ -627,7 +699,8 @@ export async function importAssetMap(institutionId: string, parsed: import("./as
   const ids = new Map<string, string>();
   for (const a of parsed.assets) {
     const employerId = siteOf.get(a.facilityExternalId || a.facilityName.toLowerCase())!;
-    const row = await prisma.clinicalAsset.create({ data: { employerId, externalId: a.externalId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED" } });
+    const row = await prisma.clinicalAsset.create({ data: { employerId, externalId: a.externalId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED",
+      dayStart: a.dayStart || "07:00", dayHours: a.dayHours ?? a.hoursPerShift, eveningStart: a.eveningStart || "15:00", eveningHours: a.eveningHours ?? a.hoursPerShift, nightStart: a.nightStart || "23:00", nightHours: a.nightHours ?? a.hoursPerShift } });
     ids.set(a.externalId, row.id);
   }
   let exceptions = 0;

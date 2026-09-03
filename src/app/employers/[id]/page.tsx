@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getEmployer } from "@/lib/queries";
-import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit, createClinicalAsset, updateClinicalAsset, deleteClinicalAsset } from "@/lib/actions";
+import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit } from "@/lib/actions";
+import { AssetBuilder } from "@/components/AssetBuilder";
 
-const RULES = ["24x7", "Weekday Day", "Weekday Day+Evening", "7-day Day", "Custom"];
 const SETTING_PRESETS = [
   ["GEN", "General diagnostic radiography", "Fixed radiographic room"], ["ED", "Emergency / trauma radiography", "ED radiographic room"], ["PORT", "Portable / inpatient radiography", "Mobile radiography unit"],
   ["OR", "Operating room / C-arm", "Mobile C-arm"], ["FLUORO", "Diagnostic fluoroscopy", "R&F / fluoroscopy room"], ["CT", "Computed tomography", "CT scanner"], ["MRI", "Magnetic resonance", "MRI scanner"],
@@ -199,58 +199,17 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       <section className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold">Physical assets <span className="text-sm font-normal text-slate-400">— the 365-day asset map: one row per room, unit or machine</span></h2>
-            <p className="text-sm text-slate-500">What this site reports: each radiographic room, ED room, portable, C-arm, fluoro room, OR suite or bed unit, its operating rule (which days, which shift blocks, hours per shift), what it serves, and the learner rule layered on top. Every day of the year follows the rule unless an exception closes it.</p>
+            <h2 className="text-lg font-semibold">Physical assets <span className="text-sm font-normal text-slate-400">— one card per room, unit or machine, with its shift structure</span></h2>
+            <p className="text-sm text-slate-500">What it is, which days it runs, which shifts and how long each one is, and how many learners a shift takes. Every day of the year follows the structure unless a closure says otherwise.</p>
           </div>
           <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${new Date().getUTCFullYear() + 1}`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Download this site&apos;s workbook</a>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="min-w-full text-xs">
-            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-              <tr><th className="px-2 py-2 font-semibold">Asset id</th><th className="px-2 py-2 font-semibold">Setting code · setting</th><th className="px-2 py-2 font-semibold">Asset type · #</th><th className="px-2 py-2 font-semibold">Operating rule</th><th className="px-2 py-2 font-semibold">Days</th><th className="px-2 py-2 font-semibold">Shift blocks · hrs</th><th className="px-2 py-2 font-semibold">Serves</th><th className="px-2 py-2 font-semibold">Learners / shift</th><th className="px-2 py-2 font-semibold">Preceptors / shift</th><th className="px-2 py-2 font-semibold">Source</th><th className="px-2 py-2 text-right font-semibold">Booked · exceptions</th><th className="px-2 py-2" /></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {[...e.assets, null].map((a) => {
-                const isNew = a == null;
-                const days = (a?.days ?? "Mon,Tue,Wed,Thu,Fri").split(",");
-                const blocks = (a?.shiftBlocks ?? "Day").split(",");
-                const fid = isNew ? "asset-new" : `asset-${a.id}`;
-                return (
-                  <tr key={a?.id ?? "new"} className={isNew ? "bg-rose-50/30" : ""}>
-                    <td className="px-2 py-1.5"><input form={fid} name="externalId" defaultValue={a?.externalId ?? ""} placeholder={isNew ? `${e.externalId ?? "SITE"}-GEN-01` : ""} className="w-28 rounded border border-slate-300 px-1.5 py-1 font-mono" /></td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">
-                      <input form={fid} name="settingCode" defaultValue={a?.settingCode ?? "GEN"} list="setting-codes" className="w-16 rounded border border-slate-300 px-1.5 py-1 font-mono uppercase" />{" "}
-                      <input form={fid} name="setting" defaultValue={a?.setting ?? ""} placeholder="General diagnostic radiography" list="setting-names" className="w-52 rounded border border-slate-300 px-1.5 py-1" />
-                    </td>
-                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="assetType" defaultValue={a?.assetType ?? ""} placeholder="Fixed radiographic room" list="asset-types" className="w-44 rounded border border-slate-300 px-1.5 py-1" /> #<input form={fid} name="assetNumber" type="number" min={1} defaultValue={a?.assetNumber ?? 1} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5"><select form={fid} name="operatingRule" defaultValue={a?.operatingRule ?? "24x7"} className="rounded border border-slate-300 px-1.5 py-1">{RULES.map((r) => <option key={r} value={r}>{r}</option>)}</select></td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <label key={d} className="mr-1 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`day_${d}`} defaultChecked={isNew ? true : days.includes(d)} />{d[0]}</label>)}</td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">{["Day", "Evening", "Night"].map((b) => <label key={b} className="mr-1.5 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`block_${b}`} defaultChecked={isNew ? b === "Day" : blocks.includes(b)} />{b[0]}</label>)} × <input form={fid} name="hoursPerShift" type="number" step="any" defaultValue={a?.hoursPerShift ?? 8} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" />h</td>
-                    <td className="px-2 py-1.5"><input form={fid} name="serves" defaultValue={a?.serves ?? ""} placeholder="Routine, pediatric, geriatric" className="w-44 rounded border border-slate-300 px-1.5 py-1" /></td>
-                    <td className="px-2 py-1.5"><input form={fid} name="learnersPerShift" type="number" min={0} defaultValue={a?.learnersPerShift ?? 1} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5"><input form={fid} name="preceptorsPerShift" type="number" min={0} defaultValue={a?.preceptorsPerShift ?? 1} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5"><select form={fid} name="dataSource" defaultValue={a?.dataSource ?? "ESTIMATE"} className="rounded border border-slate-300 px-1.5 py-1">{["VERIFIED", "ESTIMATE", "GAP"].map((d) => <option key={d} value={d}>{d}</option>)}</select></td>
-                    <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{isNew ? "—" : `${a._count.bookings} · ${a._count.dayOverrides}`}</td>
-                    <td className="px-2 py-1.5 whitespace-nowrap">
-                      {isNew ? (
-                        <form id={fid} action={createClinicalAsset.bind(null, e.id)}><button className="rounded bg-rose-600 px-2 py-1 font-medium text-white hover:bg-rose-700">+ Add asset</button></form>
-                      ) : (
-                        <span className="inline-flex items-center gap-1">
-                          <form id={fid} action={updateClinicalAsset.bind(null, a.id, e.id)}><input type="hidden" name="status" value={a.status} /><button className="rounded bg-slate-800 px-2 py-1 font-medium text-white hover:bg-slate-700">Save</button></form>
-                          <form action={deleteClinicalAsset.bind(null, a.id, e.id)}><button className="rounded px-1.5 py-1 text-slate-300 hover:text-rose-600" title="delete asset">✕</button></form>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <datalist id="setting-codes">{SETTING_PRESETS.map(([c]) => <option key={c} value={c} />)}</datalist>
-          <datalist id="setting-names">{SETTING_PRESETS.map(([c, s]) => <option key={c} value={s} />)}</datalist>
-          <datalist id="asset-types">{SETTING_PRESETS.map(([c, , t]) => <option key={c} value={t} />)}</datalist>
-        </div>
-        <p className="text-xs text-slate-500">Operating rules: <strong>24x7</strong> = every day, Day + Evening + Night · <strong>Weekday Day</strong> = Mon–Fri, Day only · <strong>Custom</strong> = exactly the days and blocks ticked. Per-date closures and the full 365-day strip live on Insights → Clinical sites → Assets by site.</p>
+        <AssetBuilder
+          employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={new Date().getUTCFullYear() + 1}
+          assets={e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }))}
+          overrides={e.assetOverrides}
+          settings={SETTING_PRESETS.map(([code, name, assetType]) => ({ code, name, assetType }))}
+        />
       </section>
 
       {/* ── Sections hosted here ── */}

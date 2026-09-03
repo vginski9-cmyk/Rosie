@@ -13,9 +13,9 @@ export default async function ClinicalByProgramPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical sites by program</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Clinical supply by program</h1>
         <p className="max-w-3xl text-sm text-slate-500">
-          One clinical picture per job. Surgical technology counts cases in operating rooms; radiography counts hours in fixed rooms, ED, portables, C-arms and fluoro; nurse aides need supervised hours in long-term care; medical assistants need an office externship. Each family keeps its own service areas, requirement grid, site agreements, allocated shifts and supply-vs-demand.
+          One supply map per job. Surgical technology counts cases in operating rooms; radiography counts hours in fixed rooms, ED, portables, C-arms and fluoro; nurse aides need supervised hours in long-term care; medical assistants need an office externship. Each family keeps its own list of sites and, for every site, the physical assets it can host learners in — each with its own days of the week, shifts, shift lengths and settings. What each course needs is entered separately, in program design.
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -31,7 +31,7 @@ export default async function ClinicalByProgramPage() {
             {f.clinicalNotes && <p className="mt-2 text-xs text-slate-600">{f.clinicalNotes}</p>}
             <div className="mt-3 flex flex-wrap gap-1">{f.areas.map((a) => <span key={a.code} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600"><span className="font-mono text-slate-400">{a.code}</span> {a.name}</span>)}</div>
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-700">
-              <span><strong>{f.sites}</strong> sites</span><span className="text-emerald-700"><strong>{f.secured}</strong> secured</span><span className="text-amber-700"><strong>{f.asked}</strong> asked</span><span><strong>{f.allocations}</strong> shift allocations</span><span><strong>{f.programs}</strong> template{f.programs === 1 ? "" : "s"}</span>
+              <span><strong>{f.sites}</strong> sites</span><span className="text-emerald-700"><strong>{f.secured}</strong> secured</span><span className="text-amber-700"><strong>{f.asked}</strong> asked</span><span><strong>{f.programs}</strong> template{f.programs === 1 ? "" : "s"}</span>
             </div>
           </Link>
         ))}

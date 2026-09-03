@@ -64,13 +64,13 @@ export async function getProgramFull(programId: string) {
     include: {
       institution: true,
       occupation: true,
-      family: { select: { id: true, name: true } },
+      family: { select: { id: true, name: true, clinicalModel: true, clinicalNotes: true, serviceAreas: { orderBy: { sortOrder: "asc" } } } },
       yearTargets: { orderBy: { year: "asc" } },
       cohorts: { include: { stages: { orderBy: { sortOrder: "asc" } } } },
       terms: {
         orderBy: { index: "asc" },
         include: {
-          courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true } },
+          courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true, clinicalRequirements: true } },
         },
       },
     },
@@ -299,7 +299,8 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
     id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: a.employer.name, facilityExternalId: a.employer.externalId,
     county: a.employer.county, ring: a.employer.ring, facilityType: a.employer.facilityType, agreementStatus: a.employer.agreementStatus, facilityStatus: a.employer.status,
     settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
-    hoursPerShift: a.hoursPerShift, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes,
+    hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,
+    serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes,
   }));
   const overrides = assetsRaw.flatMap((a) => a.dayOverrides.map((o) => ({ assetId: a.id, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note })));
   const bookings = bookingsRaw.map((b) => ({ id: b.id, assetId: b.assetId, cohortId: b.cohortId, sessionId: b.sessionId, sectionIndex: b.sectionIndex, meetingId: b.meetingId, date: b.date.toISOString().slice(0, 10), block: b.block, students: b.students, note: b.note, cohort: b.cohort.name, program: b.cohort.program.name }));
@@ -368,6 +369,47 @@ export async function getFamilyClinical(familyId: string) {
     family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null, clinicalModel: fam.clinicalModel, clinicalNotes: fam.clinicalNotes },
     serviceAreas: fam.serviceAreas.map((a) => ({ id: a.id, code: a.code, name: a.name, settingCodes: a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean), unitCategories: a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean), sortOrder: a.sortOrder, notes: a.notes })),
     programs, sites, allocations, settingCodes: [...settingSet],
+  };
+}
+
+/** ONE job's clinical SUPPLY map — nothing about demand: its settings catalog,
+ *  every site that serves it with each site's physical assets and their shift
+ *  structures, plus the directory of organizations that can be added. */
+export async function getFamilySupply(familyId: string) {
+  const fam = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    include: { institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" } }, familySites: true },
+  });
+  if (!fam) return null;
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean)));
+  const fsByEmp = new Map(fam.familySites.map((s) => [s.employerId, s]));
+  const employers = await prisma.employer.findMany({
+    where: { institutionId: fam.institutionId },
+    orderBy: [{ name: "asc" }],
+    include: { assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { dayOverrides: true } } } } },
+  });
+  const sites = employers
+    .filter((e) => fsByEmp.has(e.id) || e.assets.some((a) => settingSet.has(a.settingCode)))
+    .map((e) => {
+      const fs = fsByEmp.get(e.id);
+      return {
+        id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, county: e.county, ring: e.ring, facilityType: e.facilityType, city: e.city, status: e.status,
+        agreementStatus: fs?.agreementStatus ?? "none", contactName: fs?.contactName ?? e.contactName, contactEmail: fs?.contactEmail ?? e.contactEmail, notes: fs?.notes ?? null,
+        assets: e.assets.filter((a) => settingSet.size === 0 || settingSet.has(a.settingCode) || !!fs).map((a) => ({
+          id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status,
+          settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
+          hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,
+          serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides,
+        })),
+      };
+    });
+  const siteIds = new Set(sites.map((s) => s.id));
+  const overrides = (await prisma.assetDay.findMany({ where: { asset: { employerId: { in: [...siteIds] } } }, select: { assetId: true, date: true, shiftBlocks: true, note: true } })).map((o) => ({ assetId: o.assetId, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note }));
+  return {
+    family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null },
+    settings: fam.serviceAreas.map((a) => ({ id: a.id, code: a.code, name: a.name, settingCodes: a.settingCodes, unitCategories: a.unitCategories, notes: a.notes })),
+    sites, overrides,
+    organizations: employers.filter((e) => !siteIds.has(e.id)).map((e) => ({ id: e.id, name: e.name, county: e.county, ring: e.ring, facilityType: e.facilityType })),
   };
 }
 
@@ -783,12 +825,12 @@ export async function getEmployersDirectory() {
 
 /** One employer partner with its placements (the hosted students). */
 export async function getEmployer(id: string) {
-  return prisma.employer.findUnique({
+  const e = await prisma.employer.findUnique({
     where: { id },
     include: {
       institution: { select: { id: true, name: true } },
       units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
-      assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } } } },
+      assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } },
       meetings: {
         orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
         include: { cohort: { select: { id: true, name: true, programId: true, program: { select: { name: true } } } }, course: { select: { code: true, name: true } }, unit: { select: { id: true, unitType: true } }, staff: { select: { name: true } } },
@@ -803,6 +845,8 @@ export async function getEmployer(id: string) {
       },
     },
   });
+  if (!e) return null;
+  return { ...e, assetOverrides: e.assets.flatMap((a) => a.dayOverrides.map((o) => ({ assetId: a.id, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note }))) };
 }
 
 /** Lightweight employer list for an institution (for placement assignment selects). */

@@ -6,7 +6,7 @@
 //   booked    = learners actually booked onto assets
 // All by setting, by week, and by region (county / ring). Pure functions.
 
-import { assetSupply, isoRange, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite } from "./assetmap";
+import { assetSupply, isoRange, isoAdd, shiftHours, type AssetLite, type AssetDayOverride, type AssetBookingLite } from "./assetmap";
 import type { ShiftBlock } from "./clinicalsupply";
 
 export interface ServiceAreaLite { id: string; code: string; name: string; settingCodes: string[]; sortOrder: number }
@@ -69,7 +69,7 @@ export function weeklySupply(assets: AssetLite[], overrides: AssetDayOverride[],
   for (const c of cells.values()) {
     const s = get(mondayOf(c.iso), c.settingCode);
     for (const id of c.assetIds) {
-      const a = assetById.get(id)!; const h = a.hoursPerShift * a.learnersPerShift;
+      const a = assetById.get(id)!; const h = shiftHours(a, c.block) * a.learnersPerShift;
       s.physicalHours += h; s.physicalShifts += a.learnersPerShift;
       region(s, [`county:${a.county ?? "?"}`, `ring:${a.ring ?? "?"}`], h, 0);
     }
@@ -87,7 +87,7 @@ export function weeklySupply(assets: AssetLite[], overrides: AssetDayOverride[],
   for (const b of bookings) {
     const a = assetById.get(b.assetId); if (!a) continue;
     const s = get(mondayOf(b.date), a.settingCode);
-    s.bookedHours += b.students * a.hoursPerShift; s.bookedShifts += b.students;
+    s.bookedHours += b.students * shiftHours(a, b.block as ShiftBlock); s.bookedShifts += b.students;
   }
   return [...acc.values()].sort((a, b) => a.weekIso.localeCompare(b.weekIso) || a.settingCode.localeCompare(b.settingCode));
 }

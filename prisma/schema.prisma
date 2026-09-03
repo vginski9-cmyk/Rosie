@@ -734,7 +734,14 @@ model ClinicalAsset {
   operatingRule String   @default("24x7") // 24x7 | Weekday Day | Custom
   days          String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
   shiftBlocks   String   @default("Day,Evening,Night")
-  hoursPerShift Float    @default(8)
+  hoursPerShift Float    @default(8) // default / fallback shift length
+  /// The shift structure, block by block: when each shift starts and how long it runs.
+  dayStart      String   @default("07:00")
+  dayHours      Float    @default(8)
+  eveningStart  String   @default("15:00")
+  eveningHours  Float    @default(8)
+  nightStart    String   @default("23:00")
+  nightHours    Float    @default(8)
   serves        String?  // populations / case mix the asset supports
   /// Learner rule: students the asset can host per shift (1 for a radiographic room).
   learnersPerShift Int   @default(1)

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramFull } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
+import { ClinicalRequirementsGrid } from "@/components/ClinicalRequirementsGrid";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,24 @@ export default async function StructureEditor({ params }: { params: { id: string
           preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks,
         }}
       />
+
+      {program.family && (
+        <ClinicalRequirementsGrid
+          programName={program.name}
+          family={{ id: program.family.id, name: program.family.name, clinicalModel: program.family.clinicalModel, clinicalNotes: program.family.clinicalNotes }}
+          areas={program.family.serviceAreas.map((a) => ({
+            id: a.id, code: a.code, name: a.name, notes: a.notes,
+            settingCodes: a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean),
+            unitCategories: a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean),
+          }))}
+          courses={program.terms.flatMap((t) => t.courses.map((c) => ({
+            id: c.id, code: c.code, name: c.name, termName: t.name, termIndex: t.index,
+            weeks: Math.max(1, (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), weeklyClinicalHours: c.weeklyClinicalHours,
+            requirements: c.clinicalRequirements.map((r) => ({ serviceAreaId: r.serviceAreaId, hoursPerStudent: r.hoursPerStudent, casesPerStudent: r.casesPerStudent })),
+          })))}
+          enrollment={defaultEnrollment}
+        />
+      )}
     </div>
   );
 }
