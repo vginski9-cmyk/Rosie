@@ -93,8 +93,10 @@ const NA = { soc: "31-1131", occupation: "Nursing Assistants" };
 const THIS_YEAR = new Date().getUTCFullYear();
 /** A flat-then-stairstep North-Star goal starting this year: base, base, +10%, +20%, +20%. */
 export const goals = (base: number) => ({ [THIS_YEAR]: base, [THIS_YEAR + 1]: base, [THIS_YEAR + 2]: Math.round(base * 1.1), [THIS_YEAR + 3]: Math.round(base * 1.2), [THIS_YEAR + 4]: Math.round(base * 1.2) });
-/** Serialize a goal set the way the goal planner stores it. */
-export const goalPlanJson = (g: Record<number, number>) => { const years = Object.keys(g).map(Number).sort(); return JSON.stringify({ anchor: "northstar", years, goalsByYear: Object.fromEntries(Object.entries(g).map(([y, v]) => [String(y), v])), selectedYear: years[1] ?? years[0] }); };
+/** Serialize a goal set the way the goal planner stores it. `goal` is the
+ *  family's default talent-pipeline health rates (the ladder every new
+ *  launching cohort inherits at lock-in); omit it to use the benchmarks. */
+export const goalPlanJson = (g: Record<number, number>, goal?: Record<string, number>) => { const years = Object.keys(g).map(Number).sort(); return JSON.stringify({ anchor: "northstar", years, goalsByYear: Object.fromEntries(Object.entries(g).map(([y, v]) => [String(y), v])), selectedYear: years[1] ?? years[0], ...(goal ? { goal } : {}) }); };
 
 const nursingFamily = (description: string, base: number, programs: ProgramDef[]): FamilyDef => ({ name: "Nursing (prelicensure RN)", ...RN, description, goals: goals(base), programs });
 const adn = (entry: "Fall" | "Spring", seats = 40): ProgramDef => ({ name: `ADN — ${entry} Entry`, type: "Traditional Full Time", credential: "AAS", terms: adnTerms, launch: entry.toUpperCase(), seats, months: 6 });

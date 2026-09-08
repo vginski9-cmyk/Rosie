@@ -57,7 +57,7 @@ export function ClinicalAnalytics({ subject, courses, enrollment, sites = [], ac
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Breakdown title="By setting" note="rotation type on each clinical row" slices={all.settings} color="bg-rose-400" />
           <Breakdown title="By clinical mode" note="instructor-led · preceptor-led · …" slices={all.modes} color="bg-violet-400" />
-          <Breakdown title="By shift" note="from start time: day 07–15 · evening 15–23 · night" slices={all.shifts} color="bg-amber-400" showStarts />
+          <Breakdown title="By shift" note="from start time: day 05–15 · evening 15–23 · night" slices={all.shifts} color="bg-amber-400" showStarts />
           <Breakdown title="By day of week" note="which weekdays clinicals land on" slices={all.days} color="bg-emerald-400" />
           <Breakdown title="Delivery mode (all sessions)" note="class, lab and clinical hours by delivery mode" slices={all.delivery} color="bg-sky-400" />
         </div>

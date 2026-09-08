@@ -20,7 +20,7 @@ const courses: AnalyticsCourse[] = [
 
 describe("shiftOf", () => {
   it("buckets start times the same way the supply side does", () => {
-    expect(shiftOf("07:00")).toBe("Day"); expect(shiftOf("14:59")).toBe("Day");
+    expect(shiftOf("07:00")).toBe("Day"); expect(shiftOf("14:59")).toBe("Day"); expect(shiftOf("06:30")).toBe("Day");
     expect(shiftOf("15:00")).toBe("Evening"); expect(shiftOf("22:30")).toBe("Evening");
     expect(shiftOf("23:00")).toBe("Night"); expect(shiftOf("03:00")).toBe("Night");
     expect(shiftOf(null)).toBeNull(); expect(shiftOf("")).toBeNull();

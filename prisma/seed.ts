@@ -204,117 +204,75 @@ function genSessions(c: CourseSeed, weeks: number) {
   return rows;
 }
 
-// --- Radiography (A.A.S. — A45110) full curriculum, real catalog data --------
-const c = (
-  code: string, name: string, classH: number, labH: number, clinH: number,
-  credits: number, semester: string, type: string, description: string, requisites: string,
-): CourseSeed => ({ code, name, weeklyClassHours: classH, weeklyLabHours: labH, weeklyClinicalHours: clinH, credits, semester, type, description, requisites });
+// --- Template packs (Sandhills program-data workbooks) -----------------------
+// A pack is one program's complete session table plus term/course structure,
+// converted from the partner's "Program Data_All Together" sheet and term
+// sheets: every input column (delivery mode, location, length, capacity,
+// staffing, contact-hour policies, week/day placement, notes, rotation type and
+// clinical mode) row for row.
+type PackSession = {
+  kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
+  lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
+  supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null; startTime?: string | null;
+  notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
+  rotationType: string | null; clinicalMode: string | null;
+};
+type ProgramPack = {
+  name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
+  assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
+  terms: { index: number; name: string; startWeek: number; endWeek: number; courses: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
+};
+const loadPack = (file: string) => JSON.parse(readFileSync(join(__dirname, "templates", file), "utf8")) as ProgramPack;
 
-const radTerms: TermSeed[] = [
-  {
-    index: 1, name: "First Fall", startWeek: 1, endWeek: 16,
-    courses: [
-      c("BIO-163", "Basic Anatomy & Physiology", 4, 2, 0, 5, "All", "SUPPORT", "A basic study of the structure and function of the human body. Topics include the body systems, homeostasis, cells, tissues, nutrition, acid-base balance, and electrolytes.", "Take one: ENG-002, BSP-4002, ENG-025, or ENG-8025 (Required, Previous)."),
-      c("ENG-111", "Writing and Inquiry", 3, 0, 0, 3, "All", "GENED", "Develops the ability to produce clear writing in a variety of genres and formats using a recursive process. Emphasis on inquiry, analysis, rhetorical strategies, thesis development, audience awareness, and revision.", "Take one: DRE-097, ENG-002, BSP-4002, ENG-025, or ENG-8025 (Required, Previous)."),
-      c("RAD-110", "Radiography Introduction & Patient Care", 2, 3, 0, 3, "Fall", "CORE", "Overview of the radiography profession and student responsibilities. Emphasis on basic principles of patient care, radiation protection, technical factors, and medical terminology.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-111, RAD-151 (Previous or Concurrent)."),
-      c("RAD-111", "RAD Procedures I", 3, 3, 0, 4, "Fall", "CORE", "Knowledge and skills necessary to perform standard radiographic procedures. Emphasis on radiography of the chest, abdomen, extremities, bony thorax and pelvis.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-110, RAD-151 (Previous or Concurrent)."),
-      c("RAD-151", "RAD Clinical Ed I", 0, 0, 6, 2, "Fall", "CORE", "Introduces patient management and basic radiographic procedures in the clinical setting. Emphasis on mastering positioning of the chest and extremities, manipulating equipment, and applying the principles of ALARA.", "Enrollment in the Radiography Program (Required, Previous). Take RAD-110, RAD-111 (Previous or Concurrent)."),
-    ],
-  },
-  {
-    index: 2, name: "First Spring", startWeek: 1, endWeek: 16,
-    courses: [
-      c("COM-120", "Introduction to Interpersonal Communication", 3, 0, 0, 3, "All", "GENED", "Introduces the practices and principles of interpersonal communication in dyadic and group settings. Emphasis on the communication process, perception, listening, self-disclosure, nonverbal communication, conflict, and power.", ""),
-      c("MAT-143", "Quantitative Literacy", 2, 2, 0, 3, "All", "GENED", "Engages students in complex, realistic situations involving quantity, change and relationship, and uncertainty through project- and activity-based assessment. Emphasis on numeracy, proportional reasoning, and consumer statistics.", "See catalog placement requirements (Required, Previous)."),
-      c("RAD-112", "RAD Procedures II", 3, 3, 0, 4, "Spring", "CORE", "Knowledge and skills necessary to perform standard radiographic procedures. Emphasis on radiography of the skull, spine, and the gastrointestinal, biliary, and urinary systems.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-121, RAD-161 (Previous or Concurrent)."),
-      c("RAD-121", "Image Production I", 2, 3, 0, 3, "Spring", "CORE", "Basic principles of radiographic image production. Emphasis on image production, x-ray equipment, receptor exposure, and basic imaging quality factors.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-112, RAD-161 (Previous or Concurrent)."),
-      c("RAD-161", "RAD Clinical Ed II", 0, 0, 15, 5, "Spring", "CORE", "Additional experience in patient management and in more complex radiographic procedures. Emphasis on mastering positioning of the spine, pelvis, head and neck, and thorax and adapting to patient variations.", "Take RAD-110, RAD-111, RAD-151 (Required, Previous). Take RAD-112, RAD-121 (Previous or Concurrent)."),
-    ],
-  },
-  {
-    index: 3, name: "First Summer", startWeek: 1, endWeek: 10,
-    courses: [
-      c("RAD-122", "Image Production II", 1, 3, 0, 2, "Summer", "CORE", "Continues to develop the concepts and principles of radiologic technology. Emphasis on advanced digital principles and production.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-141, RAD-171 (Previous or Concurrent)."),
-      c("RAD-141", "Radiation Safety", 2, 0, 0, 2, "Summer", "CORE", "Principles of radiation protection and radiobiology. Topics include the effects of ionizing radiation on body tissues, protective measures for limiting exposure, and radiation monitoring devices.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-122, RAD-171 (Previous or Concurrent)."),
-      c("RAD-171", "RAD Clinical Ed III", 0, 0, 9, 3, "Summer", "CORE", "Experience in patient management specific to advanced radiographic procedures. Emphasis on applying appropriate technical factors and mastering positioning of advanced studies.", "Take RAD-112, RAD-121, RAD-161 (Required, Previous). Take RAD-122, RAD-141 (Previous or Concurrent)."),
-    ],
-  },
-  {
-    index: 4, name: "Second Fall", startWeek: 1, endWeek: 16,
-    courses: [
-      c("PSY-150", "General Psychology", 3, 0, 0, 3, "All", "GENED", "Overview of the scientific study of human behavior. Topics include history, methodology, biopsychology, sensation, perception, learning, motivation, cognition, abnormal behavior, and personality theory.", "Take one: ENG-002, BSP-4002, ENG-025, ENG-8025, or ENG-111 (Required, Previous)."),
-      c("RAD-211", "RAD Procedures III", 2, 3, 0, 3, "Fall", "CORE", "Knowledge and skills necessary to perform standard and specialty radiographic procedures. Emphasis on specialty procedures, advanced imaging, radiographic pathology, and image analysis.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-231, RAD-251 (Previous or Concurrent)."),
-      c("RAD-231", "Image Production III", 1, 3, 0, 2, "Fall", "CORE", "Continues to develop image-production concepts. Emphasis on complex imaging production and principles, quality control, and quality assurance in the imaging sciences.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-211, RAD-251 (Previous or Concurrent)."),
-      c("RAD-251", "RAD Clinical Ed IV", 0, 0, 21, 7, "Fall", "CORE", "Continue mastering all basic radiographic procedures and attain experience in advanced areas. Emphasis on equipment operation, pathological recognition, pediatric and geriatric variations, and radiation protection.", "Take RAD-122, RAD-141, RAD-171 (Required, Previous). Take RAD-211, RAD-231 (Previous or Concurrent)."),
-    ],
-  },
-  {
-    index: 5, name: "Second Spring", startWeek: 1, endWeek: 16,
-    courses: [
-      c("HUM-115", "Critical Thinking", 3, 0, 0, 3, "All", "GENED", "Introduces the use of critical thinking skills in the context of human conflict. Emphasis on evaluating information, problem solving, cross-cultural perspectives, and resolving controversies and dilemmas.", "Take one: DRE-097, ENG-002, BSP-4002, ENG-025, ENG-8025, or ENG-111 (Required, Previous)."),
-      c("RAD-261", "RAD Clinical Ed V", 0, 0, 21, 7, "Spring", "CORE", "Enhances expertise in all radiographic procedures, patient management, radiation protection, and image production and evaluation. Emphasis on an autonomous approach to diverse clinical situations.", "Take RAD-251 (Required, Previous). Take RAD-271 (Previous or Concurrent)."),
-      c("RAD-271", "Radiography Capstone", 2, 3, 0, 3, "Spring", "CORE", "Opportunity to exhibit the problem-solving skills required for certification. Emphasis on critical thinking and integration of didactic and clinical components.", "Take RAD-211, RAD-231, RAD-251 (Required, Previous). Take RAD-261 (Previous or Concurrent)."),
-    ],
-  },
-];
+async function createPackProgram(pack: ProgramPack, opts: { institutionId: string; occupationId: string; familyId: string; launchCadence: string; launchTerms: string; monthsToFullProductivity: number }) {
+  const program = await prisma.program.create({
+    data: {
+      institutionId: opts.institutionId, occupationId: opts.occupationId, familyId: opts.familyId,
+      name: pack.name, programType: pack.programType, credential: pack.credential,
+      monthsToFullProductivity: opts.monthsToFullProductivity, status: "active",
+      launchCadence: opts.launchCadence, launchTerms: opts.launchTerms, termSlots: "FALL,SPRING,SUMMER",
+      defaultCohortSeats: pack.maxCohort,
+      facContactHours: pack.assumptions.facContactHours, facWorkWeekHours: pack.assumptions.facWorkWeekHours, facTermWeeks: pack.assumptions.facTermWeeks,
+      preContactHours: pack.assumptions.preContactHours, preWorkWeekHours: pack.assumptions.preWorkWeekHours, preTermWeeks: pack.assumptions.preTermWeeks,
+    },
+  });
+  for (const t of pack.terms) {
+    const termRow = await prisma.term.create({ data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek } });
+    let order = 0;
+    for (const c of t.courses) {
+      await prisma.course.create({
+        data: {
+          termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
+          weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
+          semesterOffered: "All", courseType: "CORE",
+          description: `${c.title} — imported from ${pack.sourceWorkbook}.`,
+          sessions: {
+            create: c.sessions.map((x) => ({
+              kind: x.kind, number: x.number, title: x.title,
+              deliveryMode: x.deliveryMode, location: x.location,
+              lengthHours: x.lengthHours, maxStudents: x.maxStudents,
+              facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
+              facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
+              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? START_TIME[x.kind] ?? null, notes: x.notes,
+              rotationType: x.rotationType, clinicalMode: x.clinicalMode,
+            })),
+          },
+        },
+      });
+    }
+  }
+  return program;
+}
 
-// --- Surgical Technology archetype (minimal, 3 semesters) ------------------
-const surgTerms: TermSeed[] = [
-  {
-    index: 1,
-    name: "Term 1 — Fall",
-    startWeek: 1,
-    endWeek: 16,
-    courses: [
-      {
-        code: "SUR-110",
-        name: "Intro to Surgical Technology",
-        weeklyClassHours: 4,
-        weeklyLabHours: 4,
-        weeklyClinicalHours: 0,
-        sessions: [
-          { kind: "CLASS", count: 16, lengthHours: 4, maxStudents: 24, facultyNeeded: 1, title: "Lecture", location: "Classroom" },
-          { kind: "LAB", count: 16, lengthHours: 4, maxStudents: 12, facultyNeeded: 2, title: "Surgical Skills Lab", location: "Mock OR" },
-        ],
-      },
-    ],
-  },
-  {
-    index: 2,
-    name: "Term 2 — Spring",
-    startWeek: 1,
-    endWeek: 16,
-    courses: [
-      {
-        code: "SUR-137",
-        name: "Surgical Clinical I",
-        weeklyClassHours: 0,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 24,
-        sessions: [{ kind: "CLINICAL", count: 15, lengthHours: 8, maxStudents: 2, facultyNeeded: 0, preceptorsNeeded: 1, title: "OR Rotation", location: "Hospital OR", rotationType: "Operating Room", clinicalMode: "Preceptor-led" }],
-      },
-    ],
-  },
-  {
-    index: 3,
-    name: "Term 3 — Summer",
-    startWeek: 1,
-    endWeek: 10,
-    courses: [
-      {
-        code: "SUR-237",
-        name: "Surgical Clinical II / Capstone",
-        weeklyClassHours: 2,
-        weeklyLabHours: 0,
-        weeklyClinicalHours: 32,
-        sessions: [
-          { kind: "CLASS", count: 10, lengthHours: 2, maxStudents: 24, facultyNeeded: 1, title: "Registry Review", location: "Classroom" },
-          { kind: "CLINICAL", count: 18, lengthHours: 8, maxStudents: 2, facultyNeeded: 0, preceptorsNeeded: 1, title: "OR Rotation", location: "Hospital OR", rotationType: "Operating Room", clinicalMode: "Preceptor-led" },
-        ],
-      },
-    ],
-  },
-];
+// Talent-pipeline health rates from the partner's "future target cohort
+// performance" funnels (interested → qualified → offered → enrolled →
+// completing → licensed → placed → fully productive). Surplus rates are
+// relative to capacity; the rest are pass-through rates. Radiography: 83 →
+// 62 → 52 → 41 enrolled → 36 → 32 → 29 placed (capacity 41, 70% utilization).
+// Surgical Technology: 39 → 29 → 24 → 19 enrolled → 16 → 15 → 14 placed
+// (capacity 19, 72% utilization).
+const RAD_PIPELINE_RATES = { interestedSurplus: 2.02, qualifiedSurplus: 1.51, offeredSurplus: 1.27, enrollmentRate: 1.0, completionRate: 0.87, licensureRate: 0.9, placementRate: 0.91, productivityRate: 1.0 };
+const SURG_PIPELINE_RATES = { interestedSurplus: 2.05, qualifiedSurplus: 1.53, offeredSurplus: 1.26, enrollmentRate: 1.0, completionRate: 0.84, licensureRate: 0.95, placementRate: 0.93, productivityRate: 1.0 };
 
 // ---------------------------------------------------------------------------
 // CLINICAL ASSET MAP — the region's physical clinical supply (Sandhills /
@@ -422,6 +380,9 @@ async function loadRadAssetMap(institutionId: string) {
     ["Vascular / Special Procedures", "FLUORO", "Imaging"], ["Computed Tomography", "CT", "Imaging"], ["Portables / Inpatient", "PORT", "Imaging"],
     ["Operating Room", "OR", "Surgical"], ["Radiography", "GEN", "Imaging"], ["Emergency", "ED", "Emergency"], ["Imaging", "GEN", "Imaging"],
     ["CT", "CT", "Imaging"], ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "LTC", "Adult care beds"],
+    // The Sandhills program-data workbooks' own rotation labels.
+    ["General Rotations", "GEN", "Imaging"], ["Other (imaging rotations)", "GEN", "Imaging"], ["Capstone/Preceptorship", "GEN", "Imaging"],
+    ["Other (surgical rotations)", "OR", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"],
   ];
   for (const [rotationType, settingCode, unitCategory] of ROT) {
     await prisma.rotationSetting.upsert({
@@ -1246,8 +1207,12 @@ async function main() {
   // full session table (class / lab / clinical rows with the capacity-model
   // columns). defaultCohortSeats is the template's max cohort enrollment
   // capacity — the gating number when a goal is split across instantiations.
-  const rad = await createProgram({ institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", programType: "Traditional Full Time", credential: "AAS", terms: radTerms });
-  await prisma.program.update({ where: { id: rad.id }, data: { familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 41 } });
+  //
+  // Radiography and Surgical Technology come straight from the Sandhills
+  // program-data workbooks (prisma/templates/rad.json, surgtech.json): every
+  // session row of "Program Data_All Together" plus each term sheet's week
+  // range, course codes and weekly hours.
+  const rad = await createPackProgram(loadPack("rad.json"), { institutionId: sandhills.id, occupationId: radOcc.id, familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", monthsToFullProductivity: 6 });
 
   const radEvening = await createProgram({
     institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography — Evening Track", programType: "Evening Part Time", credential: "AAS",
@@ -1255,59 +1220,8 @@ async function main() {
   });
   await prisma.program.update({ where: { id: radEvening.id }, data: { familyId: radFamily.id, launchCadence: "BIENNIAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 18 } });
 
-  // Surgical Technology — imported straight from the clinical-capacity model's
-  // Raw Data & Calculations tab: 226 session rows across 9 courses / 5 terms,
-  // every input column (delivery mode, location, lengths, capacities, staffing,
-  // contact-hour policies, week/day placement, notes, rotation types) verbatim.
-  type PackSession = {
-    kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
-    lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
-    supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null;
-    notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
-    rotationType: string | null; clinicalMode: string | null;
-  };
-  type SurgPack = {
-    name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
-    assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
-    terms: { index: number; name: string; startWeek: number; endWeek: number; courses: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
-  };
-  const surgPack = JSON.parse(readFileSync(join(__dirname, "templates", "surgtech.json"), "utf8")) as SurgPack;
-  const surg = await prisma.program.create({
-    data: {
-      institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id,
-      name: surgPack.name, programType: surgPack.programType, credential: surgPack.credential,
-      monthsToFullProductivity: 6, status: "active",
-      launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER",
-      defaultCohortSeats: surgPack.maxCohort,
-      facContactHours: surgPack.assumptions.facContactHours, facWorkWeekHours: surgPack.assumptions.facWorkWeekHours, facTermWeeks: surgPack.assumptions.facTermWeeks,
-      preContactHours: surgPack.assumptions.preContactHours, preWorkWeekHours: surgPack.assumptions.preWorkWeekHours, preTermWeeks: surgPack.assumptions.preTermWeeks,
-    },
-  });
-  for (const t of surgPack.terms) {
-    const termRow = await prisma.term.create({ data: { programId: surg.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek } });
-    let order = 0;
-    for (const c of t.courses) {
-      await prisma.course.create({
-        data: {
-          termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
-          weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
-          semesterOffered: "All", courseType: "CORE",
-          description: `${c.title} — imported from ${surgPack.sourceWorkbook}.`,
-          sessions: {
-            create: c.sessions.map((x) => ({
-              kind: x.kind, number: x.number, title: x.title,
-              deliveryMode: x.deliveryMode, location: x.location,
-              lengthHours: x.lengthHours, maxStudents: x.maxStudents,
-              facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
-              facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-              week: x.week, dayOfWeek: x.dayOfWeek, notes: x.notes,
-              rotationType: x.rotationType, clinicalMode: x.clinicalMode,
-            })),
-          },
-        },
-      });
-    }
-  }
+  const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
+  void surg;
 
   const ma = await createProgram({ institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", programType: "Traditional Full Time", credential: "Diploma", terms: genTerms("MED", 52, 2, true) });
   await prisma.program.update({ where: { id: ma.id }, data: { familyId: maFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 28 } });
@@ -1331,8 +1245,17 @@ async function main() {
   });
   for (const tpl of cnaPack) await createCnaProgram(sandhills.id, cnaOcc.id, cnaFamily.id, tpl);
 
-  // North-Star goals for Sandhills' own jobs, from the service-area openings: radiography 14, surgical tech 12, medical assisting 30, nurse aide 68.
-  for (const [fid, base] of [[radFamily.id, 14], [surgFamily.id, 12], [maFamily.id, 30], [cnaFamily.id, 68]] as [string, number][]) {
+  // North-Star goals for Sandhills' own jobs. Radiography (29/yr) and Surgical
+  // Technology (14/yr) are the partner's stated targets, held flat across the
+  // planning horizon, each with the talent-pipeline health rates from the
+  // partner's "future target cohort performance" funnel — the rates every new
+  // launching cohort inherits at lock-in (interested → qualified → offered →
+  // enrolled → completing → licensed → placed → fully productive). Medical
+  // assisting (30) and nurse aide (68) come from the service-area openings.
+  const flat = (base: number) => Object.fromEntries(Object.keys(goals(base)).map((y) => [Number(y), base])) as Record<number, number>;
+  await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(flat(29), RAD_PIPELINE_RATES) } });
+  await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(flat(14), SURG_PIPELINE_RATES) } });
+  for (const [fid, base] of [[maFamily.id, 30], [cnaFamily.id, 68]] as [string, number][]) {
     await prisma.programFamily.update({ where: { id: fid }, data: { goalPlan: goalPlanJson(goals(base)) } });
   }
 

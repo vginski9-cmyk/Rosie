@@ -81,12 +81,12 @@ export const NOT_SET = "(not set)";
 export const SHIFT_ORDER: Shift[] = ["Day", "Evening", "Night"];
 export const DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/** Same thresholds as the supply side (clinicalsupply.shiftBlockOf): 07–15 Day, 15–23 Evening, else Night. */
+/** Same thresholds as the supply side (clinicalsupply.shiftBlockOf): 05–15 Day, 15–23 Evening, else Night. */
 export function shiftOf(startTime: string | null | undefined): Shift | null {
   if (!startTime) return null;
   const h = Number(startTime.split(":")[0]);
   if (!Number.isFinite(h)) return null;
-  if (h >= 7 && h < 15) return "Day";
+  if (h >= 5 && h < 15) return "Day"; // early starts (a 6:30 OR call) are day shifts
   if (h >= 15 && h < 23) return "Evening";
   return "Night";
 }

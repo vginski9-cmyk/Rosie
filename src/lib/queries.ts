@@ -1583,12 +1583,23 @@ export async function getCohortPlacements(cohortId: string) {
  *  inputs. Per-term enrollment comes from the same backward derivation the
  *  analytics page uses (the cohort's North-Star goal through the family's goal
  *  plan rates), so all surfaces agree on the numbers. */
-export async function getCapacityModel(opts?: { institutionId?: string }) {
+export async function getCapacityModel(opts?: { institutionId?: string; cohortId?: string }) {
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
 
+  // Which institution: the one asked for, the one an offering belongs to, or —
+  // with no hint — the one that actually has offerings running (not the
+  // alphabetically first college in the workspace).
   const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
-  const institution = institutions.find((i) => i.id === opts?.institutionId) ?? institutions[0];
+  let wantedId = opts?.institutionId ?? null;
+  if (!wantedId && opts?.cohortId) wantedId = (await prisma.cohort.findUnique({ where: { id: opts.cohortId }, select: { program: { select: { institutionId: true } } } }))?.program.institutionId ?? null;
+  let institution = institutions.find((i) => i.id === wantedId);
+  if (!institution) {
+    const live = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, select: { program: { select: { institutionId: true } } } });
+    const tally = new Map<string, number>();
+    for (const c of live) tally.set(c.program.institutionId, (tally.get(c.program.institutionId) ?? 0) + 1);
+    institution = [...institutions].sort((a, b) => (tally.get(b.id) ?? 0) - (tally.get(a.id) ?? 0))[0];
+  }
   if (!institution) return null;
 
   // The institution's coded holidays & breaks (imported academic calendar) —

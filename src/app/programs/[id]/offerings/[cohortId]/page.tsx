@@ -34,7 +34,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const capModel = await getCapacityModel();
+  const capModel = await getCapacityModel({ cohortId: params.cohortId });
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));

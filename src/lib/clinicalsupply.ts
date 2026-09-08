@@ -26,11 +26,12 @@ export interface SupplySite {
 }
 export interface RotationMap { rotationType: string; unitCategory: string; unitType: string | null; patientsPerStudent: number | null }
 
-/** Which shift block a start time falls in (Day 07–15 · Evening 15–23 · Night 23–07). */
+/** Which shift block a start time falls in (Day 05–15 · Evening 15–23 · Night 23–05). */
 export function shiftBlockOf(startTime: string | null): ShiftBlock {
   if (!startTime) return "Day";
   const h = Number(startTime.split(":")[0]);
-  if (h >= 7 && h < 15) return "Day";
+  // Early starts (5–7 am, e.g. a 6:30 OR call) belong to the day shift.
+  if (h >= 5 && h < 15) return "Day";
   if (h >= 15 && h < 23) return "Evening";
   return "Night";
 }

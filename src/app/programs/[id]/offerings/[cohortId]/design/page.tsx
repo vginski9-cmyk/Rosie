@@ -9,7 +9,7 @@ import { SheetImport } from "@/components/SheetImport";
 export const dynamic = "force-dynamic";
 
 export default async function OfferingDesignPage({ params }: { params: { id: string; cohortId: string } }) {
-  const [data, capModel] = await Promise.all([getOfferingDesign(params.cohortId), getCapacityModel()]);
+  const [data, capModel] = await Promise.all([getOfferingDesign(params.cohortId), getCapacityModel({ cohortId: params.cohortId })]);
   if (!data || data.cohort.programId !== params.id) notFound();
   const { cohort, rooms, people, employers } = data;
   const program = cohort.program;
