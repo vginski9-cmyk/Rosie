@@ -98,7 +98,7 @@ export function CourseSequencer({ programId, terms: initialTerms, initialCourses
   programId: string; terms: SeqTerm[]; initialCourses: SeqCourse[];
   /** When set, each course card gets start/end date inputs for THIS offering (8/12/16-week courses inside a term). */
   cohortId?: string;
-  courseDates?: Record<string, { start: string | null; end: string | null }>;
+  courseDates?: Record<string, { start: string | null; end: string | null; auto?: boolean }>;
 }) {
   const [courses, setCourses] = useState<SeqCourse[]>(initialCourses);
   const [terms, setTerms] = useState<SeqTerm[]>(initialTerms);
@@ -161,7 +161,9 @@ export function CourseSequencer({ programId, terms: initialTerms, initialCourses
             <span className="text-slate-400">→</span>
             <input type="date" name="endDate" defaultValue={d?.end ?? ""} className="rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[10px] text-blue-900" />
             <button className="rounded bg-rose-600 px-1.5 py-0.5 font-medium text-white hover:bg-rose-700">Set</button>
-            {d?.start && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[8px] font-semibold text-amber-800">custom</span>}
+            {d?.start && (d.auto
+              ? <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-800" title="derived from the term's calendar dates and this course's session weeks; re-aligns with the calendar">from calendar</span>
+              : <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[8px] font-semibold text-amber-800" title="typed by hand; clear both dates to go back to the calendar">typed</span>)}
           </form>
         );
       }

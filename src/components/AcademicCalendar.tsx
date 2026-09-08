@@ -11,7 +11,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Collapse } from "@/components/Collapse";
 import { parseAcademicCalendar, anchorsFromEvents, KIND_LABEL, type CalendarEvent, type EventKind, type Season } from "@/lib/academiccalendar";
-import { importAcademicCalendar, deleteAcademicEvent, clearAcademicCalendar, updateInstitutionCalendar } from "@/lib/actions";
+import { importAcademicCalendar, deleteAcademicEvent, clearAcademicCalendar, updateInstitutionCalendar, alignInstitutionOfferings, type AlignSummary } from "@/lib/actions";
 
 export interface CodedEvent { id: string; iso: string; endIso: string | null; label: string; kind: string; season: string | null }
 
@@ -52,6 +52,7 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<number, Partial<Pick<CalendarEvent, "kind" | "season">>>>({});
   const [saved, setSaved] = useState<string | null>(null);
+  const [aligned, setAligned] = useState<AlignSummary | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const parsed = useMemo(() => parseAcademicCalendar(text), [text]);
@@ -95,17 +96,24 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
       anchors: nextAnchors,
       events: keep.map((e) => ({ iso: e.iso, endIso: e.endIso, label: e.label, kind: e.kind, season: e.season, source: e.source })),
     });
-    setSaved(`✓ ${res.saved} calendar events coded for ${importYears.join(", ")} — term dates and holiday flags now follow them.`);
+    setSaved(`✓ ${res.saved} calendar events coded for ${importYears.join(", ")} — every offering's term dates, term ends and course windows now follow them.`);
+    setAligned(res.aligned);
     setText(""); setEdits({}); setFileNote(null);
     router.refresh();
   });
+  const realign = (resetManual: boolean) => startTransition(async () => {
+    const res = await alignInstitutionOfferings(institutionId, { resetManual });
+    setSaved(null); setAligned(res);
+    router.refresh();
+  });
+  const fmtAny = (isoDate: string | null) => (isoDate ? fmtShort(isoDate) : "—");
 
   const summary = coded.length
     ? `${codedCounts.starts} semester starts · ${codedCounts.breaks} breaks · ${codedYears.join("–")}`
     : `pattern only — Spring ${fmtMMDD(anchors.springStart)} · Summer ${fmtMMDD(anchors.summerStart)} · Fall ${fmtMMDD(anchors.fallStart)}`;
 
   return (
-    <Collapse title={`Academic calendar — ${institutionName}`} sub="Paste the college calendar; semester dates and breaks are coded automatically and every offering's term dates follow them." summary={summary}>
+    <Collapse title={`Academic calendar — ${institutionName}`} sub="Paste the college calendar; semester starts, ends, later sessions and breaks are coded automatically, and every offering's term dates, term ends and course windows are re-aligned to them the moment you save." summary={summary}>
       <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
         {/* ── Import ── */}
         <div className="space-y-3">
@@ -178,12 +186,36 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
             </div>
           )}
           {saved && <p className="text-sm font-medium text-emerald-700">{saved}</p>}
+          {aligned && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700">
+              <div className="text-sm font-semibold text-emerald-800">
+                {aligned.offerings} offering{aligned.offerings === 1 ? "" : "s"} aligned · {aligned.termsMoved} term date{aligned.termsMoved === 1 ? "" : "s"} {aligned.termsMoved === 1 ? "changed" : "changed"} · {aligned.courseWindows} course window{aligned.courseWindows === 1 ? "" : "s"} set
+              </div>
+              <ul className="mt-1.5 space-y-1">
+                {aligned.reports.map((r) => (
+                  <li key={r.cohortId}>
+                    <span className="font-medium text-slate-800">{r.program} · {r.name}</span>{r.renamed ? <span className="ml-1 text-amber-700">(renamed)</span> : null}
+                    {r.changed.length === 0 ? <span className="ml-1 text-slate-500">already on the calendar</span> : (
+                      <span className="ml-1 text-slate-600">{r.changed.map((c) => `${c.term}: ${fmtAny(c.fromStart)} → ${fmtAny(c.toStart)}${c.fromEnd !== c.toEnd ? ` (ends ${fmtAny(c.toEnd)})` : ""}`).join(" · ")}</span>
+                    )}
+                    {r.warnings.map((w, i) => <div key={i} className="ml-3 text-amber-800">⚠ {w}</div>)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* ── What's coded now ── */}
         <div className="space-y-3">
           <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <div className="text-sm font-semibold text-slate-800">What every offering follows now</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-slate-800">What every offering follows now</div>
+              <span className="flex gap-1.5">
+                <button onClick={() => realign(false)} disabled={pending} className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50" title="put every planned and active offering's term dates, term ends and course windows on this calendar (terms typed by hand are left alone)">{pending ? "Aligning…" : "Re-align every offering now"}</button>
+                <button onClick={() => { if (confirm("Also drop every term date typed by hand and put those back on the calendar?")) realign(true); }} disabled={pending} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50" title="same, but typed term dates are replaced too">incl. typed</button>
+              </span>
+            </div>
             <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
               {([["Spring", anchors.springStart], ["Summer", anchors.summerStart], ["Fall", anchors.fallStart]] as const).map(([s, v]) => (
                 <div key={s} className="rounded-lg bg-slate-50 px-2 py-1.5">

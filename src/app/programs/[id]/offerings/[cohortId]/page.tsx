@@ -12,6 +12,7 @@ import { CapacityBoard } from "@/components/CapacityBoard";
 import { Collapse } from "@/components/Collapse";
 import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
 import { BENCHMARK_RATES, type LadderRates } from "@/lib/northstar";
+import { alignOffering, SOURCE_LABEL, type DateSource } from "@/lib/termalign";
 
 export const dynamic = "force-dynamic";
 
@@ -174,28 +175,98 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <span className="text-rose-600">→</span>
       </Link>
 
-      {/* ── Offering setup: adjust the real dates ─────────────────────────── */}
-      <Collapse
-        title="Offering dates"
-        sub="The start date and each term's first day — change them and the calendar, staffing and every insight re-derive"
-        summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)}</>}
-      >
-        <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="flex flex-wrap items-end gap-3">
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Offering start</span>
-            {/* keyed by value so a re-derive shows the new dates without a reload */}
-            <input key={`start-${iso(offering.startDate)}`} type="date" name="startDate" defaultValue={iso(offering.startDate)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
-          </label>
-          {orderedTerms.map((t) => (
-            <label key={t.id} className="block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t.name} starts</span>
-              <input key={`${t.id}-${iso(termDate.get(t.id) ?? null)}`} type="date" name={`term_${t.id}`} defaultValue={iso(termDate.get(t.id) ?? null)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
-            </label>
-          ))}
-          <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save dates</button>
-          <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="keep the offering start; re-derive every term's first day along the institution's academic calendar (Spring / Summer / Fall anchors set on the goal page)">Save &amp; re-derive terms from start</button>
-        </form>
-      </Collapse>
+      {/* ── Offering dates: on the academic calendar, automatically ─────────── */}
+      {(() => {
+        const inst = program.institution;
+        const isoD = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+        const events = inst.academicEvents.map((e) => ({ iso: isoD(e.date)!, endIso: isoD(e.endDate), label: e.label, kind: e.kind, season: e.season }));
+        const codedStarts = events.filter((e) => e.kind === "term_start").length;
+        // The same engine that set these dates, run again here only to explain them (labels, warnings).
+        const preview = offering.startDate ? alignOffering({
+          startIso: isoD(offering.startDate)!,
+          terms: orderedTerms.map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek })),
+          courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, termId: t.id, sessions: c.sessions }))),
+          anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
+          events,
+          manual: Object.fromEntries(offering.cohortTerms.filter((ct) => ct.source === "manual" && ct.startDate).map((ct) => [ct.termId, { startIso: isoD(ct.startDate)!, endIso: isoD(ct.endDate) }])),
+        }) : null;
+        const ctByTerm = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct]));
+        const SRC_TONE: Record<string, string> = { calendar: "bg-emerald-100 text-emerald-800", pattern: "bg-sky-100 text-sky-800", template: "bg-slate-100 text-slate-600", chosen: "bg-slate-100 text-slate-600", manual: "bg-amber-100 text-amber-800" };
+        const autoWindows = offering.courseDates.filter((cd) => cd.auto).length;
+        const typedWindows = offering.courseDates.length - autoWindows;
+        return (
+          <Collapse
+            title="Offering dates — on the academic calendar"
+            sub={codedStarts ? `${inst.name}'s coded calendar sets every term's first and last day and every shorter course's window; nothing here needs typing` : `No coded calendar for ${inst.name} yet — dates follow the semester pattern and template weeks; import the calendar on the goal page and every offering re-aligns itself`}
+            summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{autoWindows ? ` · ${autoWindows} course window${autoWindows === 1 ? "" : "s"} from the calendar` : ""}{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr><th className="px-2 py-1.5 text-left">Term</th><th className="px-2 py-1.5 text-left">Semester</th><th className="px-2 py-1.5 text-left">First day</th><th className="px-2 py-1.5 text-left">Last day</th><th className="px-2 py-1.5 text-left">Weeks</th><th className="px-2 py-1.5 text-left">Where the dates come from</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {orderedTerms.map((t) => {
+                    const ct = ctByTerm.get(t.id); const pv = preview?.terms.find((x) => x.termId === t.id);
+                    const src = (ct?.source ?? pv?.startSource ?? "template") as DateSource;
+                    const tplWeeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+                    return (
+                      <tr key={t.id}>
+                        <td className="px-2 py-1.5 font-medium text-slate-800">{t.name}</td>
+                        <td className="px-2 py-1.5 text-slate-600">{pv?.semester ?? "—"}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-slate-800">{exactDate(ct?.startDate ?? null)}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-slate-800">{exactDate(ct?.endDate ?? null)}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-slate-600">{pv ? (pv.calendarWeeks === tplWeeks ? `${tplWeeks}` : <span className={pv.calendarWeeks < tplWeeks ? "text-amber-700" : "text-slate-600"} title={`the template plans ${tplWeeks} weeks; the semester touches ${pv.calendarWeeks}`}>{pv.calendarWeeks} <span className="text-[10px] text-slate-400">(template {tplWeeks})</span></span>) : tplWeeks}</td>
+                        <td className="px-2 py-1.5 text-xs">
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SRC_TONE[src] ?? SRC_TONE.template}`}>{SOURCE_LABEL[src] ?? src}</span>
+                          {pv?.startLabel && src !== "manual" && <span className="ml-1.5 text-slate-500">“{pv.startLabel}”{pv.endLabel ? ` → “${pv.endLabel}”` : ""}</span>}
+                          {src !== "manual" && pv?.endSource === "template" && codedStarts > 0 && <span className="ml-1.5 text-slate-400">no coded semester end — last template week</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {preview && preview.warnings.length > 0 && (
+              <ul className="mt-2 space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">{preview.warnings.map((w, i) => <li key={i}>⚠ {w}</li>)}</ul>
+            )}
+            {preview && preview.courses.length > 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Shorter courses get their own window from their session weeks: {preview.courses.map((c) => `${c.code ?? c.name} ${dateFmt(new Date(c.startIso + "T00:00:00Z"))} → ${dateFmt(new Date(c.endIso + "T00:00:00Z"))}${c.snappedTo ? ` (“${c.snappedTo}”)` : ""}`).join(" · ")}. Type a course&apos;s own dates on its card below to override.
+              </p>
+            )}
+
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-medium text-slate-600">Override by hand — or move the offering start and re-align</summary>
+              <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="mt-2 flex flex-wrap items-end gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Offering start</span>
+                  <input key={`start-${iso(offering.startDate)}`} type="date" name="startDate" defaultValue={iso(offering.startDate)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+                </label>
+                {orderedTerms.map((t) => {
+                  const ct = ctByTerm.get(t.id);
+                  return (
+                    <span key={t.id} className="flex items-end gap-1">
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t.name} first day</span>
+                        <input key={`${t.id}-${iso(ct?.startDate)}`} type="date" name={`term_${t.id}`} defaultValue="" placeholder={iso(ct?.startDate)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">last day</span>
+                        <input key={`${t.id}-end-${iso(ct?.endDate)}`} type="date" name={`term_end_${t.id}`} defaultValue="" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+                      </label>
+                    </span>
+                  );
+                })}
+                <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700" title="terms you type here stay as typed; everything else keeps following the calendar around them">Save typed dates</button>
+                <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="drop every typed date and put every term back on the academic calendar from the offering start">Re-align to the academic calendar</button>
+              </form>
+              <p className="mt-1 text-[11px] text-slate-400">Leave a term blank to keep it on the calendar. A typed term is marked “typed by hand” and left alone by future calendar imports until you re-align.</p>
+            </details>
+          </Collapse>
+        );
+      })()}
 
       {holidayHits > 0 && (
         <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
@@ -214,7 +285,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <CourseSequencer
           programId={program.id} terms={seqTerms} initialCourses={seqCourses}
           cohortId={offering.id}
-          courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null }]))}
+          courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null, auto: cd.auto }]))}
         />
       </Collapse>
 

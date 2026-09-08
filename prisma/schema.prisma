@@ -506,6 +506,13 @@ model CohortTerm {
   termId    String
   term      Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
   startDate DateTime?
+  /// Last instructional day of THIS offering's term — the coded "semester ends"
+  /// when the academic calendar carries one, else the last template week.
+  endDate   DateTime?
+  /// Where the dates came from: calendar (coded semester start/end) · pattern
+  /// (the institution's Spring/Summer/Fall anchors) · template (start + weeks)
+  /// · manual (typed on the offering page; re-alignment leaves it alone).
+  source    String?
 
   @@unique([cohortId, termId])
   @@index([cohortId])
@@ -522,6 +529,9 @@ model CohortCourseDates {
   course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
   startDate DateTime?
   endDate   DateTime?
+  /// true when the alignment engine derived this window from the term dates and
+  /// the course's session weeks (re-alignment rewrites it); false when typed.
+  auto      Boolean @default(false)
 
   @@unique([cohortId, courseId])
   @@index([cohortId])

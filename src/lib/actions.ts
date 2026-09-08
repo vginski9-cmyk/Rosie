@@ -120,19 +120,9 @@ export async function updateInstitutionCalendar(institutionId: string, familyId:
       fallStart: mmdd(formData.get("fallStart"), "08-15"),
     },
   });
+  await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
-}
-
-/** The semester pattern + every imported exact semester start — what the
- *  term-date engine follows for this institution. */
-async function institutionAnchors(institutionId: string): Promise<import("./term").SemesterAnchors> {
-  const inst = await prisma.institution.findUnique({
-    where: { id: institutionId },
-    select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { where: { kind: "term_start" }, select: { date: true } } },
-  });
-  const { DEFAULT_ANCHORS } = await import("./term");
-  if (!inst) return DEFAULT_ANCHORS;
-  return { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart, knownStarts: inst.academicEvents.map((e) => e.date.toISOString().slice(0, 10)).sort() };
+  revalidatePath("/", "layout");
 }
 
 export interface AcademicEventInput { iso: string; endIso: string | null; label: string; kind: string; season: string | null; source?: string | null }
@@ -142,7 +132,7 @@ export interface AcademicEventInput { iso: string; endIso: string | null; label:
 export async function importAcademicCalendar(institutionId: string, familyId: string, payload: {
   anchors: { springStart: string; summerStart: string; fallStart: string };
   events: AcademicEventInput[];
-}): Promise<{ saved: number }> {
+}): Promise<{ saved: number; aligned: AlignSummary }> {
   const KINDS = new Set(["term_start", "term_end", "session_start", "holiday", "other"]);
   const events = payload.events.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.iso) && KINDS.has(e.kind) && e.kind !== "other" && e.label.trim());
   const years = [...new Set(events.map((e) => Number(e.iso.slice(0, 4))))];
@@ -164,21 +154,116 @@ export async function importAcademicCalendar(institutionId: string, familyId: st
       data: { springStart: mmdd(payload.anchors.springStart, "01-08"), summerStart: mmdd(payload.anchors.summerStart, "05-28"), fallStart: mmdd(payload.anchors.fallStart, "08-15") },
     });
   });
+  // Every offering at this institution now follows the coded dates — no retyping.
+  const aligned = await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
   revalidatePath("/", "layout");
-  return { saved: events.length };
+  return { saved: events.length, aligned };
 }
 
 export async function deleteAcademicEvent(id: string, familyId: string): Promise<void> {
-  await prisma.academicEvent.delete({ where: { id } }).catch(() => undefined);
+  const ev = await prisma.academicEvent.delete({ where: { id } }).catch(() => null);
+  if (ev) await alignInstitutionOfferings(ev.institutionId);
   revalidatePath(`/families/${familyId}`);
   revalidatePath("/", "layout");
 }
 
 export async function clearAcademicCalendar(institutionId: string, familyId: string): Promise<void> {
   await prisma.academicEvent.deleteMany({ where: { institutionId } });
+  await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
   revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------------------
+// ALIGN OFFERINGS TO THE ACADEMIC CALENDAR — one engine, called everywhere
+// ---------------------------------------------------------------------------
+
+export interface AlignedTermChange { term: string; fromStart: string | null; toStart: string; fromEnd: string | null; toEnd: string; startSource: string; endSource: string }
+export interface AlignReport { cohortId: string; name: string; program: string; changed: AlignedTermChange[]; terms: number; courseWindows: number; warnings: string[]; renamed: string | null }
+export interface AlignSummary { offerings: number; termsMoved: number; courseWindows: number; reports: AlignReport[] }
+
+/** Put ONE offering's term dates (start and end) and course windows on the
+ *  institution's coded academic calendar from its chosen first day. Terms typed
+ *  by hand stay put unless `resetManual`; course windows typed by hand stay put. */
+export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean } = {}): Promise<AlignReport | null> {
+  const { alignOffering, endYearOf } = await import("./termalign");
+  const cohort = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    include: {
+      program: { select: { id: true, name: true, institutionId: true, terms: { orderBy: { index: "asc" }, include: { courses: { select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } } } }, cohorts: { select: { id: true, name: true } } } },
+      cohortTerms: true, courseDates: true,
+    },
+  });
+  if (!cohort || !cohort.startDate) return null;
+  const inst = await prisma.institution.findUnique({
+    where: { id: cohort.program.institutionId },
+    select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } },
+  });
+  const isoOf = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
+  const manual: Record<string, { startIso: string; endIso: string | null }> = {};
+  if (!opts.resetManual) for (const ct of cohort.cohortTerms) if (ct.source === "manual" && ct.startDate) manual[ct.termId] = { startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) };
+  const a = alignOffering({
+    startIso: isoOf(cohort.startDate)!,
+    terms: cohort.program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek })),
+    courses: cohort.program.terms.flatMap((t) => t.courses),
+    anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
+    events: (inst?.academicEvents ?? []).map((e) => ({ iso: isoOf(e.date)!, endIso: isoOf(e.endDate), label: e.label, kind: e.kind, season: e.season })),
+    manual,
+  });
+  const changed: AlignedTermChange[] = [];
+  for (const t of a.terms) {
+    const cur = cohort.cohortTerms.find((ct) => ct.termId === t.termId);
+    const fromStart = isoOf(cur?.startDate), fromEnd = isoOf(cur?.endDate);
+    if (fromStart !== t.startIso || fromEnd !== t.endIso) changed.push({ term: t.name, fromStart, toStart: t.startIso, fromEnd, toEnd: t.endIso, startSource: t.startSource, endSource: t.endSource });
+    await prisma.cohortTerm.upsert({
+      where: { cohortId_termId: { cohortId, termId: t.termId } },
+      update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource },
+      create: { cohortId, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource },
+    });
+  }
+  // Course windows: rewrite the auto ones, leave typed ones alone.
+  await prisma.cohortCourseDates.deleteMany({ where: { cohortId, auto: true, courseId: { notIn: a.courses.map((c) => c.courseId) } } });
+  let courseWindows = 0;
+  for (const c of a.courses) {
+    const cur = cohort.courseDates.find((cd) => cd.courseId === c.courseId);
+    if (cur && !cur.auto) continue;
+    await prisma.cohortCourseDates.upsert({
+      where: { cohortId_courseId: { cohortId, courseId: c.courseId } },
+      update: { startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true },
+      create: { cohortId, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true },
+    });
+    courseWindows++;
+  }
+  // The offering's own first day follows term 1 when it snapped onto the coded semester start.
+  const first = a.terms[0];
+  if (first?.movedFrom) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
+  // "Class of YYYY" tracks the year the last term actually ends.
+  let renamed: string | null = null;
+  const endYear = endYearOf(a.terms);
+  const m = cohort.name.match(/^Class of (\d{4})(.*)$/);
+  if (Number.isFinite(endYear) && m && String(endYear) !== m[1]) {
+    let newName = `Class of ${endYear}${m[2]}`;
+    const others = cohort.program.cohorts.filter((c) => c.id !== cohortId);
+    if (others.some((c) => c.name === newName)) { let n = 2; while (others.some((c) => c.name === `Class of ${endYear} (${n})`)) n++; newName = `Class of ${endYear} (${n})`; }
+    await prisma.cohort.update({ where: { id: cohortId }, data: { name: newName } });
+    renamed = newName;
+  }
+  revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}/design`);
+  revalidatePath(`/programs/${cohort.program.id}`);
+  revalidatePath("/calendar"); revalidatePath("/scheduler");
+  revalidatePath("/insights/staffing-need"); revalidatePath("/insights/coverage"); revalidatePath("/insights/clinical-sites");
+  return { cohortId, name: renamed ?? cohort.name, program: cohort.program.name, changed, terms: a.terms.length, courseWindows, warnings: a.warnings, renamed };
+}
+
+/** Re-align EVERY planned / active offering at an institution (after a calendar
+ *  import, a pattern change, or on demand). */
+export async function alignInstitutionOfferings(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary> {
+  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true }, orderBy: { startDate: "asc" } });
+  const reports: AlignReport[] = [];
+  for (const c of cohorts) { const r = await alignOfferingToCalendar(c.id, opts); if (r) reports.push(r); }
+  return { offerings: reports.length, termsMoved: reports.reduce((n, r) => n + r.changed.length, 0), courseWindows: reports.reduce((n, r) => n + r.courseWindows, 0), reports };
 }
 
 /** Persist the family's North-Star goal plan (a JSON blob from the goal planner). */
@@ -996,14 +1081,9 @@ export async function createOffering(programId: string, formData: FormData) {
   });
   await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
   const terms = await prisma.term.findMany({ where: { programId }, orderBy: { index: "asc" } });
-  const cursor = startD ? new Date(startD) : null;
-  for (const t of terms) {
-    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.id, startDate: cursor ? new Date(cursor) : null } });
-    if (cursor) {
-      const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
-      cursor.setDate(cursor.getDate() + (weeks + 2) * 7); // term length + ~2-week break
-    }
-  }
+  for (const t of terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.id, startDate: null } });
+  // Real term dates and course windows straight from the institution's academic calendar.
+  if (startD) await alignOfferingToCalendar(cohort.id);
   revalidatePath(`/programs/${programId}`);
   redirect(`/programs/${programId}/offerings/${cohort.id}`);
 }
@@ -1041,15 +1121,21 @@ export async function lockInInstantiation(
   const termOverrides = (input.termOverrides ?? []).map((v) => (v == null ? null : Math.max(0, Math.round(v))));
   const term1 = termOverrides[0] ?? t.capacity;
 
-  // Real semesterly term dates: term 1 starts on the chosen date; every later
-  // term starts at the NEXT legit semester boundary (2nd Mon of Jan / 1st Mon
-  // of Jun / 3rd Mon of Aug) after the previous term ends — no "Spring" that
-  // starts in December. The class year is when the last term actually ends.
-  const { deriveTermStarts } = await import("./term");
-  const termWeeks = program.terms.map((term) => (term.endWeek ?? 16) - (term.startWeek ?? 1) + 1);
-  const termStarts = deriveTermStarts(input.startDate, termWeeks, await institutionAnchors(program.institutionId));
-  const lastStart = termStarts[termStarts.length - 1];
-  const endYear = new Date(lastStart.getTime() + termWeeks[termWeeks.length - 1] * 7 * 86400000).getUTCFullYear();
+  // Real term dates come from the institution's coded academic calendar: term 1
+  // on the chosen day (snapped to the coded semester start), every later term
+  // on the next coded semester start after the previous term ends, each term
+  // ending on its coded "semester ends". The class year is when the last term
+  // actually ends.
+  const { alignOffering, endYearOf } = await import("./termalign");
+  const inst = await prisma.institution.findUnique({ where: { id: program.institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
+  const preview = alignOffering({
+    startIso: input.startDate,
+    terms: program.terms.map((term) => ({ id: term.id, index: term.index, name: term.name, startWeek: term.startWeek, endWeek: term.endWeek })),
+    courses: [],
+    anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
+    events: (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season })),
+  });
+  const endYear = endYearOf(preview.terms);
 
   // Name it by the year it lands its graduates; disambiguate within the program.
   let name = `Class of ${endYear}`;
@@ -1083,10 +1169,9 @@ export async function lockInInstantiation(
     })),
   });
 
-  // Real per-term dates — the semester-snapped starts computed above.
-  for (let i = 0; i < program.terms.length; i++) {
-    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: program.terms[i].id, startDate: termStarts[i] } });
-  }
+  // Real per-term dates (start AND end) and course windows, on the calendar.
+  for (const term of program.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: null } });
+  await alignOfferingToCalendar(cohort.id);
 
   // Calendarize immediately so the data shows up everywhere at once: meetings
   // (with days/times) land on the master calendar and drive the capacity
@@ -1106,12 +1191,14 @@ export async function saveCourseDates(cohortId: string, courseId: string, progra
   const startStr = str(formData.get("startDate"));
   const endStr = str(formData.get("endDate"));
   if (!startStr && !endStr) {
+    // Back to the calendar: the aligned window (if the course is shorter than its term) returns.
     await prisma.cohortCourseDates.deleteMany({ where: { cohortId, courseId } });
+    await alignOfferingToCalendar(cohortId);
   } else {
     await prisma.cohortCourseDates.upsert({
       where: { cohortId_courseId: { cohortId, courseId } },
-      update: { startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null },
-      create: { cohortId, courseId, startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null },
+      update: { startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null, auto: false },
+      create: { cohortId, courseId, startDate: startStr ? new Date(startStr) : null, endDate: endStr ? new Date(endStr) : null, auto: false },
     });
   }
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
@@ -1197,47 +1284,19 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     where: { id: cohortId },
     data: startStr ? { startDate: new Date(startStr), entryYear: new Date(startStr).getFullYear() } : {},
   });
-  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true, term: { select: { index: true, startWeek: true, endWeek: true } } } });
-  if (str(formData.get("rederive")) === "1" && startStr) {
-    // Re-derive every term from the offering start along the institution's academic calendar.
-    const { deriveTermStarts } = await import("./term");
-    const inst = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { program: { select: { institutionId: true } } } });
-    const ordered = [...cts].sort((a, b) => a.term.index - b.term.index);
-    const starts = deriveTermStarts(startStr, ordered.map((ct) => (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1), inst ? await institutionAnchors(inst.program.institutionId) : undefined);
-    for (let i = 0; i < ordered.length; i++) await prisma.cohortTerm.update({ where: { id: ordered[i].id }, data: { startDate: starts[i] } });
+  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true } });
+  if (str(formData.get("rederive")) === "1") {
+    // Back onto the academic calendar: every term (typed ones too) re-derived from the offering start.
+    await alignOfferingToCalendar(cohortId, { resetManual: true });
   } else {
+    // Typed dates are kept as typed (source "manual"); everything else — later
+    // terms, term ends, course windows — follows the calendar around them.
     for (const ct of cts) {
       const v = str(formData.get(`term_${ct.termId}`));
-      if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v) } });
+      const e = str(formData.get(`term_end_${ct.termId}`));
+      if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v), endDate: e ? new Date(e) : null, source: "manual" } });
     }
-  }
-
-  // The class name tracks when the program actually ends: recompute the real
-  // finish (last term's start + its weeks) and rename "Class of YYYY" to match.
-  const cohort = await prisma.cohort.findUnique({
-    where: { id: cohortId },
-    include: { cohortTerms: { include: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, program: { select: { cohorts: { select: { id: true, name: true } } } } },
-  });
-  if (cohort) {
-    let endMs = 0;
-    for (const ct of cohort.cohortTerms) {
-      if (!ct.startDate) continue;
-      const weeks = (ct.term.endWeek ?? 16) - (ct.term.startWeek ?? 1) + 1;
-      endMs = Math.max(endMs, ct.startDate.getTime() + weeks * 7 * 86400000);
-    }
-    const m = cohort.name.match(/^Class of (\d{4})(.*)$/);
-    if (endMs && m) {
-      const endYear = new Date(endMs).getFullYear();
-      if (String(endYear) !== m[1]) {
-        let newName = `Class of ${endYear}${m[2]}`;
-        if (cohort.program.cohorts.some((c) => c.id !== cohortId && c.name === newName)) {
-          let n = 2;
-          while (cohort.program.cohorts.some((c) => c.id !== cohortId && c.name === `Class of ${endYear} (${n})`)) n++;
-          newName = `Class of ${endYear} (${n})`;
-        }
-        await prisma.cohort.update({ where: { id: cohortId }, data: { name: newName } });
-      }
-    }
+    await alignOfferingToCalendar(cohortId);
   }
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${programId}`);
