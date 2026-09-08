@@ -30,7 +30,6 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { name: "Health Sciences Lecture Hall", kind: "CLASSROOM", building: "Health Sciences", capacity: 90, areaSqft: 2100, equipment: "lecture capture, dual projectors" },
     { name: "Nursing Skills Lab A", kind: "LAB", building: "Health Sciences", capacity: 12, areaSqft: 1400, equipment: "8 hospital beds, med carts, task trainers" },
     { name: "Nursing Skills Lab B", kind: "LAB", building: "Health Sciences", capacity: 12, areaSqft: 1400, equipment: "8 hospital beds, IV trainers" },
-    { name: "Nurse Aide Lab", kind: "LAB", building: "Health Sciences", capacity: 10, areaSqft: 1100, equipment: "6 beds, Hoyer lift, ADL station" },
     { name: "Simulation Suite 1", kind: "SIM", building: "Health Sciences", capacity: 8, areaSqft: 900, equipment: "high-fidelity manikin, control room, debrief room" },
     { name: "Simulation Suite 2", kind: "SIM", building: "Health Sciences", capacity: 8, areaSqft: 900, equipment: "birthing simulator, pediatric manikin" },
     { name: "Mock OR 1", kind: "LAB", building: "Health Sciences", capacity: 10, areaSqft: 1000, equipment: "OR table, back tables, sterile core, scrub sinks" },
@@ -38,8 +37,6 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { name: "Sterile Processing Lab", kind: "LAB", building: "Health Sciences", capacity: 12, areaSqft: 800, equipment: "autoclave, ultrasonic cleaner, instrument sets" },
     { name: "Radiography Energized Lab", kind: "LAB", building: "Health Sciences", capacity: 8, areaSqft: 1200, equipment: "energized x-ray room, phantoms, CR/DR readers" },
     { name: "Radiography Positioning Lab", kind: "LAB", building: "Health Sciences", capacity: 12, areaSqft: 900, equipment: "non-energized tube stands, positioning aids" },
-    { name: "Medical Assisting Clinic Lab", kind: "LAB", building: "Blue Hall", capacity: 14, areaSqft: 1000, equipment: "exam tables, EKG, phlebotomy station, autoclave" },
-    { name: "Phlebotomy Lab", kind: "LAB", building: "Blue Hall", capacity: 12, areaSqft: 600, equipment: "venipuncture arms, centrifuge" },
     { name: "Computer Lab 1", kind: "OTHER", building: "Kennedy Hall", capacity: 28, areaSqft: 900, equipment: "28 workstations, EHR sandbox" },
     { name: "Computer Lab 2", kind: "OTHER", building: "Blue Hall", capacity: 24, areaSqft: 800, equipment: "24 workstations" },
     { name: "Anatomy & Physiology Lab", kind: "LAB", building: "Van Dusen Hall", capacity: 24, areaSqft: 1300, equipment: "anatomical models, microscopes" },
@@ -76,8 +73,6 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { title: "Radiography Instructor, RT(R)", count: 5, types: ["full-time", "full-time", "full-time", "part-time", "adjunct"] },
     { title: "Radiography Clinical Coordinator, RT(R)(CT)", count: 1, types: ["full-time"] },
     { title: "Nursing Instructor, RN, MSN", count: 6, types: ["full-time", "full-time", "full-time", "part-time", "adjunct", "adjunct"] },
-    { title: "Nurse Aide Instructor, RN", count: 4, types: ["full-time", "part-time", "part-time", "adjunct"] },
-    { title: "Medical Assisting Instructor, CMA (AAMA)", count: 4, types: ["full-time", "full-time", "part-time", "adjunct"] },
     { title: "Anatomy & Physiology Instructor", count: 2, types: ["full-time", "adjunct"] },
     { title: "Simulation Educator, RN", count: 2, types: ["full-time", "part-time"] },
     { title: "Clinical Placement Coordinator", count: 1, types: ["full-time"] },
@@ -87,7 +82,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     const name = nextName();
     people.push({ institutionId, name, role: /Coordinator/.test(g.title) ? "coordinator" : "instructor", title: g.title, email: emailOf(name, "sandhills.edu"), employmentType: g.types[i] ?? "adjunct", active: true, startDate: new Date(Date.UTC(2015 + Math.floor(rand() * 10), 7, 1)) });
   }
-  const SUPPORT = ["Skills Lab Assistant", "Simulation Technician", "Sterile Processing Lab Technician", "Radiography Lab Technologist", "Health Sciences Lab Coordinator", "Medical Assisting Lab Assistant", "Nurse Aide Lab Assistant", "Academic Support Specialist"];
+  const SUPPORT = ["Skills Lab Assistant", "Simulation Technician", "Sterile Processing Lab Technician", "Radiography Lab Technologist", "Health Sciences Lab Coordinator", "Academic Support Specialist"];
   for (const t of SUPPORT) { const name = nextName(); people.push({ institutionId, name, role: "support", title: t, email: emailOf(name, "sandhills.edu"), employmentType: pick(["full-time", "part-time"]), active: true, startDate: new Date(Date.UTC(2018 + Math.floor(rand() * 7), 0, 15)) }); }
 
   // ── Preceptors, attached to secured / asked sites, titled by what the site hosts ──
@@ -121,17 +116,13 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
   const hostIds = plan.filter((p) => p.agreementStatus === "secured").map((p) => p.id);
-  // Each offering carries the family's whole-year North-Star goal (the first
+  // Each offering carries the family's whole-year North-Star goal (the
   // Radiography and Surgical Technology launches are the partner's 29 and 14)
   // and, exactly like lock-in, inherits the family's talent-pipeline rates —
   // so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
   const OFFERINGS: { program: string; start: string; goal: number }[] = [
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
     { program: "Radiography", start: "2026-08-17", goal: 29 },
-    { program: "Radiography — Evening Track", start: "2027-01-11", goal: 8 },
-    { program: "Medical Assisting", start: "2026-08-17", goal: 18 },
-    { program: "Nurse Aide I — 6-Week Term", start: "2026-08-17", goal: 10 },
-    { program: "Nurse Aide I — 12-Week Day Term", start: "2027-01-11", goal: 12 },
   ];
   let offerings = 0, meetings = 0;
   for (const o of OFFERINGS) {

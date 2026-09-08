@@ -82,7 +82,7 @@ function medicalOfficeTerms(): TermSeed[] {
 
 // ── The institutions ────────────────────────────────────────────────────────
 interface ProgramDef { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string }
-interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean }
+interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean; cnaAll?: boolean }
 interface InstitutionDef { name: string; short: string; kind: string; city: string; serviceArea: string; families: FamilyDef[] }
 
 const RN = { soc: "29-1141", occupation: "Registered Nurses" };
@@ -148,9 +148,13 @@ export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Roanoke-Chowan Community College", short: "Roanoke-Chowan CC", kind: "Community college", city: "Ahoskie", serviceArea: "Hertford, Bertie, Gates & Northampton Counties, NC", families: [
     { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(16), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 20, months: 3 }] },
   ] },
-  ...[["Lenoir Community College", "Lenoir CC", "Kinston", "Lenoir, Greene & Jones Counties, NC"], ["Carteret Community College", "Carteret CC", "Morehead City", "Carteret County, NC"], ["Craven Community College", "Craven CC", "New Bern", "Craven County, NC"]].map(([name, short, city, area]): InstitutionDef => ({
+  ...[["Lenoir Community College", "Lenoir CC", "Kinston", "Lenoir, Greene & Jones Counties, NC"], ["Craven Community College", "Craven CC", "New Bern", "Craven County, NC"]].map(([name, short, city, area]): InstitutionDef => ({
     name, short, kind: "Community college", city, serviceArea: area, families: [{ name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true }],
   })),
+  // Carteret owns the CNA workbook pack: all five Nurse Aide I delivery models.
+  { name: "Carteret Community College", short: "Carteret CC", kind: "Community college", city: "Morehead City", serviceArea: "Carteret County, NC", families: [
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the Carteret CNA workbooks (day intensive, standard term, summer evening, and extended day/evening tracks).", goals: goals(50), programs: [], cna: true, cnaAll: true },
+  ] },
 ];
 
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
@@ -163,7 +167,10 @@ export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
       const goalPlan = goalPlanJson(f.goals);
       const fam = await prisma.programFamily.create({ data: { institutionId: inst.id, occupationId: occ.id, name: f.name, description: f.description, goalPlan, clinicalModel: /Nurs/.test(f.name) ? "hours" : "hours" } });
       families++;
-      if (f.cna) {
+      if (f.cnaAll) {
+        // Every delivery model in the CNA workbook pack, name for name.
+        for (const tpl of h.cnaPack) { await h.createCnaProgram(inst.id, occ.id, fam.id, tpl); programs++; }
+      } else if (f.cna) {
         // The standard Nurse Aide I term (the 6-week day model from the CNA workbook pack).
         const tpl = h.cnaPack.find((t) => /6-Week/i.test(t.name)) ?? h.cnaPack[0];
         await h.createCnaProgram(inst.id, occ.id, fam.id, { ...tpl, name: "Nurse Aide I" });

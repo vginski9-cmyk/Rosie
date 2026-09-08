@@ -1153,7 +1153,6 @@ async function main() {
 
   const radOcc = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: "29-2034", title: "Radiologic Technologists" } });
   const surgOcc = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: "29-2055", title: "Surgical Technologists" } });
-  const maOcc = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: "31-9092", title: "Medical Assistants" } });
 
   // Regions + labor-market demand (job data, not program data — the anchor a
   // goal is set against).
@@ -1180,9 +1179,6 @@ async function main() {
     await prisma.demandProjection.create({
       data: { institutionId: sandhills.id, occupationId: surgOcc.id, regionId: regions["SERVICE_AREA"], year: y, jobs: 95, openings: 14, growthPct: 0.1, replacementPct: 0.9, turnoverPct: 0.5 },
     });
-    await prisma.demandProjection.create({
-      data: { institutionId: sandhills.id, occupationId: maOcc.id, regionId: regions["SERVICE_AREA"], year: y, jobs: 240, openings: 30, growthPct: 0.12, replacementPct: 0.88, turnoverPct: 0.2 },
-    });
   }
 
   // ----- Families (one per job) ---------------------------------------------
@@ -1194,7 +1190,6 @@ async function main() {
   console.log("rad asset map:", radMap);
   console.log("sandhills sites:", await loadSandhillsSites(prisma, sandhills.id));
   console.log(`radiography 365-day asset map: ${radMap.assets} physical assets across ${radMap.facilities} sites, ${radMap.exceptions} date exceptions, ${radMap.rotations} rotation → setting codes`);
-  const maFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", description: "Medical Assisting program templates producing medical assistants for the Sandhills region." } });
 
   // ----- The prepopulated template library ----------------------------------
   // Each template is a complete, timeless curriculum: terms → courses → the
@@ -1208,50 +1203,28 @@ async function main() {
   // range, course codes and weekly hours.
   const rad = await createPackProgram(loadPack("rad.json"), { institutionId: sandhills.id, occupationId: radOcc.id, familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", monthsToFullProductivity: 6 });
 
-  const radEvening = await createProgram({
-    institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography — Evening Track", programType: "Evening Part Time", credential: "AAS",
-    terms: genTerms("RDE", 96, 6, true),
-  });
-  await prisma.program.update({ where: { id: radEvening.id }, data: { familyId: radFamily.id, launchCadence: "BIENNIAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 18 } });
-
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
   void surg;
-
-  const ma = await createProgram({ institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", programType: "Traditional Full Time", credential: "Diploma", terms: genTerms("MED", 52, 2, true) });
-  await prisma.program.update({ where: { id: ma.id }, data: { familyId: maFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: 28 } });
 
   // ----- CNA template pack — imported straight from the demo workbooks -------
   // Five Nurse Aide I delivery models (5-wk day intensive, 6-wk term, 8-wk
   // summer evening, 12-wk day, 12-wk evening), each an exact copy of its
-  // workbook's Raw Data & Calculations session table: every session row with
-  // delivery mode, location, length, capacity, staffing, contact-hour
-  // policies, week/day placement, notes, and clinical rotation columns.
+  // workbook's Raw Data & Calculations session table. These are Carteret
+  // Community College's templates (seeded under Carteret below); the other
+  // Nurse Aide colleges get the standard 6-week term.
   const cnaPack = JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[];
 
-  const cnaOcc = await prisma.occupation.create({ data: { institutionId: sandhills.id, socCode: "31-1131", title: "Nursing Assistants" } });
-  for (const y of [2025, 2026, 2027, 2028, 2029, 2030]) {
-    await prisma.demandProjection.create({
-      data: { institutionId: sandhills.id, occupationId: cnaOcc.id, regionId: regions["SERVICE_AREA"], year: y, jobs: 520, openings: 68, growthPct: 0.05, replacementPct: 0.95, turnoverPct: 0.35 },
-    });
-  }
-  const cnaFamily = await prisma.programFamily.create({
-    data: { institutionId: sandhills.id, occupationId: cnaOcc.id, name: "Nurse Aide (CNA)", description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the CNA demo workbooks (day intensive, standard term, summer evening, and extended day/evening tracks)." },
-  });
-  for (const tpl of cnaPack) await createCnaProgram(sandhills.id, cnaOcc.id, cnaFamily.id, tpl);
 
   // North-Star goals for Sandhills' own jobs. Radiography (29/yr) and Surgical
   // Technology (14/yr) are the partner's stated targets, held flat across the
   // planning horizon, each with the talent-pipeline health rates from the
   // partner's "future target cohort performance" funnel — the rates every new
   // launching cohort inherits at lock-in (interested → qualified → offered →
-  // enrolled → completing → licensed → placed → fully productive). Medical
-  // assisting (30) and nurse aide (68) come from the service-area openings.
+  // enrolled → completing → licensed → placed → fully productive). Sandhills
+  // carries only these two jobs.
   const flat = (base: number) => Object.fromEntries(Object.keys(goals(base)).map((y) => [Number(y), base])) as Record<number, number>;
   await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(flat(29), RAD_PIPELINE_RATES) } });
   await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(flat(14), SURG_PIPELINE_RATES) } });
-  for (const [fid, base] of [[maFamily.id, 30], [cnaFamily.id, 68]] as [string, number][]) {
-    await prisma.programFamily.update({ where: { id: fid }, data: { goalPlan: goalPlanJson(goals(base)) } });
-  }
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----
   console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPack }));
