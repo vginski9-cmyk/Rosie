@@ -50,7 +50,9 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   const rooms = await prisma.facility.findMany({ where: { institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
 
   // ── Partner sites: agreement statuses & slots ─────────────────────────────
-  const employers = await prisma.employer.findMany({ where: { institutionId }, include: { units: { select: { unitCategory: true } } } });
+  const employers = await prisma.employer.findMany({ where: { institutionId }, include: { units: { select: { unitCategory: true } }, assets: { select: { settingCode: true } } } });
+  // Asset setting → the unit category its preceptors are titled by (new sites carry assets, not units).
+  const CAT_OF_SETTING: Record<string, string> = { GEN: "Imaging", CT: "Imaging", MRI: "Imaging", US: "Imaging", MAMMO: "Imaging", FLUORO: "Imaging", PORT: "Imaging", ED: "Emergency", OR: "Surgical", BEDS: "Inpatient beds", ICU: "Inpatient beds", OB: "Inpatient beds", PEDS: "Inpatient beds", LTC: "Long-term care beds", ALF: "Adult care beds", BH: "Behavioral health", AMB: "Ambulatory office", DENT: "Ambulatory office", PHARM: "Ambulatory office", REHAB: "Ambulatory office", LAB: "Laboratory", PH: "Community", HH: "Community", HOSP: "Community", EMS: "Community", DIAL: "Ambulatory office" };
   const isHospital = (e: typeof employers[number]) => (e.licensedBeds ?? 0) > 0 || (e.operatingRooms ?? 0) > 0;
   const isLtc = (e: typeof employers[number]) => (e.nursingHomeBeds ?? 0) > 0 || (e.adultCareBeds ?? 0) > 0;
   const hospitals = employers.filter((e) => e.status === "active" && isHospital(e)).sort((a, b) => (b.licensedBeds ?? 0) - (a.licensedBeds ?? 0));
@@ -60,7 +62,12 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   hospitals.forEach((e, i) => plan.push({ id: e.id, agreementStatus: i < 5 ? "secured" : i < 8 ? "asked" : i < 11 ? "prospect" : "none", wblSlots: i < 5 ? 12 : 8, notes: i < 5 ? "Affiliation agreement on file through 2028." : i < 8 ? "Agreement sent to education dept.; awaiting signature." : "" }));
   ltcs.forEach((e, i) => plan.push({ id: e.id, agreementStatus: i < 6 ? "secured" : i < 9 ? "asked" : i < 12 ? "prospect" : "none", wblSlots: i < 6 ? 6 : 4, notes: i < 6 ? "NATCEP-eligible; agreement on file." : "" }));
   offices.forEach((e, i) => plan.push({ id: e.id, agreementStatus: i < 5 ? "secured" : i < 8 ? "asked" : i < 10 ? "prospect" : "none", wblSlots: i < 5 ? 3 : 2, notes: i < 5 ? "Hosts MA externs; agreement on file." : "" }));
-  for (const p of plan) await prisma.employer.update({ where: { id: p.id }, data: { agreementStatus: p.agreementStatus, wblSlots: p.wblSlots, agreementNotes: p.notes || null } });
+  // A site that already carries an agreement (the Sandhills site seed sets them) keeps it; the plan only fills in the rest.
+  for (const p of plan) {
+    const cur = employers.find((x) => x.id === p.id)!;
+    if (cur.agreementStatus && cur.agreementStatus !== "none") { p.agreementStatus = cur.agreementStatus; continue; }
+    await prisma.employer.update({ where: { id: p.id }, data: { agreementStatus: p.agreementStatus, wblSlots: p.wblSlots, agreementNotes: p.notes || null } });
+  }
 
   // ── Instructors & support staff ───────────────────────────────────────────
   const INSTRUCTORS: { title: string; count: number; types: string[] }[] = [
@@ -99,7 +106,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   const siteList = plan.filter((p) => p.agreementStatus === "secured" || p.agreementStatus === "asked");
   for (const p of siteList) {
     const e = employers.find((x) => x.id === p.id)!;
-    const cats = [...new Set(e.units.map((u) => u.unitCategory))];
+    const cats = [...new Set([...e.units.map((u) => u.unitCategory), ...e.assets.map((a) => CAT_OF_SETTING[a.settingCode]).filter((c): c is string => !!c)])];
     const n = p.agreementStatus === "secured" ? (isHospital(e) ? 6 : 3) : (isHospital(e) ? 3 : 2);
     for (let i = 0; i < n; i++) {
       const cat = cats.length ? cats[i % cats.length] : isHospital(e) ? "Inpatient beds" : isLtc(e) ? "Long-term care beds" : "Ambulatory office";

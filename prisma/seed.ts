@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster } from "./seed-roster";
+import { loadSandhillsSites } from "./seed-sandhills-sites";
 
 const prisma = new PrismaClient();
 
@@ -536,7 +537,7 @@ async function loadClinicalModels(institutionId: string) {
       // Family-level agreement: the global one for the family that "owns" the site's primary use, a notch lower elsewhere.
       const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || (isMa && e.units.some((u) => u.unitCategory === "Ambulatory office"));
       const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
-      await prisma.familySite.create({ data: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
+      await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, update: { agreementStatus: status }, create: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
       sites++;
       // Shifts the site has allocated to this family: secured radiography sites offer a slice of each setting's physical ceiling.
       if (isRad && status === "secured") {
@@ -1178,6 +1179,8 @@ async function main() {
   const assets = await loadAssetMap(sandhills.id);
   console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
   const radMap = await loadRadAssetMap(sandhills.id);
+  console.log("rad asset map:", radMap);
+  console.log("sandhills sites:", await loadSandhillsSites(prisma, sandhills.id));
   console.log(`radiography 365-day asset map: ${radMap.assets} physical assets across ${radMap.facilities} sites, ${radMap.exceptions} date exceptions, ${radMap.rotations} rotation → setting codes`);
   const maFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: maOcc.id, name: "Medical Assisting", description: "Medical Assisting program templates producing medical assistants for the Sandhills region." } });
 
