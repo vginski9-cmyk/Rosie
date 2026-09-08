@@ -253,7 +253,7 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
               lengthHours: x.lengthHours, maxStudents: x.maxStudents,
               facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
               facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? START_TIME[x.kind] ?? null, notes: x.notes,
+              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, notes: x.notes,
               rotationType: x.rotationType, clinicalMode: x.clinicalMode,
             })),
           },
@@ -468,15 +468,9 @@ async function loadClinicalModels(institutionId: string) {
     if (isRad) {
       for (const p of fam.programs) {
         if (!/^Radiography$/.test(p.name)) continue;
+        // Only courses the program-data workbook lists; allocations for
+        // courses it doesn't carry (the elective codes) are skipped.
         const byCode = new Map(p.terms.flatMap((t) => t.courses).map((c) => [c.code, c]));
-        // The two clinical electives the workbook budgets hours for.
-        const ensure = async (code: string, name: string, termIndex: number) => {
-          if (byCode.has(code)) return byCode.get(code)!;
-          const term = p.terms.find((t) => t.index === termIndex) ?? p.terms[0];
-          const c = await prisma.course.create({ data: { termId: term.id, code, name, sequenceOrder: 99, creditHours: 2, courseType: "CORE", description: "Clinical elective — hours budgeted in the partner workbook's course allocation." } });
-          byCode.set(code, c); return c;
-        };
-        await ensure("RAD-181", "RAD Clinical Elective", 1); await ensure("RAD-281", "RAD Clinical Elective II", 3);
         for (const r of map.courseAllocation) {
           const course = byCode.get(r.courseCode); const areaId = areaByCode.get(r.area);
           if (!course || !areaId) continue;
