@@ -7,7 +7,7 @@ import {
 
 // A class session straight from the workbook's Table1 (SUR 110, session 1):
 // K=3, L=20, M=1 — at the workbook's Term-1 enrollment of 250:
-// Y=ROUNDUP(250/20)=13, X=3×13=39, Z=3×1×13=39, AA=39/288, AB=39/16.
+// Y=ROUNDUP(250/20)=13, X=3×13=39, Z=3×1×13=39, AA=39/256, AB=39/16.
 const classRow = (over: Partial<SessionInput> = {}): SessionInput => ({
   id: "s1", kind: "CLASS", number: 1, title: "Mod 1", deliveryMode: "Hybrid", location: "In-person",
   lengthHours: 3, maxStudents: 20, facultyNeeded: 1, facultyContactPolicy: 2.5,
@@ -22,17 +22,17 @@ describe("computeColumns — the workbook formulas to the cell", () => {
     expect(c.Y).toBe(13);              // ROUNDUP(250/20)
     expect(c.X).toBe(39);              // 3×13
     expect(c.Z).toBe(39);              // 3×1×13
-    expect(c.AA).toBeCloseTo(39 / 288, 10); // Z/AM2, AM2=18×16
+    expect(c.AA).toBeCloseTo(39 / 256, 10); // Z/AM2, AM2=16×16
     expect(c.AB).toBeCloseTo(39 / 16, 10);  // Z/AI2
     expect(c.AC).toBe(0);
   });
   it("computes the preceptor chain AC, AD, AE (clinical row)", () => {
     // Clinical: K=8, L=2 (2 students per preceptor), T=1, U=1 @ 30 students:
-    // Y=15, AC=15×1×8×1=120, AD=120/(18×40)=120/720, AE=120/40=3.
+    // Y=15, AC=15×1×8×1=120, AD=120/(16×40)=120/640, AE=120/40=3.
     const c = computeColumns(classRow({ kind: "CLINICAL", lengthHours: 8, maxStudents: 2, preceptorsNeeded: 1, preceptorContactPolicy: 1, rotationType: "Precepted Experience" }), 30);
     expect(c.Y).toBe(15);
     expect(c.AC).toBe(120);
-    expect(c.AD).toBeCloseTo(120 / 720, 10);
+    expect(c.AD).toBeCloseTo(120 / 640, 10);
     expect(c.AE).toBeCloseTo(3, 10);
   });
   it("treats blank policies as 0 like Excel and flags L=0 as div-by-zero", () => {
@@ -48,9 +48,9 @@ describe("deriveAssumptions — AK/AM/AN helper cells", () => {
   it("derives conversions the workbook way", () => {
     const d = deriveAssumptions(DEFAULT_ASSUMPTIONS);
     expect(d.facConversion).toBeCloseTo(40 / 16, 10);  // AK2=AJ2/AI2
-    expect(d.facSemesterHours).toBe(288);              // AM2=AL2×AI2=18×16
+    expect(d.facSemesterHours).toBe(256);              // AM2=AL2×AI2=16×16
     expect(d.facWeeklyHours).toBe(16);                 // AN2=AI2
-    expect(d.preSemesterHours).toBe(720);              // AM5=18×40
+    expect(d.preSemesterHours).toBe(640);              // AM5=16×40
     expect(d.preWeeklyHours).toBe(40);                 // AN5=AI5
   });
 });

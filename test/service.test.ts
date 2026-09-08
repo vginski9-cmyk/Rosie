@@ -33,9 +33,9 @@ describe("sessionService matches the FTEs_Clinicals sheet", () => {
   it("faculty contact hours = sections × faculty × length", () => {
     expect(r.facultyContactHours).toBeCloseTo(29.583333333, 4);
   });
-  it("faculty weekly = hours / 18, faculty FTE = hours / 288", () => {
-    expect(r.facultyWeeklyHours).toBeCloseTo(1.6435185185, 4);
-    expect(r.facultyFte).toBeCloseTo(0.1027199074, 6);
+  it("faculty weekly = hours / 16, faculty FTE = hours / 256", () => {
+    expect(r.facultyWeeklyHours).toBeCloseTo(29.583333333 / 16, 4);
+    expect(r.facultyFte).toBeCloseTo(29.583333333 / 256, 6);
   });
   it("preceptor hours = sections × preceptors × length", () => {
     expect(r.preceptorContactHours).toBeCloseTo(887.5, 4);

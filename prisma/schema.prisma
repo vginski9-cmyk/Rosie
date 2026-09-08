@@ -208,13 +208,13 @@ model Program {
   /// "Number of hours in work week" (faculty) — cell AJ2.
   facWorkWeekHours  Float @default(40)
   /// "Number of weeks in Term" (faculty) — cell AL2.
-  facTermWeeks      Float @default(18)
+  facTermWeeks      Float @default(16)
   /// "Full time preceptor contact hours" — cell AI5.
   preContactHours   Float @default(40)
   /// "Number of hours in work week" (preceptor) — cell AJ5.
   preWorkWeekHours  Float @default(40)
   /// "Number of weeks in Term" (preceptor) — cell AL5.
-  preTermWeeks      Float @default(18)
+  preTermWeeks      Float @default(16)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

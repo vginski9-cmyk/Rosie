@@ -101,8 +101,8 @@ export interface WorkloadAssumptions {
 
 /** The workbook's default assumption values. */
 export const DEFAULT_ASSUMPTIONS: WorkloadAssumptions = {
-  facContactHours: 16, facWorkWeekHours: 40, facTermWeeks: 18,
-  preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 18,
+  facContactHours: 16, facWorkWeekHours: 40, facTermWeeks: 16,
+  preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16,
 };
 
 export interface DerivedAssumptions {

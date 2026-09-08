@@ -8,8 +8,8 @@
 //   sections          = ROUNDUP(enrollment / maxStudentsPerSession)
 //   space hours       = sections × sessionLength
 //   faculty hours     = sections × facultyPerSession × sessionLength
-//     faculty weekly  = faculty hours / termWeeks            (sheet: /18)
-//     faculty FTE     = faculty hours / facultyFteSemHours   (sheet: /288 = 16×18)
+//     faculty weekly  = faculty hours / termWeeks            (16-week term)
+//     faculty FTE     = faculty hours / facultyFteSemHours   (256 = 16×16)
 //   preceptor hours   = sections × preceptorsPerSession × sessionLength
 //     preceptor weekly= preceptor hours / preceptorWeeklyHrs (sheet: /40)
 //     preceptor FTE   = preceptor hours / preceptorFteSemHrs (sheet: /640 = 40×16)
@@ -19,7 +19,7 @@
 export interface ServiceConstants {
   /** Instructional weeks in a term (sheet divisor for faculty "weekly"). */
   termWeeks: number;
-  /** Faculty contact hours that equal 1.0 FTE for a semester (sheet: 288 = 16×18). */
+  /** Faculty contact hours that equal 1.0 FTE for a semester (256 = 16 h/wk × 16 weeks). */
   facultyFteSemesterHours: number;
   /** Preceptor hours per week used for the weekly view (sheet: 40). */
   preceptorWeeklyHours: number;
@@ -28,8 +28,8 @@ export interface ServiceConstants {
 }
 
 export const DEFAULT_SERVICE: ServiceConstants = {
-  termWeeks: 18,
-  facultyFteSemesterHours: 288,
+  termWeeks: 16,
+  facultyFteSemesterHours: 256,
   preceptorWeeklyHours: 40,
   preceptorFteSemesterHours: 640,
 };

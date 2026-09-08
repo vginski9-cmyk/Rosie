@@ -10,10 +10,10 @@
   "assumptions": {
    "facContactHours": 16,
    "facWorkWeekHours": 40,
-   "facTermWeeks": 18,
+   "facTermWeeks": 16,
    "preContactHours": 40,
    "preWorkWeekHours": 40,
-   "preTermWeeks": 18
+   "preTermWeeks": 16
   },
   "course": {
    "code": "NAS 111",
@@ -716,10 +716,10 @@
   "assumptions": {
    "facContactHours": 16,
    "facWorkWeekHours": 40,
-   "facTermWeeks": 18,
+   "facTermWeeks": 16,
    "preContactHours": 40,
    "preWorkWeekHours": 40,
-   "preTermWeeks": 18
+   "preTermWeeks": 16
   },
   "course": {
    "code": "NAS 111",
@@ -1422,10 +1422,10 @@
   "assumptions": {
    "facContactHours": 16,
    "facWorkWeekHours": 40,
-   "facTermWeeks": 18,
+   "facTermWeeks": 16,
    "preContactHours": 40,
    "preWorkWeekHours": 40,
-   "preTermWeeks": 18
+   "preTermWeeks": 16
   },
   "course": {
    "code": "NAS 111",
@@ -2388,10 +2388,10 @@
   "assumptions": {
    "facContactHours": 16,
    "facWorkWeekHours": 40,
-   "facTermWeeks": 18,
+   "facTermWeeks": 16,
    "preContactHours": 40,
    "preWorkWeekHours": 40,
-   "preTermWeeks": 18
+   "preTermWeeks": 16
   },
   "course": {
    "code": "NAS 111",
@@ -3074,10 +3074,10 @@
   "assumptions": {
    "facContactHours": 16,
    "facWorkWeekHours": 40,
-   "facTermWeeks": 18,
+   "facTermWeeks": 16,
    "preContactHours": 40,
    "preWorkWeekHours": 40,
-   "preTermWeeks": 18
+   "preTermWeeks": 16
   },
   "course": {
    "code": "NAS 111",
