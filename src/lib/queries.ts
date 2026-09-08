@@ -1797,3 +1797,62 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     familyAgreements: familySites,
   };
 }
+
+// ── Home: every institution, its jobs (families) with their North-Star goals, and the programs under each ──
+export interface HomeProgram { id: string; name: string; credential: string | null; programType: string; launchTerms: string; seats: number | null; terms: number; running: number; students: number; inventoryNote: string | null }
+export interface HomeFamily {
+  id: string; name: string; job: string; socCode: string | null; description: string | null;
+  goalsByYear: Record<number, number>; thisYearGoal: number; nextYearGoal: number; lastYearActual: number; progress: number | null;
+  programs: HomeProgram[]; running: number; students: number;
+}
+export interface HomeInstitution { id: string; name: string; shortName: string | null; kind: string | null; city: string | null; state: string | null; serviceArea: string | null; families: HomeFamily[]; thisYearGoal: number; programs: number; running: number; students: number; sites: number }
+
+export async function getInstitutionsHome(currentYear?: number): Promise<HomeInstitution[]> {
+  const thisYear = currentYear ?? new Date().getUTCFullYear();
+  const lastYear = thisYear - 1;
+  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+  const institutions = await prisma.institution.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { employers: true } },
+      programFamilies: {
+        orderBy: { name: "asc" },
+        include: {
+          occupation: { select: { title: true, socCode: true } },
+          programs: {
+            orderBy: { name: "asc" },
+            select: {
+              id: true, name: true, credential: true, programType: true, launchTerms: true, defaultCohortSeats: true, inventoryNote: true,
+              _count: { select: { terms: true } },
+              yearTargets: { select: { year: true, credentialTarget: true } },
+              cohorts: { select: { name: true, status: true, _count: { select: { students: true } }, stages: { where: { stageKey: "productive" }, select: { actualNumber: true } } } },
+            },
+          },
+        },
+      },
+    },
+  });
+  return institutions.map((inst) => {
+    const families: HomeFamily[] = inst.programFamilies.map((f) => {
+      let goalsByYear: Record<number, number> = {};
+      if (f.goalPlan) { try { const gp = JSON.parse(f.goalPlan) as { goalsByYear?: Record<string, number> }; for (const [y, g] of Object.entries(gp.goalsByYear ?? {})) goalsByYear[Number(y)] = Number(g) || 0; } catch { /* none */ } }
+      if (Object.keys(goalsByYear).length === 0) for (const p of f.programs) for (const t of p.yearTargets) if (t.credentialTarget != null) goalsByYear[t.year] = (goalsByYear[t.year] ?? 0) + t.credentialTarget;
+      const programs: HomeProgram[] = f.programs.map((p) => ({
+        id: p.id, name: p.name, credential: p.credential, programType: p.programType, launchTerms: p.launchTerms, seats: p.defaultCohortSeats, terms: p._count.terms,
+        running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length, students: p.cohorts.reduce((n, c) => n + c._count.students, 0), inventoryNote: p.inventoryNote,
+      }));
+      const lastYearActual = f.programs.reduce((n, p) => n + p.cohorts.filter((c) => gradYearOf(c.name) === lastYear).reduce((m, c) => m + (c.stages[0]?.actualNumber ?? 0), 0), 0);
+      const thisYearGoal = goalsByYear[thisYear] ?? 0;
+      return {
+        id: f.id, name: f.name, job: f.occupation?.title ?? f.name, socCode: f.occupation?.socCode ?? null, description: f.description,
+        goalsByYear, thisYearGoal, nextYearGoal: goalsByYear[thisYear + 1] ?? 0, lastYearActual, progress: thisYearGoal > 0 ? lastYearActual / thisYearGoal : null,
+        programs, running: programs.reduce((n, p) => n + p.running, 0), students: programs.reduce((n, p) => n + p.students, 0),
+      };
+    });
+    return {
+      id: inst.id, name: inst.name, shortName: inst.shortName, kind: inst.kind, city: inst.city, state: inst.state, serviceArea: inst.serviceArea, families,
+      thisYearGoal: families.reduce((n, f) => n + f.thisYearGoal, 0), programs: families.reduce((n, f) => n + f.programs.length, 0),
+      running: families.reduce((n, f) => n + f.running, 0), students: families.reduce((n, f) => n + f.students, 0), sites: inst._count.employers,
+    };
+  });
+}

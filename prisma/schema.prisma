@@ -23,6 +23,10 @@ model Institution {
   id           String   @id @default(cuid())
   name         String
   shortName    String?
+  /// Community college | University | …
+  kind         String?
+  city         String?
+  state        String?
   serviceArea  String? // free-text description of the geographic service area
   /// Academic calendar pattern: each semester starts on the Monday on/after this
   /// MM-DD anchor. Derived term dates (lock-in) follow it, year after year.
@@ -182,6 +186,8 @@ model Program {
   programType   String // e.g. "Traditional Full Time"
   credential    String? // e.g. "Diploma", "AAS", "Certificate"
   serviceArea   String?
+  /// Open question carried from the program inventory (e.g. "confirm one cohort or two per year").
+  inventoryNote String?
   status        String   @default("active") // active | draft | archived
   monthsToFullProductivity Int? // lag from completion to "fully productive"
   // --- Launch cadence & delivery calendar ---
