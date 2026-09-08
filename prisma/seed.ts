@@ -220,7 +220,7 @@ type PackSession = {
 type ProgramPack = {
   name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
   assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
-  terms: { index: number; name: string; startWeek: number; endWeek: number; courses: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
+  terms: { index: number; name: string; semester?: string | null; startWeek: number; endWeek: number; courses: { code: string; title: string; alsoCoded?: string[]; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
 };
 const loadPack = (file: string) => JSON.parse(readFileSync(join(__dirname, "templates", file), "utf8")) as ProgramPack;
 
@@ -244,8 +244,8 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
         data: {
           termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
           weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
-          semesterOffered: "All", courseType: "CORE",
-          description: `${c.title} — imported from ${pack.sourceWorkbook}.`,
+          semesterOffered: t.semester ?? "All", courseType: "CORE",
+          description: `${c.title} — imported from ${pack.sourceWorkbook}.${c.alsoCoded?.length ? ` Some workbook rows are coded ${c.alsoCoded.join(", ")}.` : ""}`,
           sessions: {
             create: c.sessions.map((x) => ({
               kind: x.kind, number: x.number, title: x.title,
@@ -382,7 +382,7 @@ async function loadRadAssetMap(institutionId: string) {
     ["CT", "CT", "Imaging"], ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "LTC", "Adult care beds"],
     // The Sandhills program-data workbooks' own rotation labels.
     ["General Rotations", "GEN", "Imaging"], ["Other (imaging rotations)", "GEN", "Imaging"], ["Capstone/Preceptorship", "GEN", "Imaging"],
-    ["Other (surgical rotations)", "OR", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"],
+    ["Other (surgical rotations)", "OR", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"], ["Operating Room or Doctor's Office", "OR", "Surgical"],
   ];
   for (const [rotationType, settingCode, unitCategory] of ROT) {
     await prisma.rotationSetting.upsert({
@@ -1198,9 +1198,8 @@ async function main() {
   // capacity — the gating number when a goal is split across instantiations.
   //
   // Radiography and Surgical Technology come straight from the Sandhills
-  // program-data workbooks (prisma/templates/rad.json, surgtech.json): every
-  // session row of "Program Data_All Together" plus each term sheet's week
-  // range, course codes and weekly hours.
+  // cleaned program-data workbook (prisma/templates/rad.json, surgtech.json):
+  // every session row, term by term, with the workbook's workload assumptions.
   const rad = await createPackProgram(loadPack("rad.json"), { institutionId: sandhills.id, occupationId: radOcc.id, familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", monthsToFullProductivity: 6 });
 
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
