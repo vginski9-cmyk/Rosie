@@ -1,23 +1,23 @@
-import { getFacilitiesDirectory } from "@/lib/queries";
-import { FacilityDirectory } from "@/components/FacilityDirectory";
+import { getRoomsWorkspace } from "@/lib/queries";
+import { RoomsWorkspace } from "@/components/RoomsWorkspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function FacilitiesPage() {
-  const { facilities, institutions } = await getFacilitiesDirectory();
-  const seats = facilities.reduce((n, f) => n + (f.capacity ?? 0), 0);
-
+export default async function FacilitiesPage({ searchParams }: { searchParams: { inst?: string } }) {
+  const ws = await getRoomsWorkspace();
+  const seats = ws.rooms.reduce((n, f) => n + (f.capacity ?? 0), 0);
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Facilities</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Rooms, buildings &amp; equipment</h1>
         <p className="max-w-3xl text-sm text-slate-500">
-          The supply of physical space — classrooms, labs, clinical and simulation facilities — with their size, capacity,
-          hours, availability, and equipment. This is what delivery (sections, labs, clinicals) gets mapped onto.
-          {" "}{facilities.length} spaces · {seats} total seats/stations.
+          The campus supply, structured so it can be mapped, checked and measured: campuses hold buildings, buildings hold rooms, every
+          room has coded open hours (by weekday, with dated exceptions) that availability and utilization are computed from, and
+          equipment is its own record — fixed in a room, mobile between rooms, or portable — assignable to rooms for periods.
+          {" "}{ws.rooms.length} rooms · {seats} seats / stations · {ws.buildings.length} building{ws.buildings.length === 1 ? "" : "s"} on {ws.campuses.length} campus{ws.campuses.length === 1 ? "" : "es"} · {ws.equipment.reduce((n, e) => n + e.quantity, 0)} pieces of equipment.
         </p>
       </div>
-      <FacilityDirectory facilities={facilities} institutions={institutions} />
+      <RoomsWorkspace rooms={ws.rooms} campuses={ws.campuses} buildings={ws.buildings} equipment={ws.equipment} institutions={ws.institutions} defaultInstitutionId={searchParams.inst} />
     </div>
   );
 }

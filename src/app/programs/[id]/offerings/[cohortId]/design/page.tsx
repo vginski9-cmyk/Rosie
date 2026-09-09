@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOfferingDesign, getCapacityModel } from "@/lib/queries";
+import { getOfferingDesign, getCapacityModel, getStaffRoles } from "@/lib/queries";
+import type { RoleFamily } from "@/lib/workload";
 import { calendarizeCohort } from "@/lib/actions";
 import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/components/OfferingDesign";
 import { holidayMap } from "@/lib/academiccalendar";
@@ -9,10 +10,11 @@ import { SheetImport } from "@/components/SheetImport";
 export const dynamic = "force-dynamic";
 
 export default async function OfferingDesignPage({ params }: { params: { id: string; cohortId: string } }) {
-  const [data, capModel] = await Promise.all([getOfferingDesign(params.cohortId), getCapacityModel({ cohortId: params.cohortId })]);
+  const [data, capModel, staffRoles] = await Promise.all([getOfferingDesign(params.cohortId), getCapacityModel({ cohortId: params.cohortId }), getStaffRoles()]);
   if (!data || data.cohort.programId !== params.id) notFound();
   const { cohort, rooms, people, employers, assignments } = data;
   const program = cohort.program;
+  const roles = staffRoles.filter((r) => r.institutionId === program.institutionId).map((r) => ({ key: r.key, label: r.label, family: r.family as RoleFamily }));
 
   // This offering's per-term enrollment targets + workload assumptions —
   // they drive column C and every formula column on the sheet below.
@@ -97,6 +99,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         rooms={rooms}
         people={people}
         employers={employers}
+        roles={roles}
         assignments={assignments.map((a) => ({ id: a.id, sessionId: a.sessionId, personId: a.personId, personName: a.person.name, personRole: a.person.role, role: a.role, contactHours: a.contactHours, startOffsetMin: a.startOffsetMin, segment: a.segment, sectionIndex: a.sectionIndex }))}
         enrollmentByTerm={capCohort?.enrollmentByTerm ?? {}}
         holidays={holidayMap(program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })))}

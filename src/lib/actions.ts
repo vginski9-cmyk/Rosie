@@ -303,9 +303,14 @@ export async function enrollStudent(formData: FormData): Promise<void> {
       stageKey: STATUS_TO_STAGE[status] ?? null,
       entryYear: optNum(formData.get("entryYear")),
       sectionIndex: Math.max(1, numOr(formData.get("sectionIndex"), 1)),
+      dob: str(formData.get("dob")) ? new Date(str(formData.get("dob")) + "T00:00:00Z") : null,
+      sex: str(formData.get("sex")) || null, raceEthnicity: str(formData.get("raceEthnicity")) || null,
+      county: str(formData.get("county")) || null, city: str(formData.get("city")) || null, zip: str(formData.get("zip")) || null, state: str(formData.get("state")) || null,
+      residency: str(formData.get("residency")) || null, priorEducation: str(formData.get("priorEducation")) || null, employmentStatus: str(formData.get("employmentStatus")) || null,
     },
   });
   revalidatePath("/students");
+  revalidatePath("/students/analytics");
   revalidatePath(`/programs/${programId}/students`);
 }
 
@@ -442,6 +447,7 @@ export async function createPerson(formData: FormData): Promise<void> {
       endDate: endRaw ? new Date(endRaw) : null,
       email: str(formData.get("email")) || null,
       employerId: str(formData.get("employerId")) || null,
+      assetId: str(formData.get("assetId")) || null,
     },
   });
   revalidatePath("/people");
@@ -462,6 +468,7 @@ export async function updatePerson(personId: string, formData: FormData): Promis
       endDate: endRaw ? new Date(endRaw) : null,
       email: str(formData.get("email")) || null,
       employerId: str(formData.get("employerId")) || null,
+      assetId: str(formData.get("assetId")) || null,
     },
   });
   revalidatePath("/people");
@@ -1988,6 +1995,7 @@ export async function saveWorkloadPolicy(formData: FormData): Promise<void> {
   const data = {
     institutionId,
     employerId: str(formData.get("employerId")) || null,
+    assetId: str(formData.get("assetId")) || null,
     role: str(formData.get("role")) || "instructor",
     employmentType: str(formData.get("employmentType")) || null,
     title: str(formData.get("title")) || null,
@@ -2116,4 +2124,210 @@ export async function updateInstitution(id: string, formData: FormData): Promise
     },
   });
   revalidatePath(`/orgs/${id}`); revalidatePath("/orgs"); revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------------------
+// CAMPUSES · BUILDINGS · ROOM HOURS · EQUIPMENT
+// ---------------------------------------------------------------------------
+
+function revalidateRooms(institutionId?: string | null) {
+  revalidatePath("/facilities"); if (institutionId) revalidatePath(`/orgs/${institutionId}`); revalidatePath("/calendar");
+}
+
+export async function saveCampus(formData: FormData): Promise<void> {
+  const id = str(formData.get("id")); const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  const data = { institutionId, name: str(formData.get("name")) || "Campus", address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || null, zip: str(formData.get("zip")) || null, notes: str(formData.get("notes")) || null };
+  if (id) await prisma.campus.update({ where: { id }, data }); else await prisma.campus.create({ data });
+  revalidateRooms(institutionId);
+}
+export async function deleteCampus(id: string): Promise<void> {
+  const c = await prisma.campus.delete({ where: { id } }).catch(() => null); revalidateRooms(c?.institutionId);
+}
+export async function saveBuilding(formData: FormData): Promise<void> {
+  const id = str(formData.get("id")); const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  const data = { institutionId, campusId: str(formData.get("campusId")) || null, name: str(formData.get("name")) || "Building", code: str(formData.get("code")) || null, address: str(formData.get("address")) || null, floors: optNum(formData.get("floors")), notes: str(formData.get("notes")) || null };
+  if (id) await prisma.building.update({ where: { id }, data }); else await prisma.building.create({ data });
+  revalidateRooms(institutionId);
+}
+export async function deleteBuilding(id: string): Promise<void> {
+  const b = await prisma.building.delete({ where: { id } }).catch(() => null); revalidateRooms(b?.institutionId);
+}
+
+/** Read the structured hours out of a room form: one open/close pair per weekday
+ *  (blank = closed), or a preset key that fills them all. */
+function hoursFromForm(formData: FormData): { dayOfWeek: string; openTime: string; closeTime: string }[] | null {
+  const preset = str(formData.get("hoursPreset"));
+  if (preset === "keep") return null;
+  const { HOURS_PRESETS, WEEKDAYS } = require("./rooms") as typeof import("./rooms");
+  if (preset) { const p = HOURS_PRESETS.find((x) => x.key === preset); if (p) return p.spans; }
+  const spans: { dayOfWeek: string; openTime: string; closeTime: string }[] = [];
+  for (const d of WEEKDAYS) {
+    const o = str(formData.get(`open_${d}`)), c = str(formData.get(`close_${d}`));
+    if (/^\d{2}:\d{2}$/.test(o) && /^\d{2}:\d{2}$/.test(c) && c > o) spans.push({ dayOfWeek: d, openTime: o, closeTime: c });
+    const o2 = str(formData.get(`open2_${d}`)), c2 = str(formData.get(`close2_${d}`));
+    if (/^\d{2}:\d{2}$/.test(o2) && /^\d{2}:\d{2}$/.test(c2) && c2 > o2) spans.push({ dayOfWeek: d, openTime: o2, closeTime: c2 });
+  }
+  return spans;
+}
+async function writeHours(facilityId: string, spans: { dayOfWeek: string; openTime: string; closeTime: string }[] | null) {
+  if (!spans) return;
+  await prisma.facilityHours.deleteMany({ where: { facilityId } });
+  if (spans.length) await prisma.facilityHours.createMany({ data: spans.map((s) => ({ facilityId, ...s })) });
+}
+function roomData(formData: FormData) {
+  return {
+    name: str(formData.get("name")) || "Room", kind: str(formData.get("kind")) || "CLASSROOM",
+    buildingId: str(formData.get("buildingId")) || null, roomNumber: str(formData.get("roomNumber")) || null, floor: str(formData.get("floor")) || null,
+    capacity: optNum(formData.get("capacity")), areaSqft: optNum(formData.get("areaSqft")),
+    availability: str(formData.get("availability")) || null, notes: str(formData.get("notes")) || null, status: str(formData.get("status")) || "active",
+  };
+}
+export async function createRoom(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId")); if (!institutionId) return;
+  const d = roomData(formData);
+  const b = d.buildingId ? await prisma.building.findUnique({ where: { id: d.buildingId }, select: { name: true } }) : null;
+  const room = await prisma.facility.create({ data: { institutionId, ...d, building: b?.name ?? null } });
+  await writeHours(room.id, hoursFromForm(formData) ?? []);
+  revalidateRooms(institutionId);
+}
+export async function updateRoom(facilityId: string, formData: FormData): Promise<void> {
+  const d = roomData(formData);
+  const b = d.buildingId ? await prisma.building.findUnique({ where: { id: d.buildingId }, select: { name: true } }) : null;
+  const room = await prisma.facility.update({ where: { id: facilityId }, data: { ...d, building: b?.name ?? null } });
+  await writeHours(facilityId, hoursFromForm(formData));
+  revalidateRooms(room.institutionId);
+}
+export async function setRoomClosure(facilityId: string, formData: FormData): Promise<void> {
+  const date = str(formData.get("date")); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  const openTime = str(formData.get("openTime")) || null, closeTime = str(formData.get("closeTime")) || null;
+  const room = await prisma.facility.findUnique({ where: { id: facilityId }, select: { institutionId: true } });
+  await prisma.facilityClosure.upsert({ where: { facilityId_date: { facilityId, date: new Date(date + "T00:00:00Z") } }, update: { openTime, closeTime, note: str(formData.get("note")) || null }, create: { facilityId, date: new Date(date + "T00:00:00Z"), openTime, closeTime, note: str(formData.get("note")) || null } });
+  revalidateRooms(room?.institutionId);
+}
+export async function deleteRoomClosure(id: string): Promise<void> {
+  const c = await prisma.facilityClosure.delete({ where: { id }, include: { facility: { select: { institutionId: true } } } }).catch(() => null); revalidateRooms(c?.facility.institutionId);
+}
+
+export async function saveEquipment(formData: FormData): Promise<void> {
+  const id = str(formData.get("id")); const institutionId = str(formData.get("institutionId")); if (!institutionId) return;
+  const acquired = str(formData.get("acquiredDate"));
+  const homeFacilityId = str(formData.get("homeFacilityId")) || null;
+  const home = homeFacilityId ? await prisma.facility.findUnique({ where: { id: homeFacilityId }, select: { buildingId: true } }) : null;
+  const data = {
+    institutionId, name: str(formData.get("name")) || "Equipment", category: str(formData.get("category")) || "Other", mobility: str(formData.get("mobility")) || "fixed",
+    quantity: Math.max(1, Math.round(numOr(formData.get("quantity"), 1))), make: str(formData.get("make")) || null, model: str(formData.get("model")) || null, serial: str(formData.get("serial")) || null,
+    homeFacilityId, buildingId: str(formData.get("buildingId")) || home?.buildingId || null, status: str(formData.get("status")) || "active",
+    acquiredDate: acquired ? new Date(acquired) : null, notes: str(formData.get("notes")) || null,
+  };
+  if (id) await prisma.equipment.update({ where: { id }, data }); else await prisma.equipment.create({ data });
+  revalidateRooms(institutionId);
+}
+export async function deleteEquipment(id: string): Promise<void> {
+  const e = await prisma.equipment.delete({ where: { id } }).catch(() => null); revalidateRooms(e?.institutionId);
+}
+/** Place mobile / portable equipment in a room for a period (blank dates = open-ended). */
+export async function assignEquipment(equipmentId: string, formData: FormData): Promise<void> {
+  const facilityId = str(formData.get("facilityId")); if (!facilityId) return;
+  const from = str(formData.get("from")), to = str(formData.get("to"));
+  const e = await prisma.equipment.findUnique({ where: { id: equipmentId }, select: { institutionId: true } });
+  await prisma.equipmentAssignment.create({ data: { equipmentId, facilityId, quantity: Math.max(1, Math.round(numOr(formData.get("quantity"), 1))), from: from ? new Date(from) : null, to: to ? new Date(to) : null, note: str(formData.get("note")) || null } });
+  revalidateRooms(e?.institutionId);
+}
+export async function removeEquipmentAssignment(id: string): Promise<void> {
+  const a = await prisma.equipmentAssignment.delete({ where: { id }, include: { equipment: { select: { institutionId: true } } } }).catch(() => null); revalidateRooms(a?.equipment.institutionId);
+}
+
+// ---------------------------------------------------------------------------
+// STAFF ROLES (custom, per institution) · POLICY SCOPING & BULK APPLY
+// ---------------------------------------------------------------------------
+
+export async function saveStaffRole(formData: FormData): Promise<void> {
+  const id = str(formData.get("id")); const institutionId = str(formData.get("institutionId")); if (!institutionId) return;
+  const label = str(formData.get("label")) || "Role";
+  const key = (str(formData.get("key")) || label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "role";
+  const data = { institutionId, key, label, family: str(formData.get("family")) || "faculty", notes: str(formData.get("notes")) || null };
+  if (id) await prisma.staffRole.update({ where: { id }, data }); else await prisma.staffRole.upsert({ where: { institutionId_key: { institutionId, key } }, update: data, create: data });
+  revalidatePath("/people"); revalidatePath(`/orgs/${institutionId}`);
+}
+export async function deleteStaffRole(id: string): Promise<void> {
+  const r = await prisma.staffRole.delete({ where: { id } }).catch(() => null);
+  revalidatePath("/people"); if (r) revalidatePath(`/orgs/${r.institutionId}`);
+}
+
+/** Copy one policy onto every partner site of its institution (or the chosen
+ *  ones) so each site carries the same numbers; existing site rows for the
+ *  same position are replaced. */
+export async function applyPolicyToEmployers(policyId: string, employerIds: string[] | "all"): Promise<{ applied: number }> {
+  const p = await prisma.workloadPolicy.findUnique({ where: { id: policyId } });
+  if (!p) return { applied: 0 };
+  const targets = employerIds === "all" ? (await prisma.employer.findMany({ where: { institutionId: p.institutionId, status: "active" }, select: { id: true } })).map((e) => e.id) : employerIds;
+  let applied = 0;
+  for (const employerId of targets) {
+    if (employerId === p.employerId) continue;
+    await prisma.workloadPolicy.deleteMany({ where: { institutionId: p.institutionId, employerId, assetId: null, role: p.role, employmentType: p.employmentType, title: p.title } });
+    await prisma.workloadPolicy.create({ data: { institutionId: p.institutionId, employerId, assetId: null, role: p.role, employmentType: p.employmentType, title: p.title, label: p.label, contactHoursPerWeek: p.contactHoursPerWeek, workWeekHours: p.workWeekHours, termWeeks: p.termWeeks, annualWeeks: p.annualWeeks, hoursPerContactHour: p.hoursPerContactHour, maxContactHoursPerWeek: p.maxContactHoursPerWeek, notes: p.notes } });
+    applied++;
+  }
+  revalidatePath("/people"); revalidatePath(`/orgs/${p.institutionId}`);
+  return { applied };
+}
+
+// ---------------------------------------------------------------------------
+// LEARNERS — demographics · class sections · clinical shifts
+// ---------------------------------------------------------------------------
+
+const boolOrNull = (v: FormDataEntryValue | null): boolean | null => { const s = str(v); return s === "yes" ? true : s === "no" ? false : null; };
+
+/** Save the coded demographic profile (every field a dropdown or a date, so it aggregates cleanly). */
+export async function updateStudentProfile(studentId: string, formData: FormData): Promise<void> {
+  const d = (k: string) => { const v = str(formData.get(k)); return v ? new Date(v + "T00:00:00Z") : null; };
+  const s = await prisma.student.update({
+    where: { id: studentId },
+    data: {
+      name: str(formData.get("name")) || undefined, email: str(formData.get("email")) || null, phone: str(formData.get("phone")) || null,
+      dob: d("dob"), sex: str(formData.get("sex")) || null, raceEthnicity: str(formData.get("raceEthnicity")) || null,
+      address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, county: str(formData.get("county")) || null, state: str(formData.get("state")) || null, zip: str(formData.get("zip")) || null,
+      residency: str(formData.get("residency")) || null, priorEducation: str(formData.get("priorEducation")) || null, employmentStatus: str(formData.get("employmentStatus")) || null,
+      firstGeneration: boolOrNull(formData.get("firstGeneration")), veteran: boolOrNull(formData.get("veteran")), pellEligible: boolOrNull(formData.get("pellEligible")), disability: boolOrNull(formData.get("disability")),
+      dependents: optNum(formData.get("dependents")), primaryLanguage: str(formData.get("primaryLanguage")) || null,
+      withdrawalReason: str(formData.get("withdrawalReason")) || null, startDate: d("startDate"), completionDate: d("completionDate"), gpa: optNum(formData.get("gpa")),
+    },
+    select: { programId: true },
+  });
+  revalidatePath(`/students/${studentId}`); revalidatePath("/students"); revalidatePath("/students/analytics"); revalidatePath(`/programs/${s.programId}/students`);
+}
+
+/** Put a student in a section of one course kind for their offering (0 = remove). */
+export async function setStudentSection(studentId: string, formData: FormData): Promise<void> {
+  const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId")), kind = str(formData.get("kind"));
+  const sectionIndex = Math.round(numOr(formData.get("sectionIndex"), 0));
+  if (!cohortId || !courseId || !kind) return;
+  if (sectionIndex <= 0) await prisma.studentSection.deleteMany({ where: { studentId, cohortId, courseId, kind } });
+  else await prisma.studentSection.upsert({ where: { studentId_cohortId_courseId_kind: { studentId, cohortId, courseId, kind } }, update: { sectionIndex }, create: { studentId, cohortId, courseId, kind, sectionIndex } });
+  revalidatePath(`/students/${studentId}`);
+}
+
+/** Put a student on a clinical shift (a clinical session × section), optionally on a specific asset. */
+export async function addStudentShift(studentId: string, formData: FormData): Promise<void> {
+  const cohortId = str(formData.get("cohortId")), sessionId = str(formData.get("sessionId"));
+  if (!cohortId || !sessionId) return;
+  const sectionIndex = Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1)));
+  const assetId = str(formData.get("assetId")) || null;
+  await prisma.studentShift.upsert({ where: { studentId_cohortId_sessionId: { studentId, cohortId, sessionId } }, update: { sectionIndex, assetId, note: str(formData.get("note")) || null }, create: { studentId, cohortId, sessionId, sectionIndex, assetId, note: str(formData.get("note")) || null } });
+  revalidatePath(`/students/${studentId}`);
+}
+export async function removeStudentShift(id: string, studentId: string): Promise<void> {
+  await prisma.studentShift.delete({ where: { id } }).catch(() => undefined);
+  revalidatePath(`/students/${studentId}`);
+}
+/** Put the student on every clinical shift of a course, section = their seat's section. */
+export async function addStudentShiftsForCourse(studentId: string, formData: FormData): Promise<void> {
+  const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId"));
+  if (!cohortId || !courseId) return;
+  const sectionIndex = Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1)));
+  const sessions = await prisma.session.findMany({ where: { courseId, kind: "CLINICAL" }, select: { id: true } });
+  for (const s of sessions) await prisma.studentShift.upsert({ where: { studentId_cohortId_sessionId: { studentId, cohortId, sessionId: s.id } }, update: { sectionIndex }, create: { studentId, cohortId, sessionId: s.id, sectionIndex } });
+  revalidatePath(`/students/${studentId}`);
 }

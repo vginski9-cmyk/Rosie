@@ -16,6 +16,7 @@ export interface DirPerson {
   endDate: string | Date | null;
   institution: { id: string; name: string };
   employer: { id: string; name: string } | null;
+  assetId?: string | null;
   _count: { sessionStaff: number; assignments: number };
   workingNow: boolean;
   currentHours: number;
@@ -26,7 +27,7 @@ export interface DirPerson {
     cohorts: LoadCohort[];
   };
   workload: {
-    policyLabel: string; policySource: "employer" | "institution" | "default"; policyId: string | null;
+    policyLabel: string; policySource: "asset" | "employer" | "institution" | "default"; policyId: string | null;
     contactHoursPerWeek: number; workWeekHours: number; termWeeks: number; annualWeeks: number;
     creditPerContactHour: number; totalContactHours: number; totalCreditedHours: number;
     years: { key: string; contactHours: number; creditedHours: number; fte: number }[];
@@ -39,6 +40,8 @@ export interface DirPerson {
 }
 export interface InstLite { id: string; name: string }
 export interface EmpLite { id: string; name: string; institutionId: string }
+export interface RoleLite { id: string; institutionId: string; key: string; label: string; family: string }
+export interface AssetLiteRow { id: string; employerId: string; institutionId: string; label: string }
 
 const ROLES = ["instructor", "preceptor", "support", "supervisor", "coordinator"];
 const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "Preceptor", support: "Support", supervisor: "Supervisor", coordinator: "Coordinator" };
@@ -62,7 +65,8 @@ const monthYear = (d: string | Date | null): string | null => {
   return Number.isNaN(dt.getTime()) ? null : dt.toLocaleDateString(undefined, { month: "short", year: "numeric" });
 };
 
-export function PeopleDirectory({ people, institutions, employers }: { people: DirPerson[]; institutions: InstLite[]; employers: EmpLite[] }) {
+export function PeopleDirectory({ people, institutions, employers, roles = [], assets = [] }: { people: DirPerson[]; institutions: InstLite[]; employers: EmpLite[]; roles?: RoleLite[]; assets?: AssetLiteRow[] }) {
+  const roleLabel = (key: string) => ROLE_LABEL[key] ?? roles.find((r) => r.key === key)?.label ?? key;
   const [q, setQ] = useState("");
   const [fInst, setFInst] = useState("");
   const [fRole, setFRole] = useState("");
@@ -139,6 +143,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
           <select value={fRole} onChange={(e) => setFRole(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
             <option value="">All</option>
             {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            {roles.map((r) => <option key={r.id} value={r.key}>{r.label} · {r.family}</option>)}
           </select>
         </label>
         <label className="block">
@@ -171,7 +176,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
         <button onClick={() => setShowAdd((v) => !v)} className="ml-auto rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{showAdd ? "Close" : "+ Add person"}</button>
       </div>
 
-      {showAdd && <PersonForm institutions={institutions} employers={employers} onDone={() => setShowAdd(false)} />}
+      {showAdd && <PersonForm institutions={institutions} employers={employers} roles={roles} assets={assets} onDone={() => setShowAdd(false)} />}
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="font-medium text-slate-700">{filtered.length}</span> people
@@ -204,7 +209,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
               return editing === p.id ? (
                 <tr key={p.id} className="bg-rose-50/30">
                   <td colSpan={7} className="px-3 py-3">
-                    <PersonForm institutions={institutions} employers={employers} person={p} onDone={() => setEditing(null)} compact />
+                    <PersonForm institutions={institutions} employers={employers} roles={roles} assets={assets} person={p} onDone={() => setEditing(null)} compact />
                   </td>
                 </tr>
               ) : (
@@ -213,7 +218,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
                     <div className="font-medium text-slate-800">{p.name}</div>
                     {p.title && <div className="text-[11px] text-slate-400">{p.title}</div>}
                   </td>
-                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ROLE_BADGE[p.role] ?? "bg-slate-100 text-slate-600"}`}>{ROLE_LABEL[p.role] ?? p.role}</span></td>
+                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ROLE_BADGE[p.role] ?? "bg-slate-100 text-slate-600"}`}>{roleLabel(p.role)}</span></td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap items-center gap-1">
                       {p.active
@@ -233,7 +238,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
                   </td>
                   <td className="px-3 py-2 text-[11px] text-slate-600">
                     <div>{p.workload.policyLabel}</div>
-                    <div className="text-[10px] text-slate-400">{hh(p.workload.contactHoursPerWeek)} contact h/wk · ×{hh(p.workload.creditPerContactHour, 2)} credit{p.workload.policySource === "default" ? " · built-in default" : p.workload.policySource === "employer" ? " · employer policy" : ""}</div>
+                    <div className="text-[10px] text-slate-400">{hh(p.workload.contactHoursPerWeek)} contact h/wk · ×{hh(p.workload.creditPerContactHour, 2)} credit{p.workload.policySource === "default" ? " · built-in default" : p.workload.policySource === "employer" ? " · employer policy" : p.workload.policySource === "asset" ? " · unit / asset policy" : ""}</div>
                   </td>
                   <td className="px-3 py-2">
                     {cohorts.length === 0 ? (
@@ -285,9 +290,11 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
   );
 }
 
-function PersonForm({ institutions, employers, person, onDone, compact }: { institutions: InstLite[]; employers: EmpLite[]; person?: DirPerson; onDone: () => void; compact?: boolean }) {
+function PersonForm({ institutions, employers, roles = [], assets = [], person, onDone, compact }: { institutions: InstLite[]; employers: EmpLite[]; roles?: RoleLite[]; assets?: AssetLiteRow[]; person?: DirPerson; onDone: () => void; compact?: boolean }) {
   const [instId, setInstId] = useState(person?.institution.id ?? institutions[0]?.id ?? "");
+  const [empId, setEmpId] = useState(person?.employer?.id ?? "");
   const instEmployers = employers.filter((e) => e.institutionId === instId);
+  const empAssets = assets.filter((a) => a.employerId === empId);
 
   return (
     <form
@@ -314,6 +321,7 @@ function PersonForm({ institutions, employers, person, onDone, compact }: { inst
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Role</span>
         <select name="role" defaultValue={person?.role ?? "instructor"} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
           {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+          {roles.filter((r) => r.institutionId === instId).map((r) => <option key={r.id} value={r.key}>{r.label} (covers {r.family})</option>)}
         </select>
       </label>
       <label className="block">
@@ -328,11 +336,20 @@ function PersonForm({ institutions, employers, person, onDone, compact }: { inst
       </label>
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Employer (preceptors)</span>
-        <select name="employerId" defaultValue={person?.employer?.id ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+        <select name="employerId" value={empId} onChange={(e) => setEmpId(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
           <option value="">— none —</option>
           {instEmployers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
         </select>
       </label>
+      {empId && empAssets.length > 0 && (
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Home unit / asset</span>
+          <select name="assetId" defaultValue={person?.assetId ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+            <option value="">— any —</option>
+            {empAssets.map((a) => <option key={a.id} value={a.id}>{a.label.replace(/^[^·]+· /, "")}</option>)}
+          </select>
+        </label>
+      )}
       <label className="block">
         <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">Affiliated since</span>
         <input name="startDate" type="date" defaultValue={ymd(person?.startDate ?? null)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />

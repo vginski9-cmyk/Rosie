@@ -414,17 +414,69 @@ async function loadRadAssetMap(institutionId: string) {
 async function seedOfferingStudents() {
   const FIRST = ["Ava", "Liam", "Maya", "Noah", "Zoe", "Ethan", "Isla", "Mason", "Nora", "Lucas", "Aria", "Caleb", "Leah", "Owen", "Ruby", "Eli", "Jade", "Milo", "Iris", "Jonah", "Tessa", "Reid", "Cora", "Silas", "Wren", "Amir", "Lena", "Otis", "Sage", "Theo", "Vera", "Kai", "Elle", "Rowan", "Nia", "Beau", "Ada", "Cruz", "Faye", "Hugo", "Ines", "Jude", "Kira", "Luca", "Mira", "Nash", "Opal", "Pax", "Remy", "Skye"];
   const LAST = ["Abbott", "Baker", "Cole", "Dawson", "Ellis", "Foster", "Gibson", "Hale", "Ingram", "Jarvis", "Keller", "Lowe", "Mercer", "Nolan", "Osei", "Pratt", "Quinn", "Reyes", "Sutton", "Tate", "Underwood", "Vance", "Whitfield", "Xiong", "Yates", "Zimmer", "Bynum", "Clark", "Dunn", "Everett"];
-  let made = 0;
-  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true } }, _count: { select: { students: true } } } });
+  // Coded demographics (dummy, deterministic per seat) so the learner analytics
+  // have something to aggregate and disaggregate on day one.
+  const COUNTIES = ["Moore", "Hoke", "Richmond", "Montgomery", "Lee", "Cumberland", "Scotland", "Harnett"];
+  const CITIES: Record<string, string> = { Moore: "Pinehurst", Hoke: "Raeford", Richmond: "Rockingham", Montgomery: "Troy", Lee: "Sanford", Cumberland: "Fayetteville", Scotland: "Laurinburg", Harnett: "Lillington" };
+  const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
+  let made = 0, sections = 0, shifts = 0;
+  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true, terms: { select: { courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, _count: { select: { students: true } } } });
+  const today = new Date();
   for (const co of cohorts) {
     if (co._count.students > 0) continue;
     const seats = Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-    await prisma.student.createMany({
-      data: Array.from({ length: seats }, (_, i) => ({ programId: co.program.id, cohortId: co.id, name: `${FIRST[(h + i * 7) % FIRST.length]} ${LAST[(h * 3 + i * 11) % LAST.length]}`, email: null, status: "enrolled", stageKey: "enrolled", entryYear: co.entryYear, sectionIndex: i + 1 })),
+    const started = co.startDate ? co.startDate <= today : false;
+    // Independent per-field mixes (not linear in the seat number) so no two
+    // dummy attributes are accidentally correlated.
+    const mix = (i: number, salt: number) => { let t = (h * 2654435761 + i * 40503 + salt * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
+    const rows = Array.from({ length: seats }, (_, i) => {
+      const x = mix(i, 1), y = mix(i, 2), z = mix(i, 3);
+      const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30); // skews young, tail into the 40s
+      const dob = new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age, (y % 12), 1 + (z % 28)));
+      const county = COUNTIES[(h + i * 3) % COUNTIES.length];
+      // Only offerings already under way have had time to lose anyone.
+      const withdrawn = started && (x % 100) < 12;
+      return {
+        programId: co.program.id, cohortId: co.id, name: `${FIRST[(h + i * 7) % FIRST.length]} ${LAST[(h * 3 + i * 11) % LAST.length]}`, email: null,
+        status: withdrawn ? "withdrawn" : "enrolled", stageKey: withdrawn ? "withdrawn" : "enrolled", entryYear: co.entryYear, sectionIndex: i + 1,
+        dob, sex: pickW(["Female", "Male", "Prefer not to say"], [72, 26, 2], y),
+        raceEthnicity: pickW(["White", "Black or African American", "Hispanic or Latino", "American Indian or Alaska Native", "Asian", "Two or more races", "Unknown / prefer not to say"], [52, 24, 12, 4, 2, 4, 2], z),
+        county, city: CITIES[county], state: "NC", residency: pickW(["in-district", "in-state", "out-of-state"], [78, 20, 2], x + y),
+        priorEducation: pickW(["HS diploma", "GED", "Some college", "Certificate", "Associate", "Bachelor's"], [34, 8, 30, 10, 12, 6], z + x),
+        employmentStatus: pickW(["unemployed", "part-time", "full-time", "incumbent worker (healthcare)", "student only"], [14, 34, 22, 18, 12], y + z),
+        firstGeneration: (x + z) % 100 < 46, veteran: (y + z) % 100 < 6, pellEligible: (x + y + z) % 100 < 58, disability: (x * 3) % 100 < 7,
+        dependents: (y % 100) < 40 ? 1 + (z % 3) : 0, primaryLanguage: (z % 100) < 9 ? "Spanish" : "English",
+        withdrawalReason: withdrawn ? pickW(["academic", "financial", "personal / family", "health", "employment"], [30, 25, 25, 10, 10], x + i) : null,
+        startDate: co.startDate ?? null,
+      };
     });
+    await prisma.student.createMany({ data: rows });
     made += seats;
+
+    // Sections (per course kind) and every clinical shift, by seat order — the
+    // same rule the scheduler uses, so profiles show a real itinerary.
+    const students = await prisma.student.findMany({ where: { cohortId: co.id }, select: { id: true, sectionIndex: true, status: true }, orderBy: { sectionIndex: "asc" } });
+    const secRows: { studentId: string; cohortId: string; courseId: string; kind: string; sectionIndex: number }[] = [];
+    const shiftRows: { studentId: string; cohortId: string; sessionId: string; sectionIndex: number }[] = [];
+    for (const t of co.program.terms) for (const c of t.courses) {
+      const kinds = new Map<string, { max: number; sessions: string[] }>();
+      for (const s of c.sessions) { const k = kinds.get(s.kind) ?? { max: 0, sessions: [] }; k.max = Math.max(k.max, s.maxStudents ?? 0); k.sessions.push(s.id); kinds.set(s.kind, k); }
+      for (const [kind, k] of kinds) {
+        const nSec = Math.max(1, k.max > 0 ? Math.ceil(seats / k.max) : 1);
+        for (const st of students) {
+          if (st.status === "withdrawn") continue;
+          const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
+          secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
+          if (kind === "CLINICAL") for (const sid of k.sessions) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+        }
+      }
+    }
+    for (let i = 0; i < secRows.length; i += 500) await prisma.studentSection.createMany({ data: secRows.slice(i, i + 500) });
+    for (let i = 0; i < shiftRows.length; i += 500) await prisma.studentShift.createMany({ data: shiftRows.slice(i, i + 500) });
+    sections += secRows.length; shifts += shiftRows.length;
   }
+  console.log(`  learners: ${made} with demographics · ${sections} section seats · ${shifts} clinical shift seats`);
   return made;
 }
 

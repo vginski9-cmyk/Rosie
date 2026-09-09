@@ -12,7 +12,7 @@ import type { EditableField } from "@/lib/sessionfields";
 import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnalytics";
 import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
-import { coverageOf } from "@/lib/workload";
+import { coverageOf, type RoleFamily } from "@/lib/workload";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -103,10 +103,12 @@ const addTally = (a: Tally, b: Tally): Tally => ({
 });
 
 export function OfferingDesign({
-  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {}, assignments = [],
+  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {}, assignments = [], roles = [],
 }: {
   /** Every shift share for this offering (person × session × section). */
   assignments?: ShiftAssignment[];
+  /** Institution-defined staff roles (beyond the built-in ones) with their coverage family. */
+  roles?: { key: string; label: string; family: RoleFamily }[];
   cohortName?: string;
   /** Institution-coded holidays & breaks (ISO → label) — checked before the U.S. defaults. */
   holidays?: Record<string, string>;
@@ -501,7 +503,7 @@ export function OfferingDesign({
                                 </div>
                               )}
                             />
-                            <ShiftStaffing cohortId={cohortId} programId={programId} sessionId={r.id} sectionCount={Math.max(1, comp.Y ?? 1)}
+                            <ShiftStaffing roles={roles} cohortId={cohortId} programId={programId} sessionId={r.id} sectionCount={Math.max(1, comp.Y ?? 1)}
                               need={{ lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded, kind: r.kind }}
                               startTime={r.startTime} assignments={assignments.filter((a) => a.sessionId === r.id)}
                               people={people.map((p): ShiftPerson => ({ id: p.id, name: p.name, role: p.role, employmentType: p.employmentType ?? null, title: p.title ?? null, employerName: p.employer?.name ?? null }))} />

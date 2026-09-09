@@ -52,33 +52,182 @@ model Institution {
   assignments    Assignment[]
   facilities     Facility[]
   workloadPolicies WorkloadPolicy[]
+  campuses       Campus[]
+  buildings      Building[]
+  equipment      Equipment[]
+  staffRoles     StaffRole[]
 }
 
 /// A physical teaching space: classroom, lab, clinical/sim facility. Captures the
 /// supply side — size/capacity, hours, availability, and equipment — so delivery
 /// (sections, labs, clinicals) can be mapped onto real rooms.
+/// A campus: one physical site of the institution (main campus, a health
+/// sciences center, a satellite). Buildings sit on campuses, rooms in buildings.
+model Campus {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  address       String?
+  city          String?
+  state         String?
+  zip           String?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  buildings Building[]
+
+  @@index([institutionId])
+}
+
+/// A building on a campus; rooms (Facility) and fixed equipment live in it.
+model Building {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  campusId      String?
+  campus        Campus? @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  name          String
+  code          String?  // short code, e.g. KENN
+  address       String?
+  floors        Int?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  rooms Facility[]
+  equipment Equipment[]
+
+  @@index([institutionId])
+  @@index([campusId])
+}
+
 model Facility {
   id            String @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
-  /// CLASSROOM | LAB | CLINICAL | SIM | OTHER
+  /// CLASSROOM | LAB | CLINICAL | SIM | OFFICE | OTHER
   kind          String  @default("CLASSROOM")
+  /// The building the room is in (Campus → Building → Room).
+  buildingId    String?
+  buildingRef   Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  /// Legacy free-text building name; the relation above is the source of truth.
   building      String?
+  roomNumber    String?
+  floor         String?
   capacity      Int?    // seats / stations
   areaSqft      Int?    // floor area
-  hours         String? // operating hours, e.g. "Mon–Fri 8a–9p"
-  availability  String? // availability notes / open days
-  equipment     String? // equipment list (freeform / comma-separated)
+  /// Legacy free-text hours; open hours are the FacilityHours rows.
+  hours         String?
+  availability  String? // availability notes
+  /// Legacy free-text equipment list; equipment is the Equipment model.
+  equipment     String?
   notes         String?
   status        String  @default("active") // active | inactive
   createdAt     DateTime @default(now())
 
+  openHours FacilityHours[]
+  closures  FacilityClosure[]
+  equipmentHome Equipment[]
+  equipmentAssignments EquipmentAssignment[]
   sectionSchedules SectionSchedule[]
   meetings MeetingPattern[]
   shiftMoves ShiftMove[]
 
   @@index([institutionId])
+  @@index([buildingId])
+}
+
+/// When a room is open, day by day: one row per weekday span (a split day is
+/// two rows). Structured, so availability and utilization can be computed.
+model FacilityHours {
+  id         String @id @default(cuid())
+  facilityId String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  dayOfWeek  String  // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  openTime   String  // "HH:MM" 24h
+  closeTime  String  // "HH:MM" 24h (may be 24:00)
+
+  @@index([facilityId])
+}
+
+/// A dated exception to a room's open hours: closed for the day, or open
+/// different hours (holiday, maintenance, an event).
+model FacilityClosure {
+  id         String @id @default(cuid())
+  facilityId String
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  date       DateTime
+  /// null open/close = closed all day
+  openTime   String?
+  closeTime  String?
+  note       String?
+
+  @@unique([facilityId, date])
+}
+
+/// A piece of equipment (or a set of identical pieces): fixed in a room,
+/// mobile between rooms of a building, or portable anywhere. Mobile and
+/// portable equipment can be assigned to rooms for periods.
+model Equipment {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name          String
+  /// Imaging | Simulation | Medical device | Lab bench | Sterile processing | AV / IT | Computing | Furniture | Safety | Other
+  category      String  @default("Other")
+  /// fixed (installed in its home room) | mobile (moves between rooms) | portable (goes anywhere, incl. off campus)
+  mobility      String  @default("fixed")
+  quantity      Int     @default(1)
+  make          String?
+  model         String?
+  serial        String?
+  /// Home room (fixed: where it is installed; mobile/portable: where it is stored).
+  homeFacilityId String?
+  homeFacility  Facility? @relation(fields: [homeFacilityId], references: [id], onDelete: SetNull)
+  buildingId    String?
+  building      Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  status        String  @default("active") // active | maintenance | retired
+  acquiredDate  DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  assignments EquipmentAssignment[]
+
+  @@index([institutionId])
+  @@index([homeFacilityId])
+}
+
+/// Mobile / portable equipment placed in a room for a period (open-ended when `to` is null).
+model EquipmentAssignment {
+  id          String @id @default(cuid())
+  equipmentId String
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  facilityId  String
+  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  quantity    Int     @default(1)
+  from        DateTime?
+  to          DateTime?
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([equipmentId])
+  @@index([facilityId])
+}
+
+/// A staff role an institution uses beyond the built-in five. `family` tells
+/// the workload engine what the role covers on a shift: faculty (counts toward
+/// faculty coverage), preceptor, support, or other.
+model StaffRole {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  key           String   // slug used as Person.role, e.g. "clinical-instructor"
+  label         String
+  family        String   @default("faculty") // faculty | preceptor | support | other
+  notes         String?
+
+  @@unique([institutionId, key])
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +442,7 @@ model Course {
   courseSkills CourseSkill[]
   grades   StudentCourseGrade[]
   meetings MeetingPattern[]
+  studentSections StudentSection[]
 
   @@index([termId])
 }
@@ -336,6 +486,7 @@ model Session {
   resources SessionResource[]
   overrides SessionOverride[]
   shiftMoves ShiftMove[]
+  studentShifts StudentShift[]
 
   @@index([courseId])
 }
@@ -503,6 +654,8 @@ model Cohort {
   shiftMoves ShiftMove[]
   courseDates CohortCourseDates[]
   sessionStaff SessionInstructor[]
+  studentSections StudentSection[]
+  studentShifts StudentShift[]
   sectionSchedules SectionSchedule[]
   placements  WblPlacement[]
   meetings    MeetingPattern[]
@@ -626,6 +779,9 @@ model Person {
   employmentType String? // full-time | part-time | adjunct | contract | preceptor
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id])
+  /// Home unit / asset at the partner site (a preceptor's OR suite, imaging room).
+  assetId       String?
+  asset         ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
   assignments   Assignment[]
   sessionStaff  SessionInstructor[]
   meetings      MeetingPattern[]
@@ -656,6 +812,9 @@ model WorkloadPolicy {
   /// null = the institution's own staff; set = the partner's (preceptors at a site)
   employerId    String?
   employer      Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  /// Narrower still: the people whose home unit / asset this is (a specific OR suite, an imaging room).
+  assetId       String?
+  asset         ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
   /// Position: role (instructor | preceptor | support | supervisor | coordinator) …
   role          String
   /// … optionally narrowed to an employment type (full-time | part-time | adjunct | contract | preceptor) …
@@ -823,6 +982,9 @@ model ClinicalAsset {
 
   dayOverrides  AssetDay[]
   bookings      AssetBooking[]
+  workloadPolicies WorkloadPolicy[]
+  homePeople    Person[]
+  studentShifts StudentShift[]
 
   @@index([employerId])
 }
@@ -1301,8 +1463,38 @@ model Student {
   sectionIndex  Int     @default(1)
   /// Clinical rotation site/group, when on clinical rotations.
   clinicalSite  String?
+  // --- Demographics (coded dropdowns, for aggregate / disaggregate analytics) ---
+  dob           DateTime?
+  /// Female | Male | Intersex | Prefer not to say
+  sex           String?
+  /// IPEDS categories: Hispanic or Latino | American Indian or Alaska Native | Asian | Black or African American | Native Hawaiian or Other Pacific Islander | White | Two or more races | Unknown / prefer not to say
+  raceEthnicity String?
+  phone         String?
+  address       String?
+  city          String?
+  county        String?
+  state         String?
+  zip           String?
+  /// in-district | in-state | out-of-state | international
+  residency     String?
+  /// HS diploma | GED | Some college | Certificate | Associate | Bachelor's | Graduate
+  priorEducation String?
+  /// unemployed | part-time | full-time | incumbent worker (healthcare) | student only
+  employmentStatus String?
+  firstGeneration Boolean?
+  veteran       Boolean?
+  pellEligible  Boolean?
+  disability    Boolean?
+  dependents    Int?
+  primaryLanguage String?
+  /// academic | financial | personal / family | health | employment | relocated | transferred | other
+  withdrawalReason String?
+  startDate     DateTime?
+  completionDate DateTime?
   createdAt     DateTime @default(now())
 
+  sections    StudentSection[]
+  shifts      StudentShift[]
   grades      StudentCourseGrade[]
   assessments StudentSkillAssessment[]
   absences    StudentAbsence[]
@@ -1312,6 +1504,43 @@ model Student {
 
   @@index([programId])
   @@index([cohortId])
+}
+
+/// A student's seat in one section of one course kind (class / lab / clinical)
+/// of an offering — the class assignment.
+model StudentSection {
+  id           String @id @default(cuid())
+  studentId    String
+  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohortId     String
+  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  courseId     String
+  course       Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind         String  // CLASS | LAB | CLINICAL
+  sectionIndex Int     @default(1)
+
+  @@unique([studentId, cohortId, courseId, kind])
+  @@index([cohortId, courseId])
+}
+
+/// A student on one clinical shift (a clinical session × section of an
+/// offering), optionally on a specific physical asset.
+model StudentShift {
+  id           String @id @default(cuid())
+  studentId    String
+  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  cohortId     String
+  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId    String
+  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sectionIndex Int     @default(1)
+  assetId      String?
+  asset        ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  note         String?
+  createdAt    DateTime @default(now())
+
+  @@unique([studentId, cohortId, sessionId])
+  @@index([cohortId, sessionId])
 }
 
 /// A student's outcome in one course (dated, with letter grade / points).

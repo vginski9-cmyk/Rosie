@@ -711,6 +711,7 @@ export async function getPeopleDirectory() {
     getWorkloadPolicies(),
     datedStaffAssignments(),
   ]);
+  const [roles, assetsLite] = await Promise.all([getStaffRoles(), getAssetsLite()]);
   const today = new Date().toISOString().slice(0, 10);
   const byPerson = new Map<string, typeof dated>();
   for (const d of dated) { const l = byPerson.get(d.personId) ?? []; l.push(d); byPerson.set(d.personId, l); }
@@ -720,7 +721,7 @@ export async function getPeopleDirectory() {
   // per-cohort buckets the filters use, and whether any shift is this week.
   const people = raw.map((p) => {
     const mine = byPerson.get(p.id) ?? [];
-    const load = personLoad({ id: p.id, institutionId: p.institutionId, employerId: p.employerId, role: p.role, employmentType: p.employmentType, title: p.title }, mine, policies);
+    const load = personLoad({ id: p.id, institutionId: p.institutionId, employerId: p.employerId, assetId: p.assetId, role: p.role, employmentType: p.employmentType, title: p.title }, mine, policies);
     type Bucket = { cohortId: string; name: string; program: string; hours: number; year: number | null; season: string | null };
     const buckets: Bucket[] = [];
     const byYear: Record<number, number> = {};
@@ -753,7 +754,7 @@ export async function getPeopleDirectory() {
     };
   });
 
-  return { people, institutions, employers, studentCount, policies };
+  return { people, institutions, employers, studentCount, policies, roles: roles.map((r) => ({ id: r.id, institutionId: r.institutionId, institution: r.institution.name, key: r.key, label: r.label, family: r.family, notes: r.notes })), assets: assetsLite };
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,7 +1001,7 @@ export async function getStudentsDirectory() {
       },
     }),
   ]);
-  return { students, institutions };
+  return { students: students.map((s) => ({ ...s, dob: s.dob?.toISOString().slice(0, 10) ?? null, startDate: s.startDate?.toISOString().slice(0, 10) ?? null, completionDate: s.completionDate?.toISOString().slice(0, 10) ?? null })), institutions };
 }
 
 // ---------------------------------------------------------------------------
@@ -1859,10 +1860,11 @@ export async function getInstitutionsHome(currentYear?: number): Promise<HomeIns
 export async function getWorkloadPolicies() {
   const rows = await prisma.workloadPolicy.findMany({
     orderBy: [{ institutionId: "asc" }, { employerId: "asc" }, { role: "asc" }, { employmentType: "asc" }, { title: "asc" }],
-    include: { institution: { select: { id: true, name: true } }, employer: { select: { id: true, name: true } } },
+    include: { institution: { select: { id: true, name: true } }, employer: { select: { id: true, name: true } }, asset: { select: { id: true, setting: true, assetNumber: true } } },
   });
   return rows.map((r) => ({
     id: r.id, institutionId: r.institutionId, institutionName: r.institution.name, employerId: r.employerId, employerName: r.employer?.name ?? null,
+    assetId: r.assetId, assetName: r.asset ? `${r.asset.setting} #${r.asset.assetNumber}` : null,
     role: r.role, employmentType: r.employmentType, title: r.title, label: r.label,
     contactHoursPerWeek: r.contactHoursPerWeek, workWeekHours: r.workWeekHours, termWeeks: r.termWeeks, annualWeeks: r.annualWeeks,
     hoursPerContactHour: r.hoursPerContactHour, maxContactHoursPerWeek: r.maxContactHoursPerWeek, notes: r.notes,
@@ -1953,4 +1955,101 @@ export async function getOrganization(id: string) {
   const assets = await prisma.clinicalAsset.groupBy({ by: ["settingCode"], where: { employer: { institutionId: id } }, _count: true, _sum: { learnersPerShift: true } });
   const employers = await prisma.employer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, institutionId: true } });
   return { inst, assets: assets.map((a) => ({ settingCode: a.settingCode, count: a._count, learners: a._sum.learnersPerShift ?? 0 })), employersLite: employers };
+}
+
+// ---------------------------------------------------------------------------
+// ROOMS · BUILDINGS · EQUIPMENT (supply side, structured)
+// ---------------------------------------------------------------------------
+
+export async function getRoomsWorkspace(institutionId?: string) {
+  const { weeklyUtilization, hoursLabel } = await import("./rooms");
+  const where = institutionId ? { institutionId } : {};
+  const [rooms, campuses, buildings, equipment, institutions, meetings] = await Promise.all([
+    prisma.facility.findMany({ where, orderBy: [{ kind: "asc" }, { name: "asc" }], include: { institution: { select: { id: true, name: true } }, buildingRef: { select: { id: true, name: true, code: true, campus: { select: { id: true, name: true } } } }, openHours: true, closures: { orderBy: { date: "asc" } }, equipmentHome: { select: { id: true, name: true, category: true, mobility: true, quantity: true, status: true } }, equipmentAssignments: { include: { equipment: { select: { id: true, name: true, category: true, mobility: true } } } } } }),
+    prisma.campus.findMany({ where, orderBy: { name: "asc" }, include: { _count: { select: { buildings: true } } } }),
+    prisma.building.findMany({ where, orderBy: { name: "asc" }, include: { campus: { select: { id: true, name: true } }, _count: { select: { rooms: true, equipment: true } } } }),
+    prisma.equipment.findMany({ where, orderBy: [{ category: "asc" }, { name: "asc" }], include: { homeFacility: { select: { id: true, name: true } }, building: { select: { id: true, name: true } }, assignments: { orderBy: { from: "desc" }, include: { facility: { select: { id: true, name: true } } } } } }),
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.meetingPattern.findMany({ where: { facilityId: { not: null }, ...(institutionId ? { cohort: { program: { institutionId } } } : {}), cohort: { status: { in: ["planned", "active"] } } }, select: { facilityId: true, dayOfWeek: true, startTime: true, lengthHours: true } }),
+  ]);
+  const byRoom = new Map<string, { dayOfWeek: string; startTime: string; lengthHours: number }[]>();
+  for (const m of meetings) { const l = byRoom.get(m.facilityId!) ?? []; l.push(m); byRoom.set(m.facilityId!, l); }
+  return {
+    rooms: rooms.map((r) => {
+      const spans = r.openHours.map((h) => ({ dayOfWeek: h.dayOfWeek, openTime: h.openTime, closeTime: h.closeTime }));
+      const u = weeklyUtilization(spans, byRoom.get(r.id) ?? []);
+      return {
+        id: r.id, institutionId: r.institutionId, institution: r.institution.name, name: r.name, kind: r.kind, roomNumber: r.roomNumber, floor: r.floor,
+        buildingId: r.buildingId, building: r.buildingRef?.name ?? r.building ?? null, buildingCode: r.buildingRef?.code ?? null, campus: r.buildingRef?.campus?.name ?? null, campusId: r.buildingRef?.campus?.id ?? null,
+        capacity: r.capacity, areaSqft: r.areaSqft, availability: r.availability, notes: r.notes, status: r.status,
+        hours: spans, hoursLabel: hoursLabel(spans), closures: r.closures.map((c) => ({ id: c.id, date: c.date.toISOString().slice(0, 10), openTime: c.openTime, closeTime: c.closeTime, note: c.note })),
+        weeklyOpen: u.open, weeklyBooked: u.booked, utilization: u.utilization, outsideHours: u.outsideHours, bookings: (byRoom.get(r.id) ?? []).length,
+        equipment: [...r.equipmentHome.map((e) => ({ ...e, via: "home" as const })), ...r.equipmentAssignments.map((a) => ({ id: a.equipment.id, name: a.equipment.name, category: a.equipment.category, mobility: a.equipment.mobility, quantity: a.quantity, status: "assigned", via: "assigned" as const }))],
+      };
+    }),
+    campuses: campuses.map((c) => ({ id: c.id, institutionId: c.institutionId, name: c.name, address: c.address, city: c.city, state: c.state, zip: c.zip, notes: c.notes, buildings: c._count.buildings })),
+    buildings: buildings.map((b) => ({ id: b.id, institutionId: b.institutionId, campusId: b.campusId, campus: b.campus?.name ?? null, name: b.name, code: b.code, address: b.address, floors: b.floors, notes: b.notes, rooms: b._count.rooms, equipment: b._count.equipment })),
+    equipment: equipment.map((e) => ({ id: e.id, institutionId: e.institutionId, name: e.name, category: e.category, mobility: e.mobility, quantity: e.quantity, make: e.make, model: e.model, serial: e.serial, homeFacilityId: e.homeFacilityId, homeFacility: e.homeFacility?.name ?? null, buildingId: e.buildingId, building: e.building?.name ?? null, status: e.status, acquiredDate: e.acquiredDate?.toISOString().slice(0, 10) ?? null, notes: e.notes, assignments: e.assignments.map((a) => ({ id: a.id, facilityId: a.facilityId, facility: a.facility.name, quantity: a.quantity, from: a.from?.toISOString().slice(0, 10) ?? null, to: a.to?.toISOString().slice(0, 10) ?? null, note: a.note })) })),
+    institutions,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// STAFF ROLES · ASSETS LITE (for people & policy forms)
+// ---------------------------------------------------------------------------
+
+export async function getStaffRoles() {
+  return prisma.staffRole.findMany({ orderBy: [{ institutionId: "asc" }, { label: "asc" }], include: { institution: { select: { name: true } } } });
+}
+export async function getAssetsLite() {
+  const rows = await prisma.clinicalAsset.findMany({ where: { status: { not: "archived" } }, orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], select: { id: true, employerId: true, settingCode: true, setting: true, assetType: true, assetNumber: true, externalId: true, employer: { select: { name: true, institutionId: true } } } });
+  return rows.map((a) => ({ id: a.id, employerId: a.employerId, institutionId: a.employer.institutionId, label: `${a.employer.name} · ${a.setting} #${a.assetNumber}${a.externalId ? ` (${a.externalId})` : ""}` }));
+}
+
+// ---------------------------------------------------------------------------
+// ASSET SUPPLY EXPLORER
+// ---------------------------------------------------------------------------
+
+export async function getSupplyExplorer(institutionId: string | undefined, from: string, to: string) {
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { employers: true } } } });
+  const inst = institutions.find((i) => i.id === institutionId) ?? [...institutions].sort((a, b) => b._count.employers - a._count.employers)[0];
+  if (!inst) return null;
+  const [map, events] = await Promise.all([
+    getAssetMap(inst.id, from, to),
+    prisma.academicEvent.findMany({ where: { institutionId: inst.id, kind: { in: ["term_start", "term_end"] } }, orderBy: { date: "asc" }, select: { date: true, kind: true, season: true, label: true } }),
+  ]);
+  // Coded semesters as windows (start → matching end).
+  const starts = events.filter((e) => e.kind === "term_start").map((s) => { const end = events.find((e) => e.kind === "term_end" && e.date > s.date && e.season === s.season && e.date.getUTCFullYear() === s.date.getUTCFullYear()); return { iso: s.date.toISOString().slice(0, 10), endIso: end?.date.toISOString().slice(0, 10) ?? null, season: s.season, label: s.label }; });
+  return { institution: { id: inst.id, name: inst.name }, institutions: institutions.map((i) => ({ id: i.id, name: i.name })), assets: map.assets, overrides: map.overrides, bookings: map.bookings, semesters: starts };
+}
+
+// ---------------------------------------------------------------------------
+// LEARNERS — profile with assignments, and the analytics set
+// ---------------------------------------------------------------------------
+
+export async function getStudentAssignments(studentId: string) {
+  const s = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, cohortId: true, programId: true, sectionIndex: true, sections: true, shifts: { include: { session: { select: { id: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, course: { select: { id: true, code: true, name: true, termId: true } } } }, asset: { select: { id: true, setting: true, assetNumber: true, employer: { select: { name: true } } } } }, orderBy: [{ session: { week: "asc" } }] } } });
+  if (!s || !s.cohortId) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
+  const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true } } } } } } } } } });
+  if (!cohort) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
+  const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
+  const DAY_OFF: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+  const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => { const anchor = cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? cohort.cohortTerms.find((x) => x.termId === termId)?.startDate ?? null; if (!anchor || !week || day == null || DAY_OFF[day] == null) return null; return new Date(anchor.getTime() + ((week - 1) * 7 + DAY_OFF[day]) * 86400000).toISOString().slice(0, 10); };
+  const courses = cohort.program.terms.flatMap((t) => t.courses.map((c) => ({
+    id: c.id, code: c.code, name: c.name, term: t.name, termId: t.id,
+    kinds: (["CLASS", "LAB", "CLINICAL"] as const).map((k) => { const ss = c.sessions.filter((x) => x.kind === k); const maxSec = ss.length ? Math.max(...ss.map((x) => Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))))) : 0; return { kind: k, sessions: ss.length, sections: maxSec }; }).filter((k) => k.sessions > 0),
+    clinicalSessions: c.sessions.filter((x) => x.kind === "CLINICAL").map((x) => ({ id: x.id, number: x.number, title: x.title, week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime, lengthHours: x.lengthHours, rotationType: x.rotationType, sections: Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))), dateIso: dateOf(t.id, c.id, x.week, x.dayOfWeek) })),
+  })));
+  const assets = await prisma.clinicalAsset.findMany({ where: { employer: { institutionId: cohort.program.institutionId }, status: { not: "archived" } }, orderBy: [{ employer: { name: "asc" } }, { settingCode: "asc" }, { assetNumber: "asc" }], select: { id: true, setting: true, assetNumber: true, settingCode: true, employer: { select: { name: true } } } });
+  return {
+    cohort: { id: cohort.id, name: cohort.name, enrolled },
+    courses, sections: s.sections,
+    shifts: s.shifts.map((sh) => ({ id: sh.id, sessionId: sh.sessionId, sectionIndex: sh.sectionIndex, note: sh.note, course: sh.session.course, session: { number: sh.session.number, title: sh.session.title, week: sh.session.week, dayOfWeek: sh.session.dayOfWeek, startTime: sh.session.startTime, lengthHours: sh.session.lengthHours, rotationType: sh.session.rotationType }, dateIso: dateOf(sh.session.course.termId, sh.session.course.id, sh.session.week, sh.session.dayOfWeek), asset: sh.asset ? `${sh.asset.employer.name} · ${sh.asset.setting} #${sh.asset.assetNumber}` : null })),
+    assets: assets.map((a) => ({ id: a.id, label: `${a.employer.name} · ${a.setting} #${a.assetNumber}`, settingCode: a.settingCode })),
+  };
+}
+
+export async function getLearnerAnalytics() {
+  const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true } } } });
+  return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
 }

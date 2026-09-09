@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOrganization, getWorkloadPolicies, getInstitutionsLite } from "@/lib/queries";
+import { getOrganization, getWorkloadPolicies, getInstitutionsLite, getStaffRoles, getAssetsLite, getRoomsWorkspace } from "@/lib/queries";
 import { updateInstitution } from "@/lib/actions";
 import { AcademicCalendar } from "@/components/AcademicCalendar";
 import { WorkloadPolicies } from "@/components/WorkloadPolicies";
+import { StaffRoles } from "@/components/StaffRoles";
+import { RoomsWorkspace } from "@/components/RoomsWorkspace";
 import { Collapse } from "@/components/Collapse";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,8 @@ const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "
 const AGREE_LABEL: Record<string, string> = { secured: "secured", asked: "asked", prospect: "prospect", none: "no agreement" };
 
 export default async function OrganizationPage({ params }: { params: { id: string } }) {
-  const [data, policies, institutions] = await Promise.all([getOrganization(params.id), getWorkloadPolicies(), getInstitutionsLite()]);
+  const [data, policies, institutions, rolesRaw, assetsLite, ws] = await Promise.all([getOrganization(params.id), getWorkloadPolicies(), getInstitutionsLite(), getStaffRoles(), getAssetsLite(), getRoomsWorkspace(params.id)]);
+  const roles = rolesRaw.map((r) => ({ id: r.id, institutionId: r.institutionId, institution: r.institution.name, key: r.key, label: r.label, family: r.family, notes: r.notes }));
   if (!data) notFound();
   const { inst, assets, employersLite } = data;
   const codedStarts = inst.academicEvents.filter((e) => e.kind === "term_start");
@@ -28,7 +31,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   const steps = [
     { label: "Basics", ok: !!(inst.kind && inst.city), href: "#basics" },
     { label: "Academic calendar", ok: codedStarts.length > 0, href: "#calendar" },
-    { label: "Rooms & labs", ok: inst.facilities.length > 0, href: "#rooms" },
+    { label: "Rooms & labs", ok: ws.rooms.length > 0 && ws.rooms.every((r) => r.hours.length > 0), href: "#rooms" },
     { label: "Clinical sites", ok: inst.employers.length > 0, href: "#sites" },
     { label: "Physical assets", ok: assets.length > 0, href: "#sites" },
     { label: "People", ok: inst.people.length > 0, href: "#people" },
@@ -80,20 +83,8 @@ export default async function OrganizationPage({ params }: { params: { id: strin
 
       {/* 3 · Rooms & labs */}
       <section id="rooms" className="scroll-mt-16">
-        <Collapse title="3 · Rooms, labs & simulation spaces" sub="The campus supply of space that class and lab sections are booked into" summary={<>{inst.facilities.length} spaces · {[...roomsByKind.entries()].map(([k, n]) => `${n} ${k.toLowerCase()}`).join(" · ")}</>}>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-            <span>{inst.facilities.reduce((n, f) => n + (f.capacity ?? 0), 0)} seats / stations in all.</span>
-            <Link href="/facilities" className="text-rose-600 hover:underline">add or edit rooms in Facilities →</Link>
-          </div>
-          <div className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">Space</th><th className="px-2 py-1.5 text-left">Kind</th><th className="px-2 py-1.5 text-left">Building</th><th className="px-2 py-1.5 text-right">Capacity</th><th className="px-2 py-1.5 text-left">Hours</th><th className="px-2 py-1.5 text-left">Equipment</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {inst.facilities.map((f) => <tr key={f.id}><td className="px-3 py-1 font-medium text-slate-800">{f.name}</td><td className="px-2 py-1 text-slate-600">{f.kind}</td><td className="px-2 py-1 text-slate-600">{f.building ?? "—"}</td><td className="px-2 py-1 text-right tabular-nums">{f.capacity ?? "—"}</td><td className="px-2 py-1 text-slate-500">{f.hours ?? "—"}</td><td className="max-w-[24rem] truncate px-2 py-1 text-slate-500">{f.equipment ?? "—"}</td></tr>)}
-                {inst.facilities.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">No rooms mapped yet.</td></tr>}
-              </tbody>
-            </table>
-          </div>
+        <Collapse title="3 · Campuses, buildings, rooms & equipment" sub="Campus → building → room, each room with coded open hours; equipment fixed, mobile or portable, assignable to rooms" summary={<>{ws.campuses.length} campus{ws.campuses.length === 1 ? "" : "es"} · {ws.buildings.length} buildings · {ws.rooms.length} rooms · {ws.equipment.reduce((n, e) => n + e.quantity, 0)} pieces of equipment{ws.rooms.some((r) => r.hours.length === 0) ? ` · ⚠ ${ws.rooms.filter((r) => r.hours.length === 0).length} rooms without hours` : ""}</>}>
+          <RoomsWorkspace rooms={ws.rooms} campuses={ws.campuses} buildings={ws.buildings} equipment={ws.equipment} institutions={institutions} defaultInstitutionId={inst.id} />
         </Collapse>
       </section>
 
@@ -126,7 +117,9 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       <section id="people" className="scroll-mt-16">
         <Collapse title="5 · People & workload policies" sub="Faculty, adjuncts, support staff, coordinators and the preceptors at partner sites — and the policies that turn each person's assigned contact hours into load" summary={<>{inst.people.filter((p) => p.active).length} active people · {[...peopleByRole.entries()].map(([k, n]) => `${n} ${(ROLE_LABEL[k] ?? k).toLowerCase()}`).join(" · ")} · {ownPolicies.length} policies</>}>
           <div className="mb-3 flex flex-wrap gap-3 text-xs"><Link href="/people" className="text-rose-600 hover:underline">add or edit people →</Link></div>
-          <WorkloadPolicies policies={policies} institutions={institutions} employers={employersLite} defaultInstitutionId={inst.id} />
+          <div className="mb-3"><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Staff roles</div><StaffRoles roles={roles} institutions={institutions} defaultInstitutionId={inst.id} /></div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Workload policies</div>
+          <WorkloadPolicies policies={policies} institutions={institutions} employers={employersLite} assets={assetsLite} roles={roles} defaultInstitutionId={inst.id} />
         </Collapse>
       </section>
 

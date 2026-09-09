@@ -13,6 +13,8 @@ export interface PolicyLite {
   id?: string;
   institutionId: string;
   employerId: string | null;
+  /** Narrower than the employer: the people whose home unit / asset this is. */
+  assetId?: string | null;
   role: string;
   employmentType: string | null;
   title: string | null;
@@ -25,7 +27,7 @@ export interface PolicyLite {
   maxContactHoursPerWeek: number | null;
 }
 
-export interface PersonLite { id: string; name?: string; institutionId: string; employerId: string | null; role: string; employmentType: string | null; title: string | null }
+export interface PersonLite { id: string; name?: string; institutionId: string; employerId: string | null; assetId?: string | null; role: string; employmentType: string | null; title: string | null }
 
 /** Built-in defaults when an institution has coded nothing (the Sandhills
  *  workbook's stated policies: FT faculty 16/40 = 2.5 h per contact hour;
@@ -49,16 +51,17 @@ function specificity(p: PolicyLite, person: PersonLite): number {
   if (p.institutionId !== person.institutionId) return -1;
   if (p.role !== person.role) return -1;
   if (p.employerId && p.employerId !== person.employerId) return -1;
+  if (p.assetId && p.assetId !== person.assetId) return -1;
   if (p.employmentType && p.employmentType !== person.employmentType) return -1;
   if (p.title && (person.title ?? "").trim().toLowerCase() !== p.title.trim().toLowerCase()) return -1;
-  return (p.employerId ? 8 : 0) + (p.title ? 4 : 0) + (p.employmentType ? 2 : 0) + 1;
+  return (p.assetId ? 16 : 0) + (p.employerId ? 8 : 0) + (p.title ? 4 : 0) + (p.employmentType ? 2 : 0) + 1;
 }
 
 /** The policy that governs a person: most specific coded policy, else the built-in default for the role. */
-export function resolvePolicy(person: PersonLite, policies: PolicyLite[]): { policy: PolicyLite; source: "employer" | "institution" | "default" } {
+export function resolvePolicy(person: PersonLite, policies: PolicyLite[]): { policy: PolicyLite; source: "asset" | "employer" | "institution" | "default" } {
   let best: PolicyLite | null = null; let bestScore = -1;
   for (const p of policies) { const s = specificity(p, person); if (s > bestScore) { best = p; bestScore = s; } }
-  if (best) return { policy: best, source: best.employerId ? "employer" : "institution" };
+  if (best) return { policy: best, source: best.assetId ? "asset" : best.employerId ? "employer" : "institution" };
   const def = DEFAULT_POLICIES.find((d) => d.role === person.role && d.employmentType === person.employmentType)
     ?? DEFAULT_POLICIES.find((d) => d.role === person.role && d.employmentType == null)
     ?? DEFAULT_POLICIES[3];
@@ -94,14 +97,23 @@ export interface Coverage {
   status: "unstaffed" | "partial" | "staffed" | "over";
 }
 
-const FACULTY_ROLES = new Set(["instructor", "coordinator", "supervisor"]);
+/** The built-in roles and what each covers on a shift. Institutions add their
+ *  own (StaffRole) with a family of faculty | preceptor | support | other. */
+export type RoleFamily = "faculty" | "preceptor" | "support" | "other";
+export const ROLE_FAMILIES: { key: RoleFamily; label: string }[] = [{ key: "faculty", label: "faculty coverage (instructor-type)" }, { key: "preceptor", label: "preceptor coverage" }, { key: "support", label: "support-staff coverage" }, { key: "other", label: "other (not counted against a need)" }];
+export const BUILT_IN_ROLES: { key: string; label: string; family: RoleFamily }[] = [
+  { key: "instructor", label: "Faculty", family: "faculty" }, { key: "preceptor", label: "Preceptor", family: "preceptor" }, { key: "support", label: "Support staff", family: "support" },
+  { key: "supervisor", label: "Supervisor", family: "faculty" }, { key: "coordinator", label: "Coordinator", family: "faculty" },
+];
+export const familyOfRole = (role: string, custom: Record<string, RoleFamily> = {}): RoleFamily => custom[role] ?? BUILT_IN_ROLES.find((r) => r.key === role)?.family ?? "other";
 
-/** How well one shift's assignments cover what the session row says it needs. */
-export function coverageOf(need: ShiftNeed, assignments: AssignmentLite[]): Coverage {
-  const sum = (pred: (r: string) => boolean) => assignments.filter((a) => pred(a.role)).reduce((n, a) => n + a.contactHours, 0);
-  const faculty = { required: need.lengthHours * need.facultyNeeded, assigned: sum((r) => FACULTY_ROLES.has(r)) };
-  const preceptor = { required: need.lengthHours * need.preceptorsNeeded, assigned: sum((r) => r === "preceptor") };
-  const support = { required: need.lengthHours * need.supportStaffNeeded, assigned: sum((r) => r === "support") };
+/** How well one shift's assignments cover what the session row says it needs.
+ *  `roleFamilies` maps custom role keys to what they cover. */
+export function coverageOf(need: ShiftNeed, assignments: AssignmentLite[], roleFamilies: Record<string, RoleFamily> = {}): Coverage {
+  const sum = (fam: RoleFamily) => assignments.filter((a) => familyOfRole(a.role, roleFamilies) === fam).reduce((n, a) => n + a.contactHours, 0);
+  const faculty = { required: need.lengthHours * need.facultyNeeded, assigned: sum("faculty") };
+  const preceptor = { required: need.lengthHours * need.preceptorsNeeded, assigned: sum("preceptor") };
+  const support = { required: need.lengthHours * need.supportStaffNeeded, assigned: sum("support") };
   const coTeaching: [string, string][] = [];
   const spans = assignments.filter((a) => a.startOffsetMin != null).map((a) => ({ id: a.id, s: a.startOffsetMin!, e: a.startOffsetMin! + a.contactHours * 60 }));
   for (let i = 0; i < spans.length; i++) for (let j = i + 1; j < spans.length; j++) if (spans[i].s < spans[j].e && spans[j].s < spans[i].e) coTeaching.push([spans[i].id, spans[j].id]);
@@ -131,7 +143,7 @@ export interface DatedAssignment extends AssignmentLite {
 
 export interface LoadBucket { key: string; contactHours: number; creditedHours: number }
 export interface PersonLoad {
-  policy: PolicyLite; policySource: "employer" | "institution" | "default";
+  policy: PolicyLite; policySource: "asset" | "employer" | "institution" | "default";
   creditPerContactHour: number;
   totalContactHours: number; totalCreditedHours: number;
   daily: LoadBucket[];   // per ISO date

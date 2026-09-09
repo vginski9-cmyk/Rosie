@@ -13,6 +13,7 @@ type Group = { label: string; items: Item[] };
 const GROUPS: Group[] = [
   { label: "Insights", items: [
     { label: "Clinical scheduler — supply vs demand", href: "/scheduler" },
+    { label: "Asset supply explorer", href: "/supply" },
     { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
     { label: "Clinical sites", href: "/insights/clinical-sites" },
     { label: "Daily coverage", href: "/insights/coverage" },
@@ -23,10 +24,11 @@ const GROUPS: Group[] = [
   { label: "Directory", items: [
     { label: "Organizations — set up & map", href: "/orgs" },
     { label: "Students", href: "/students" },
+    { label: "Learner analytics", href: "/students/analytics" },
     { label: "People (faculty & staff)", href: "/people" },
     { label: "Clinical sites by program", href: "/clinical" },
     { label: "All partner organizations", href: "/employers" },
-    { label: "Facilities", href: "/facilities" },
+    { label: "Rooms, buildings & equipment", href: "/facilities" },
   ] },
 ];
 

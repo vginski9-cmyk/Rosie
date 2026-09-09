@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent, getProgramSessionPlan, getProgramCohortsLite, getInstitutionEmployersLite, getProgramTermsLite } from "@/lib/queries";
-import { updateStudentEnrollment, createPlacement, updatePlacementStatus, deletePlacement } from "@/lib/actions";
+import { getStudent, getProgramSessionPlan, getProgramCohortsLite, getInstitutionEmployersLite, getProgramTermsLite, getStudentAssignments } from "@/lib/queries";
+import { updateStudentEnrollment, createPlacement, updatePlacementStatus, deletePlacement, updateStudentProfile } from "@/lib/actions";
+import { StudentAssignments } from "@/components/StudentAssignments";
+import { SEX, RACE_ETHNICITY, RESIDENCY, PRIOR_EDUCATION, EMPLOYMENT_STATUS, WITHDRAWAL_REASON, NC_COUNTIES, ageOn } from "@/lib/learners";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { fmt } from "@/lib/format";
 
@@ -29,11 +31,17 @@ const GRADE_COLOR = (status: string) =>
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
-  const [cohorts, programTerms, employers] = await Promise.all([
+  const [cohorts, programTerms, employers, assignments] = await Promise.all([
     getProgramCohortsLite(student.programId),
     getProgramTermsLite(student.programId),
     getInstitutionEmployersLite(student.program.institutionId),
+    getStudentAssignments(student.id),
   ]);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const iso = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
+  const inp = "w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
+  const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
+  const yn = (v: boolean | null) => (v == null ? "" : v ? "yes" : "no");
 
   // The program's session plan, reduced to per-course instructors + homework so
   // the student's personal schedule shows who teaches them and what's assigned.
@@ -116,6 +124,45 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </label>
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
         </form>
+      </section>
+
+      {/* Demographic profile — every field coded so the analytics aggregate cleanly */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-slate-700">Profile &amp; demographics</h2>
+        <p className="text-[11px] text-slate-400">Coded fields (dropdowns and dates) so learners can be aggregated and disaggregated in <Link href="/students/analytics" className="text-rose-600 hover:underline">Learner analytics</Link>.{student.dob ? ` Age ${ageOn(iso(student.dob), todayIso)}.` : ""}</p>
+        <form action={updateStudentProfile.bind(null, student.id)} className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block"><span className={lbl}>Name</span><input name="name" defaultValue={student.name} className={inp} /></label>
+          <label className="block"><span className={lbl}>Email</span><input name="email" type="email" defaultValue={student.email ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>Phone</span><input name="phone" defaultValue={student.phone ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>Date of birth</span><input name="dob" type="date" defaultValue={iso(student.dob)} className={inp} /></label>
+          <label className="block"><span className={lbl}>Sex</span><select name="sex" defaultValue={student.sex ?? ""} className={inp}><option value="">—</option>{SEX.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Race / ethnicity</span><select name="raceEthnicity" defaultValue={student.raceEthnicity ?? ""} className={inp}><option value="">—</option>{RACE_ETHNICITY.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Primary language</span><input name="primaryLanguage" defaultValue={student.primaryLanguage ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>Dependents</span><input name="dependents" type="number" min="0" step="1" defaultValue={student.dependents ?? ""} className={inp} /></label>
+          <label className="block sm:col-span-2"><span className={lbl}>Street address</span><input name="address" defaultValue={student.address ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>City</span><input name="city" defaultValue={student.city ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>County</span><select name="county" defaultValue={student.county ?? ""} className={inp}><option value="">—</option>{NC_COUNTIES.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block"><span className={lbl}>State</span><input name="state" defaultValue={student.state ?? "NC"} className={inp} /></label>
+          <label className="block"><span className={lbl}>ZIP</span><input name="zip" defaultValue={student.zip ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>Residency</span><select name="residency" defaultValue={student.residency ?? ""} className={inp}><option value="">—</option>{RESIDENCY.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Prior education</span><select name="priorEducation" defaultValue={student.priorEducation ?? ""} className={inp}><option value="">—</option>{PRIOR_EDUCATION.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Employment</span><select name="employmentStatus" defaultValue={student.employmentStatus ?? ""} className={inp}><option value="">—</option>{EMPLOYMENT_STATUS.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          {([["firstGeneration", "First generation", student.firstGeneration], ["veteran", "Veteran", student.veteran], ["pellEligible", "Pell eligible", student.pellEligible], ["disability", "Disability", student.disability]] as const).map(([k, label, v]) => (
+            <label key={k} className="block"><span className={lbl}>{label}</span><select name={k} defaultValue={yn(v)} className={inp}><option value="">unknown</option><option value="yes">yes</option><option value="no">no</option></select></label>
+          ))}
+          <label className="block"><span className={lbl}>Started</span><input name="startDate" type="date" defaultValue={iso(student.startDate)} className={inp} /></label>
+          <label className="block"><span className={lbl}>Completed</span><input name="completionDate" type="date" defaultValue={iso(student.completionDate)} className={inp} /></label>
+          <label className="block"><span className={lbl}>GPA</span><input name="gpa" type="number" step="any" defaultValue={student.gpa ?? ""} className={inp} /></label>
+          <label className="block"><span className={lbl}>Withdrawal reason</span><select name="withdrawalReason" defaultValue={student.withdrawalReason ?? ""} className={inp}><option value="">—</option>{WITHDRAWAL_REASON.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <div className="flex items-end lg:col-span-4"><button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save profile</button></div>
+        </form>
+      </section>
+
+      {/* Sections & clinical shifts inside the offering */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h2 className="text-sm font-semibold text-slate-700">Sections &amp; clinical shifts</h2>
+        <p className="mb-2 text-[11px] text-slate-400">Which section of each class, lab and clinical this learner sits in, and the exact clinical shifts they are on — optionally pinned to a physical asset.</p>
+        <StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} />
       </section>
 
       {/* Alignment intake — structured motivations / constraints / capacities */}

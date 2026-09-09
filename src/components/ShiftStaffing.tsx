@@ -9,7 +9,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addShiftAssignment, updateShiftAssignment, removeShiftAssignment, copyShiftAssignments } from "@/lib/actions";
-import { coverageOf, type AssignmentLite } from "@/lib/workload";
+import { coverageOf, familyOfRole, type AssignmentLite, type RoleFamily } from "@/lib/workload";
 
 export interface ShiftPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employerName?: string | null }
 export interface ShiftAssignment extends AssignmentLite { sessionId: string; segment: string | null; personName: string; personRole: string }
@@ -24,13 +24,17 @@ const clock = (startTime: string | null, offsetMin: number | null) => {
   return `${H % 12 || 12}:${String(M).padStart(2, "0")}${H >= 12 ? "p" : "a"}`;
 };
 
-export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, need, startTime, assignments, people }: {
+export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, need, startTime, assignments, people, roles = [] }: {
   cohortId: string; programId: string; sessionId: string; sectionCount: number;
   need: { lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number; kind: string };
   startTime: string | null;
   assignments: ShiftAssignment[];
   people: ShiftPerson[];
+  /** Custom roles (key → what they cover). */
+  roles?: { key: string; label: string; family: RoleFamily }[];
 }) {
+  const roleFamilies = Object.fromEntries(roles.map((r) => [r.key, r.family])) as Record<string, RoleFamily>;
+  const roleLabelOf = (k: string) => ROLE_LABEL[k] ?? roles.find((r) => r.key === k)?.label ?? k;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<string | null>(null);
@@ -49,7 +53,7 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
       <div className="mt-2 space-y-2">
         {sections.map((sec) => {
           const rows = assignments.filter((a) => a.sectionIndex === sec).sort((a, b) => (a.startOffsetMin ?? 1e9) - (b.startOffsetMin ?? 1e9) || a.personName.localeCompare(b.personName));
-          const cov = coverageOf(need, rows);
+          const cov = coverageOf(need, rows, roleFamilies);
           const tone = cov.status === "staffed" ? "text-emerald-700" : cov.status === "over" ? "text-violet-700" : cov.status === "partial" ? "text-amber-700" : "text-slate-400";
           const co = new Set(cov.coTeaching.flat());
           const remaining = Math.max(0, cov.faculty.required - cov.faculty.assigned);
@@ -76,10 +80,10 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
               )}
               <div className="mt-1.5 space-y-1">
                 {rows.map((r) => editing === r.id ? (
-                  <AssignmentForm key={r.id} people={people} lengthHours={need.lengthHours} defaultRole={r.role} row={r} onSubmit={(fd) => run(async () => { await updateShiftAssignment(r.id, cohortId, programId, fd); setEditing(null); })} onCancel={() => setEditing(null)} />
+                  <AssignmentForm key={r.id} people={people} roles={roles} lengthHours={need.lengthHours} defaultRole={r.role} row={r} onSubmit={(fd) => run(async () => { await updateShiftAssignment(r.id, cohortId, programId, fd); setEditing(null); })} onCancel={() => setEditing(null)} />
                 ) : (
                   <div key={r.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ROLE_BADGE[r.role] ?? "bg-slate-100 text-slate-600"}`}>{ROLE_LABEL[r.role] ?? r.role}</span>
+                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${ROLE_BADGE[r.role] ?? "bg-slate-100 text-slate-600"}`}>{roleLabelOf(r.role)}</span>
                     <span className="font-medium text-slate-800">{r.personName}</span>
                     <span className="tabular-nums text-slate-700">{h(r.contactHours)} h</span>
                     {r.startOffsetMin != null && <span className="tabular-nums text-slate-500">from {clock(startTime, r.startOffsetMin) ?? `+${h(r.startOffsetMin)} min`} to {clock(startTime, r.startOffsetMin + r.contactHours * 60) ?? `+${h(r.startOffsetMin + r.contactHours * 60)} min`}</span>}
@@ -92,7 +96,7 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
                 {rows.length === 0 && adding !== sec && <div className="text-[11px] text-slate-400">nobody assigned yet</div>}
               </div>
               {adding === sec && (
-                <AssignmentForm people={people} lengthHours={need.lengthHours} defaultRole={defaultRole} defaultHours={remaining > 0 ? remaining : need.lengthHours} sectionIndex={sec} sectionCount={sections.length} onSubmit={(fd) => run(async () => { await addShiftAssignment(cohortId, programId, fd); setAdding(null); })} onCancel={() => setAdding(null)} sessionId={sessionId} />
+                <AssignmentForm people={people} roles={roles} lengthHours={need.lengthHours} defaultRole={defaultRole} defaultHours={remaining > 0 ? remaining : need.lengthHours} sectionIndex={sec} sectionCount={sections.length} onSubmit={(fd) => run(async () => { await addShiftAssignment(cohortId, programId, fd); setAdding(null); })} onCancel={() => setAdding(null)} sessionId={sessionId} />
               )}
             </div>
           );
@@ -102,13 +106,15 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
   );
 }
 
-function AssignmentForm({ people, lengthHours, defaultRole, defaultHours, row, sectionIndex, sectionCount, sessionId, onSubmit, onCancel }: {
-  people: ShiftPerson[]; lengthHours: number; defaultRole: string; defaultHours?: number; row?: ShiftAssignment; sectionIndex?: number; sectionCount?: number; sessionId?: string;
+function AssignmentForm({ people, roles = [], lengthHours, defaultRole, defaultHours, row, sectionIndex, sectionCount, sessionId, onSubmit, onCancel }: {
+  people: ShiftPerson[]; roles?: { key: string; label: string; family: RoleFamily }[]; lengthHours: number; defaultRole: string; defaultHours?: number; row?: ShiftAssignment; sectionIndex?: number; sectionCount?: number; sessionId?: string;
   onSubmit: (fd: FormData) => void; onCancel: () => void;
 }) {
   const [role, setRole] = useState(row?.role ?? defaultRole);
   const [allShifts, setAllShifts] = useState(false);
-  const candidates = people.filter((p) => (role === "preceptor" ? p.role === "preceptor" : role === "support" ? p.role === "support" : p.role !== "preceptor"));
+  const fams = Object.fromEntries(roles.map((r) => [r.key, r.family])) as Record<string, RoleFamily>;
+  const fam = familyOfRole(role, fams);
+  const candidates = people.filter((p) => familyOfRole(p.role, fams) === fam || (fam === "other" && p.role === role));
   const inp = "rounded border border-blue-200 bg-blue-50/70 px-1.5 py-0.5 text-[11px] text-blue-900";
   return (
     <form action={onSubmit} className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
@@ -116,7 +122,7 @@ function AssignmentForm({ people, lengthHours, defaultRole, defaultHours, row, s
       {sectionIndex != null && <input type="hidden" name="sectionIndex" value={allShifts ? "all" : String(sectionIndex)} />}
       {sectionCount != null && <input type="hidden" name="sectionCount" value={String(sectionCount)} />}
       <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Role</span>
-        <select name="role" value={role} onChange={(e) => setRole(e.target.value)} className={inp}>{Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+        <select name="role" value={role} onChange={(e) => setRole(e.target.value)} className={inp}>{Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}{roles.map((r) => <option key={r.key} value={r.key}>{r.label} (covers {r.family})</option>)}</select></label>
       <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Person</span>
         <select name="personId" required defaultValue={row?.personId ?? ""} className={`${inp} max-w-[16rem]`}>
           <option value="">choose…</option>

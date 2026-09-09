@@ -11,6 +11,7 @@ import { deriveCohortTargets } from "../src/lib/pipeline";
 import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { planMeetings } from "../src/lib/calendarize";
+import { parseHoursText } from "../src/lib/rooms";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
 const LAST = ["Alvarez", "Bennett", "Chen", "Dawson", "Ellis", "Foster", "Garcia", "Hughes", "Ibrahim", "Jenkins", "Kim", "Lopez", "Mitchell", "Nguyen", "Owens", "Patel", "Quinn", "Reyes", "Sullivan", "Torres", "Underwood", "Vance", "Walker", "Xiong", "Young", "Zimmerman", "Abbott", "Brooks", "Castillo", "Duncan", "Espinoza", "Franklin", "Grant", "Holloway", "Ivey", "Jacobs", "Kessler", "Lawson", "Morales", "Norris"];
@@ -44,8 +45,48 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { name: "Van Dusen Hall 140", kind: "CLASSROOM", building: "Van Dusen Hall", capacity: 36, areaSqft: 850, equipment: "projector" },
     { name: "Van Dusen Hall 142", kind: "CLASSROOM", building: "Van Dusen Hall", capacity: 36, areaSqft: 850, equipment: "projector" },
   ];
-  await prisma.facility.createMany({ data: ROOMS.map((r) => ({ institutionId, ...r, hours: "Mon–Fri 7:30a–9:30p · Sat 8a–2p", availability: "open for scheduling", status: "active" })) });
+  // Campus → buildings → rooms. Open hours are structured per weekday (not
+  // free text), and each room's fixed equipment is its own inventory row.
+  const campus = await prisma.campus.create({ data: { institutionId, name: "Main Campus", city: "Pinehurst", state: "NC" } });
+  const buildingIds = new Map<string, string>();
+  for (const [name, code] of [["Kennedy Hall", "KH"], ["Blue Hall", "BH"], ["Health Sciences", "HS"], ["Van Dusen Hall", "VD"]] as const) {
+    const b = await prisma.building.create({ data: { institutionId, campusId: campus.id, name, code } });
+    buildingIds.set(name, b.id);
+  }
+  const HOURS_TEXT = "Mon–Fri 7:30a–9:30p · Sat 8a–2p";
+  const spans = parseHoursText(HOURS_TEXT);
+  const EQUIP_OF: Record<string, { name: string; category: string; mobility: string; quantity?: number }[]> = {
+    "Nursing Skills Lab A": [{ name: "Hospital bed", category: "Medical device", mobility: "fixed", quantity: 8 }, { name: "Medication cart", category: "Medical device", mobility: "mobile", quantity: 2 }, { name: "Task trainer set", category: "Simulation", mobility: "portable", quantity: 4 }],
+    "Nursing Skills Lab B": [{ name: "Hospital bed", category: "Medical device", mobility: "fixed", quantity: 8 }, { name: "IV trainer arm", category: "Simulation", mobility: "portable", quantity: 6 }],
+    "Simulation Suite 1": [{ name: "High-fidelity adult manikin", category: "Simulation", mobility: "mobile" }, { name: "Sim control-room AV", category: "AV / IT", mobility: "fixed" }],
+    "Simulation Suite 2": [{ name: "Birthing simulator", category: "Simulation", mobility: "mobile" }, { name: "Pediatric manikin", category: "Simulation", mobility: "mobile" }],
+    "Mock OR 1": [{ name: "OR table", category: "Medical device", mobility: "fixed" }, { name: "Back table", category: "Furniture", mobility: "mobile", quantity: 2 }, { name: "Scrub sink", category: "Sterile processing", mobility: "fixed", quantity: 2 }],
+    "Mock OR 2": [{ name: "OR table", category: "Medical device", mobility: "fixed" }, { name: "Laparoscopic tower", category: "Medical device", mobility: "mobile" }],
+    "Sterile Processing Lab": [{ name: "Autoclave", category: "Sterile processing", mobility: "fixed" }, { name: "Ultrasonic cleaner", category: "Sterile processing", mobility: "fixed" }, { name: "Instrument set", category: "Sterile processing", mobility: "portable", quantity: 12 }],
+    "Radiography Energized Lab": [{ name: "Energized x-ray unit", category: "Imaging", mobility: "fixed" }, { name: "Radiographic phantom", category: "Imaging", mobility: "portable", quantity: 3 }, { name: "CR/DR reader", category: "Imaging", mobility: "fixed" }],
+    "Radiography Positioning Lab": [{ name: "Non-energized tube stand", category: "Imaging", mobility: "fixed", quantity: 2 }, { name: "Positioning aids kit", category: "Imaging", mobility: "portable", quantity: 4 }],
+    "Computer Lab 1": [{ name: "Workstation", category: "Computing", mobility: "fixed", quantity: 28 }],
+    "Computer Lab 2": [{ name: "Workstation", category: "Computing", mobility: "fixed", quantity: 24 }],
+    "Anatomy & Physiology Lab": [{ name: "Anatomical model set", category: "Lab bench", mobility: "portable", quantity: 6 }, { name: "Microscope", category: "Lab bench", mobility: "portable", quantity: 24 }],
+    "Health Sciences Lecture Hall": [{ name: "Lecture-capture system", category: "AV / IT", mobility: "fixed" }, { name: "Projector", category: "AV / IT", mobility: "fixed", quantity: 2 }],
+  };
+  for (const r of ROOMS) {
+    const num = /(\d+)$/.exec(r.name)?.[1] ?? null;
+    const f = await prisma.facility.create({ data: {
+      institutionId, ...r, buildingId: buildingIds.get(r.building) ?? null, roomNumber: num, floor: num ? String(num[0]) : null,
+      hours: HOURS_TEXT, availability: "open for scheduling", status: "active",
+      openHours: { create: spans.map((s) => ({ dayOfWeek: s.dayOfWeek, openTime: s.openTime, closeTime: s.closeTime })) },
+    } });
+    const eq = EQUIP_OF[r.name] ?? (r.equipment?.includes("projector") ? [{ name: "Projector", category: "AV / IT", mobility: "fixed" }, { name: "Whiteboard", category: "Furniture", mobility: "fixed" }] : []);
+    for (const e of eq) await prisma.equipment.create({ data: { institutionId, name: e.name, category: e.category, mobility: e.mobility, quantity: e.quantity ?? 1, homeFacilityId: f.id, buildingId: buildingIds.get(r.building) ?? null, status: "in service" } });
+  }
+  // A couple of shared mobile units that live at the building level and get placed per term.
+  const hsId = buildingIds.get("Health Sciences") ?? null;
+  const portableXray = await prisma.equipment.create({ data: { institutionId, name: "Portable x-ray unit", category: "Imaging", mobility: "mobile", quantity: 1, buildingId: hsId, status: "in service" } });
+  await prisma.equipment.create({ data: { institutionId, name: "Ultrasound cart", category: "Imaging", mobility: "mobile", quantity: 1, buildingId: hsId, status: "in service" } });
   const rooms = await prisma.facility.findMany({ where: { institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
+  const energized = rooms.find((r) => r.name === "Radiography Energized Lab");
+  if (energized) await prisma.equipmentAssignment.create({ data: { equipmentId: portableXray.id, facilityId: energized.id, quantity: 1, note: "Parked here between clinical demos." } });
 
   // ── Partner sites: agreement statuses & slots ─────────────────────────────
   const employers = await prisma.employer.findMany({ where: { institutionId }, include: { units: { select: { unitCategory: true } }, assets: { select: { settingCode: true } } } });
