@@ -39,7 +39,9 @@ Classes begin — January 11, 2027
 Spring Break — March 8–12, 2027
 …`;
 
-export function AcademicCalendar({ institutionId, institutionName, familyId, anchors, coded }: {
+export function AcademicCalendar({ institutionId, institutionName, familyId, anchors, coded, title }: {
+  /** Section title override (the organization set-up page numbers its steps). */
+  title?: string;
   institutionId: string;
   institutionName: string;
   familyId: string;
@@ -113,7 +115,7 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
     : `pattern only — Spring ${fmtMMDD(anchors.springStart)} · Summer ${fmtMMDD(anchors.summerStart)} · Fall ${fmtMMDD(anchors.fallStart)}`;
 
   return (
-    <Collapse title={`Academic calendar — ${institutionName}`} sub="Paste the college calendar; semester starts, ends, later sessions and breaks are coded automatically, and every offering's term dates, term ends and course windows are re-aligned to them the moment you save." summary={summary}>
+    <Collapse title={title ?? `Academic calendar — ${institutionName}`} sub="Paste the college calendar; semester starts, ends, later sessions and breaks are coded automatically, and every offering's term dates, term ends and course windows are re-aligned to them the moment you save." summary={summary}>
       <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
         {/* ── Import ── */}
         <div className="space-y-3">

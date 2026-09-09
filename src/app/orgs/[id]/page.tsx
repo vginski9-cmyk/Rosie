@@ -72,7 +72,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       {/* 2 · Academic calendar */}
       <section id="calendar" className="scroll-mt-16">
         <AcademicCalendar
-          institutionId={inst.id} institutionName={inst.name} familyId=""
+          title="2 · Academic calendar" institutionId={inst.id} institutionName={inst.name} familyId=""
           anchors={{ springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart }}
           coded={inst.academicEvents.map((e) => ({ id: e.id, iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season }))}
         />
