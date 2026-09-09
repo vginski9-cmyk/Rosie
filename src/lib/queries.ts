@@ -384,16 +384,31 @@ export async function getFamilyRequirements(familyId: string) {
   const fs = new Map(fam.familySites.map((f) => [f.employerId, f]));
   const employers = await prisma.employer.findMany({ where: { institutionId: fam.institutionId, status: "active" }, select: { id: true, name: true, facilityType: true, agreementStatus: true, annualSurgicalCases: true, driveMinutes: true, ring: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true } } } });
   const sites = employers.map((e) => { const f = fs.get(e.id); const seatsBySetting: Record<string, number> = {}; for (const a of e.assets) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift; const agreementStatus = f?.agreementStatus ?? e.agreementStatus ?? "none"; return { employerId: e.id, name: e.name, facilityType: e.facilityType, agreementStatus, inFamily: !!f, agreementRank: RANK[agreementStatus] ?? 3, seatsBySetting, casesPerDay: f?.casesPerDay ?? (e.annualSurgicalCases != null ? e.annualSurgicalCases / Math.max(1, fam.caseDaysPerYear ?? 250) : null), driveMinutes: e.driveMinutes, ring: e.ring }; });
+  // Demand: every enrolled student in this family's offerings, and what each has logged — so each item
+  // can say how many students still need it (the number the rotation plan has to serve).
+  const { progressFor } = await import("./requirementprogress");
+  const learners = await prisma.student.findMany({ where: { program: { familyId }, cohortId: { not: null }, status: "enrolled" }, select: { id: true, requirementLogs: { select: { itemId: true, outcome: true, role: true, simulated: true, count: true, date: true, employerId: true } } } });
   const sets = fam.requirementSets.map((set) => {
     const items = set.items.map((i) => ({ id: i.id, category: i.category, name: i.name, mandatory: i.mandatory, electiveGroup: i.electiveGroup, minCount: i.minCount, role: i.role, settingCodes: i.settingCodes, notes: i.notes }));
     const provisions = set.items.flatMap((i) => i.provisions.map((p) => ({ employerId: p.employerId, itemId: p.itemId, status: p.status, annualVolume: p.annualVolume, studentRole: p.studentRole, source: p.source, notes: p.notes })));
     const coverage = requirementCoverage(items, sites, provisions);
-    let rules: { key: string; label: string; min?: number; of?: number; scope?: string; notes?: string }[] = [];
+    let rules: { key: string; label: string; min?: number; max?: number; of?: number; scope?: string; anyOf?: string[]; notes?: string }[] = [];
     try { rules = JSON.parse(set.rules); } catch { rules = []; }
+    let definitions: Record<string, string> = {};
+    try { definitions = JSON.parse(set.definitions); } catch { definitions = {}; }
+    const demand: Record<string, number> = {};
+    let complete = 0;
+    for (const st of learners) {
+      const pr = progressFor(set.kind, items, rules, st.requirementLogs.map((l) => ({ ...l, date: l.date.toISOString().slice(0, 10) })));
+      if (pr.complete) complete++;
+      for (const it of pr.items) if (!it.met) demand[it.item.id] = (demand[it.item.id] ?? 0) + 1;
+    }
     const graded = coverage.flatMap((c) => c.itemCoverage).filter((i) => i.verdict !== "n/a");
     const required = graded.filter((i) => i.item.mandatory);
     return {
-      id: set.id, name: set.name, authority: set.authority, edition: set.edition, kind: set.kind, summary: set.summary, sourceUrl: set.sourceUrl, verified: set.verified, notes: set.notes, rules, items, provisions, coverage,
+      id: set.id, name: set.name, authority: set.authority, edition: set.edition, kind: set.kind, summary: set.summary, sourceUrl: set.sourceUrl, verified: set.verified, notes: set.notes, rules, definitions, items, provisions, coverage,
+      /** Enrolled students in the family and, per item id, how many have not met it yet. */
+      demand, learners: learners.length, learnersComplete: complete,
       mandatory: items.filter((i) => i.mandatory).length, elective: items.filter((i) => !i.mandatory).length, categories: coverage.length,
       uncovered: coverage.filter((c) => c.verdict === "none" || c.verdict === "prospect-only").map((c) => c.category), askedOnly: coverage.filter((c) => c.verdict === "asked-only").map((c) => c.category),
       /** Item-level scorecard: required experiences a secured site provides / gradable required items; how many of those rest on unconfirmed inference. */
@@ -406,7 +421,8 @@ export async function getFamilyRequirements(familyId: string) {
 /** How a program template covers its family's requirement categories: which clinical courses touch each category's settings. */
 export async function getProgramRequirementCoverage(programId: string) {
   const { requirementCourseCoverage } = await import("./requirements");
-  const p = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, familyId: true, institutionId: true, terms: { orderBy: { index: "asc" }, select: { courses: { orderBy: { sequenceOrder: "asc" }, select: { code: true, name: true, sessions: { where: { kind: "CLINICAL" }, select: { rotationType: true } }, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { settingCodes: true } } } } } } } } } });
+  const { rollupSequence } = await import("./requirementrollup");
+  const p = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, familyId: true, institutionId: true, terms: { orderBy: { index: "asc" }, select: { index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, requirementPlan: true, sessions: { where: { kind: "CLINICAL" }, select: { rotationType: true } }, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { settingCodes: true } } } } } } } } } });
   if (!p?.familyId) return null;
   const req = await getFamilyRequirements(p.familyId);
   if (!req || !req.sets.length) return null;
@@ -421,9 +437,13 @@ export async function getProgramRequirementCoverage(programId: string) {
       for (const code of codes) { hours[code] = (hours[code] ?? 0) + r.hoursPerStudent / codes.length; cases[code] = (cases[code] ?? 0) + (r.casesPerStudent ?? 0) / codes.length; }
     }
     const fromSessions = c.sessions.map((s) => rotations.get((s.rotationType ?? "").trim().toLowerCase())).filter((x): x is string => !!x);
-    return { code: c.code, name: c.name, settings: [...new Set([...Object.keys(hours), ...fromSessions])], hours, cases };
+    let plan: Record<string, number> = {}; try { plan = JSON.parse(c.requirementPlan); } catch { plan = {}; }
+    // A course "reaches" a setting when it codes at least half a shift there (a 16 h catch-all area spread over
+    // five settings is 3 h each — not a rotation) or a clinical session is coded with that rotation type.
+    const reached = Object.keys(hours).filter((k) => hours[k] >= 4 || (cases[k] ?? 0) >= 1);
+    return { id: c.id, code: c.code, name: c.name, termIndex: t.index, termName: t.name, settings: [...new Set([...reached, ...fromSessions])], hours, cases, plan };
   }));
-  return { family: req.family, sets: req.sets.map((set) => ({ ...set, courseCoverage: requirementCourseCoverage(set.coverage, courses) })), courses };
+  return { family: req.family, programId: p.id, sets: req.sets.map((set) => ({ ...set, courseCoverage: requirementCourseCoverage(set.coverage, courses), rollup: rollupSequence({ id: set.id, name: set.name, authority: set.authority, kind: set.kind, rules: set.rules, items: set.items }, courses) })), courses };
 }
 
 /** One site against every requirement set at its institution: for each category the family must
@@ -468,6 +488,74 @@ function familySettingSet(fam: { serviceAreas: { settingCodes: string }[] }, req
   const out = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
   for (const set of req?.sets ?? []) for (const i of set.items) for (const c of i.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)) out.add(c);
   return out;
+}
+
+// ── Completion requirements: what students have logged against the credentialing body's list ──
+const LOG_SELECT = { id: true, itemId: true, shiftId: true, employerId: true, preceptorId: true, date: true, outcome: true, role: true, simulated: true, count: true, procedure: true, flags: true, verifiedById: true, verifiedAt: true, notes: true, employer: { select: { name: true } }, preceptor: { select: { name: true } }, verifiedBy: { select: { name: true } } } as const;
+const logLite = (l: { itemId: string; outcome: string; role: string | null; simulated: boolean; count: number; date: Date; employerId: string | null }) => ({ itemId: l.itemId, outcome: l.outcome, role: l.role, simulated: l.simulated, count: l.count, date: l.date.toISOString().slice(0, 10), employerId: l.employerId });
+
+/** ONE STUDENT against the credentialing body's list: every rule with where they stand, every item with
+ *  its state and log, the entries themselves, and — for what is still missing — which secured sites in the
+ *  program's network provide it and which of the student's coming shifts are at those sites. */
+export async function getStudentRequirementProgress(studentId: string) {
+  const { progressFor } = await import("./requirementprogress");
+  const { disciplineOf } = await import("./discipline");
+  const st = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, name: true, cohortId: true, sectionIndex: true, program: { select: { id: true, familyId: true, institutionId: true, family: { select: { id: true, name: true } } } }, requirementLogs: { orderBy: { date: "desc" }, select: LOG_SELECT }, shifts: { select: { id: true, sessionId: true, sectionIndex: true, status: true, loggedAt: true, preceptorId: true, settingCode: true, asset: { select: { employerId: true, employer: { select: { name: true } } } }, session: { select: { week: true, dayOfWeek: true, lengthHours: true, course: { select: { id: true, code: true, termId: true } } } } } } } });
+  if (!st?.program.familyId) return null;
+  const meetings = st.cohortId ? await prisma.meetingPattern.findMany({ where: { cohortId: st.cohortId, kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, employer: { select: { name: true } } } }) : [];
+  const meetingSite = (courseId: string, sectionIndex: number) => meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex);
+  const req = await getFamilyRequirements(st.program.familyId);
+  if (!req) return null;
+  const disc = disciplineOf(st.program.family?.name ?? "");
+  // Dates for the student's shifts (the log form offers them, and "coming shifts at a site that provides it").
+  const dates = st.cohortId ? (await sessionDatesForCohort(st.cohortId)).dates : new Map<string, string>();
+  const shifts = st.shifts.map((sh) => { const m = meetingSite(sh.session.course.id, sh.sectionIndex); return { id: sh.id, date: dates.get(sh.sessionId) ?? null, status: sh.status, employerId: sh.asset?.employerId ?? m?.employerId ?? null, site: sh.asset?.employer.name ?? m?.employer?.name ?? null, preceptorId: sh.preceptorId, settingCode: sh.settingCode, course: sh.session.course.code ?? "" }; }).filter((x) => !!x.date).sort((a, b) => a.date!.localeCompare(b.date!));
+  const today = new Date().toISOString().slice(0, 10);
+  const sets = req.sets.map((set) => {
+    const progress = progressFor(set.kind, set.items, set.rules, st.requirementLogs.map(logLite));
+    const providersOf = (itemId: string) => set.coverage.flatMap((c) => c.itemCoverage).find((ic) => ic.item.id === itemId)?.providers ?? { secured: [], asked: [], other: [] };
+    const missing = [...progress.missingRequired, ...progress.missingElective];
+    // Sites that provide what is still missing, ranked by how much of it they cover — where to send this student next.
+    const bySite = new Map<string, { employerId: string; name: string; required: string[]; elective: string[]; secured: boolean; coming: number; driveMinutes: number | null }>();
+    for (const item of missing) for (const p of providersOf(item.id).secured) {
+      const cur = bySite.get(p.site.employerId) ?? { employerId: p.site.employerId, name: p.site.name, required: [], elective: [], secured: true, coming: shifts.filter((x) => x.employerId === p.site.employerId && x.status === "scheduled" && x.date! >= today).length, driveMinutes: p.site.driveMinutes };
+      (item.mandatory ? cur.required : cur.elective).push(item.name); bySite.set(p.site.employerId, cur);
+    }
+    const whereNext = [...bySite.values()].sort((a, b) => b.required.length - a.required.length || b.elective.length - a.elective.length || (a.driveMinutes ?? 9e9) - (b.driveMinutes ?? 9e9));
+    const nobody = missing.filter((i) => i.settingCodes && providersOf(i.id).secured.length === 0 && providersOf(i.id).asked.length === 0).map((i) => i.name);
+    const logs = st.requirementLogs.filter((l) => set.items.some((i) => i.id === l.itemId)).map((l) => ({ ...l, date: l.date.toISOString().slice(0, 10), verifiedAt: l.verifiedAt?.toISOString().slice(0, 10) ?? null, item: set.items.find((i) => i.id === l.itemId)!, site: l.employer?.name ?? null, preceptor: l.preceptor?.name ?? null, verifier: l.verifiedBy?.name ?? null }));
+    return { id: set.id, name: set.name, authority: set.authority, edition: set.edition, kind: set.kind, verified: set.verified, definitions: set.definitions, items: set.items, progress, logs, whereNext, nobody };
+  });
+  const siteIds = [...new Set([...req.sites.filter((x) => x.inFamily).map((x) => x.employerId), ...shifts.map((x) => x.employerId).filter((x): x is string => !!x)])];
+  const sites = await prisma.employer.findMany({ where: { id: { in: siteIds } }, orderBy: { name: "asc" }, select: { id: true, name: true, people: { where: { active: true, role: { in: ["preceptor", "supervisor"] } }, select: { id: true, name: true, title: true } } } });
+  return {
+    student: { id: st.id, name: st.name, cohortId: st.cohortId }, family: req.family, sets, shifts, today,
+    sites: sites.map((e) => ({ id: e.id, name: e.name, preceptors: e.people.filter((p) => disc.title.test(p.title ?? "")).map((p) => ({ id: p.id, name: p.name })) })),
+  };
+}
+
+/** ONE OFFERING against the list: every student's standing on every rule, and — for allocation — each
+ *  experience the cohort still needs with how many students lack it and which secured sites provide it. */
+export async function getCohortRequirementProgress(cohortId: string) {
+  const { progressFor } = await import("./requirementprogress");
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true } }, students: { where: { status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, sectionIndex: true, requirementLogs: { select: { itemId: true, outcome: true, role: true, simulated: true, count: true, date: true, employerId: true } } } } } });
+  if (!co?.program.familyId) return null;
+  const req = await getFamilyRequirements(co.program.familyId);
+  if (!req || !req.sets.length) return null;
+  const sets = req.sets.map((set) => {
+    const students = co.students.map((st) => { const pr = progressFor(set.kind, set.items, set.rules, st.requirementLogs.map(logLite)); return { id: st.id, name: st.name, seat: st.sectionIndex, pct: pr.pct, complete: pr.complete, rules: pr.rules, missingRequired: pr.missingRequired.length, missingElective: pr.missingElective.length, missingIds: new Set([...pr.missingRequired, ...pr.missingElective].map((i) => i.id)), logged: st.requirementLogs.reduce((n, l) => n + l.count, 0) }; });
+    const ruleKeys = students[0]?.rules.filter((r) => r.min != null || r.max != null).map((r) => ({ key: r.key, label: r.label, min: r.min, max: r.max })) ?? [];
+    const itemDemand = set.coverage.flatMap((c) => c.itemCoverage).map((ic) => {
+      const missing = students.filter((s) => s.missingIds.has(ic.item.id)).length;
+      return { item: ic.item, category: ic.item.category, missing, providers: ic.providers.secured.map((p) => ({ employerId: p.site.employerId, name: p.site.name, basis: p.basis, annualVolume: p.annualVolume })), asked: ic.providers.asked.length, verdict: ic.verdict };
+    }).filter((d) => d.missing > 0 && d.verdict !== "n/a").sort((a, b) => Number(b.item.mandatory) - Number(a.item.mandatory) || b.missing - a.missing);
+    // Where the cohort's outstanding requirements can be met: sites by how many student-items they can serve.
+    const bySite = new Map<string, { employerId: string; name: string; studentItems: number; required: number; items: Set<string> }>();
+    for (const d of itemDemand) for (const p of d.providers) { const cur = bySite.get(p.employerId) ?? { employerId: p.employerId, name: p.name, studentItems: 0, required: 0, items: new Set<string>() }; cur.studentItems += d.missing; if (d.item.mandatory) cur.required += d.missing; cur.items.add(d.item.name); bySite.set(p.employerId, cur); }
+    const sites = [...bySite.values()].map((x) => ({ ...x, items: [...x.items] })).sort((a, b) => b.required - a.required || b.studentItems - a.studentItems);
+    return { id: set.id, name: set.name, authority: set.authority, kind: set.kind, verified: set.verified, ruleKeys, students: students.map(({ missingIds: _m, ...rest }) => rest), itemDemand, sites, complete: students.filter((s) => s.complete).length };
+  });
+  return { cohort: { id: co.id, name: co.name, programId: co.program.id, programName: co.program.name }, family: req.family, sets, students: co.students.length };
 }
 
 /** THE per-program clinical setup hub: what completion requires (scored item by item against the
@@ -2434,6 +2522,27 @@ export async function getRotationInput(cohortId: string, courseId: string) {
   const csv = (v: string | null | undefined) => (v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   const sites: import("./rotations").RotationSite[] = employers.filter((e) => map.assets.some((a) => a.employerId === e.id)).map((e) => { const f = fs.get(e.id); return { employerId: e.id, name: e.name, agreementRank: RANK[f?.agreementStatus ?? e.agreementStatus ?? "none"] ?? 3, approvedCapacity: f?.accreditorStatus === "recognized" ? f.approvedCapacity ?? null : null, studentsAtOnce: f?.studentsAtOnce ?? null, casesPerDay: f?.casesPerDay ?? null, annualSurgicalCases: e.annualSurgicalCases, qualifiedStaffOnShift: f?.qualifiedStaffOnShift ?? null, daysAllowed: csv(f?.daysAllowed), blocksAllowed: csv(f?.blocksAllowed) }; });
   const areas = course.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, name: r.serviceArea.name, settingCodes: r.serviceArea.settingCodes.split(",").map((x) => x.trim()).filter(Boolean), hours: r.hoursPerStudent }));
+  // The credentialing body's list as demand: what each student still lacks, by setting, and which sites provide it.
+  const needs: Record<string, Record<string, number>> = {};
+  const siteNeeds: Record<string, Record<string, number>> = {};
+  if (co.program.familyId) {
+    const { progressFor, needsBySetting } = await import("./requirementprogress");
+    const req = await getFamilyRequirements(co.program.familyId);
+    if (req?.sets.length) {
+      const logs = await prisma.studentRequirementLog.findMany({ where: { studentId: { in: studentsRaw.map((x) => x.id) } }, select: { studentId: true, itemId: true, outcome: true, role: true, simulated: true, count: true, date: true, employerId: true } });
+      for (const st of studentsRaw) {
+        const mine = logs.filter((l) => l.studentId === st.id).map((l) => ({ itemId: l.itemId, outcome: l.outcome, role: l.role, simulated: l.simulated, count: l.count, date: l.date.toISOString().slice(0, 10), employerId: l.employerId }));
+        const bySetting: Record<string, number> = {}; const bySite: Record<string, number> = {};
+        for (const set of req.sets) {
+          const pr = progressFor(set.kind, set.items, set.rules, mine);
+          for (const [k, v] of Object.entries(needsBySetting(pr))) bySetting[k] = (bySetting[k] ?? 0) + v;
+          const missing = new Set([...pr.missingRequired.map((i) => i.id)]);
+          for (const c of set.coverage) for (const ic of c.itemCoverage) if (missing.has(ic.item.id)) for (const p of ic.providers.secured) bySite[p.site.employerId] = (bySite[p.site.employerId] ?? 0) + 1;
+        }
+        needs[st.id] = bySetting; siteNeeds[st.id] = bySite;
+      }
+    }
+  }
   const sessionIds = new Set(shifts.map((s) => s.sessionId));
   const existingBookings = map.bookings.filter((b) => !(b.cohortId === cohortId && b.sessionId && sessionIds.has(b.sessionId)));
   const pins: Record<string, string> = {};
@@ -2456,7 +2565,7 @@ export async function getRotationInput(cohortId: string, courseId: string) {
     maxAgreementRank: fam?.rotationAgreements === "secured" ? 0 : fam?.rotationAgreements === "any" ? 2 : 1,
     keepHome: fam?.rotationKeepHome ?? true, skipHolidays: fam?.rotationSkipHolidays ?? true, primarySetting: fam?.rotationPrimarySetting || null,
   };
-  const input: import("./rotations").RotationInput = { students, shifts, areas, sites, assets: map.assets, overrides: map.overrides, existingBookings, pins, options: policy };
+  const input: import("./rotations").RotationInput = { students, shifts, areas, sites, assets: map.assets, overrides: map.overrides, existingBookings, pins, options: policy, needs, siteNeeds };
   return { co, course, input, existing, status, family: fam ? { id: fam.id, name: fam.name, clinicalModel: fam.clinicalModel, notes: fam.rotationNotes } : null };
 }
 

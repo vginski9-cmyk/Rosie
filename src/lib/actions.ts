@@ -830,6 +830,44 @@ export async function updateInstitutionGeography(institutionId: string, formData
   await geocodeInstitutionSites(institutionId);
 }
 
+// ── Student requirement log: competencies and cases as the credentialing body counts them ──
+/** Log one experience against a requirement item. If a shift is chosen, its date, site and preceptor fill any blank field. */
+export async function logRequirement(studentId: string, formData: FormData): Promise<void> {
+  const itemId = str(formData.get("itemId")); if (!itemId) return;
+  const shiftId = str(formData.get("shiftId")) || null;
+  const shift = shiftId ? await prisma.studentShift.findUnique({ where: { id: shiftId }, select: { cohortId: true, sessionId: true, sectionIndex: true, loggedAt: true, preceptorId: true, asset: { select: { employerId: true } }, session: { select: { courseId: true } } } }) : null;
+  let date = str(formData.get("date"));
+  if (!date && shift) { const { dates } = await (await import("./queries")).sessionDatesForCohort(shift.cohortId); date = shift.loggedAt?.toISOString().slice(0, 10) ?? dates.get(shift.sessionId) ?? ""; }
+  if (!date) date = new Date().toISOString().slice(0, 10);
+  // The site: the shift's asset, else the site its section is booked at (the meeting pattern).
+  const meetingSite = shift && !shift.asset ? (await prisma.meetingPattern.findFirst({ where: { cohortId: shift.cohortId, courseId: shift.session.courseId, kind: "CLINICAL", sectionIndex: shift.sectionIndex }, select: { employerId: true } }))?.employerId ?? null : null;
+  const employerId = str(formData.get("employerId")) || shift?.asset?.employerId || meetingSite || null;
+  const preceptorId = str(formData.get("preceptorId")) || shift?.preceptorId || null;
+  const role = str(formData.get("role")) || null;
+  const flags = ["pediatric", "geriatric", "trauma"].filter((f) => formData.get(`flag_${f}`) != null).join(",");
+  const count = Math.max(1, Math.round(numOr(formData.get("count"), 1)));
+  const n = Math.max(1, Math.min(200, count));
+  await prisma.studentRequirementLog.create({ data: { studentId, itemId, shiftId, employerId, preceptorId, date: new Date(date + "T00:00:00Z"), outcome: str(formData.get("outcome")) === "attempted" ? "attempted" : "competent", role, simulated: formData.get("simulated") != null, count: n, procedure: str(formData.get("procedure")) || null, flags, notes: str(formData.get("notes")) || null } });
+  revalidatePath(`/students/${studentId}`); revalidatePath("/programs/[id]/offerings/[cohortId]", "page"); revalidatePath("/families", "layout");
+}
+export async function deleteRequirementLog(logId: string, studentId: string): Promise<void> {
+  await prisma.studentRequirementLog.deleteMany({ where: { id: logId, studentId } });
+  revalidatePath(`/students/${studentId}`); revalidatePath("/programs/[id]/offerings/[cohortId]", "page"); revalidatePath("/families", "layout");
+}
+/** The preceptor (or clinical instructor) signs the entry off. */
+export async function verifyRequirementLog(logId: string, studentId: string, formData: FormData): Promise<void> {
+  const by = str(formData.get("verifiedById")) || null;
+  await prisma.studentRequirementLog.update({ where: { id: logId }, data: { verifiedById: by, verifiedAt: by ? new Date() : null } });
+  revalidatePath(`/students/${studentId}`);
+}
+/** Per-course design targets against the requirement set by the END of the course, by rule key (blank = auto-paced). */
+export async function saveCourseRequirementPlan(courseId: string, programId: string, formData: FormData): Promise<void> {
+  const plan: Record<string, number> = {};
+  for (const [k, v] of formData.entries()) if (k.startsWith("target_")) { const n = str(v); if (n !== "") plan[k.slice(7)] = Math.max(0, Math.round(numOr(n, 0))); }
+  await prisma.course.update({ where: { id: courseId }, data: { requirementPlan: JSON.stringify(plan) } });
+  revalidatePath(`/programs/${programId}/structure`); revalidatePath("/programs/[id]/offerings/[cohortId]", "page");
+}
+
 // ── Requirement sets (what completion requires) ───────────────────────────────
 export async function updateRequirementSet(setId: string, formData: FormData): Promise<void> {
   const set = await prisma.clinicalRequirementSet.update({ where: { id: setId }, data: { verified: formData.get("verified") != null, edition: str(formData.get("edition")) || null, summary: str(formData.get("summary")) || null, notes: str(formData.get("notes")) || null, sourceUrl: str(formData.get("sourceUrl")) || null }, select: { familyId: true } });

@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords } from "./seed-roster";
+import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
@@ -1364,6 +1364,7 @@ async function main() {
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
   console.log("learner records:", await seedLearnerRecords(prisma, sandhills.id));
+  console.log("requirement logs:", await seedRequirementLogs(prisma, sandhills.id));
   // Stage actuals read from the records above.
   { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
 

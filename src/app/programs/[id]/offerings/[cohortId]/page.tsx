@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getCapacityModel, getOfferingStaffing, getOfferingLedger, getRotationBoard } from "@/lib/queries";
+import { getOffering, getCapacityModel, getOfferingStaffing, getOfferingLedger, getRotationBoard, getCohortRequirementProgress } from "@/lib/queries";
 import { RotationBoard } from "@/components/RotationBoard";
+import { CohortRequirementProgress } from "@/components/CohortRequirementProgress";
 import { OfferingLedger } from "@/components/OfferingLedger";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { AutoAssignButton } from "@/components/AutoAssignButton";
@@ -39,7 +40,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const [capModel, staffing, ledger, rotations] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null)]);
+  const [capModel, staffing, ledger, rotations, reqProgress] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null), getCohortRequirementProgress(params.cohortId)]);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -348,6 +349,20 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       )}
 
       {/* ── Clinical rotations: who is in which setting at which site, week by week ── */}
+      {/* ── Completion requirements: where every student stands, and what the cohort still needs from which sites ── */}
+      {reqProgress && reqProgress.sets.length > 0 && (
+        <div id="requirements" className="scroll-mt-16">
+          <Collapse
+            title="Completion requirements — the credentialing body's list"
+            sub={`${reqProgress.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")}: every student's standing on every rule, the experiences the cohort still needs, and the secured sites that provide them — the demand the rotation plan below is built to serve.`}
+            summary={<>{reqProgress.sets.map((x) => `${x.complete} of ${reqProgress.students} complete`).join(" · ")}</>}
+            defaultOpen
+          >
+            <CohortRequirementProgress data={reqProgress} base={`/programs/${program.id}/offerings/${params.cohortId}`} />
+          </Collapse>
+        </div>
+      )}
+
       {rotations && rotations.courses.length > 0 && (
         <div id="rotations">
           <Collapse

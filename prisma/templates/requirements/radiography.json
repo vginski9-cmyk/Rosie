@@ -1,110 +1,607 @@
 {
   "name": "ARRT radiography clinical competency requirements",
   "authority": "ARRT (credential) · JRCERT (program accreditation)",
-  "edition": "ARRT Radiography Didactic and Clinical Competency Requirements, 2022 edition (effective January 1, 2022) — starter content: verify against the current ARRT document before relying on counts",
+  "edition": "ARRT Radiography Didactic and Clinical Competency Requirements, effective March 1, 2027 (candidates completing after February 28, 2029 must use this list; earlier completers may use the 2022 list). Entered from ARRT's published change summary — confirm the elective count (16 vs 17), the section placement of the tube and line-placement procedures, and the simulation allowance against the PDF.",
   "kind": "competency",
-  "sourceUrl": "https://www.arrt.org/pages/earn-arrt-credentials/initial-requirements/education-requirements/didactic-and-clinical-competency-requirements",
-  "summary": "Every graduate must demonstrate competence, on patients, in the ARRT list: all 36 mandatory imaging procedures, 15 of the 34 electives (at least one from the Head section and at least two from the Fluoroscopy section, one of which must be an Upper GI series or a Contrast enema), and 10 general patient-care procedures. JRCERT does not set procedure counts; it requires the program to provide equitable clinical opportunities with documented supervision (direct until competency is achieved, indirect after; repeat exams under direct supervision) within each setting's approved clinical capacity — which is why every mandatory category below is mapped to the asset settings that can supply it and checked against the sites' assets.",
+  "sourceUrl": "https://www.arrt.org/pages/arrt-reference-documents/by-document-type/didactic-and-clinical-competency-requirements",
+  "summary": "Every graduate must demonstrate competence, on patients, in the ARRT list: all 35 mandatory imaging procedures, 17 of the elective imaging procedures (at least one from the Head section and at least two from the Fluoroscopy section, one of which must be an Upper GI series or a Contrast enema), and all 8 general patient-care procedures. Up to 10 procedures may be simulated when patients are unavailable; no pediatric procedure may be simulated, and every procedure is performed with the candidate physically present at the facility. JRCERT does not set procedure counts; it requires equitable clinical opportunities with documented supervision — direct until competency is achieved, indirect after, and direct for every repeat — within each setting's approved clinical capacity. Every item is mapped to the asset settings that can supply it and checked against the sites' assets and their confirmed provision.",
   "rules": [
-    { "key": "mandatory", "label": "Mandatory imaging procedures", "min": 36, "of": 36, "scope": "category != Patient care && mandatory" },
-    { "key": "elective", "label": "Elective imaging procedures", "min": 15, "of": 34, "scope": "!mandatory" },
-    { "key": "elective-head", "label": "Electives from the Head section", "min": 1, "scope": "electiveGroup == head" },
-    { "key": "elective-fluoro", "label": "Electives from the Fluoroscopy section", "min": 2, "scope": "electiveGroup == fluoro", "notes": "at least one must be an Upper GI series or a Contrast enema" },
-    { "key": "patient-care", "label": "General patient-care procedures", "min": 10, "of": 10, "scope": "category == Patient care" },
-    { "key": "simulation", "label": "Simulations", "notes": "ARRT permits a limited number of procedures to be simulated when patients are unavailable — see the current edition for the allowance per section" },
-    { "key": "supervision", "label": "Supervision (JRCERT)", "notes": "direct supervision until competency is documented, indirect after; repeat radiographs always under direct supervision; a student is never a substitute for staff" }
+    {
+      "key": "mandatory",
+      "label": "Mandatory imaging procedures",
+      "min": 35,
+      "of": 35,
+      "scope": "category != Patient care && mandatory"
+    },
+    {
+      "key": "elective",
+      "label": "Elective imaging procedures",
+      "min": 17,
+      "of": 38,
+      "scope": "!mandatory",
+      "notes": "ARRT's 2027 summary: required electives rose from 15 — confirm 16 or 17 in the PDF"
+    },
+    {
+      "key": "elective-head",
+      "label": "Electives from the Head section",
+      "min": 1,
+      "scope": "electiveGroup == head"
+    },
+    {
+      "key": "elective-fluoro",
+      "label": "Electives from the Fluoroscopy section",
+      "min": 2,
+      "scope": "electiveGroup == fluoro",
+      "anyOf": [
+        "Upper GI series",
+        "Contrast enema"
+      ],
+      "notes": "at least one must be an Upper GI series or a Contrast enema"
+    },
+    {
+      "key": "patient-care",
+      "label": "General patient-care procedures",
+      "min": 8,
+      "of": 8,
+      "scope": "category == Patient care"
+    },
+    {
+      "key": "simulation",
+      "label": "Simulations",
+      "max": 10,
+      "scope": "simulated",
+      "notes": "up to 10 procedures may be simulated; pediatric procedures may not be"
+    },
+    {
+      "key": "supervision",
+      "label": "Supervision (JRCERT)",
+      "notes": "direct supervision until competency is documented, indirect after; repeat radiographs always under direct supervision; a student is never a substitute for staff"
+    }
   ],
+  "definitions": {
+    "trauma": "modifications in positioning, tube angle or detector placement due to injury, with monitoring of the patient's condition",
+    "pediatric": "age 6 years or younger — all pediatric procedures are elective and may not be simulated",
+    "geriatric": "at least 65 years old and physically and/or cognitively impaired due to aging"
+  },
   "items": [
-    { "category": "Patient care", "name": "CPR / BLS certified", "mandatory": true, "settingCodes": "", "notes": "certification, not a clinical setting" },
-    { "category": "Patient care", "name": "Vital signs — blood pressure", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Vital signs — temperature", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Vital signs — pulse", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Vital signs — respiration", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Vital signs — pulse oximetry", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Sterile and medical aseptic technique", "mandatory": true, "settingCodes": "GEN,OR,FLUORO" },
-    { "category": "Patient care", "name": "Venipuncture", "mandatory": true, "settingCodes": "CT,FLUORO,GEN", "notes": "often met in CT / contrast rooms" },
-    { "category": "Patient care", "name": "Transfer of patient", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Patient care", "name": "Care of patient medical equipment (oxygen, IV tubing …)", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-
-    { "category": "Chest & thorax", "name": "Chest routine (PA/AP and lateral)", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Chest & thorax", "name": "Chest AP (wheelchair or stretcher)", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Chest & thorax", "name": "Ribs", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Chest & thorax", "name": "Chest lateral decubitus", "mandatory": false, "electiveGroup": "chest", "settingCodes": "GEN,ED,PORT" },
-    { "category": "Chest & thorax", "name": "Sternum", "mandatory": false, "electiveGroup": "chest", "settingCodes": "GEN" },
-    { "category": "Chest & thorax", "name": "Upper airway (soft-tissue neck)", "mandatory": false, "electiveGroup": "chest", "settingCodes": "GEN,ED" },
-    { "category": "Chest & thorax", "name": "Sternoclavicular joints", "mandatory": false, "electiveGroup": "chest", "settingCodes": "GEN" },
-
-    { "category": "Abdomen", "name": "Abdomen supine (KUB)", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Abdomen", "name": "Abdomen upright", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Abdomen", "name": "Abdomen decubitus", "mandatory": false, "electiveGroup": "abdomen", "settingCodes": "GEN,ED,PORT" },
-    { "category": "Abdomen", "name": "Intravenous urography", "mandatory": false, "electiveGroup": "abdomen", "settingCodes": "GEN,FLUORO" },
-
-    { "category": "Upper extremity", "name": "Finger or thumb", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Hand", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Wrist", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Forearm", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Elbow", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Humerus", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Shoulder", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Trauma: shoulder (scapular Y, transthoracic or axial)", "mandatory": true, "settingCodes": "ED,GEN" },
-    { "category": "Upper extremity", "name": "Trauma: upper extremity (non-shoulder)", "mandatory": true, "settingCodes": "ED,GEN" },
-    { "category": "Upper extremity", "name": "Scapula", "mandatory": false, "electiveGroup": "upper", "settingCodes": "GEN,ED" },
-    { "category": "Upper extremity", "name": "Acromioclavicular joints", "mandatory": false, "electiveGroup": "upper", "settingCodes": "GEN,ED" },
-
-    { "category": "Lower extremity", "name": "Foot", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Ankle", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Knee", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Tibia–fibula", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Femur", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Trauma: lower extremity", "mandatory": true, "settingCodes": "ED,GEN" },
-    { "category": "Lower extremity", "name": "Patella", "mandatory": false, "electiveGroup": "lower", "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Calcaneus (os calcis)", "mandatory": false, "electiveGroup": "lower", "settingCodes": "GEN,ED" },
-    { "category": "Lower extremity", "name": "Toes", "mandatory": false, "electiveGroup": "lower", "settingCodes": "GEN,ED" },
-
-    { "category": "Head", "name": "Skull", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Facial bones", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Mandible", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Zygomatic arches", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Orbits", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Nasal bones", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN,ED" },
-    { "category": "Head", "name": "Paranasal sinuses", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN" },
-    { "category": "Head", "name": "Temporomandibular joints", "mandatory": false, "electiveGroup": "head", "settingCodes": "GEN" },
-
-    { "category": "Spine & pelvis", "name": "Cervical spine", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Spine & pelvis", "name": "Thoracic spine", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Spine & pelvis", "name": "Lumbar spine", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Spine & pelvis", "name": "Pelvis", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Spine & pelvis", "name": "Hip", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Spine & pelvis", "name": "Cross-table lateral hip", "mandatory": true, "settingCodes": "ED,GEN,PORT" },
-    { "category": "Spine & pelvis", "name": "Trauma: cervical spine (cross-table lateral)", "mandatory": true, "settingCodes": "ED,PORT" },
-    { "category": "Spine & pelvis", "name": "Scoliosis series", "mandatory": false, "electiveGroup": "spine", "settingCodes": "GEN" },
-    { "category": "Spine & pelvis", "name": "Sacroiliac joints", "mandatory": false, "electiveGroup": "spine", "settingCodes": "GEN" },
-    { "category": "Spine & pelvis", "name": "Sacrum and/or coccyx", "mandatory": false, "electiveGroup": "spine", "settingCodes": "GEN" },
-
-    { "category": "Mobile", "name": "Mobile: chest", "mandatory": true, "settingCodes": "PORT" },
-    { "category": "Mobile", "name": "Mobile: abdomen", "mandatory": true, "settingCodes": "PORT" },
-    { "category": "Mobile", "name": "Mobile: orthopedic", "mandatory": true, "settingCodes": "PORT" },
-
-    { "category": "Surgical", "name": "C-arm procedure (requiring manipulation to obtain more than one projection)", "mandatory": true, "settingCodes": "OR" },
-
-    { "category": "Fluoroscopy", "name": "Upper GI series (single or double contrast)", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO", "notes": "one of the two required fluoro electives must be this or a contrast enema" },
-    { "category": "Fluoroscopy", "name": "Contrast enema (single or double contrast)", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO", "notes": "one of the two required fluoro electives must be this or an upper GI series" },
-    { "category": "Fluoroscopy", "name": "Small bowel series", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-    { "category": "Fluoroscopy", "name": "Esophagus (dynamic or static)", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-    { "category": "Fluoroscopy", "name": "Cystography / cystourethrography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-    { "category": "Fluoroscopy", "name": "ERCP", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO,OR" },
-    { "category": "Fluoroscopy", "name": "Myelography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-    { "category": "Fluoroscopy", "name": "Arthrography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-    { "category": "Fluoroscopy", "name": "Hysterosalpingography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
-
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: chest routine", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: upper extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: lower extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: abdomen", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: mobile study", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "PORT" },
-
-    { "category": "Geriatric (65+, physically or cognitively impaired)", "name": "Geriatric: chest routine", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
-    { "category": "Geriatric (65+, physically or cognitively impaired)", "name": "Geriatric: upper extremity", "mandatory": true, "settingCodes": "GEN,ED" },
-    { "category": "Geriatric (65+, physically or cognitively impaired)", "name": "Geriatric: lower extremity", "mandatory": true, "settingCodes": "GEN,ED" }
+    {
+      "category": "Patient care",
+      "name": "BLS or ACLS certified",
+      "mandatory": true,
+      "settingCodes": "",
+      "notes": "certification — not a clinical setting"
+    },
+    {
+      "category": "Patient care",
+      "name": "Vital signs — blood pressure",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Patient care",
+      "name": "Vital signs — pulse",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Patient care",
+      "name": "Vital signs — respiration",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Patient care",
+      "name": "Vital signs — pulse oximetry",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Patient care",
+      "name": "Sterile and medical aseptic technique",
+      "mandatory": true,
+      "settingCodes": "GEN,OR,FLUORO"
+    },
+    {
+      "category": "Patient care",
+      "name": "Transfer of patient",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Patient care",
+      "name": "Care of patient medical equipment (oxygen, IV tubing …)",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Chest routine (PA/AP and lateral)",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Chest AP (wheelchair or stretcher)",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Ribs",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Chest lateral decubitus",
+      "mandatory": false,
+      "settingCodes": "GEN,ED,PORT",
+      "electiveGroup": "chest"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Sternum",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "chest"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Upper airway (soft-tissue neck)",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "chest"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Sternoclavicular joints",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "chest"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Foreign body (airway or ingested)",
+      "mandatory": false,
+      "settingCodes": "GEN,ED,PORT",
+      "electiveGroup": "chest",
+      "notes": "new in the 2027 edition"
+    },
+    {
+      "category": "Chest & thorax",
+      "name": "Line placement with C-arm (e.g., PICC)",
+      "mandatory": false,
+      "settingCodes": "OR,FLUORO",
+      "electiveGroup": "chest",
+      "notes": "new in the 2027 edition"
+    },
+    {
+      "category": "Abdomen",
+      "name": "Abdomen supine (KUB)",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Abdomen",
+      "name": "Abdomen upright",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Abdomen",
+      "name": "Abdomen decubitus",
+      "mandatory": false,
+      "settingCodes": "GEN,ED,PORT",
+      "electiveGroup": "abdomen"
+    },
+    {
+      "category": "Abdomen",
+      "name": "Nasogastric / enteric or orogastric / enteric tube placement (e.g., Dobhoff)",
+      "mandatory": false,
+      "settingCodes": "GEN,PORT,FLUORO",
+      "electiveGroup": "abdomen",
+      "notes": "new in the 2027 edition; intravenous urography was removed"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Finger or thumb",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Hand",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Wrist",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Forearm",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Elbow",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Humerus",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Shoulder",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Trauma: shoulder (scapular Y, transthoracic or axial)",
+      "mandatory": true,
+      "settingCodes": "ED,GEN",
+      "notes": "trauma = modifications in positioning, tube angle or detector placement due to injury, with monitoring of the patient"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Trauma: upper extremity (non-shoulder)",
+      "mandatory": true,
+      "settingCodes": "ED,GEN"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Scapula",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "upper"
+    },
+    {
+      "category": "Upper extremity",
+      "name": "Acromioclavicular joints",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "upper"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Foot",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Ankle",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Knee",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Tibia–fibula",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Femur",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Trauma: lower extremity",
+      "mandatory": true,
+      "settingCodes": "ED,GEN"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Patella",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "lower"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Calcaneus (os calcis)",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "lower"
+    },
+    {
+      "category": "Lower extremity",
+      "name": "Toes",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "lower"
+    },
+    {
+      "category": "Head",
+      "name": "Skull",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Head",
+      "name": "Facial bones",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Mandible",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Zygomatic arches",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Orbits",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Nasal bones",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Paranasal sinuses",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Head",
+      "name": "Temporomandibular joints",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "head"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Cervical spine",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Thoracic spine",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Lumbar spine",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Pelvis",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Hip",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Cross-table lateral hip",
+      "mandatory": true,
+      "settingCodes": "ED,GEN,PORT"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Trauma: cervical spine (cross-table lateral)",
+      "mandatory": true,
+      "settingCodes": "ED,PORT"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Thoracolumbar spine",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "spine",
+      "notes": "new in the 2027 edition"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Scoliosis series",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "spine"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Sacroiliac joints",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "spine"
+    },
+    {
+      "category": "Spine & pelvis",
+      "name": "Sacrum and/or coccyx",
+      "mandatory": false,
+      "settingCodes": "GEN",
+      "electiveGroup": "spine"
+    },
+    {
+      "category": "Mobile",
+      "name": "Mobile: chest",
+      "mandatory": true,
+      "settingCodes": "PORT"
+    },
+    {
+      "category": "Mobile",
+      "name": "Mobile: abdomen",
+      "mandatory": true,
+      "settingCodes": "PORT"
+    },
+    {
+      "category": "Mobile",
+      "name": "Mobile: orthopedic",
+      "mandatory": true,
+      "settingCodes": "PORT"
+    },
+    {
+      "category": "Surgical",
+      "name": "C-arm procedure (requiring manipulation to obtain more than one projection)",
+      "mandatory": true,
+      "settingCodes": "OR"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Upper GI series (single or double contrast)",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro",
+      "notes": "one of the two required fluoroscopy electives must be this or a contrast enema"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Contrast enema (single or double contrast)",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro",
+      "notes": "one of the two required fluoroscopy electives must be this or an upper GI series"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Small bowel series",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Esophagus (dynamic or static)",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Cystography / cystourethrography",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "ERCP",
+      "mandatory": false,
+      "settingCodes": "FLUORO,OR",
+      "electiveGroup": "fluoro"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Myelography / lumbar puncture / epidural injections",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro",
+      "notes": "renamed in the 2027 edition"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Arthrography / joint injection / aspiration",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro",
+      "notes": "renamed in the 2027 edition"
+    },
+    {
+      "category": "Fluoroscopy",
+      "name": "Hysterosalpingography",
+      "mandatory": false,
+      "settingCodes": "FLUORO",
+      "electiveGroup": "fluoro"
+    },
+    {
+      "category": "Pediatric (age 6 or younger)",
+      "name": "Pediatric: chest routine",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "pediatric",
+      "notes": "elective in the 2027 edition (mandatory before) — may not be simulated"
+    },
+    {
+      "category": "Pediatric (age 6 or younger)",
+      "name": "Pediatric: upper extremity",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "pediatric",
+      "notes": "may not be simulated"
+    },
+    {
+      "category": "Pediatric (age 6 or younger)",
+      "name": "Pediatric: lower extremity",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "pediatric",
+      "notes": "may not be simulated"
+    },
+    {
+      "category": "Pediatric (age 6 or younger)",
+      "name": "Pediatric: abdomen",
+      "mandatory": false,
+      "settingCodes": "GEN,ED",
+      "electiveGroup": "pediatric",
+      "notes": "may not be simulated"
+    },
+    {
+      "category": "Pediatric (age 6 or younger)",
+      "name": "Pediatric: mobile study",
+      "mandatory": false,
+      "settingCodes": "PORT",
+      "electiveGroup": "pediatric",
+      "notes": "may not be simulated"
+    },
+    {
+      "category": "Geriatric (65+, physically or cognitively impaired)",
+      "name": "Geriatric: chest routine",
+      "mandatory": true,
+      "settingCodes": "GEN,ED,PORT"
+    },
+    {
+      "category": "Geriatric (65+, physically or cognitively impaired)",
+      "name": "Geriatric: upper extremity",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    },
+    {
+      "category": "Geriatric (65+, physically or cognitively impaired)",
+      "name": "Geriatric: lower extremity",
+      "mandatory": true,
+      "settingCodes": "GEN,ED"
+    }
   ]
 }

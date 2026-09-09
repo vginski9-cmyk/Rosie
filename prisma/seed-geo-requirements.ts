@@ -45,8 +45,8 @@ export async function seedRequirementSets(prisma: PrismaClient) {
   for (const f of families) {
     const t = files.find((x) => x.match.test(f.name));
     if (!t) continue;
-    const j = JSON.parse(readFileSync(join(__dirname, "templates", "requirements", t.file), "utf8")) as { name: string; authority: string; edition: string; kind: string; sourceUrl: string; summary: string; rules: unknown[]; items: { category: string; name: string; mandatory: boolean; electiveGroup?: string; minCount?: number; role?: string; settingCodes: string; notes?: string }[] };
-    const set = await prisma.clinicalRequirementSet.create({ data: { familyId: f.id, name: j.name, authority: j.authority, edition: j.edition, kind: j.kind, sourceUrl: j.sourceUrl, summary: j.summary, rules: JSON.stringify(j.rules), verified: false } });
+    const j = JSON.parse(readFileSync(join(__dirname, "templates", "requirements", t.file), "utf8")) as { name: string; authority: string; edition: string; kind: string; sourceUrl: string; summary: string; rules: unknown[]; definitions?: Record<string, string>; items: { category: string; name: string; mandatory: boolean; electiveGroup?: string; minCount?: number; role?: string; settingCodes: string; notes?: string }[] };
+    const set = await prisma.clinicalRequirementSet.create({ data: { familyId: f.id, name: j.name, authority: j.authority, edition: j.edition, kind: j.kind, sourceUrl: j.sourceUrl, summary: j.summary, rules: JSON.stringify(j.rules), definitions: JSON.stringify(j.definitions ?? {}), verified: false } });
     await prisma.clinicalRequirementItem.createMany({ data: j.items.map((it, i) => ({ setId: set.id, category: it.category, name: it.name, mandatory: it.mandatory, electiveGroup: it.electiveGroup ?? null, minCount: it.minCount ?? null, role: it.role ?? null, settingCodes: it.settingCodes, notes: it.notes ?? null, sortOrder: i })) });
     sets++; items += j.items.length;
   }

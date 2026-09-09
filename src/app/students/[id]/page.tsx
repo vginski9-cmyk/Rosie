@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getStudent, getProgramSessionPlan, getProgramCohortsLite, getInstitutionEmployersLite, getProgramTermsLite, getStudentAssignments } from "@/lib/queries";
+import { getStudent, getProgramSessionPlan, getProgramCohortsLite, getInstitutionEmployersLite, getProgramTermsLite, getStudentAssignments, getStudentRequirementProgress } from "@/lib/queries";
 import { updateStudentEnrollment, createPlacement, updatePlacementStatus, deletePlacement, updateStudentProfile } from "@/lib/actions";
 import { StudentAssignments } from "@/components/StudentAssignments";
+import { RequirementLog } from "@/components/RequirementLog";
 import { SEX, RACE_ETHNICITY, RESIDENCY, PRIOR_EDUCATION, EMPLOYMENT_STATUS, WITHDRAWAL_REASON, NC_COUNTIES, ageOn } from "@/lib/learners";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { fmt, dec } from "@/lib/format";
@@ -31,11 +32,12 @@ const GRADE_COLOR = (status: string) =>
 export default async function StudentPage({ params }: { params: { id: string } }) {
   const student = await getStudent(params.id);
   if (!student) notFound();
-  const [cohorts, programTerms, employers, assignments] = await Promise.all([
+  const [cohorts, programTerms, employers, assignments, requirements] = await Promise.all([
     getProgramCohortsLite(student.programId),
     getProgramTermsLite(student.programId),
     getInstitutionEmployersLite(student.program.institutionId),
     getStudentAssignments(student.id),
+    getStudentRequirementProgress(student.id),
   ]);
   const todayIso = new Date().toISOString().slice(0, 10);
   const iso = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
@@ -125,6 +127,15 @@ export default async function StudentPage({ params }: { params: { id: string } }
           <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
         </form>
       </section>
+
+      {/* Completion requirements — the credentialing body's list, logged and scored */}
+      {requirements && requirements.sets.length > 0 && (
+        <section id="requirements" className="scroll-mt-16 rounded-xl border border-rose-200 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-slate-700">Completion requirements — {requirements.sets.map((s) => s.authority.split(" · ")[0]).join(" · ")} <span className="font-normal text-slate-400">— what {requirements.family.name} graduates must have logged, where this student stands, and where the rest can be had</span></h2>
+          <p className="mb-3 text-[11px] text-slate-400">Hours are the ledger below; this is the list. Every entry names the experience, the shift and site it happened on, the preceptor, the role or outcome, and whether it was simulated — and the rules are scored exactly as the credentialing body counts them.</p>
+          <RequirementLog data={requirements} />
+        </section>
+      )}
 
       {/* Demographic profile — every field coded so the analytics aggregate cleanly */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">

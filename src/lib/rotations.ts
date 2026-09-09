@@ -84,6 +84,11 @@ export interface RotationInput {
   /** studentId|date → area code the coordinator pinned. */
   pins: Record<string, string>;
   options: RotationPolicy;
+  /** The credentialing body's list as demand: per student, per setting, how many required experiences
+   *  (electives weighted lower) the student still lacks that this setting can supply. */
+  needs?: Record<string, Record<string, number>>;
+  /** Per student, per site, how many of the student's missing required experiences that site provides. */
+  siteNeeds?: Record<string, Record<string, number>>;
 }
 export interface Placement { studentId: string; sessionId: string; date: string; block: ShiftBlock; hours: number; areaCode: string; settingCode: string; employerId: string; assetId: string; away: boolean; pinned: boolean; reason: string }
 export interface Unplaced { studentId: string; sessionId: string; date: string; reason: string }
@@ -199,7 +204,10 @@ export function buildRotationPlan(input: RotationInput): RotationPlan {
     if (input.options.skipHolidays && shift.holiday) { for (const st of input.students) unplaced.push({ studentId: st.id, sessionId: shift.sessionId, date: shift.date, reason: `holiday — ${shift.holiday}` }); return; }
     const left = hoursLeftAfter(i);
     // Urgency: how far behind a student is on their most-behind area, relative to the hours still ahead.
-    const urgency = (sid: string) => { let u = 0; for (const a of areas) { const need = a.hours - get(sid, a.code); if (need > 0) u = Math.max(u, need / Math.max(shift.hours, left + shift.hours)); } return u; };
+    // Urgency: how far behind a student is on their most-behind area, relative to the hours still ahead —
+    // plus a nudge for students with the most required experiences still open, so they get the scarce seats first.
+    const openNeeds = (sid: string) => Object.values(input.needs?.[sid] ?? {}).reduce((n, v) => n + v, 0);
+    const urgency = (sid: string) => { let u = 0; for (const a of areas) { const need = a.hours - get(sid, a.code); if (need > 0) u = Math.max(u, need / Math.max(shift.hours, left + shift.hours)); } return u + Math.min(0.5, 0.05 * openNeeds(sid)); };
     const order = [...input.students].sort((x, y) => {
       const px = input.pins[key(x.id, shift.date)], py = input.pins[key(y.id, shift.date)];
       if (!!px !== !!py) return px ? -1 : 1; // pinned first — they must get their seat
@@ -223,8 +231,11 @@ export function buildRotationPlan(input: RotationInput): RotationPlan {
         // Then every area — the primary one included — by how much of it is still owed, so out-rotations
         // spread across the term instead of everyone rushing them first and flooding the primary rooms at the end;
         // on a tie the scarcer setting goes first.
-        const ranked = deficits.map((d) => ({ ...d, ratio: d.need / Math.max(1e-9, d.a.hours), seats: d.a.settingCodes.reduce((n, c) => n + S.capacityOf(c, shift.date, shift.block), 0) })).sort((x, y) => y.ratio - x.ratio || x.seats - y.seats);
-        for (const d of ranked) if (!cands.some((c) => c.area?.code === d.a.code)) cands.push({ area: d.a, settings: isPrimary(d.a) ? [primary!, ...d.a.settingCodes.filter((c) => c !== primary)] : d.a.settingCodes, why: isPrimary(d.a) ? "primary experience" : `${d.a.code} short ${Math.round(d.need)} h` });
+        // A setting that can supply competencies or cases the student still lacks pulls its area forward:
+        // hours are the ledger, but the list is what graduates them.
+        const needOf = (a: AreaNeed) => a.settingCodes.reduce((n, c) => n + (input.needs?.[st.id]?.[c] ?? 0), 0);
+        const ranked = deficits.map((d) => ({ ...d, ratio: d.need / Math.max(1e-9, d.a.hours), need2: needOf(d.a), seats: d.a.settingCodes.reduce((n, c) => n + S.capacityOf(c, shift.date, shift.block), 0) })).sort((x, y) => (y.ratio + Math.min(0.5, 0.1 * y.need2)) - (x.ratio + Math.min(0.5, 0.1 * x.need2)) || x.seats - y.seats);
+        for (const d of ranked) if (!cands.some((c) => c.area?.code === d.a.code)) cands.push({ area: d.a, settings: isPrimary(d.a) ? [primary!, ...d.a.settingCodes.filter((c) => c !== primary)] : d.a.settingCodes, why: (isPrimary(d.a) ? "primary experience" : `${d.a.code} short ${Math.round(d.need)} h`) + (d.need2 >= 1 ? ` · ${Math.round(d.need2)} required experience${Math.round(d.need2) === 1 ? "" : "s"} still open here` : "") });
         const prim = areas.find(isPrimary);
         if (prim && !cands.some((c) => c.area?.code === prim.code)) cands.push({ area: prim, settings: [primary!, ...prim.settingCodes.filter((c) => c !== primary)], why: "primary experience" });
         else if (!prim && primary) cands.push({ area: null, settings: [primary], why: "primary experience" });
@@ -239,14 +250,17 @@ export function buildRotationPlan(input: RotationInput): RotationPlan {
           // Sites: home first when it has the setting, then allowed sites by agreement then least loaded.
           const withSetting = S.sitesWith(setting);
           const homeFirst = input.options.keepHome && st.homeEmployerId && withSetting.includes(st.homeEmployerId) ? [st.homeEmployerId] : [];
-          const others = withSetting.filter((e) => e !== st.homeEmployerId).sort((a, b) => (S.siteById.get(a)?.agreementRank ?? 3) - (S.siteById.get(b)?.agreementRank ?? 3) || S.loadOf(a, shift.date, shift.block) - S.loadOf(b, shift.date, shift.block) || a.localeCompare(b));
+          // Among allowed sites: the one that provides the most of what this student still lacks, then agreement, then load.
+          const provides = (e: string) => input.siteNeeds?.[st.id]?.[e] ?? 0;
+          const others = withSetting.filter((e) => e !== st.homeEmployerId).sort((a, b) => provides(b) - provides(a) || (S.siteById.get(a)?.agreementRank ?? 3) - (S.siteById.get(b)?.agreementRank ?? 3) || S.loadOf(a, shift.date, shift.block) - S.loadOf(b, shift.date, shift.block) || a.localeCompare(b));
           for (const employerId of [...homeFirst, ...others]) {
             const assetId = S.take(employerId, setting, shift.date, shift.block);
             if (!assetId) continue;
             const areaCode = c.area?.code ?? areaOf(setting);
             add(st.id, areaCode, shift.hours);
             current.set(st.id, areaCode);
-            placements.push({ studentId: st.id, sessionId: shift.sessionId, date: shift.date, block: shift.block, hours: shift.hours, areaCode, settingCode: setting, employerId, assetId, away: employerId !== st.homeEmployerId, pinned: !!pin, reason: c.why + (employerId !== st.homeEmployerId ? ` · away at ${S.siteById.get(employerId)?.name ?? "another site"}` : "") });
+            const prov = input.siteNeeds?.[st.id]?.[employerId] ?? 0;
+            placements.push({ studentId: st.id, sessionId: shift.sessionId, date: shift.date, block: shift.block, hours: shift.hours, areaCode, settingCode: setting, employerId, assetId, away: employerId !== st.homeEmployerId, pinned: !!pin, reason: c.why + (employerId !== st.homeEmployerId ? ` · away at ${S.siteById.get(employerId)?.name ?? "another site"}` : "") + (prov > 0 && employerId !== st.homeEmployerId ? ` — provides ${prov} of the required experiences still missing` : "") });
             done = true; break;
           }
           if (done) break;

@@ -417,3 +417,41 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
   }
   return { offerings: cohorts.length, courseRecords: records, attended, missed, shiftsLogged: logged };
 }
+
+
+/** Demo competency / case log: for every completed clinical shift, one or two entries against requirement
+ *  items whose settings match the shift's setting, at the shift's site with the shift's preceptor — so the
+ *  standing pages have something to show. Deterministic and deliberately partial (a running cohort is
+ *  never done); surgical cases carry a role (mostly First Scrub, some Second Scrub, a few observations). */
+export async function seedRequirementLogs(prisma: PrismaClient, institutionId: string) {
+  const r = rng(20260910);
+  const fams = await prisma.programFamily.findMany({ where: { institutionId, requirementSets: { some: {} } }, select: { id: true, requirementSets: { select: { kind: true, items: { select: { id: true, category: true, mandatory: true, settingCodes: true, role: true } } } } } });
+  let entries = 0;
+  for (const f of fams) {
+    const set = f.requirementSets[0]; if (!set) continue;
+    const items = set.items.map((i) => ({ ...i, settings: i.settingCodes.split(",").map((x) => x.trim()).filter(Boolean) }));
+    const students = await prisma.student.findMany({ where: { program: { familyId: f.id }, cohortId: { not: null }, status: "enrolled" }, select: { id: true, cohortId: true, shifts: { where: { status: "completed" }, orderBy: { loggedAt: "asc" }, select: { id: true, loggedAt: true, preceptorId: true, settingCode: true, sectionIndex: true, asset: { select: { employerId: true } }, session: { select: { courseId: true } } } } } });
+    const meetings = await prisma.meetingPattern.findMany({ where: { kind: "CLINICAL", cohortId: { in: [...new Set(students.map((x) => x.cohortId!))] } }, select: { cohortId: true, courseId: true, sectionIndex: true, employerId: true } });
+    const siteOf = (cohortId: string, courseId: string, sectionIndex: number) => meetings.find((m) => m.cohortId === cohortId && m.courseId === courseId && m.sectionIndex === sectionIndex)?.employerId ?? null;
+    for (const st of students) {
+      const done = new Set<string>();
+      for (const sh of st.shifts) {
+        const setting = sh.settingCode; if (!setting || !sh.loggedAt) continue;
+        const pool = items.filter((i) => i.settings.includes(setting) && (set.kind === "cases" || !done.has(i.id)));
+        if (!pool.length) continue;
+        const n = set.kind === "cases" ? 1 : r() < 0.6 ? 2 : 1;
+        for (let k = 0; k < n; k++) {
+          // required first, then electives; a little randomness so students differ
+          const ranked = [...pool].sort((a, b) => Number(b.mandatory) - Number(a.mandatory) || r() - 0.5);
+          const pick = ranked[Math.floor(r() * Math.min(3, ranked.length))]; if (!pick) break;
+          const cases = set.kind === "cases";
+          const role = cases ? (r() < 0.7 ? "first scrub" : r() < 0.85 ? "second scrub" : "observation") : null;
+          await prisma.studentRequirementLog.create({ data: { studentId: st.id, itemId: pick.id, shiftId: sh.id, employerId: sh.asset?.employerId ?? siteOf(st.cohortId!, sh.session.courseId, sh.sectionIndex), preceptorId: sh.preceptorId, date: sh.loggedAt, outcome: !cases && r() < 0.1 ? "attempted" : "competent", role, simulated: !cases && r() < 0.05 && !/pediatric/i.test(pick.category), count: cases ? 1 + Math.floor(r() * 2) : 1, flags: /geriatric/i.test(pick.category) ? "geriatric" : /pediatric/i.test(pick.category) ? "pediatric" : /trauma/i.test(pick.category) ? "trauma" : "", verifiedById: r() < 0.8 ? sh.preceptorId : null, verifiedAt: r() < 0.8 ? sh.loggedAt : null, notes: "demo entry derived from a completed shift" } });
+          if (!cases) done.add(pick.id);
+          entries++;
+        }
+      }
+    }
+  }
+  return { entries };
+}

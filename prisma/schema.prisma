@@ -467,6 +467,10 @@ model Course {
   semesterOffered    String? // Fall | Spring | Summer | All
   description        String?
   requisites         String? // prerequisite / corequisite narrative
+  /// JSON design targets against the family's requirement set by the END of this course, by rule key
+  /// (e.g. {"mandatory": 12, "elective": 4} for radiography; {"total": 40, "general-fs": 10} for surgical
+  /// technology). Blank = paced evenly across the clinical courses.
+  requirementPlan    String  @default("{}")
   courseType         String? // CORE | GENED | SUPPORT — for flow-chart coloring
 
   sessions Session[]
@@ -825,6 +829,8 @@ model Person {
   meetings      MeetingPattern[]
   shiftMoves    ShiftMove[]
   preceptedShifts StudentShift[] @relation("shiftPreceptor")
+  preceptedLogs   StudentRequirementLog[] @relation("logPreceptor")
+  verifiedLogs    StudentRequirementLog[] @relation("logVerifier")
 
   @@index([institutionId])
 }
@@ -1222,6 +1228,7 @@ model Employer {
   familySites FamilySite[]
   allocations SettingAllocation[]
   provisions SiteRequirementProvision[]
+  requirementLogs StudentRequirementLog[]
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
@@ -1572,6 +1579,7 @@ model Student {
 
   sections    StudentSection[]
   shifts      StudentShift[]
+  requirementLogs StudentRequirementLog[]
   grades      StudentCourseGrade[]
   assessments StudentSkillAssessment[]
   absences    StudentAbsence[]
@@ -1627,6 +1635,8 @@ model StudentShift {
   /// Service area the coordinator pinned this shift to (the rotation planner keeps it there on every rebuild).
   pinnedArea   String?
   createdAt    DateTime @default(now())
+
+  requirementLogs StudentRequirementLog[]
 
   @@unique([studentId, cohortId, sessionId])
   @@index([cohortId, sessionId])
@@ -1789,6 +1799,8 @@ model ClinicalRequirementSet {
   /// Starter content from the public standard until the program verifies it against the current edition.
   verified   Boolean  @default(false)
   notes      String?
+  /// JSON: the body's own definitions (trauma, pediatric, geriatric; first / second scrub, observation).
+  definitions String  @default("{}")
   createdAt  DateTime @default(now())
 
   items ClinicalRequirementItem[]
@@ -1809,8 +1821,51 @@ model ClinicalRequirementItem {
   notes         String?
   sortOrder     Int      @default(0)
   provisions    SiteRequirementProvision[]
+  logs          StudentRequirementLog[]
 
   @@index([setId])
+}
+
+/// One student's logged experience against one requirement item — the ARRT competency
+/// or the surgical case — as the credentialing body counts it: when, where (site, and the
+/// shift it happened on), who precepted and verified it, the role (First / Second Scrub /
+/// Observation for a case log), whether it was simulated, and the outcome (competent, or
+/// an attempt that did not reach competency). This is what completion is measured from;
+/// hours are the ledger, these are the requirements.
+model StudentRequirementLog {
+  id           String @id @default(cuid())
+  studentId    String
+  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         ClinicalRequirementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  shiftId      String?
+  shift        StudentShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  employerId   String?
+  employer     Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  preceptorId  String?
+  preceptor    Person? @relation("logPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
+  date         DateTime
+  /// competent | attempted (competency sets) — case sets use role
+  outcome      String   @default("competent")
+  /// first scrub | second scrub | observation (case sets)
+  role         String?
+  simulated    Boolean  @default(false)
+  /// Cases logged in this entry (case sets); competencies are always 1.
+  count        Int      @default(1)
+  /// What was done — the procedure / projections / case (e.g. "lap chole", "AP & lat, wheelchair")
+  procedure    String?
+  /// csv flags the body cares about: pediatric, geriatric, trauma
+  flags        String   @default("")
+  verifiedById String?
+  verifiedBy   Person? @relation("logVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedAt   DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@index([studentId])
+  @@index([itemId])
+  @@index([employerId])
+  @@index([shiftId])
 }
 
 /// Whether ONE clinical site actually provides ONE required experience — the asset map at the

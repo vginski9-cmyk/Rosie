@@ -60,6 +60,7 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                 <div className="flex flex-wrap gap-1.5 text-[11px]">
                   {sc.gaps.length ? <span className="rounded-full bg-rose-100 px-2 py-0.5 font-medium text-rose-700">⚠ no secured site provides: {sc.gaps.slice(0, 5).join(", ")}{sc.gaps.length > 5 ? ` +${sc.gaps.length - 5}` : ""}</span> : <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700">✓ every required experience has a secured provider</span>}
                   {sc.unverified > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600" title="the only secured providers are inferred from assets — confirm on each site's setup page">{sc.unverified} rest on inference, unconfirmed</span>}
+                  {set.learners > 0 && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-800">{set.learnersComplete} of {set.learners} enrolled students complete · {Object.keys(set.demand).length} experiences still open for someone</span>}
                   {set.askedOnly.length > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">asked sites only: {set.askedOnly.join(", ")}</span>}
                 </div>
               </div>
@@ -104,7 +105,7 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                                           {ic.annualVolumeSecured != null && <span className="text-slate-500"> · ≈ {dec(ic.annualVolumeSecured)}/yr at secured sites</span>}
                                         </>}
                                       </td>
-                                      <td className="w-[7rem] py-1 text-right"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${v.tone}`}>{v.short}</span></td>
+                                      <td className="w-[9rem] py-1 text-right whitespace-nowrap">{set.learners > 0 && (set.demand[i.id] ?? 0) > 0 && <span className="mr-1 text-[10px] tabular-nums text-sky-800" title="enrolled students who have not logged it yet">{set.demand[i.id]} need it</span>}<span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${v.tone}`}>{v.short}</span></td>
                                     </tr>
                                   );
                                 })}

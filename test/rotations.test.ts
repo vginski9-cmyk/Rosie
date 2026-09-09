@@ -100,3 +100,21 @@ describe("when the primary rooms are full", () => {
     expect(plan.placements.some((p) => p.reason.startsWith("extra"))).toBe(true);
   });
 });
+
+describe("the credentialing body's list steers the plan", () => {
+  it("sends a student whose missing competencies are only provided at another site to that site when the setting is available there", () => {
+    const input = base();
+    input.assets = [asset("g1", "hosp", "GEN", 6), asset("e1", "hosp", "ED", 1), asset("p1", "hosp", "PORT", 1), asset("g3", "clinic", "GEN", 2), asset("f1", "clinic", "FLUORO", 1)];
+    input.areas = [{ code: "GEN", name: "General", settingCodes: ["GEN"], hours: 90 }, { code: "FLUORO", name: "Fluoroscopy", settingCodes: ["FLUORO"], hours: 15 }];
+    input.options = { ...input.options, keepHome: true };
+    // Student 1 still lacks four fluoro competencies the clinic provides; nobody else needs anything special.
+    input.needs = { st1: { FLUORO: 4 } };
+    input.siteNeeds = { st1: { clinic: 4 } };
+    const plan = buildRotationPlan(input);
+    const st1 = plan.placements.filter((p) => p.studentId === "st1");
+    expect(st1.some((p) => p.employerId === "clinic" && p.settingCode === "FLUORO")).toBe(true);
+    // The fluoro area comes first for st1 (need pulls it forward), and the reason says why.
+    expect(st1[0].settingCode).toBe("FLUORO");
+    expect(st1[0].reason).toContain("required experience");
+  });
+});
