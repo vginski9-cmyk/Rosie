@@ -658,6 +658,7 @@ export interface AssetInput {
   externalId?: string | null; settingCode: string; setting: string; assetType: string; assetNumber?: number; operatingRule?: string;
   days: string[]; blocks: { block: "Day" | "Evening" | "Night"; start: string; hours: number }[];
   serves?: string | null; learnersPerShift?: number; preceptorsPerShift?: number; dataSource?: string; notes?: string | null;
+  accreditorClass?: string | null;
 }
 const assetRowFrom = (d: AssetInput) => {
   const b = (name: "Day" | "Evening" | "Night") => d.blocks.find((x) => x.block === name);
@@ -672,6 +673,7 @@ const assetRowFrom = (d: AssetInput) => {
     hoursPerShift: b("Day")?.hours || b("Evening")?.hours || b("Night")?.hours || 8,
     serves: d.serves?.trim() || null, learnersPerShift: Math.max(0, Math.round(d.learnersPerShift ?? 1)), preceptorsPerShift: Math.max(0, Math.round(d.preceptorsPerShift ?? 1)),
     dataSource: d.dataSource || "ESTIMATE", notes: d.notes?.trim() || null,
+    accreditorClass: d.accreditorClass || null,
   };
 };
 
@@ -736,6 +738,36 @@ export async function updateClinicalAsset(assetId: string, employerId: string, f
 }
 export async function deleteClinicalAsset(assetId: string, employerId: string): Promise<void> {
   await prisma.clinicalAsset.delete({ where: { id: assetId } });
+  revalidateAssets(employerId);
+}
+
+// ── Accreditor recognition of clinical settings (JRCERT Form 1010R) ──────────
+/** The family's programmatic accreditation: accreditor, program number, accredited total capacity. */
+export async function updateFamilyAccreditation(familyId: string, formData: FormData): Promise<void> {
+  const cap = str(formData.get("accreditedCapacity"));
+  await prisma.programFamily.update({ where: { id: familyId }, data: {
+    accreditor: str(formData.get("accreditor")) || null, accreditorProgramNumber: str(formData.get("accreditorProgramNumber")) || null,
+    accreditedCapacity: cap === "" ? null : Math.max(0, Math.round(numOr(cap, 0))), accreditationNotes: str(formData.get("accreditationNotes")) || null,
+  } });
+  revalidatePath(`/families/${familyId}/clinical`); revalidatePath(`/families/${familyId}`);
+}
+/** One site's recognition for one family: status, approved / requested capacity, the human-resource count and the student hours it was counted for. */
+export async function updateSiteAccreditation(familyId: string, employerId: string, formData: FormData): Promise<void> {
+  const opt = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : Math.max(0, Math.round(numOr(v, 0))); };
+  const status = str(formData.get("accreditorStatus")) || "none";
+  const data = {
+    accreditorStatus: ["none", "requested", "recognized"].includes(status) ? status : "none",
+    approvedCapacity: opt("approvedCapacity"), requestedCapacity: opt("requestedCapacity"), qualifiedStaffOnShift: opt("qualifiedStaffOnShift"),
+    staffCountSource: ["VERIFIED", "ESTIMATE", "GAP"].includes(str(formData.get("staffCountSource"))) ? str(formData.get("staffCountSource")) : "ESTIMATE",
+    studentHoursWindow: str(formData.get("studentHoursWindow")) || null, accreditorNotes: str(formData.get("accreditorNotes")) || null, capacityUpdatedAt: new Date(),
+  };
+  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
+  revalidatePath(`/families/${familyId}/clinical`); revalidatePath(`/employers/${employerId}`);
+}
+/** How the accreditor counts one asset (override the derived class). */
+export async function setAssetAccreditorClass(assetId: string, employerId: string, formData: FormData): Promise<void> {
+  const v = str(formData.get("accreditorClass"));
+  await prisma.clinicalAsset.update({ where: { id: assetId }, data: { accreditorClass: v || null } });
   revalidateAssets(employerId);
 }
 

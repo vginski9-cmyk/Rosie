@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getFamilySupply } from "@/lib/queries";
+import { getFamilySupply, getAccreditorCapacity } from "@/lib/queries";
 import { SupplyMapBoard } from "@/components/SupplyMapBoard";
+import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,8 @@ export default async function FamilyClinicalPage({ params }: { params: { id: str
   const data = await getFamilySupply(params.id);
   if (!data) notFound();
   const year = new Date().getUTCFullYear() + 1;
+  const full = await getAccreditorCapacity(params.id);
+  const report = full && (full.family.accreditor || /radiograph|imaging/i.test(full.family.name)) ? full : null;
   return (
     <div className="space-y-6">
       <div>
@@ -22,6 +25,15 @@ export default async function FamilyClinicalPage({ params }: { params: { id: str
           {data.family.occupation ?? data.family.name}{data.family.soc ? ` (SOC ${data.family.soc})` : ""} at {data.family.institution}. The sites and physical assets that host this job&apos;s clinicals, each with its own shift structure: which days it runs, which shifts, when each starts and how long it lasts, and how many learners it takes. This is supply only — what each course needs is set in program design.
         </p>
       </div>
+      {report && (
+        <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div>
+            <h2 className="text-lg font-semibold">Clinical capacity as the accreditor counts it <span className="text-sm font-normal text-slate-400">— {report.family.accreditor ?? "JRCERT"} Form 1010R, site by site</span></h2>
+            <p className="max-w-4xl text-sm text-slate-500">The JRCERT sets each recognized clinical setting&apos;s capacity at the lower of two resources on its campus: radiographic + R&amp;F rooms plus mobile + C-arm units, and the qualified radiographers scheduled while students are on site. Rooms and units are counted from the asset map below; the staff count lives on each site&apos;s record. Approved capacity caps how many sections auto-assign places at a site at once, and any site the calendar loads beyond its approval — or uses without recognition — is flagged here before a request has to be filed.</p>
+          </div>
+          <AccreditorCapacity report={report} mode="family" />
+        </section>
+      )}
       <SupplyMapBoard family={data.family} settings={data.settings} sites={data.sites} overrides={data.overrides} organizations={data.organizations} year={year} />
     </div>
   );

@@ -12,21 +12,24 @@ export interface HostLite {
   capacity: Record<string, number>;
   /** 0 secured · 1 asked · 2 prospect · 3 none (the family's agreement, else the institution's). */
   rank: number;
+  /** The accreditor-approved clinical capacity for the family (students at any one time), when the site is recognized — caps the slots dealt to it. */
+  approvedCapacity?: number | null;
 }
 const RANK: Record<string, number> = { secured: 0, asked: 1, prospect: 2, none: 3, declined: 9 };
 
 export async function clinicalHostsFor(institutionId: string, familyId: string | null): Promise<{ hosts: HostLite[]; rotations: RotationCode[] }> {
   const [employers, familySites, rotationRows] = await Promise.all([
     prisma.employer.findMany({ where: { institutionId, status: "active" }, select: { id: true, name: true, agreementStatus: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true } } } }),
-    familyId ? prisma.familySite.findMany({ where: { familyId }, select: { employerId: true, agreementStatus: true } }) : Promise.resolve([] as { employerId: string; agreementStatus: string }[]),
+    familyId ? prisma.familySite.findMany({ where: { familyId }, select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true } }) : Promise.resolve([] as { employerId: string; agreementStatus: string; accreditorStatus: string; approvedCapacity: number | null }[]),
     prisma.rotationSetting.findMany({ where: { institutionId }, select: { rotationType: true, settingCode: true } }),
   ]);
   const famAgreement = new Map(familySites.map((f) => [f.employerId, f.agreementStatus]));
+  const famApproved = new Map(familySites.filter((f) => f.accreditorStatus === "recognized" && f.approvedCapacity != null).map((f) => [f.employerId, f.approvedCapacity!]));
   const hosts: HostLite[] = employers.filter((e) => e.assets.length).map((e) => {
     const capacity: Record<string, number> = {};
     for (const a of e.assets) capacity[a.settingCode] = (capacity[a.settingCode] ?? 0) + Math.max(0, a.learnersPerShift);
     const status = famAgreement.get(e.id) ?? e.agreementStatus ?? "none";
-    return { employerId: e.id, name: e.name, capacity, rank: RANK[status] ?? 3 };
+    return { employerId: e.id, name: e.name, capacity, rank: RANK[status] ?? 3, approvedCapacity: famApproved.get(e.id) ?? null };
   }).filter((h) => h.rank < 9);
   return { hosts, rotations: rotationRows.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode })) };
 }
@@ -52,10 +55,11 @@ export function hostsForSettings(hosts: HostLite[], settingCodes: string[]): Hos
 export function hostSlots(hosts: HostLite[], settingCodes: string[]): string[] {
   const want = new Set(settingCodes);
   const primary = settingCodes[0];
+  // A recognized site never takes more students at once than its accreditor approved, whatever its assets could host.
   const ranked = hostsForSettings(hosts, settingCodes).map((h) => ({
     id: h.employerId, tier: h.rank * 2 + (primary && (h.capacity[primary] ?? 0) > 0 ? 0 : 1),
-    left: Math.max(1, Math.round(Object.entries(h.capacity).filter(([code]) => want.has(code)).reduce((n, [, v]) => n + v, 0))),
-  }));
+    left: Math.min(h.approvedCapacity ?? Infinity, Math.max(1, Math.round(Object.entries(h.capacity).filter(([code]) => want.has(code)).reduce((n, [, v]) => n + v, 0)))),
+  })).filter((h) => h.left > 0);
   const out: string[] = [];
   for (const tier of [...new Set(ranked.map((r) => r.tier))].sort((a, b) => a - b)) {
     const pool = ranked.filter((r) => r.tier === tier);

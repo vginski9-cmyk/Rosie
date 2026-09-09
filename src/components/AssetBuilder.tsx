@@ -11,11 +11,12 @@ import React, { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { assetTotals, blocksOn, overrideIndex, overrideKey, isoRange, type AssetLite, type AssetDayOverride } from "@/lib/assetmap";
 import { saveClinicalAsset, duplicateClinicalAsset, deleteClinicalAsset, setAssetDays, setAssetDay, type AssetInput } from "@/lib/actions";
+import { accreditorClassOf, ACCREDITOR_CLASSES, ACCREDITOR_CLASS_LABEL } from "@/lib/jrcert";
 
 export interface SettingOption { code: string; name: string; assetType?: string }
 export interface BuilderAsset extends AssetLite { notes?: string | null; exceptions?: number }
 type Block = "Day" | "Evening" | "Night";
-interface Draft { externalId: string; settingCode: string; setting: string; assetType: string; assetNumber: number; days: string[]; blocks: Record<Block, { on: boolean; start: string; hours: number }>; serves: string; learnersPerShift: number; preceptorsPerShift: number; dataSource: string; notes: string }
+interface Draft { externalId: string; settingCode: string; setting: string; assetType: string; assetNumber: number; days: string[]; blocks: Record<Block, { on: boolean; start: string; hours: number }>; serves: string; learnersPerShift: number; preceptorsPerShift: number; dataSource: string; notes: string; accreditorClass: string }
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const BLOCKS: Block[] = ["Day", "Evening", "Night"];
@@ -35,9 +36,9 @@ const toDraft = (a: BuilderAsset): Draft => {
   const on = a.shiftBlocks.split(",").map((s) => s.trim());
   return { externalId: a.externalId ?? "", settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, days: a.days.split(",").map((s) => s.trim()).filter(Boolean),
     blocks: { Day: { on: on.includes("Day"), start: a.dayStart ?? "07:00", hours: a.dayHours ?? a.hoursPerShift }, Evening: { on: on.includes("Evening"), start: a.eveningStart ?? "15:00", hours: a.eveningHours ?? a.hoursPerShift }, Night: { on: on.includes("Night"), start: a.nightStart ?? "23:00", hours: a.nightHours ?? a.hoursPerShift } },
-    serves: a.serves ?? "", learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, notes: a.notes ?? "" };
+    serves: a.serves ?? "", learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, notes: a.notes ?? "", accreditorClass: a.accreditorClass ?? "" };
 };
-const toInput = (d: Draft): AssetInput => ({ externalId: d.externalId || null, settingCode: d.settingCode, setting: d.setting, assetType: d.assetType, assetNumber: d.assetNumber, days: d.days, blocks: BLOCKS.filter((b) => d.blocks[b].on).map((b) => ({ block: b, start: d.blocks[b].start, hours: d.blocks[b].hours })), serves: d.serves || null, learnersPerShift: d.learnersPerShift, preceptorsPerShift: d.preceptorsPerShift, dataSource: d.dataSource, notes: d.notes || null });
+const toInput = (d: Draft): AssetInput => ({ externalId: d.externalId || null, settingCode: d.settingCode, setting: d.setting, assetType: d.assetType, assetNumber: d.assetNumber, days: d.days, blocks: BLOCKS.filter((b) => d.blocks[b].on).map((b) => ({ block: b, start: d.blocks[b].start, hours: d.blocks[b].hours })), serves: d.serves || null, learnersPerShift: d.learnersPerShift, preceptorsPerShift: d.preceptorsPerShift, dataSource: d.dataSource, notes: d.notes || null, accreditorClass: d.accreditorClass || null });
 const weekly = (d: Draft) => { const on = BLOCKS.filter((b) => d.blocks[b].on); const shifts = d.days.length * on.length; const hours = d.days.length * on.reduce((n, b) => n + d.blocks[b].hours, 0); return { shifts, hours, learnerShifts: shifts * d.learnersPerShift, learnerHours: hours * d.learnersPerShift }; };
 
 export function AssetBuilder({ employerId, siteName, siteExternalId, assets, overrides, settings, year, compact = false }: {
@@ -85,7 +86,7 @@ export function AssetBuilder({ employerId, siteName, siteExternalId, assets, ove
         <div className="rounded-xl border border-dashed border-slate-300 p-3">
           <div className="text-xs font-semibold text-slate-700">Add an asset — start from a shift structure:</div>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {PRESETS.map((p) => <button key={p.label} onClick={() => { const s = settings[0]; setAdding({ externalId: "", settingCode: s?.code ?? "GEN", setting: s?.name ?? "General", assetType: s?.assetType ?? "", assetNumber: (bySetting.get(s?.code ?? "GEN")?.length ?? 0) + 1, days: [...p.days], blocks: JSON.parse(JSON.stringify(p.blocks)), serves: "", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE", notes: "" }); }} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-left text-xs hover:border-rose-300 hover:bg-rose-50/40"><span className="block font-medium text-slate-800">{p.label}</span><span className="block text-[10px] text-slate-500">{p.hint}</span></button>)}
+            {PRESETS.map((p) => <button key={p.label} onClick={() => { const s = settings[0]; setAdding({ externalId: "", settingCode: s?.code ?? "GEN", setting: s?.name ?? "General", assetType: s?.assetType ?? "", assetNumber: (bySetting.get(s?.code ?? "GEN")?.length ?? 0) + 1, days: [...p.days], blocks: JSON.parse(JSON.stringify(p.blocks)), serves: "", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE", notes: "", accreditorClass: "" }); }} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-left text-xs hover:border-rose-300 hover:bg-rose-50/40"><span className="block font-medium text-slate-800">{p.label}</span><span className="block text-[10px] text-slate-500">{p.hint}</span></button>)}
           </div>
         </div>
       )}
@@ -175,6 +176,7 @@ function AssetCard({ a, d, isNew, ctx }: { a: BuilderAsset | null; d: Draft; isN
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Learners per shift</span><input type="number" min={0} value={d.learnersPerShift} onChange={(e) => set({ learnersPerShift: Number(e.target.value) || 0 })} className="w-20 rounded border border-slate-300 px-2 py-1" /></label>
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Preceptors per shift</span><input type="number" min={0} value={d.preceptorsPerShift} onChange={(e) => set({ preceptorsPerShift: Number(e.target.value) || 0 })} className="w-20 rounded border border-slate-300 px-2 py-1" /></label>
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Data source</span><select value={d.dataSource} onChange={(e) => set({ dataSource: e.target.value })} className="rounded border border-slate-300 px-2 py-1">{["VERIFIED", "ESTIMATE", "GAP"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="block text-xs" title="How the JRCERT counts this asset on Form 1010R: radiographic and R&F rooms, mobile units and C-arms count; mammography, CT, MR, ultrasound, nuclear medicine, interventional, cardiovascular, bone densitometry and therapy do not"><span className="block text-[10px] text-slate-400">JRCERT counts as</span><select value={d.accreditorClass} onChange={(e) => set({ accreditorClass: e.target.value })} className="rounded border border-slate-300 px-2 py-1"><option value="">{ACCREDITOR_CLASS_LABEL[accreditorClassOf({ settingCode: d.settingCode, assetType: d.assetType })]} (derived)</option>{ACCREDITOR_CLASSES.map((x) => <option key={x} value={x}>{ACCREDITOR_CLASS_LABEL[x]}</option>)}</select></label>
           <div className="rounded-md bg-slate-800 px-2.5 py-2 text-xs text-white">
             <div><strong>{n0(w.shifts)}</strong> shifts · <strong>{n0(w.hours)}</strong> hrs a week</div>
             <div className="text-slate-300">{n0(w.learnerShifts)} learner-shifts · {n0(w.learnerHours)} learner-hrs a week</div>

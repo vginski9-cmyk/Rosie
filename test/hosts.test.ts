@@ -23,3 +23,13 @@ describe("clinical hosts by setting", () => {
     expect(hostSlots(hosts, ["OR"]).indexOf("hospitalD")).toBe(7);
   });
 });
+
+describe("accreditor-approved capacity caps a site", () => {
+  it("a recognized site takes no more sections at once than JRCERT approved, whatever its assets could host", () => {
+    const hosts: HostLite[] = [H("bigHospital", { GEN: 6, PORT: 3 }, 0), H("clinic", { GEN: 2 }, 0)];
+    hosts[0].approvedCapacity = 4;
+    const slots = hostSlots(hosts, ["GEN", "PORT"]);
+    expect(slots.filter((s) => s === "bigHospital").length).toBe(4);
+    expect(slots.filter((s) => s === "clinic").length).toBe(2);
+  });
+});

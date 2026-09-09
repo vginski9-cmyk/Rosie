@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { seasonOfDate } from "@/lib/term";
-import { getEmployer } from "@/lib/queries";
+import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity } from "@/lib/queries";
+import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit } from "@/lib/actions";
 import { AssetBuilder } from "@/components/AssetBuilder";
 
@@ -30,6 +31,9 @@ const dateFmt = (d: Date | null) => (d ? new Date(d).toLocaleDateString(undefine
 export default async function EmployerPage({ params }: { params: { id: string } }) {
   const e = await getEmployer(params.id);
   if (!e) notFound();
+  // Accreditor recognition (JRCERT Form 1010R) for every accredited family this institution runs — one block per family.
+  const accreditedFamilies = await getAccreditedFamiliesForEmployer(e.id);
+  const accreditorReports = (await Promise.all(accreditedFamilies.map((f) => getAccreditorCapacity(f.id, e.id)))).filter((r): r is NonNullable<typeof r> => !!r && r.sites.length > 0);
 
   // WBL capacity is read from placement records, not a static slot count: "asked"
   // = every non-cancelled rotation directed here; "secured" = active + completed.
@@ -215,11 +219,22 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         </div>
         <AssetBuilder
           employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={new Date().getUTCFullYear() + 1}
-          assets={e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }))}
+          assets={e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }))}
           overrides={e.assetOverrides}
           settings={SETTING_PRESETS.map(([code, name, assetType]) => ({ code, name, assetType }))}
         />
       </section>
+
+      {/* ── Accreditor recognition of this setting (JRCERT Form 1010R) ── */}
+      {accreditorReports.map((r) => (
+        <section key={r.family.id} id="accreditor" className="space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">{r.family.accreditor ?? "JRCERT"} clinical capacity — {r.family.name} <span className="text-sm font-normal text-slate-400">— Form 1010R, from this site&apos;s assets and record</span></h2>
+            <p className="text-sm text-slate-500">Capacity is the lower of the physical resources counted from the assets below (radiographic + R&amp;F rooms, mobile + C-arm units) and the qualified radiographers scheduled while students are on site. Keep the approved number current; auto-assign never places more sections here at once than the accreditor approved. <Link href={`/families/${r.family.id}/clinical`} className="text-rose-600 hover:underline">All sites for {r.family.name} →</Link></p>
+          </div>
+          <AccreditorCapacity report={r} mode="site" />
+        </section>
+      ))}
 
       {/* ── Sections hosted here ── */}
       <section className="space-y-2">

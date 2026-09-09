@@ -270,6 +270,12 @@ model ProgramFamily {
   /// area), competency (cases / competencies per setting), mixed.
   clinicalModel String  @default("hours")
   clinicalNotes String?
+  /// Programmatic accreditation (JRCERT for radiography): the program number the accreditor's forms ask for
+  /// and the program's accredited total clinical capacity (students in clinical at any one time).
+  accreditor              String?
+  accreditorProgramNumber String?
+  accreditedCapacity      Int?
+  accreditationNotes      String?
   createdAt     DateTime @default(now())
 
   programs Program[]
@@ -928,6 +934,19 @@ model FamilySite {
   contactName     String?
   contactEmail    String?
   notes           String?
+  /// Accreditor recognition of this site as a clinical setting for THIS family (JRCERT Form 1010R for
+  /// radiography): the capacity the accreditor approved (students the program may assign here at any one
+  /// time), a pending request, and the human-resource count the form asks for — qualified practitioners /
+  /// radiographers typically scheduled during the hours students are on site. Physical resources are
+  /// counted from the site's assets.
+  accreditorStatus      String   @default("none") // none | requested | recognized
+  approvedCapacity      Int?
+  requestedCapacity     Int?
+  qualifiedStaffOnShift Int?
+  staffCountSource      String   @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
+  studentHoursWindow    String?  // e.g. "07:00–15:30"
+  accreditorNotes       String?
+  capacityUpdatedAt     DateTime?
 
   @@unique([familyId, employerId])
 }
@@ -984,6 +1003,10 @@ model ClinicalAsset {
   dataSource    String   @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
   status        String   @default("active")
   notes         String?
+  /// How the accreditor counts this asset (JRCERT: radiographic room, R&F room, mobile unit, C-arm, or
+  /// excluded — mammography, CT, MR, ultrasound, nuclear medicine, interventional, cardiovascular, bone
+  /// densitometry, therapy). Blank = derived from the setting and asset type.
+  accreditorClass String?
   createdAt     DateTime @default(now())
 
   dayOverrides  AssetDay[]

@@ -368,6 +368,72 @@ export async function getFamilyClinical(familyId: string) {
 /** ONE job's clinical SUPPLY map — nothing about demand: its settings catalog,
  *  every site that serves it with each site's physical assets and their shift
  *  structures, plus the directory of organizations that can be added. */
+/** The accreditor's clinical-capacity picture (JRCERT Form 1010R for radiography) for one
+ *  family across its sites — or one site: physical resources counted from the asset map,
+ *  the human count from the site record, the lower of the two, what the accreditor has
+ *  approved or is being asked for, and the most students the calendar actually puts on
+ *  the site at one time. */
+export async function getAccreditorCapacity(familyId: string, employerId?: string) {
+  const { jrcertCapacity, accreditorClassOf, peakAssigned, programCapacityChange } = await import("./jrcert");
+  const { toMin } = await import("./space");
+  const fam = await prisma.programFamily.findUnique({
+    where: { id: familyId },
+    select: { id: true, name: true, institutionId: true, accreditor: true, accreditorProgramNumber: true, accreditedCapacity: true, accreditationNotes: true, institution: { select: { name: true } }, programs: { select: { id: true, name: true } }, serviceAreas: { select: { settingCodes: true } },
+      familySites: { where: employerId ? { employerId } : undefined, select: { id: true, employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true, requestedCapacity: true, qualifiedStaffOnShift: true, staffCountSource: true, studentHoursWindow: true, accreditorNotes: true, capacityUpdatedAt: true } } },
+  });
+  if (!fam) return null;
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  const programIds = fam.programs.map((p) => p.id);
+  const employers = await prisma.employer.findMany({
+    where: { institutionId: fam.institutionId, ...(employerId ? { id: employerId } : {}) },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, address: true, city: true, state: true, zip: true, facilityType: true, organization: true, status: true,
+      assets: { where: { status: { not: "archived" } }, orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], select: { id: true, externalId: true, settingCode: true, setting: true, assetType: true, assetNumber: true, accreditorClass: true, preceptorsPerShift: true, shiftBlocks: true, status: true, dataSource: true } },
+      meetings: { where: { kind: "CLINICAL", cohort: { programId: { in: programIds } } }, select: { seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, cohort: { select: { name: true, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } } },
+  });
+  const fsByEmp = new Map(fam.familySites.map((f) => [f.employerId, f]));
+  const sites = employers
+    .filter((e) => fsByEmp.has(e.id) || e.assets.some((a) => settingSet.has(a.settingCode)))
+    .map((e) => {
+      const fs = fsByEmp.get(e.id) ?? null;
+      const cap = jrcertCapacity({ assets: e.assets, qualifiedStaffOnShift: fs?.qualifiedStaffOnShift ?? null });
+      const bookings = e.meetings.map((m) => { const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex); const s = ct?.startDate?.getTime() ?? 0; return { dayOfWeek: m.dayOfWeek, startMin: toMin(m.startTime), lengthHours: m.lengthHours, seats: m.seats, weekStartMs: s, weekEndMs: ct?.endDate ? ct.endDate.getTime() + 86400000 : s + 16 * 7 * 86400000 }; });
+      const peak = peakAssigned(bookings);
+      const approved = fs?.approvedCapacity ?? null;
+      const change = programCapacityChange(fam.accreditedCapacity, approved, fs?.requestedCapacity ?? null);
+      return {
+        employerId: e.id, name: e.name, organization: e.organization, facilityType: e.facilityType, address: [e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · "), status: e.status,
+        familySiteId: fs?.id ?? null, agreementStatus: fs?.agreementStatus ?? "none", accreditorStatus: fs?.accreditorStatus ?? "none",
+        approvedCapacity: approved, requestedCapacity: fs?.requestedCapacity ?? null, qualifiedStaffOnShift: fs?.qualifiedStaffOnShift ?? null, staffCountSource: fs?.staffCountSource ?? "ESTIMATE", studentHoursWindow: fs?.studentHoursWindow ?? null, accreditorNotes: fs?.accreditorNotes ?? null, capacityUpdatedAt: fs?.capacityUpdatedAt?.toISOString().slice(0, 10) ?? null,
+        ...cap,
+        assets: e.assets.map((a) => ({ id: a.id, externalId: a.externalId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, accreditorClass: accreditorClassOf(a), coded: !!a.accreditorClass, dataSource: a.dataSource })),
+        assetsUnverified: e.assets.filter((a) => a.dataSource !== "VERIFIED" && accreditorClassOf(a) !== "EXCLUDED").length,
+        peakAssigned: peak.peak, peakDay: peak.dayOfWeek, peakStart: peak.startMin != null ? `${String(Math.floor(peak.startMin / 60)).padStart(2, "0")}:${String(peak.startMin % 60).padStart(2, "0")}` : null,
+        cohorts: [...new Set(e.meetings.map((m) => m.cohort.name))],
+        /** Assigned beyond what the accreditor approved (or, unrecognized, beyond what the resources support). */
+        over: approved != null ? Math.max(0, peak.peak - approved) : Math.max(0, peak.peak - cap.capacity),
+        change,
+      };
+    })
+    .sort((a, b) => Number(b.peakAssigned > 0) - Number(a.peakAssigned > 0) || b.capacity - a.capacity || a.name.localeCompare(b.name));
+  const approvedTotal = sites.reduce((n, s) => n + (s.approvedCapacity ?? 0), 0);
+  const requestedTotal = sites.reduce((n, s) => n + (s.requestedCapacity ?? s.approvedCapacity ?? 0), 0);
+  const inClinical = await prisma.student.count({ where: { cohortId: { not: null }, status: "enrolled", program: { familyId }, shifts: { some: {} } } });
+  return {
+    family: { id: fam.id, name: fam.name, institution: fam.institution.name, accreditor: fam.accreditor, programNumber: fam.accreditorProgramNumber, accreditedCapacity: fam.accreditedCapacity, notes: fam.accreditationNotes, programNames: fam.programs.map((p) => p.name) },
+    sites, approvedTotal, requestedTotal, inClinical,
+    recognized: sites.filter((s) => s.accreditorStatus === "recognized").length, requested: sites.filter((s) => s.accreditorStatus === "requested").length,
+    overCapacity: sites.filter((s) => s.over > 0).length, unrecognizedInUse: sites.filter((s) => s.peakAssigned > 0 && s.accreditorStatus !== "recognized").length,
+  };
+}
+
+/** Families (of this institution) with a programmatic accreditor that recognizes clinical settings — for a site page. */
+export async function getAccreditedFamiliesForEmployer(employerId: string) {
+  const e = await prisma.employer.findUnique({ where: { id: employerId }, select: { institutionId: true } });
+  if (!e) return [];
+  return prisma.programFamily.findMany({ where: { institutionId: e.institutionId, accreditor: { not: null } }, orderBy: { name: "asc" }, select: { id: true, name: true, accreditor: true } });
+}
+
 export async function getFamilySupply(familyId: string) {
   const fam = await prisma.programFamily.findUnique({
     where: { id: familyId },
@@ -392,7 +458,7 @@ export async function getFamilySupply(familyId: string) {
           id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status,
           settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
           hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,
-          serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides,
+          serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides,
         })),
       };
     });

@@ -19,6 +19,8 @@ export interface AssetLite {
   facilityName: string; facilityExternalId?: string | null; county?: string | null; ring?: string | null; facilityType?: string | null;
   agreementStatus?: string; facilityStatus?: string;
   settingCode: string; setting: string; assetType: string; assetNumber: number;
+  /** How the accreditor counts it (JRCERT class override); blank = derived from setting / type. */
+  accreditorClass?: string | null;
   operatingRule: string; days: string; shiftBlocks: string; hoursPerShift: number;
   /** Shift structure, block by block (start HH:MM, length in hours). */
   dayStart?: string; dayHours?: number; eveningStart?: string; eveningHours?: number; nightStart?: string; nightHours?: number;

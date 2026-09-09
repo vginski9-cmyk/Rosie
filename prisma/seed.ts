@@ -526,7 +526,7 @@ async function loadClinicalModels(institutionId: string) {
   type RadMap = { clinicalModel: { model: string; notes: string }; serviceAreas: { code: string; name: string; settingCodes: string }[]; courseAllocation: { courseCode: string; courseName: string; courseWeeks: number; students: number; area: string; hoursPerStudent: number }[] };
   const map = JSON.parse(readFileSync(join(__dirname, "templates", "rad-asset-map.json"), "utf8")) as RadMap;
   const families = await prisma.programFamily.findMany({ where: { institutionId }, include: { programs: { include: { terms: { orderBy: { index: "asc" }, include: { courses: true } } } } } });
-  const employers = await prisma.employer.findMany({ where: { institutionId }, include: { assets: { select: { settingCode: true, shiftBlocks: true, operatingRule: true } }, units: { select: { unitCategory: true } } } });
+  const employers = await prisma.employer.findMany({ where: { institutionId }, include: { assets: { select: { settingCode: true, shiftBlocks: true, operatingRule: true, assetType: true, preceptorsPerShift: true, accreditorClass: true, status: true } }, units: { select: { unitCategory: true } } } });
   let areas = 0, reqs = 0, sites = 0, allocations = 0;
 
   for (const fam of families) {
@@ -588,6 +588,22 @@ async function loadClinicalModels(institutionId: string) {
       const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
       await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, update: { agreementStatus: status }, create: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
       sites++;
+      // JRCERT recognition for radiography sites (Form 1010R): the human-resource count is an
+      // ESTIMATE from the imaging assets' day-shift preceptors until the site confirms it; a
+      // secured site is treated as recognized at the capacity its resources support today, an
+      // asked site as having a request in for the same number. Everything else is unrecognized.
+      if (isRad) {
+        const { jrcertCapacity } = await import("../src/lib/jrcert");
+        const cap = jrcertCapacity({ assets: e.assets, qualifiedStaffOnShift: null });
+        const staff = cap.humanEstimate;
+        const capacity = Math.min(cap.physical, staff);
+        await prisma.familySite.update({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, data: {
+          qualifiedStaffOnShift: staff, staffCountSource: "ESTIMATE", studentHoursWindow: "07:00–15:30",
+          accreditorStatus: status === "secured" && capacity > 0 ? "recognized" : status === "asked" && capacity > 0 ? "requested" : "none",
+          approvedCapacity: status === "secured" && capacity > 0 ? capacity : null, requestedCapacity: status === "asked" && capacity > 0 ? capacity : null,
+          accreditorNotes: status === "secured" ? "Seeded as recognized at today's resources — replace with the capacity on the JRCERT recognition letter." : null, capacityUpdatedAt: new Date(),
+        } });
+      }
       // Shifts the site has allocated to this family: secured radiography sites offer a slice of each setting's physical ceiling.
       if (isRad && status === "secured") {
         const perSetting = new Map<string, { n: number; blocks: Set<string> }>();
@@ -1273,7 +1289,7 @@ async function main() {
   }
 
   // ----- Families (one per job) ---------------------------------------------
-  const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region." } });
+  const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region.", accreditor: "JRCERT", accreditationNotes: "Enter the JRCERT program number and the accredited program total clinical capacity from the most recent recognition letter." } });
   const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates." } });
   const assets = await loadAssetMap(sandhills.id);
   console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
