@@ -2314,6 +2314,47 @@ export async function removeStudentShift(id: string, studentId: string): Promise
   await prisma.studentShift.delete({ where: { id } }).catch(() => undefined);
   revalidatePath(`/students/${studentId}`);
 }
+// ── The clinical log: what happened on each shift ───────────────────────────
+const SHIFT_STATUSES = new Set(["scheduled", "completed", "absent", "excused"]);
+/** Log one shift: completed (hours credited — the session length unless overridden), absent or excused
+ *  (no hours), or back to scheduled. The preceptor recorded defaults to the section's assigned preceptor. */
+export async function logStudentShift(shiftId: string, studentId: string, formData: FormData): Promise<void> {
+  const status = str(formData.get("status"));
+  if (!SHIFT_STATUSES.has(status)) return;
+  const sh = await prisma.studentShift.findUnique({ where: { id: shiftId }, select: { cohortId: true, sessionId: true, sectionIndex: true, preceptorId: true, settingCode: true, asset: { select: { settingCode: true } }, session: { select: { lengthHours: true, rotationType: true, course: { select: { term: { select: { program: { select: { institutionId: true } } } } } } } } } });
+  if (!sh) return;
+  const hoursIn = formData.get("hours");
+  const hours = status === "completed" ? (hoursIn == null || String(hoursIn).trim() === "" ? sh.session.lengthHours : Math.max(0, numOr(hoursIn, sh.session.lengthHours))) : status === "scheduled" ? null : 0;
+  const preceptorIn = str(formData.get("preceptorId"));
+  const preceptorId = preceptorIn || sh.preceptorId || (await prisma.sessionInstructor.findFirst({ where: { cohortId: sh.cohortId, sessionId: sh.sessionId, sectionIndex: sh.sectionIndex, role: "preceptor" }, select: { personId: true } }))?.personId || null;
+  const settingCode = sh.settingCode ?? sh.asset?.settingCode ?? (sh.session.rotationType ? (await prisma.rotationSetting.findFirst({ where: { institutionId: sh.session.course.term.program.institutionId, rotationType: sh.session.rotationType }, select: { settingCode: true } }))?.settingCode ?? null : null);
+  const dateIn = str(formData.get("date"));
+  await prisma.studentShift.update({ where: { id: shiftId }, data: { status, hoursLogged: hours, preceptorId, settingCode, loggedAt: status === "scheduled" ? null : dateIn ? new Date(dateIn + "T00:00:00Z") : new Date(), note: str(formData.get("note")) || undefined } });
+  revalidatePath(`/students/${studentId}`);
+}
+
+/** Log every still-scheduled shift dated on or before a date as completed (session hours, section preceptor)
+ *  — for one learner, or for the whole offering when no studentId is given. */
+export async function logShiftsThrough(cohortId: string, studentId: string | null, formData: FormData): Promise<void> {
+  const through = str(formData.get("through")) || new Date().toISOString().slice(0, 10);
+  const { sessionDatesForCohort } = await import("./queries");
+  const { dates } = await sessionDatesForCohort(cohortId);
+  const shifts = await prisma.studentShift.findMany({ where: { cohortId, status: "scheduled", ...(studentId ? { studentId } : {}) }, select: { id: true, sessionId: true, sectionIndex: true, preceptorId: true, session: { select: { lengthHours: true } } } });
+  const preceptors = await prisma.sessionInstructor.findMany({ where: { cohortId, role: "preceptor" }, select: { sessionId: true, sectionIndex: true, personId: true } });
+  const preceptorOf = new Map(preceptors.map((a) => [`${a.sessionId}#${a.sectionIndex}`, a.personId]));
+  let n = 0;
+  for (const sh of shifts) {
+    const iso = dates.get(sh.sessionId);
+    if (!iso || iso > through) continue;
+    await prisma.studentShift.update({ where: { id: sh.id }, data: { status: "completed", hoursLogged: sh.session.lengthHours, loggedAt: new Date(iso + "T00:00:00Z"), preceptorId: sh.preceptorId ?? preceptorOf.get(`${sh.sessionId}#${sh.sectionIndex}`) ?? null } });
+    n++;
+  }
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true } });
+  if (studentId) revalidatePath(`/students/${studentId}`);
+  if (co) revalidatePath(`/programs/${co.programId}/offerings/${cohortId}`);
+  void n;
+}
+
 /** Put the student on every clinical shift of a course, section = their seat's section. */
 export async function addStudentShiftsForCourse(studentId: string, formData: FormData): Promise<void> {
   const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId"));

@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments } from "./seed-roster";
+import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords } from "./seed-roster";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
 
@@ -1295,6 +1295,7 @@ async function main() {
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
+  console.log("learner records:", await seedLearnerRecords(prisma, sandhills.id));
 
   const counts = {
     institutions: await prisma.institution.count(),

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getCapacityModel, getOfferingStaffing } from "@/lib/queries";
+import { getOffering, getCapacityModel, getOfferingStaffing, getOfferingLedger } from "@/lib/queries";
+import { OfferingLedger } from "@/components/OfferingLedger";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { AutoAssignButton } from "@/components/AutoAssignButton";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
@@ -37,7 +38,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const [capModel, staffing] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId)]);
+  const [capModel, staffing, ledger] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId)]);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -148,7 +149,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
         <Tile label="Expected end" value={exactDate(lastDay ?? timing.endDate)} sub="last class / lab / clinical / exam" />
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
-        <Tile label="Students" value={fmt.num(offering._count.students)} />
+        <Tile label="Students" value={fmt.num(ledger ? ledger.students.filter((s) => s.status !== "withdrawn").length : offering._count.students)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? `${ledger.students.filter((s) => s.status === "withdrawn").length} withdrawn` : undefined} />
       </div>
 
       {/* This run's funnel — right under the timing tiles */}
@@ -342,6 +343,24 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           </div>
         </Collapse>
       )}
+
+      {/* ── The learners: sections, instructors, preceptors and the clinical hours ledger ── */}
+      {ledger && ledger.students.length > 0 && (() => {
+        const active = ledger.students.filter((s) => s.status !== "withdrawn");
+        const short = active.filter((s) => s.shortHours > 0).length;
+        const unpre = active.filter((s) => s.unprecepted > 0).length;
+        const logged = active.reduce((n, s) => n + s.loggedHours, 0);
+        const required = active.reduce((n, s) => n + s.requiredHours, 0);
+        return (
+          <Collapse
+            title="Students — sections, preceptors & clinical hours"
+            sub="Every learner in this run: the section they sit in for each class, lab and clinical, who teaches and precepts them, and their clinical hours logged against the program's requirement — with anyone short, unprecepted or unassigned flagged"
+            summary={<>{active.length} enrolled · <span className="text-emerald-700">{n1(logged)} of {n1(required)} h logged</span>{short > 0 ? <> · <span className="text-rose-600">{short} short</span></> : null}{unpre > 0 ? <> · <span className="text-amber-700">{unpre} unprecepted</span></> : null}</>}
+          >
+            <OfferingLedger ledger={ledger} programId={program.id} />
+          </Collapse>
+        );
+      })()}
 
       {/* ── THE calendar for this instantiation: exact dates, times, locations ── */}
       {capCohort && (

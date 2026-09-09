@@ -2107,11 +2107,33 @@ export async function getSupplyExplorer(institutionId: string | undefined, from:
 // LEARNERS — profile with assignments, and the analytics set
 // ---------------------------------------------------------------------------
 
+/** Every session of an offering dated on its calendar: session id → ISO date (null when undated). */
+export async function sessionDatesForCohort(cohortId: string): Promise<{ dates: Map<string, string | null>; today: string }> {
+  const cohort = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { terms: { select: { id: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { id: true, week: true, dayOfWeek: true } } } } } } } } } });
+  const dates = new Map<string, string | null>();
+  if (!cohort) return { dates, today: new Date().toISOString().slice(0, 10) };
+  for (const t of cohort.program.terms) {
+    const ct = cohort.cohortTerms.find((x) => x.termId === t.id);
+    const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
+    for (const c of t.courses) for (const x of c.sessions) {
+      const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null }, x.week, x.dayOfWeek);
+      dates.set(x.id, d ? d.toISOString().slice(0, 10) : null);
+    }
+  }
+  return { dates, today: new Date().toISOString().slice(0, 10) };
+}
+
+export type ShiftStatus = "scheduled" | "completed" | "absent" | "excused";
+
 export async function getStudentAssignments(studentId: string) {
-  const s = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, cohortId: true, programId: true, sectionIndex: true, sections: true, shifts: { include: { session: { select: { id: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, course: { select: { id: true, code: true, name: true, termId: true } } } }, asset: { select: { id: true, setting: true, assetNumber: true, employer: { select: { name: true } } } } }, orderBy: [{ session: { week: "asc" } }] } } });
-  if (!s || !s.cohortId) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
-  const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true } } } } } } } } } });
-  if (!cohort) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
+  const s = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, cohortId: true, programId: true, sectionIndex: true, sections: true, shifts: { include: { session: { select: { id: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true, course: { select: { id: true, code: true, name: true, termId: true } } } }, asset: { select: { id: true, setting: true, assetNumber: true, employer: { select: { name: true } } } }, preceptor: { select: { id: true, name: true } } }, orderBy: [{ session: { week: "asc" } }] } } });
+  const empty = { cohort: null, courses: [], sections: [], shifts: [], assets: [], staff: [], today: new Date().toISOString().slice(0, 10) };
+  if (!s || !s.cohortId) return empty;
+  const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } },
+    meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { id: true, name: true } } } },
+    sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
+    program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } }, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true } } } } } } } } } });
+  if (!cohort) return empty;
   const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
   const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => {
     const ct = cohort.cohortTerms.find((x) => x.termId === termId); const t = cohort.program.terms.find((x) => x.id === termId);
@@ -2119,18 +2141,97 @@ export async function getStudentAssignments(studentId: string) {
     const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null }, week, day);
     return d ? d.toISOString().slice(0, 10) : null;
   };
+  // Who staffs each course × kind × section this learner sits in (instructors for class / lab, preceptors for clinical).
+  const sessionKind = new Map<string, { courseId: string; kind: string }>();
+  for (const t of cohort.program.terms) for (const c of t.courses) for (const x of c.sessions) sessionKind.set(x.id, { courseId: c.id, kind: x.kind });
+  const staffByKey = new Map<string, Map<string, { id: string; name: string; role: string; shifts: number }>>();
+  for (const a of cohort.sessionStaff) {
+    const sk = sessionKind.get(a.sessionId); if (!sk) continue;
+    const key = `${sk.courseId}|${sk.kind}|${a.sectionIndex}`;
+    const m = staffByKey.get(key) ?? new Map(); const cur = m.get(a.person.id) ?? { id: a.person.id, name: a.person.name, role: a.role, shifts: 0 }; cur.shifts++; m.set(a.person.id, cur); staffByKey.set(key, m);
+  }
+  const staff = s.sections.map((sec) => ({ courseId: sec.courseId, kind: sec.kind, sectionIndex: sec.sectionIndex, people: [...(staffByKey.get(`${sec.courseId}|${sec.kind}|${sec.sectionIndex}`)?.values() ?? [])].sort((a, b) => b.shifts - a.shifts) }));
+  const siteOf = (courseId: string, sectionIndex: number) => cohort.meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex)?.employer ?? null;
   const courses = cohort.program.terms.flatMap((t) => t.courses.map((c) => ({
     id: c.id, code: c.code, name: c.name, term: t.name, termId: t.id,
-    kinds: (["CLASS", "LAB", "CLINICAL"] as const).map((k) => { const ss = c.sessions.filter((x) => x.kind === k); const maxSec = ss.length ? Math.max(...ss.map((x) => Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))))) : 0; return { kind: k, sessions: ss.length, sections: maxSec }; }).filter((k) => k.sessions > 0),
+    kinds: (["CLASS", "LAB", "CLINICAL"] as const).map((k) => { const ss = c.sessions.filter((x) => x.kind === k); const maxSec = ss.length ? Math.max(...ss.map((x) => Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))))) : 0; return { kind: k, sessions: ss.length, sections: maxSec, needsPreceptor: ss.some((x) => x.preceptorsNeeded > 0) }; }).filter((k) => k.sessions > 0),
     clinicalSessions: c.sessions.filter((x) => x.kind === "CLINICAL").map((x) => ({ id: x.id, number: x.number, title: x.title, week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime, lengthHours: x.lengthHours, rotationType: x.rotationType, sections: Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))), dateIso: dateOf(t.id, c.id, x.week, x.dayOfWeek) })),
+    // What the course requires of each learner (the family's requirement grid): hours per service area, cases where the model is case-based.
+    required: c.clinicalRequirements.filter((r) => r.hoursPerStudent > 0 || (r.casesPerStudent ?? 0) > 0).map((r) => ({ code: r.serviceArea.code, name: r.serviceArea.name, settingCodes: r.serviceArea.settingCodes.split(",").filter(Boolean), hours: r.hoursPerStudent, cases: r.casesPerStudent })),
   })));
   const assets = await prisma.clinicalAsset.findMany({ where: { employer: { institutionId: cohort.program.institutionId }, status: { not: "archived" } }, orderBy: [{ employer: { name: "asc" } }, { settingCode: "asc" }, { assetNumber: "asc" }], select: { id: true, setting: true, assetNumber: true, settingCode: true, employer: { select: { name: true } } } });
   return {
     cohort: { id: cohort.id, name: cohort.name, enrolled },
-    courses, sections: s.sections,
-    shifts: s.shifts.map((sh) => ({ id: sh.id, sessionId: sh.sessionId, sectionIndex: sh.sectionIndex, note: sh.note, course: sh.session.course, session: { number: sh.session.number, title: sh.session.title, week: sh.session.week, dayOfWeek: sh.session.dayOfWeek, startTime: sh.session.startTime, lengthHours: sh.session.lengthHours, rotationType: sh.session.rotationType }, dateIso: dateOf(sh.session.course.termId, sh.session.course.id, sh.session.week, sh.session.dayOfWeek), asset: sh.asset ? `${sh.asset.employer.name} · ${sh.asset.setting} #${sh.asset.assetNumber}` : null })),
+    courses, sections: s.sections, staff, today: new Date().toISOString().slice(0, 10),
+    shifts: s.shifts.map((sh) => ({
+      id: sh.id, sessionId: sh.sessionId, sectionIndex: sh.sectionIndex, note: sh.note, course: sh.session.course,
+      session: { number: sh.session.number, title: sh.session.title, week: sh.session.week, dayOfWeek: sh.session.dayOfWeek, startTime: sh.session.startTime, lengthHours: sh.session.lengthHours, rotationType: sh.session.rotationType, preceptorsNeeded: sh.session.preceptorsNeeded },
+      dateIso: dateOf(sh.session.course.termId, sh.session.course.id, sh.session.week, sh.session.dayOfWeek),
+      asset: sh.asset ? `${sh.asset.employer.name} · ${sh.asset.setting} #${sh.asset.assetNumber}` : null,
+      site: sh.asset?.employer.name ?? siteOf(sh.session.course.id, sh.sectionIndex)?.name ?? null,
+      status: sh.status as ShiftStatus, hoursLogged: sh.hoursLogged, loggedAt: sh.loggedAt ? sh.loggedAt.toISOString().slice(0, 10) : null, settingCode: sh.settingCode,
+      preceptor: sh.preceptor ? { id: sh.preceptor.id, name: sh.preceptor.name } : null,
+    })).sort((a, b) => (a.dateIso ?? "9999").localeCompare(b.dateIso ?? "9999") || a.session.number - b.session.number),
     assets: assets.map((a) => ({ id: a.id, label: `${a.employer.name} · ${a.setting} #${a.assetNumber}`, settingCode: a.settingCode })),
   };
+}
+
+/** The offering's learner ledger: for every student, whether they sit in a section of
+ *  every current course, who teaches / precepts them, and how their clinical hours stand
+ *  — required by the requirement grid, scheduled on shifts, logged so far, missed — so
+ *  a coordinator can see at a glance who is short, unprecepted or unassigned. */
+export async function getOfferingLedger(cohortId: string) {
+  const co = await prisma.cohort.findUnique({
+    where: { id: cohortId },
+    select: {
+      id: true, name: true, plannedSeats: true,
+      cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
+      meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { name: true } } } },
+      sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
+      students: { orderBy: [{ sectionIndex: "asc" }], select: { id: true, name: true, status: true, sectionIndex: true, attendedCount: true, missedCount: true, sections: { select: { courseId: true, kind: true, sectionIndex: true } }, shifts: { select: { sessionId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true } } } },
+      program: { select: { terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, settingCodes: true } } } }, sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, preceptorsNeeded: true, facultyNeeded: true, deliveryMode: true, location: true } } } } } } } },
+    },
+  });
+  if (!co) return null;
+  const today = new Date();
+  const enrolled = Math.max(co.students.filter((s) => s.status !== "withdrawn").length, co.plannedSeats ?? 0, 1);
+  const started = co.program.terms.filter((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id); return ct?.startDate && ct.startDate <= today; });
+  const current = started.find((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
+  const sessionInfo = new Map<string, { courseId: string; kind: string; lengthHours: number; preceptorsNeeded: number }>();
+  for (const t of co.program.terms) for (const c of t.courses) for (const x of c.sessions) sessionInfo.set(x.id, { courseId: c.id, kind: x.kind, lengthHours: x.lengthHours, preceptorsNeeded: x.preceptorsNeeded });
+  const staffByKey = new Map<string, Map<string, { name: string; role: string }>>();
+  for (const a of co.sessionStaff) { const si = sessionInfo.get(a.sessionId); if (!si) continue; const k = `${si.courseId}|${si.kind}|${a.sectionIndex}`; const m = staffByKey.get(k) ?? new Map(); m.set(a.person.id, { name: a.person.name, role: a.role }); staffByKey.set(k, m); }
+  // Course kinds every learner should sit in: in-person kinds of the courses of the terms that have started (online-only kinds need no section).
+  const expected = started.flatMap((t) => t.courses.flatMap((c) => [...new Set(c.sessions.filter((x) => !(x.deliveryMode === "Online" || x.location === "Internet")).map((x) => x.kind))].map((kind) => ({ courseId: c.id, code: c.code, kind, current: t.id === current?.id }))));
+  const clinicalCourses = co.program.terms.flatMap((t) => t.courses.filter((c) => c.sessions.some((x) => x.kind === "CLINICAL")).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, termIndex: t.index, requiredHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0), requiredCases: c.clinicalRequirements.reduce((n, r) => n + (r.casesPerStudent ?? 0), 0), byArea: c.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, hours: r.hoursPerStudent, settingCodes: r.serviceArea.settingCodes.split(",").filter(Boolean) })), started: started.some((t2) => t2.courses.some((x) => x.id === c.id)) })));
+  const siteOf = (courseId: string, sectionIndex: number) => co.meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex)?.employer?.name ?? null;
+  const students = co.students.map((st) => {
+    const secOf = (courseId: string, kind: string) => st.sections.find((x) => x.courseId === courseId && x.kind === kind)?.sectionIndex ?? null;
+    const missingSections = st.status === "withdrawn" ? [] : expected.filter((e) => secOf(e.courseId, e.kind) == null).map((e) => `${e.code ?? e.courseId} ${e.kind.toLowerCase()}`);
+    const unstaffedSections = st.status === "withdrawn" ? [] : expected.filter((e) => e.kind !== "CLINICAL").filter((e) => { const sec = secOf(e.courseId, e.kind); return sec != null && !(staffByKey.get(`${e.courseId}|${e.kind}|${sec}`)?.size); }).map((e) => `${e.code ?? e.courseId} ${e.kind.toLowerCase()} §${secOf(e.courseId, e.kind)}`);
+    const instructors = [...new Set(expected.filter((e) => e.kind !== "CLINICAL" && e.current).flatMap((e) => { const sec = secOf(e.courseId, e.kind); return sec == null ? [] : [...(staffByKey.get(`${e.courseId}|${e.kind}|${sec}`)?.values() ?? [])].map((p) => p.name); }))];
+    const clinical = clinicalCourses.map((c) => {
+      const mine = st.shifts.filter((sh) => sessionInfo.get(sh.sessionId)?.courseId === c.id);
+      const scheduled = mine.reduce((n, sh) => n + (sessionInfo.get(sh.sessionId)?.lengthHours ?? 0), 0);
+      const logged = mine.reduce((n, sh) => n + (sh.status === "completed" ? sh.hoursLogged ?? 0 : 0), 0);
+      const missed = mine.filter((sh) => sh.status === "absent" || sh.status === "excused").length;
+      const missedHours = mine.filter((sh) => sh.status === "absent" || sh.status === "excused").reduce((n, sh) => n + (sessionInfo.get(sh.sessionId)?.lengthHours ?? 0), 0);
+      const done = mine.filter((sh) => sh.status !== "scheduled").length;
+      const unprecepted = mine.filter((sh) => (sessionInfo.get(sh.sessionId)?.preceptorsNeeded ?? 0) > 0 && !sh.preceptorId).length;
+      const sec = secOf(c.id, "CLINICAL");
+      const preceptors = [...new Set(mine.map((sh) => sh.preceptorId).filter((x): x is string => !!x))].map((id) => co.sessionStaff.find((a) => a.person.id === id)?.person.name ?? "?");
+      // Hours still reachable = what is scheduled but not yet happened; short = required beyond logged + still-scheduled.
+      const remaining = scheduled - logged - missedHours;
+      return { courseId: c.id, code: c.code, shifts: mine.length, done, scheduled, logged, missed, missedHours, remaining, unprecepted, site: sec != null ? siteOf(c.id, sec) : null, preceptors, short: Math.max(0, c.requiredHours - logged - remaining) };
+    });
+    const req = clinicalCourses.reduce((n, c) => n + c.requiredHours, 0);
+    return {
+      id: st.id, name: st.name, status: st.status, seat: st.sectionIndex, attended: st.attendedCount, missed: st.missedCount,
+      missingSections, unstaffedSections, instructors, clinical,
+      requiredHours: req, scheduledHours: clinical.reduce((n, c) => n + c.scheduled, 0), loggedHours: clinical.reduce((n, c) => n + c.logged, 0), missedShifts: clinical.reduce((n, c) => n + c.missed, 0), shortHours: clinical.reduce((n, c) => n + c.short, 0), unprecepted: clinical.reduce((n, c) => n + c.unprecepted, 0),
+    };
+  });
+  return { cohortId: co.id, name: co.name, enrolled, currentTerm: current ? { index: current.index, name: current.name } : null, clinicalCourses, students, today: today.toISOString().slice(0, 10) };
 }
 
 export async function getLearnerAnalytics() {

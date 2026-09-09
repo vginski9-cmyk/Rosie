@@ -160,9 +160,9 @@ export default async function StudentPage({ params }: { params: { id: string } }
 
       {/* Sections & clinical shifts inside the offering */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-700">Sections &amp; clinical shifts</h2>
-        <p className="mb-2 text-[11px] text-slate-400">Which section of each class, lab and clinical this learner sits in, and the exact clinical shifts they are on — optionally pinned to a physical asset.</p>
-        <StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} />
+        <h2 className="text-sm font-semibold text-slate-700">Sections, instructors, preceptors &amp; the clinical log</h2>
+        <p className="mb-2 text-[11px] text-slate-400">Which section of each class, lab and clinical this learner sits in and who staffs it; the clinical hours ledger against the program's requirement grid; and every clinical shift with its site, preceptor, hours and status — logged here as each shift happens.</p>
+        <StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} staff={assignments.staff} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} today={assignments.today} />
       </section>
 
       {/* Alignment intake — structured motivations / constraints / capacities */}

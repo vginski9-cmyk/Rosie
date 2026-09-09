@@ -12,6 +12,8 @@ import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
+import { sessionDate } from "../src/lib/term";
+import { holidayMap } from "../src/lib/academiccalendar";
 import { clinicalHostsFor } from "../src/lib/hosts";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
@@ -295,6 +297,7 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
     // whole course alone; clinical shifts get a preceptor at the booked site
     // (clinical faculty are left for someone to assign by hand).
     let rr = 0;
+    const leadOf = new Map<string, (typeof instructors)[number]>();
     for (const t of co.program.terms) for (const c of t.courses) {
       for (const s of c.sessions) {
         const shifts = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
@@ -314,13 +317,103 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
           continue;
         }
         for (let sec = 1; sec <= shifts; sec++) {
-          const who = instructors[rr++ % instructors.length];
+          // One lead instructor per course × kind × section for the whole term (a course is
+          // taught by the same person all term); courses and sections are dealt across the
+          // bench so the load spreads. A second instructor only where the sheet needs two.
+          const leadKey = `${c.id}|${s.kind}|${sec}`;
+          let who = leadOf.get(leadKey);
+          if (!who) { who = instructors[rr++ % instructors.length]; leadOf.set(leadKey, who); }
           await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: who.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0 } });
           made++;
-          if (s.facultyNeeded >= 2) { const second = instructors[rr++ % instructors.length]; if (second.id !== who.id) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: second.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: "co-teaching" } }); made++; } }
+          if (s.facultyNeeded >= 2) { const second = instructors[(instructors.indexOf(who) + 1) % instructors.length]; if (second.id !== who.id) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: second.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: "co-teaching" } }); made++; } }
         }
       }
     }
   }
   return made;
+}
+
+// ── The running record: what has actually happened for each learner so far ──
+/** For every offering already under way, write the learner records a registrar
+ *  would have by today: an in-progress course record for each current-term
+ *  course, attendance for every dated class / lab / clinical occurrence on or
+ *  before today (a small deterministic share missed, some excused), and the
+ *  clinical log — each past shift completed with its hours and the section's
+ *  preceptor, or absent. Nothing in the future is touched: those shifts stay
+ *  "scheduled" until someone logs them. Offerings that have started flip to active. */
+export async function seedLearnerRecords(prisma: PrismaClient, institutionId: string, today = new Date()) {
+  const todayIso = today.toISOString().slice(0, 10);
+  const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
+    .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+  const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
+  const cohorts = await prisma.cohort.findMany({
+    where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { lte: today } },
+    include: {
+      cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
+      courseDates: { select: { courseId: true, startDate: true } },
+      program: { select: { terms: { orderBy: { index: "asc" }, select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, code: true, sessions: { select: { id: true, kind: true, title: true, week: true, dayOfWeek: true, lengthHours: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
+      students: { select: { id: true, name: true, status: true, sectionIndex: true, sections: { select: { courseId: true, kind: true, sectionIndex: true } } } },
+      sessionStaff: { where: { role: "preceptor" }, select: { sessionId: true, sectionIndex: true, personId: true } },
+      studentShifts: { select: { id: true, studentId: true, sessionId: true, sectionIndex: true, asset: { select: { settingCode: true } } } },
+    },
+  });
+  let records = 0, attended = 0, missed = 0, logged = 0;
+  for (const co of cohorts) {
+    await prisma.cohort.update({ where: { id: co.id }, data: { status: "active" } });
+    const ctByTerm = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
+    const courseStart = new Map(co.courseDates.map((c) => [c.courseId, c.startDate]));
+    const preceptorOf = new Map(co.sessionStaff.map((a) => [`${a.sessionId}#${a.sectionIndex}`, a.personId]));
+    const shiftOf = new Map(co.studentShifts.map((sh) => [`${sh.studentId}|${sh.sessionId}`, sh]));
+    // Current term = the dated term whose window holds today (else the latest one that has started).
+    const started = co.program.terms.filter((t) => { const ct = ctByTerm.get(t.id); return ct?.startDate && ct.startDate <= today; });
+    const current = started.find((t) => { const ct = ctByTerm.get(t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
+    const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+    const mix = (a: number, b: number) => { let t = (h * 2654435761 + a * 40503 + b * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
+    for (const [si, st] of co.students.entries()) {
+      // Course records for every term that has started: in progress now, withdrawn for a withdrawn learner.
+      const gradeRows = started.flatMap((t) => t.courses.map((c) => ({ studentId: st.id, courseId: c.id, termIndex: t.index, status: st.status === "withdrawn" ? "withdrawn" : t.id === current?.id ? "in_progress" : "completed" })));
+      if (gradeRows.length) { await prisma.studentCourseGrade.createMany({ data: gradeRows }); records += gradeRows.length; }
+      if (st.status === "withdrawn") continue;
+      let att = 0, miss = 0;
+      const absences: { studentId: string; date: Date; courseCode: string | null; sessionTitle: string | null; excused: boolean }[] = [];
+      const shiftUpdates: { id: string; status: string; hoursLogged: number | null; preceptorId: string | null; settingCode: string | null; date: Date }[] = [];
+      for (const t of started) {
+        const ct = ctByTerm.get(t.id)!;
+        const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
+        for (const c of t.courses) {
+          for (const [k, s] of c.sessions.entries()) {
+            const online = s.deliveryMode === "Online" || s.location === "Internet";
+            if (online || !s.dayOfWeek) continue; // no fixed day → nothing to attend on a date
+            const sec = st.sections.find((x) => x.courseId === c.id && x.kind === s.kind)?.sectionIndex ?? null;
+            if (sec == null) continue; // not in a section of this kind
+            const d = sessionDate({ termStart: ct.startDate, termEnd: ct.endDate, templateWeeks: tplWeeks, courseStart: courseStart.get(c.id) ?? null }, s.week, s.dayOfWeek);
+            if (!d) continue;
+            const iso = d.toISOString().slice(0, 10);
+            if (iso > todayIso || holidays[iso]) continue; // future, or a coded holiday — no session that day
+            // A small, deterministic share of occurrences missed (about one in twenty), a third of them excused.
+            const roll = mix(si * 131 + k, s.week ?? 0);
+            const absent = roll % 100 < 5;
+            if (absent) { miss++; absences.push({ studentId: st.id, date: d, courseCode: c.code, sessionTitle: s.title, excused: roll % 3 === 0 }); } else att++;
+            if (s.kind === "CLINICAL") {
+              const sh = shiftOf.get(`${st.id}|${s.id}`);
+              if (sh) shiftUpdates.push({ id: sh.id, status: absent ? (roll % 3 === 0 ? "excused" : "absent") : "completed", hoursLogged: absent ? 0 : s.lengthHours, preceptorId: preceptorOf.get(`${s.id}#${sh.sectionIndex}`) ?? null, settingCode: sh.asset?.settingCode ?? rotations.get((s.rotationType ?? "").trim().toLowerCase()) ?? null, date: d });
+            }
+          }
+        }
+      }
+      await prisma.student.update({ where: { id: st.id }, data: { attendedCount: att, missedCount: miss } });
+      if (absences.length) await prisma.studentAbsence.createMany({ data: absences });
+      for (const u of shiftUpdates) await prisma.studentShift.update({ where: { id: u.id }, data: { status: u.status, hoursLogged: u.hoursLogged, preceptorId: u.preceptorId, settingCode: u.settingCode, loggedAt: u.date } });
+      attended += att; missed += miss; logged += shiftUpdates.length;
+    }
+    // Every scheduled (future) clinical shift carries the setting its hours will count toward and its section's preceptor, so the ledger can be checked before the shift happens.
+    const sessById = new Map(co.program.terms.flatMap((t) => t.courses.flatMap((c) => c.sessions.map((s) => [s.id, s] as const))));
+    for (const sh of co.studentShifts) {
+      const s = sessById.get(sh.sessionId); if (!s) continue;
+      const settingCode = sh.asset?.settingCode ?? rotations.get((s.rotationType ?? "").trim().toLowerCase()) ?? null;
+      const preceptorId = preceptorOf.get(`${sh.sessionId}#${sh.sectionIndex}`) ?? null;
+      await prisma.studentShift.updateMany({ where: { id: sh.id, status: "scheduled" }, data: { settingCode, preceptorId } });
+    }
+  }
+  return { offerings: cohorts.length, courseRecords: records, attended, missed, shiftsLogged: logged };
 }
