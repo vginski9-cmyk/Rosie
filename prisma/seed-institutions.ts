@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // The other institutions in the workspace, each with the programs (delivery
-// models) identified for it and a North-Star goal per job. Curricula follow the
+// models) identified for it and a North-Star goal per job. Some are defined
+// here but PAUSED (see PAUSED_INSTITUTIONS below) and not seeded for now. Curricula follow the
 // NC Community College System common course library (NUR, ELC, OST, MED, NAS)
 // and UNCW's upper-division BSN sequence; session tables are generated from
 // the catalog hours the way the Sandhills templates are. Everything here is a
@@ -157,9 +158,17 @@ export const INSTITUTIONS: InstitutionDef[] = [
   ] },
 ];
 
+/** Institutions kept out of the workspace for now (definitions stay above so they can be
+ *  switched back on by removing them from this list). */
+export const PAUSED_INSTITUTIONS = new Set([
+  "Beaufort County Community College", "Brunswick Community College", "Cape Fear Community College", "Davidson-Davie Community College",
+  "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College", "Roanoke-Chowan Community College",
+  "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
+]);
+
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
   let institutions = 0, families = 0, programs = 0;
-  for (const def of INSTITUTIONS) {
+  for (const def of INSTITUTIONS.filter((d) => !PAUSED_INSTITUTIONS.has(d.name))) {
     const inst = await prisma.institution.create({ data: { name: def.name, shortName: def.short, kind: def.kind, city: def.city, state: "NC", serviceArea: def.serviceArea } });
     institutions++;
     for (const f of def.families) {

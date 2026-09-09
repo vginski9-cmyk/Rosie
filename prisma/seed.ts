@@ -5,8 +5,8 @@
  *  - Sandhills Community College: Radiography (SOC 29-2034) and Surgical
  *    Technology (SOC 29-2055) programs, with talent-pipeline funnels (target vs
  *    actual) and North Star goals taken from the pilot deck.
- *  - Cape Fear Community College: Electrical Systems Technology, demonstrating
- *    multi-institution tenancy and labor-market demand.
+ *  - The other institutions in the workspace (College of The Albemarle, Lenoir,
+ *    Craven, Carteret — see seed-institutions.ts; several more are defined but paused).
  *  - 190 real academic calendar blocks (16/14/12/8/5-week sessions w/ holiday-
  *    adjusted teachable weekdays) imported from the Cape Fear workbook.
  *
