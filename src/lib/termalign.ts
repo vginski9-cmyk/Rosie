@@ -129,7 +129,7 @@ export function alignOffering(input: {
     // Instructional weeks the semester touches (week 1 = the start's week).
     const calendarWeeks = calendarWeeksBetween(startIso, endIso);
     if (calendarWeeks < templateWeeks) {
-      warnings.push(`${t.name}: the template plans ${templateWeeks} weeks but ${seasonOfIso(startIso)} ${startIso.slice(0, 4)} gives only ${calendarWeeks} (${fmt(startIso)} → ${fmt(endIso)}); its sessions are fitted into those ${calendarWeeks} weeks, in order.`);
+      warnings.push(`${t.name}: the template plans ${templateWeeks} weeks but ${seasonOfIso(startIso)} ${startIso.slice(0, 4)} gives only ${calendarWeeks} (${fmt(startIso)} → ${fmt(endIso)}); sessions in weeks ${calendarWeeks + 1}–${templateWeeks} fall after the term ends and are left undated — move or drop them on Design & sequence.`);
     }
     const semester = `${startEvent(starts, startIso)?.season ?? seasonOfIso(startIso)} ${startIso.slice(0, 4)}`;
     out.push({ termId: t.id, index: t.index, name: t.name, startIso, endIso, startSource, endSource, semester, templateWeeks, calendarWeeks, startLabel, endLabel, ...(movedFrom ? { movedFrom } : {}) });

@@ -1607,6 +1607,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
           meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
           shiftMoves: { select: { sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
+          sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
           _count: { select: { students: true } },
         },
       },
@@ -1666,6 +1667,17 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
         if (loc && !meetingLoc.has(k)) meetingLoc.set(k, loc);
         if (m.staff?.name && !meetingStaff.has(k)) meetingStaff.set(k, m.staff.name);
       }
+      // Who staffs each shift: the shift assignments (session × section), the
+      // source of truth the staffing table and loads use — the weekly booking's
+      // staffPersonId is only a fallback. Names per session, and per course ×
+      // kind × section for the weekly booking chips.
+      const staffBySession = new Map<string, string[]>();
+      for (const a of co.sessionStaff) { const l = staffBySession.get(a.sessionId) ?? []; if (!l.includes(a.person.name)) l.push(a.person.name); staffBySession.set(a.sessionId, l); }
+      const sessionCourseKind = new Map<string, string>();
+      for (const t of orderedTerms) for (const c of t.courses) for (const s of c.sessions) sessionCourseKind.set(s.id, `${c.id}|${s.kind}`);
+      const staffBySection = new Map<string, Map<string, number>>(); // course|kind|section → person name → shifts
+      for (const a of co.sessionStaff) { const ck = sessionCourseKind.get(a.sessionId); if (!ck) continue; const k = `${ck}|${a.sectionIndex}`; const m = staffBySection.get(k) ?? new Map<string, number>(); m.set(a.person.name, (m.get(a.person.name) ?? 0) + 1); staffBySection.set(k, m); }
+      const leadStaff = (courseId: string, kind: string, sec: number) => { const m = staffBySection.get(`${courseId}|${kind}|${sec}`); if (!m) return null; const top = [...m.entries()].sort((x, y) => y[1] - x[1]); return top.length > 1 ? `${top[0][0]} +${top.length - 1}` : top[0][0]; };
       // Per-instantiation session overrides beat both the template and the
       // meeting-day fallback — this cohort's reality is what the math uses.
       const ovBySession = new Map(co.sessionOverrides.map((o) => [o.sessionId, o]));
@@ -1681,7 +1693,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
           dayOfWeek: m.dayOfWeek, startTime: m.startTime,
           facilityId: m.facilityId, employerId: m.employerId, unitId: m.unitId, staffPersonId: m.staffPersonId,
           loc: m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}${m.unit?.unitType ? ` · ${m.unit.unitType}` : ""}` : "@ site TBD") : (m.facility?.name ?? null),
-          staffName: m.staff?.name ?? null,
+          staffName: leadStaff(m.courseId, m.kind, m.sectionIndex) ?? m.staff?.name ?? null,
           lengthHours: m.lengthHours, termIndex: m.termIndex,
         })),
         // Per-occurrence moves: ONE shift (session × section, on one date) bumped
@@ -1704,13 +1716,15 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
               title: ov?.title ?? s.title,
               deliveryMode: ov?.deliveryMode ?? s.deliveryMode,
               location: ov?.location ?? meetingLoc.get(`${c.id}|${s.kind}`) ?? s.location,
-              staffName: meetingStaff.get(`${c.id}|${s.kind}`) ?? null,
+              staffName: staffBySession.get(s.id)?.join(", ") ?? meetingStaff.get(`${c.id}|${s.kind}`) ?? null,
               lengthHours: ov?.lengthHours ?? s.lengthHours, maxStudents: ov?.maxStudents ?? s.maxStudents,
               facultyNeeded: ov?.facultyNeeded ?? s.facultyNeeded, facultyContactPolicy: ov?.facultyContactPolicy ?? s.facultyContactPolicy,
               supportStaffNeeded: ov?.supportStaffNeeded ?? s.supportStaffNeeded, supportContactPolicy: ov?.supportContactPolicy ?? s.supportContactPolicy,
               week: ov?.week ?? s.week,
-              dayOfWeek: ov?.dayOfWeek ?? s.dayOfWeek ?? meetingDay.get(`${c.id}|${s.kind}`) ?? null,
-              startTime: ov?.startTime ?? s.startTime ?? meetingTime.get(`${c.id}|${s.kind}`) ?? null,
+              // An online / no-fixed-day session stays undated (it counts in the week, never on a day);
+              // only an in-person session without a stated day borrows its weekly booking's slot.
+              dayOfWeek: ov?.dayOfWeek ?? s.dayOfWeek ?? ((ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet" ? null : meetingDay.get(`${c.id}|${s.kind}`) ?? null),
+              startTime: ov?.startTime ?? s.startTime ?? ((ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet" ? null : meetingTime.get(`${c.id}|${s.kind}`) ?? null),
               notes: ov?.notes ?? s.notes,
               preceptorsNeeded: ov?.preceptorsNeeded ?? s.preceptorsNeeded, preceptorContactPolicy: ov?.preceptorContactPolicy ?? s.preceptorContactPolicy,
               rotationType: ov?.rotationType ?? s.rotationType, clinicalMode: ov?.clinicalMode ?? s.clinicalMode,

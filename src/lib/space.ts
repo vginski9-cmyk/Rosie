@@ -154,6 +154,8 @@ export interface PlaceReq {
   staffPersonId?: string | null;
   preferDay?: Weekday;
   preferStartMin?: number;
+  /** The room the sheet names for this session — tried first, whatever its kind. */
+  preferFacilityId?: string;
 }
 export interface Placement {
   dayOfWeek: Weekday;
@@ -206,9 +208,11 @@ export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { daySt
       : rotate(times, (seed * 3) % Math.max(1, times.length));
     // Rooms that can host this kind, smallest adequate first (pack tight).
     const kinds = ROOM_KINDS_FOR[r.kind] ?? [];
-    const pool = rooms
-      .filter((rm) => kinds.includes(rm.kind))
-      .sort((a, b) => (a.capacity ?? 1e9) - (b.capacity ?? 1e9) || a.name.localeCompare(b.name));
+    const preferred = r.preferFacilityId ? rooms.find((rm) => rm.id === r.preferFacilityId) ?? null : null;
+    const pool = [
+      ...(preferred ? [preferred] : []),
+      ...rooms.filter((rm) => kinds.includes(rm.kind) && rm.id !== preferred?.id).sort((a, b) => (a.capacity ?? 1e9) - (b.capacity ?? 1e9) || a.name.localeCompare(b.name)),
+    ];
     const offCampus = kinds.length === 0;
 
     let chosen: Placement | null = null;

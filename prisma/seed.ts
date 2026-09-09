@@ -213,7 +213,7 @@ function genSessions(c: CourseSeed, weeks: number) {
 type PackSession = {
   kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
   lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
-  supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null; startTime?: string | null;
+  supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null; startTime?: string | null; sectionTimes?: string | null;
   notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
   rotationType: string | null; clinicalMode: string | null;
 };
@@ -253,7 +253,7 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
               lengthHours: x.lengthHours, maxStudents: x.maxStudents,
               facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
               facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, notes: x.notes,
+              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, sectionTimes: x.sectionTimes ?? null, notes: x.notes,
               rotationType: x.rotationType, clinicalMode: x.clinicalMode,
             })),
           },

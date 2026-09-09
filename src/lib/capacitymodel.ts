@@ -272,6 +272,8 @@ export interface DatedInstance {
   termName: string;
   semester: string;       // Fall | Spring | Summer (best effort from the term start month)
   weekOfTerm: number;     // Q (defaulted to 1 when unset)
+  /** The session's template week is past the term's last week (a 16-week template in a 10-week summer): undated, flagged. */
+  beyondTerm?: boolean;
   /** Monday of the calendar week this session lands in; null when the term has no date. */
   monday: Date | null;
   mondayIso: string | null;
@@ -333,7 +335,7 @@ export function usHoliday(d: Date): string | null {
   return null;
 }
 
-import { seasonOfMonth, weekMonday } from "./term";
+import { seasonOfMonth, weekMonday, beyondTerm, calendarWeeksBetween } from "./term";
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -357,10 +359,15 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
     // The semester is the TERM's, even for a course that starts later in it.
     const semester = termStart ? seasonOfMonth(termStart.getUTCMonth() + 1) : start ? seasonOfMonth(start.getUTCMonth() + 1) : "—";
     const courseWeeks = c.sessions.map((s) => s.week).filter((w): w is number => w != null && w > 0);
-    const anchor = { termStart, termEnd: input.termEndByIndex?.[c.termIndex] ?? null, templateWeeks: input.termWeeksByIndex?.[c.termIndex] ?? null, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1 };
+    const termEndRaw = input.termEndByIndex?.[c.termIndex] ?? null;
+    const termEnd = termEndRaw == null ? null : termEndRaw instanceof Date ? termEndRaw : new Date(termEndRaw);
+    const tplWeeks = input.termWeeksByIndex?.[c.termIndex] ?? null;
+    const calWeeks = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : null;
+    const anchor = { termStart, termEnd, templateWeeks: tplWeeks, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1 };
     for (const s of c.sessions) {
       const computed = computeColumns(s, enrollment[c.termIndex] ?? 0, a);
       const week = s.week && s.week > 0 ? s.week : 1;
+      const beyond = tplWeeks != null && calWeeks != null ? beyondTerm(week, tplWeeks, calWeeks) : false;
       const monday = start ? weekMonday(anchor, week) : null;
       const off = s.dayOfWeek != null ? CAPACITY_DAY_OFFSET[s.dayOfWeek] : undefined;
       const date = monday != null && off != null ? addDays(monday, off) : null;
@@ -368,7 +375,7 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
         session: s, computed,
         cohortId: input.cohortId, cohort: input.cohort, programId: input.programId, program: input.program,
         courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, termIndex: c.termIndex, termName: c.termName, semester,
-        weekOfTerm: week,
+        weekOfTerm: week, beyondTerm: beyond,
         monday, mondayIso: monday ? isoOf(monday) : null,
         date, dateIso: date ? isoOf(date) : null,
         month: monday ? isoOf(monday).slice(0, 7) : null,

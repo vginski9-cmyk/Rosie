@@ -88,3 +88,26 @@ describe("gradVerb", () => {
     expect(gradVerb(2028, today)).toBe("expected to graduate");
   });
 });
+
+import { beyondTerm, fitWeek, weekMonday, sessionDate, calendarWeeksBetween } from "../src/lib/term";
+describe("the week rule: template week w = calendar week w; weeks past the term are undated, never smeared", () => {
+  const term = { termStart: "2027-05-31", termEnd: "2027-08-06", templateWeeks: 16 }; // a 10-week summer
+  it("counts the term's calendar weeks", () => { expect(calendarWeeksBetween("2027-05-31", "2027-08-06")).toBe(10); });
+  it("weeks 1–10 land on their own Monday", () => {
+    expect(weekMonday(term, 1)?.toISOString().slice(0, 10)).toBe("2027-05-31");
+    expect(weekMonday(term, 10)?.toISOString().slice(0, 10)).toBe("2027-08-02");
+    expect(sessionDate(term, 3, "Wed")?.toISOString().slice(0, 10)).toBe("2027-06-16");
+  });
+  it("weeks 11–16 are beyond the term: no date", () => {
+    expect(beyondTerm(11, 16, 10)).toBe(true); expect(beyondTerm(10, 16, 10)).toBe(false); expect(beyondTerm(11, 16, 16)).toBe(false);
+    expect(weekMonday(term, 11)).toBeNull(); expect(sessionDate(term, 16, "Mon")).toBeNull();
+  });
+  it("a full-length term is untouched", () => {
+    const fall = { termStart: "2026-08-17", termEnd: "2026-12-04", templateWeeks: 16 };
+    expect(weekMonday(fall, 16)?.toISOString().slice(0, 10)).toBe("2026-11-30");
+  });
+  it("course windows clamp to the term's last week", () => { expect(fitWeek(14, 16, 10)).toBe(10); expect(fitWeek(4, 16, 10)).toBe(4); expect(fitWeek(14, 16, 16)).toBe(14); });
+  it("a course with its own window counts weeks from its first session week", () => {
+    expect(weekMonday({ ...term, courseStart: "2027-06-14", courseFirstWeek: 3 }, 5)?.toISOString().slice(0, 10)).toBe("2027-06-28");
+  });
+});

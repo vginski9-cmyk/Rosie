@@ -223,13 +223,18 @@ export const calendarWeeksBetween = (start: Date | string, end: Date | string): 
   return Math.max(1, Math.floor((e.getTime() - s.getTime()) / (7 * 86400000)) + 1);
 };
 
-/** THE week rule: a template week lands on a calendar week of its term. When the
- *  calendar gives the term fewer weeks than the template plans (a 10-week summer
- *  for a 16-week template), the template weeks are fitted proportionally into
- *  the weeks the term actually has, in order — nothing lands after the term ends. */
+/** THE week rule: template week w lands on calendar week w of its term — the
+ *  weekly pattern the sheet describes is never squeezed or smeared. When the
+ *  calendar gives the term fewer weeks than the template plans (a 10-week
+ *  summer for a 16-week template), sessions in the template weeks past the
+ *  term's last week are BEYOND the term: they get no date and are flagged for
+ *  the configurer to move or drop. Course windows clamp to the term's last week. */
+export const beyondTerm = (week: number, templateWeeks: number, calendarWeeks: number): boolean =>
+  templateWeeks > 0 && calendarWeeks > 0 && calendarWeeks < templateWeeks && week > calendarWeeks;
+/** A template week clamped to the weeks the term has (for windows and labels). */
 export function fitWeek(week: number, templateWeeks: number, calendarWeeks: number): number {
   if (!(templateWeeks > 0) || !(calendarWeeks > 0) || calendarWeeks >= templateWeeks) return week;
-  return 1 + Math.floor((Math.max(1, week) - 1) * calendarWeeks / templateWeeks);
+  return Math.min(Math.max(1, week), calendarWeeks);
 }
 
 /** What a session week is anchored to: the term (its real first and last day and
@@ -249,10 +254,10 @@ export function weekMonday(a: WeekAnchor, week: number | null | undefined): Date
   const termStart = asDate(a.termStart), termEnd = asDate(a.termEnd), courseStart = asDate(a.courseStart);
   const tpl = a.templateWeeks && a.templateWeeks > 0 ? a.templateWeeks : 16;
   const cal = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : tpl;
-  const fw = fitWeek(w, tpl, cal);
-  if (courseStart) { const f0 = fitWeek(a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1, tpl, cal); return new Date(courseStart.getTime() + Math.max(0, fw - f0) * 7 * 86400000); }
+  if (beyondTerm(w, tpl, cal)) return null; // after the term's last day — undated, flagged
+  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return new Date(courseStart.getTime() + Math.max(0, w - f0) * 7 * 86400000); }
   if (!termStart) return null;
-  return new Date(termStart.getTime() + (fw - 1) * 7 * 86400000);
+  return new Date(termStart.getTime() + (w - 1) * 7 * 86400000);
 }
 export const DAY_OFFSET: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
 /** The exact date of a session (its week's Monday + its weekday), or null when it has no day. */

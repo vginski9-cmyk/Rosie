@@ -58,6 +58,8 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   let holidayHits = 0;
   let peakFac = 0;
   let peakPre = 0;
+  // Sessions whose template week is past the term's last week (a 16-week template in a 10-week summer) — undated, flagged.
+  const beyondByTerm = new Map<string, { sessions: number; weeks: Set<number> }>();
   if (capCohort) {
     const input: CohortCalendarInput = {
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
@@ -67,7 +69,9 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       holidays: capCohort.holidays,
       courses: capCohort.courses,
     };
-    const instances = buildInstances(input, capCohort.assumptions).filter((i) => i.mondayIso != null);
+    const all = buildInstances(input, capCohort.assumptions);
+    for (const i of all) if (i.beyondTerm) { const b = beyondByTerm.get(i.termName) ?? { sessions: 0, weeks: new Set<number>() }; b.sessions += Math.max(1, Math.round(i.computed.Y ?? 1)); b.weeks.add(i.weekOfTerm); beyondByTerm.set(i.termName, b); }
+    const instances = all.filter((i) => i.mondayIso != null);
     lastDay = lastSessionDate(instances);
     holidayHits = instances.filter((i) => i.holiday).length;
     const w = weeklyNeedByKind(instances);
@@ -282,6 +286,15 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           </Collapse>
         );
       })()}
+
+      {beyondByTerm.size > 0 && (
+        <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200">
+          ⚠ <strong>{[...beyondByTerm.values()].reduce((n, b) => n + b.sessions, 0)} shifts fall after their term ends and are not on the calendar.</strong>{" "}
+          {[...beyondByTerm.entries()].map(([term, b]) => `${term}: template weeks ${Math.min(...b.weeks)}–${Math.max(...b.weeks)}`).join(" · ")}. The template plans more weeks than the semester has; open{" "}
+          <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="font-medium underline">Design &amp; sequence — this offering</Link>{" "}
+          to move those sessions into the term or drop them. Nothing is squeezed or smeared into other weeks.
+        </div>
+      )}
 
       {holidayHits > 0 && (
         <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">

@@ -438,16 +438,15 @@ export function OfferingDesign({
                     const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
                     const d = sessionDateObj(t, c, r.week, r.dayOfWeek);
                     const anchor = c.startDate ?? t.startDate;
-                    // Inverse of the week rule for the date picker: a picked date → the template week that lands there.
+                    // A picked date → the template week that lands there (week w = calendar week w of the term).
                     const weekFromDate = (picked: Date) => {
                       const a0 = new Date(anchor + "T00:00:00Z");
                       let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
-                      const calWeek = Math.floor(diff / 7) + 1;
-                      const tpl = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : 16;
-                      const cal = t.startDate && t.endDate ? calendarWeeksBetween(t.startDate, t.endDate) : tpl;
-                      const week = cal < tpl ? Math.min(tpl, Math.ceil((calWeek - 1) * tpl / cal) + 1) : calWeek;
-                      return { week, day: ALL_DAYS[diff % 7] };
+                      return { week: Math.floor(diff / 7) + 1, day: ALL_DAYS[diff % 7] };
                     };
+                    const tplW = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : 16;
+                    const calW = t.startDate && t.endDate ? calendarWeeksBetween(t.startDate, t.endDate) : tplW;
+                    const afterTerm = !!(r.week && calW < tplW && r.week > calW);
                     const holiday = d && r.dayOfWeek != null ? holidays[d.toISOString().slice(0, 10)] ?? usHoliday(d) : null;
                     const m = meetingsFor(c.id, r.kind)[0] ?? null;
                     const offCampus = r.kind === "CLINICAL";
@@ -464,7 +463,7 @@ export function OfferingDesign({
                         {/* summary line */}
                         <button onClick={() => setOpenSessions((o) => toggleSet(o, r.id))} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-left text-xs hover:bg-slate-50">
                           <span className="w-4 text-slate-400">{sOpen ? "▾" : "▸"}</span>
-                          <span className="w-36 font-medium text-slate-700">{d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : "no date"}</span>
+                          <span className={`w-36 font-medium ${afterTerm ? "text-rose-700" : "text-slate-700"}`} title={afterTerm ? `week ${r.week} of the template, but this term has only ${calW} weeks — move it or drop it` : undefined}>{d ? (r.dayOfWeek != null ? fmtDate(d) : `wk of ${fmtDate(d)}`) : afterTerm ? `⚠ after term end (wk ${r.week})` : "no date"}</span>
                           <span className="w-14 font-mono text-slate-500">{fmtTime(r.startTime)}</span>
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]} #{r.number}</span>
                           <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>

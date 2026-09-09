@@ -74,7 +74,7 @@ describe("alignOffering", () => {
     expect(summer.endIso).toBe("2027-08-06"); // the Friday at least nine days before Fall 2027 starts (Aug 16)
     expect(summer.endSource).toBe("pattern");
     expect(summer.calendarWeeks).toBe(10);
-    expect(a.warnings.some((w) => /Summer 2027 gives only 10/.test(w))).toBe(true);
+    expect(a.warnings.some((w) => /Summer 2027 gives only 10 .*weeks 11–16 fall after the term ends/.test(w))).toBe(true);
     // Fall and spring fit their 16 weeks, so the template end stands.
     expect(a.terms[0].endIso).toBe("2026-12-04");
     expect(a.terms[0].endSource).toBe("template");

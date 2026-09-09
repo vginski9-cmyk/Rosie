@@ -44,6 +44,10 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { name: "Anatomy & Physiology Lab", kind: "LAB", building: "Van Dusen Hall", capacity: 24, areaSqft: 1300, equipment: "anatomical models, microscopes" },
     { name: "Van Dusen Hall 140", kind: "CLASSROOM", building: "Van Dusen Hall", capacity: 36, areaSqft: 850, equipment: "projector" },
     { name: "Van Dusen Hall 142", kind: "CLASSROOM", building: "Van Dusen Hall", capacity: 36, areaSqft: 850, equipment: "projector" },
+    // The rooms the program sheets actually name (Kennedy Hall 102 / 104 are above).
+    { name: "Kennedy Hall 147", kind: "LAB", building: "Kennedy Hall", capacity: 26, areaSqft: 1100, equipment: "radiography positioning lab" },
+    { name: "Kennedy Hall 148", kind: "CLASSROOM", building: "Kennedy Hall", capacity: 24, areaSqft: 700, equipment: "projector, whiteboard" },
+    { name: "Kennedy Hall Lab 129", kind: "LAB", building: "Kennedy Hall", capacity: 20, areaSqft: 900, equipment: "surgical technology lab" },
   ];
   // Campus → buildings → rooms. Open hours are structured per weekday (not
   // free text), and each room's fixed equipment is its own inventory row.
@@ -168,7 +172,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   ];
   let offerings = 0, meetings = 0;
   for (const o of OFFERINGS) {
-    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true } } } } } }, cohorts: { select: { name: true } } } });
+    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true } } } } } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
