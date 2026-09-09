@@ -98,9 +98,10 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
               {wrapped}
               {/* Enrollment through EVERY term — rows exactly like the stages,
                   Term 2 right under Enrolled (Term 1), then Term 3, … */}
-              {a.key === "enrolled" && termEnrollment && termEnrollment.length > 1 && termEnrollment.slice(1).map((t, i) => {
-                const prev = termEnrollment[i]; // slice(1) → prev is the term above
-                const conv = prev.target > 0 ? t.target / prev.target : null;
+              {a.key === "enrolled" && termEnrollment && termEnrollment.length > 0 && termEnrollment.map((t, i) => ({ t, i })).filter(({ t, i }) => i > 0 || t.current).map(({ t, i }) => {
+                // Term 1 is the stage above (everyone who enrolled); its own row appears only while it is the current term, showing who is still in.
+                const prev = i > 0 ? termEnrollment[i - 1] : null;
+                const conv = prev && prev.target > 0 ? t.target / prev.target : null;
                 const attain = t.actual != null && t.target > 0 ? t.actual / t.target : null;
                 const innerPct = t.target > 0 && t.actual != null ? `${Math.min(100, (t.actual / t.target) * 100)}%` : "0%";
                 const color = "#10b981";
@@ -108,7 +109,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
                   <div key={t.label} className="group flex items-center gap-3 px-1 py-0.5">
                     <div className="w-44 shrink-0 text-right">
                       <div className="text-[13px] font-medium leading-tight text-slate-700">Enrolled — {t.label}{t.current ? <span className="ml-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">now</span> : null}</div>
-                      {conv != null && <div className="text-[10px] text-slate-400">{fmt.pct(conv)} retained from the term above</div>}
+                      {conv != null ? <div className="text-[10px] text-slate-400">{fmt.pct(conv)} retained from the term above</div> : t.current ? <div className="text-[10px] text-slate-400">still enrolled today</div> : null}
                     </div>
                     <div className="relative flex-1">
                       <div

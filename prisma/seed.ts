@@ -455,6 +455,41 @@ async function seedOfferingStudents() {
     await prisma.student.createMany({ data: rows });
     made += seats;
 
+    // The top of this offering's funnel: the people who showed interest, qualified and were
+    // offered a seat but did not (or have not yet) enrolled — sized against the offering's own
+    // stage targets with a little noise, so goal-vs-actual reads from records, not typed-in
+    // numbers. Everyone enrolled above also applied to this offering.
+    await prisma.student.updateMany({ where: { cohortId: co.id }, data: { applicationCohortId: co.id } });
+    const stages = await prisma.funnelStage.findMany({ where: { cohortId: co.id }, select: { stageKey: true, targetNumber: true } });
+    const tgt = (k: string) => stages.find((x) => x.stageKey === k)?.targetNumber ?? 0;
+    const interested = Math.max(seats, Math.round(tgt("interested") * (1.02 + (h % 9) / 100)));
+    const qualified = Math.min(interested, Math.max(seats, Math.round(tgt("qualified") * (0.95 + (h % 7) / 100))));
+    const offered = Math.min(qualified, Math.max(seats, Math.round(tgt("offered") * (0.98 + (h % 5) / 100))));
+    const upper = [
+      ...Array.from({ length: interested - qualified }, (_, i) => ({ status: "prospect", stageKey: "interested", i })),
+      ...Array.from({ length: qualified - offered }, (_, i) => ({ status: "applicant", stageKey: "qualified", i: 1000 + i })),
+      ...Array.from({ length: offered - seats }, (_, i) => ({ status: "admitted", stageKey: "offered", i: 2000 + i })),
+    ];
+    if (upper.length) {
+      await prisma.student.createMany({ data: upper.map(({ status, stageKey, i }) => {
+        const x = mix(i + 500, 4), y = mix(i + 500, 5), z = mix(i + 500, 6);
+        const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30);
+        const county = COUNTIES[(h + i * 5) % COUNTIES.length];
+        return {
+          programId: co.program.id, cohortId: null, applicationCohortId: co.id, name: `${FIRST[(h + i * 13) % FIRST.length]} ${LAST[(h * 5 + i * 17) % LAST.length]}`, email: null,
+          status, stageKey, entryYear: co.entryYear, sectionIndex: 1,
+          dob: new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age - 1, (y % 12), 1 + (z % 28))),
+          sex: pickW(["Female", "Male", "Prefer not to say"], [72, 26, 2], y),
+          raceEthnicity: pickW(["White", "Black or African American", "Hispanic or Latino", "American Indian or Alaska Native", "Asian", "Two or more races", "Unknown / prefer not to say"], [52, 24, 12, 4, 2, 4, 2], z),
+          county, city: CITIES[county], state: "NC", residency: pickW(["in-district", "in-state", "out-of-state"], [78, 20, 2], x + y),
+          priorEducation: pickW(["HS diploma", "GED", "Some college", "Certificate", "Associate", "Bachelor's"], [34, 8, 30, 10, 12, 6], z + x),
+          employmentStatus: pickW(["unemployed", "part-time", "full-time", "incumbent worker (healthcare)", "student only"], [14, 34, 22, 18, 12], y + z),
+          firstGeneration: (x + z) % 100 < 46, veteran: (y + z) % 100 < 6, pellEligible: (x + y + z) % 100 < 58, disability: (x * 3) % 100 < 7,
+          dependents: (y % 100) < 40 ? 1 + (z % 3) : 0, primaryLanguage: (z % 100) < 9 ? "Spanish" : "English",
+        };
+      }) });
+    }
+
     // Sections (per course kind) and every clinical shift, by seat order — the
     // same rule the scheduler uses, so profiles show a real itinerary.
     const students = await prisma.student.findMany({ where: { cohortId: co.id }, select: { id: true, sectionIndex: true, status: true }, orderBy: { sectionIndex: "asc" } });
@@ -1296,6 +1331,8 @@ async function main() {
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
   console.log("learner records:", await seedLearnerRecords(prisma, sandhills.id));
+  // Stage actuals read from the records above.
+  { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
 
   const counts = {
     institutions: await prisma.institution.count(),

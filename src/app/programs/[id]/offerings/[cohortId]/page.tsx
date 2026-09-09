@@ -80,13 +80,15 @@ export default async function OfferingPage({ params }: { params: { id: string; c
     peakPre = Math.max(0, ...w.map((x) => x.preceptorFte));
   }
 
+  // Learners sitting in the offering now (enrolled or further along; not withdrawn, not applicants).
+  const enrolledNow = ledger ? ledger.students.filter((s) => s.status !== "withdrawn").length : offering._count.students;
   // Enrollment through each term — target ladder from the pipeline, rendered
   // inside the funnel under "Enrolled" so the whole journey reads top to bottom.
   const termEnrollment = capCohort
     ? orderedTerms.map((t) => ({
         label: `${t.name}`,
         target: capCohort.enrollmentByTerm[t.index] ?? 0,
-        actual: timing.phase === "in-program" && timing.currentTermName === t.name ? offering._count.students : null,
+        actual: timing.phase === "in-program" && timing.currentTermName === t.name ? enrolledNow : null,
         current: timing.phase === "in-program" && timing.currentTermName === t.name,
       }))
     : [];
@@ -157,7 +159,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <Collapse
           title="Talent pipeline"
           sub="Goal vs actual at every stage — with enrollment through each term of the program"
-          summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(offering._count.students)} enrolled now</>}
+          summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(enrolledNow)} enrolled now</>}
           defaultOpen
         >
           <div className="mb-4">

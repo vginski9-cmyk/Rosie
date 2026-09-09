@@ -297,6 +297,7 @@ export async function enrollStudent(formData: FormData): Promise<void> {
     data: {
       programId,
       cohortId: str(formData.get("cohortId")) || null,
+      applicationCohortId: str(formData.get("cohortId")) || null,
       name: str(formData.get("name")) || "New Student",
       email: str(formData.get("email")) || null,
       status,
@@ -309,6 +310,7 @@ export async function enrollStudent(formData: FormData): Promise<void> {
       residency: str(formData.get("residency")) || null, priorEducation: str(formData.get("priorEducation")) || null, employmentStatus: str(formData.get("employmentStatus")) || null,
     },
   });
+  { const cid = str(formData.get("cohortId")); if (cid) { const { syncCohortActuals } = await import("./pipelineactuals"); await syncCohortActuals(cid); } }
   revalidatePath("/students");
   revalidatePath("/students/analytics");
   revalidatePath(`/programs/${programId}/students`);
@@ -322,7 +324,11 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
     sectionIndex: Math.max(1, numOr(formData.get("sectionIndex"), 1)),
   };
   if (status) { data.status = status; data.stageKey = STATUS_TO_STAGE[status] ?? null; }
-  const student = await prisma.student.update({ where: { id: studentId }, data, select: { programId: true } });
+  const before = await prisma.student.findUnique({ where: { id: studentId }, select: { cohortId: true, applicationCohortId: true } });
+  const student = await prisma.student.update({ where: { id: studentId }, data: { ...data, ...(data.cohortId && !before?.applicationCohortId ? { applicationCohortId: data.cohortId } : {}) }, select: { programId: true, cohortId: true, applicationCohortId: true } });
+  // Stage actuals follow the records: every offering this learner touched (before and after) resyncs.
+  const { syncCohortActuals } = await import("./pipelineactuals");
+  for (const id of new Set([before?.cohortId, before?.applicationCohortId, student.cohortId, student.applicationCohortId].filter((x): x is string => !!x))) { await syncCohortActuals(id); const co = await prisma.cohort.findUnique({ where: { id }, select: { programId: true } }); if (co) revalidatePath(`/programs/${co.programId}/offerings/${id}`); }
   revalidatePath("/students");
   revalidatePath(`/students/${studentId}`);
   revalidatePath(`/programs/${student.programId}/students`);
