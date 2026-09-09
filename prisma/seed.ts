@@ -379,11 +379,11 @@ async function loadRadAssetMap(institutionId: string) {
     ["General Radiography", "GEN", "Imaging"], ["Chest & Bone", "GEN", "Imaging"], ["Pediatrics", "GEN", "Imaging"], ["Outpatient Imaging", "GEN", "Imaging"],
     ["Trauma / Emergency", "ED", "Emergency"], ["Operating Room & Mobile", "OR", "Surgical"], ["Fluoroscopy / GI", "FLUORO", "Imaging"],
     ["Vascular / Special Procedures", "FLUORO", "Imaging"], ["Computed Tomography", "CT", "Imaging"], ["Portables / Inpatient", "PORT", "Imaging"],
-    ["Operating Room", "OR", "Surgical"], ["Radiography", "GEN", "Imaging"], ["Emergency", "ED", "Emergency"], ["Imaging", "GEN", "Imaging"],
+    ["Operating Room", "ORS", "Surgical"], ["Radiography", "GEN", "Imaging"], ["Emergency", "ED", "Emergency"], ["Imaging", "GEN", "Imaging"],
     ["CT", "CT", "Imaging"], ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "LTC", "Adult care beds"],
     // The Sandhills program-data workbooks' own rotation labels.
     ["General Rotations", "GEN", "Imaging"], ["Other (imaging rotations)", "GEN", "Imaging"], ["Capstone/Preceptorship", "GEN", "Imaging"],
-    ["Other (surgical rotations)", "OR", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"], ["Operating Room or Doctor's Office", "OR", "Surgical"],
+    ["Other (surgical rotations)", "ORS", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"], ["Operating Room or Doctor's Office", "ORS", "Surgical"],
   ];
   for (const [rotationType, settingCode, unitCategory] of ROT) {
     await prisma.rotationSetting.upsert({
@@ -398,6 +398,16 @@ async function loadRadAssetMap(institutionId: string) {
   const hospitals = await prisma.employer.findMany({ where: { institutionId, externalId: { in: ["H001", "H012"] } }, select: { id: true, externalId: true } });
   for (const h of hospitals) for (let n = 1; n <= 2; n++) {
     await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId}-CT-${String(n).padStart(2, "0")}`, settingCode: "CT", setting: "Computed tomography", assetType: "CT scanner", assetNumber: n, operatingRule: "24x7", days: "Mon,Tue,Wed,Thu,Fri,Sat,Sun", shiftBlocks: "Day,Evening,Night", hoursPerShift: 8, serves: "Routine, trauma, contrast", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE" } });
+    extra++;
+  }
+  // Operating-room SUITES for surgical technology — one asset per licensed OR on the facility record
+  // (the partner workbook's total ORs). A radiography C-arm (setting OR) is a radiographer's asset and
+  // never counts as an operating room for surgical technology; that is what setting ORS is for. Shift
+  // structure is the usual weekday OR day (07:00 first case, 8 h), marked ESTIMATE until the site confirms.
+  const surgical = await prisma.employer.findMany({ where: { institutionId, operatingRooms: { gt: 0 } }, select: { id: true, externalId: true, name: true, operatingRooms: true, annualSurgicalCases: true, facilityType: true } });
+  for (const h of surgical) for (let n = 1; n <= (h.operatingRooms ?? 0); n++) {
+    const asc = /surgery center|ambulatory/i.test(h.facilityType ?? "");
+    await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId ?? "S"}-ORS-${String(n).padStart(2, "0")}`, settingCode: "ORS", setting: "Operating room suite", assetType: asc ? "Ambulatory OR suite" : "OR suite", assetNumber: n, operatingRule: "Weekday Day", days: "Mon,Tue,Wed,Thu,Fri", shiftBlocks: "Day", hoursPerShift: 8, dayStart: "07:00", dayHours: 8, serves: h.annualSurgicalCases != null ? `Surgical cases — ${h.annualSurgicalCases} a year across ${h.operatingRooms} ORs` : "Surgical cases", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE", notes: "One suite per licensed OR on the facility record; confirm the OR day and which suites take students." } });
     extra++;
   }
   const homes = await prisma.employer.findMany({ where: { institutionId, nursingHomeBeds: { gt: 0 } }, select: { id: true, externalId: true, nursingHomeBeds: true } });
@@ -543,7 +553,7 @@ async function loadClinicalModels(institutionId: string) {
 
     const areaDefs: { code: string; name: string; settingCodes: string; unitCategories: string }[] = isRad
       ? map.serviceAreas.map((a) => ({ ...a, unitCategories: "Imaging" }))
-      : isSurg ? [{ code: "OR", name: "Operating room — scrub / first assist", settingCodes: "ORS,OR", unitCategories: "Surgical" }, { code: "ASC", name: "Ambulatory surgery center procedures", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "SPD", name: "Sterile processing", settingCodes: "", unitCategories: "Surgical" }, { code: "AMB", name: "Physician office / clinic observation", settingCodes: "AMB", unitCategories: "Ambulatory office" }]
+      : isSurg ? [{ code: "OR", name: "Operating room — scrub / first assist", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "ASC", name: "Ambulatory surgery center procedures", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "SPD", name: "Sterile processing", settingCodes: "", unitCategories: "Surgical" }, { code: "AMB", name: "Physician office / clinic observation", settingCodes: "AMB", unitCategories: "Ambulatory office" }]
       : isCna ? [{ code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" }, { code: "ACH", name: "Adult care home", settingCodes: "LTC", unitCategories: "Adult care beds" }, { code: "MS", name: "Hospital medical-surgical unit", settingCodes: "BEDS", unitCategories: "Inpatient beds" }]
       : [{ code: "AMB", name: "Ambulatory office / clinic externship", settingCodes: "AMB", unitCategories: "Ambulatory office" }, { code: "LAB", name: "Laboratory / phlebotomy", settingCodes: "", unitCategories: "Laboratory" }, { code: "IMG", name: "Imaging front office", settingCodes: "GEN", unitCategories: "Imaging" }];
     const areaByCode = new Map<string, string>();
@@ -1293,7 +1303,7 @@ async function main() {
   const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region.", accreditor: "JRCERT", accreditationNotes: "Enter the JRCERT program number and the accredited program total clinical capacity from the most recent recognition letter.",
     capacityBasis: "seats", rotationPrimarySetting: "GEN", rotationAgreements: "secured+asked", rotationKeepHome: true, rotationNotes: "Hours per service area from the course allocation grid; one student per room / unit per shift; out-rotations (ED, portables, C-arm, fluoro, CT) in blocks at the home hospital when it has them, else at a partner that does." } });
   const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates.",
-    capacityBasis: "cases", casesPerStudentDay: 2, caseDaysPerYear: 250, rotationPrimarySetting: "OR", rotationAgreements: "secured+asked", rotationKeepHome: true, rotationNotes: "Case-based: a student needs first- and second-scrub cases, so a site takes as many students a day as its case volume supports (daily cases ÷ cases per student-day); doctor's-office days fill the rest." } });
+    capacityBasis: "cases", casesPerStudentDay: 2, caseDaysPerYear: 250, rotationPrimarySetting: "ORS", rotationAgreements: "secured+asked", rotationKeepHome: true, rotationNotes: "Case-based: a student needs first- and second-scrub cases, so a site takes as many students a day as its case volume supports (daily cases ÷ cases per student-day); doctor's-office days fill the rest." } });
   const assets = await loadAssetMap(sandhills.id);
   console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
   const radMap = await loadRadAssetMap(sandhills.id);

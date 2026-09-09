@@ -97,11 +97,11 @@
     { "category": "Fluoroscopy", "name": "Arthrography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
     { "category": "Fluoroscopy", "name": "Hysterosalpingography", "mandatory": false, "electiveGroup": "fluoro", "settingCodes": "FLUORO" },
 
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: chest routine", "mandatory": true, "settingCodes": "GEN,ED,PEDS" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: upper extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED,PEDS" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: lower extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED,PEDS" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: abdomen", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED,PEDS" },
-    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: mobile study", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "PORT,PEDS" },
+    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: chest routine", "mandatory": true, "settingCodes": "GEN,ED" },
+    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: upper extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
+    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: lower extremity", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
+    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: abdomen", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "GEN,ED" },
+    { "category": "Pediatric (age 6 or younger)", "name": "Pediatric: mobile study", "mandatory": false, "electiveGroup": "pediatric", "settingCodes": "PORT" },
 
     { "category": "Geriatric (65+, physically or cognitively impaired)", "name": "Geriatric: chest routine", "mandatory": true, "settingCodes": "GEN,ED,PORT" },
     { "category": "Geriatric (65+, physically or cognitively impaired)", "name": "Geriatric: upper extremity", "mandatory": true, "settingCodes": "GEN,ED" },

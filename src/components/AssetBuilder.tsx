@@ -42,8 +42,10 @@ const toDraft = (a: BuilderAsset): Draft => {
 const toInput = (d: Draft): AssetInput => ({ externalId: d.externalId || null, settingCode: d.settingCode, setting: d.setting, assetType: d.assetType, assetNumber: d.assetNumber, days: d.days, blocks: BLOCKS.filter((b) => d.blocks[b].on).map((b) => ({ block: b, start: d.blocks[b].start, hours: d.blocks[b].hours })), serves: d.serves || null, learnersPerShift: d.learnersPerShift, preceptorsPerShift: d.preceptorsPerShift, dataSource: d.dataSource, notes: d.notes || null, accreditorClass: d.accreditorClass || null });
 const weekly = (d: Draft) => { const on = BLOCKS.filter((b) => d.blocks[b].on); const shifts = d.days.length * on.length; const hours = d.days.length * on.reduce((n, b) => n + d.blocks[b].hours, 0); return { shifts, hours, learnerShifts: shifts * d.learnersPerShift, learnerHours: hours * d.learnersPerShift }; };
 
-export function AssetBuilder({ employerId, siteName, siteExternalId, assets, overrides, settings, year, compact = false }: {
+export function AssetBuilder({ employerId, siteName, siteExternalId, assets, overrides, settings, year, compact = false, accreditorClass = true }: {
   employerId: string; siteName: string; siteExternalId?: string | null; assets: BuilderAsset[]; overrides: AssetDayOverride[]; settings: SettingOption[]; year: number; compact?: boolean;
+  /** Show the JRCERT "counts as" field (radiography only — meaningless on an OR suite or a nursing unit). */
+  accreditorClass?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -63,7 +65,7 @@ export function AssetBuilder({ employerId, siteName, siteExternalId, assets, ove
   const settingName = (code: string) => settings.find((s) => s.code === code)?.name ?? assets.find((a) => a.settingCode === code)?.setting ?? code;
   const yearTotals = useMemo(() => assetTotals(assets, overrides, `${yr}-01-01`, `${yr}-12-31`), [assets, overrides, yr]);
 
-  const ctx: CardCtx = { settings, nextCode, pending, save, setAdding, setDrafts, refresh, yearOpen, setYearOpen, employerId, ov, yr, startTransition, overrides, setDraft, isDirty };
+  const ctx: CardCtx = { settings, nextCode, pending, save, setAdding, setDrafts, refresh, yearOpen, setYearOpen, employerId, ov, yr, startTransition, overrides, setDraft, isDirty, accreditorClass };
 
   return (
     <div className="space-y-3">
@@ -115,7 +117,7 @@ export function AssetBuilder({ employerId, siteName, siteExternalId, assets, ove
 interface CardCtx {
   settings: SettingOption[]; nextCode: (settingCode: string) => string; pending: boolean; save: (id: string | null, d: Draft) => void;
   setAdding: React.Dispatch<React.SetStateAction<Draft | null>>; setDrafts: React.Dispatch<React.SetStateAction<Record<string, Draft>>>; setDraft: (id: string, patch: Partial<Draft> | ((d: Draft) => Draft)) => void;
-  refresh: () => void; yearOpen: string | null; setYearOpen: (id: string | null) => void; employerId: string; ov: Map<string, AssetDayOverride>; yr: number;
+  refresh: () => void; yearOpen: string | null; setYearOpen: (id: string | null) => void; employerId: string; ov: Map<string, AssetDayOverride>; yr: number; accreditorClass: boolean;
   startTransition: (cb: () => Promise<void>) => void; overrides: AssetDayOverride[]; isDirty: (a: BuilderAsset) => boolean;
 }
 function AssetCard({ a, d, isNew, ctx }: { a: BuilderAsset | null; d: Draft; isNew: boolean; ctx: CardCtx }) {
@@ -177,7 +179,7 @@ function AssetCard({ a, d, isNew, ctx }: { a: BuilderAsset | null; d: Draft; isN
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Learners per shift</span><input type="number" min={0} value={d.learnersPerShift} onChange={(e) => set({ learnersPerShift: Number(e.target.value) || 0 })} className="w-20 rounded border border-slate-300 px-2 py-1" /></label>
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Preceptors per shift</span><input type="number" min={0} value={d.preceptorsPerShift} onChange={(e) => set({ preceptorsPerShift: Number(e.target.value) || 0 })} className="w-20 rounded border border-slate-300 px-2 py-1" /></label>
           <label className="block text-xs"><span className="block text-[10px] text-slate-400">Data source</span><select value={d.dataSource} onChange={(e) => set({ dataSource: e.target.value })} className="rounded border border-slate-300 px-2 py-1">{["VERIFIED", "ESTIMATE", "GAP"].map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-          <label className="block text-xs" title="How the JRCERT counts this asset on Form 1010R: radiographic and R&F rooms, mobile units and C-arms count; mammography, CT, MR, ultrasound, nuclear medicine, interventional, cardiovascular, bone densitometry and therapy do not"><span className="block text-[10px] text-slate-400">JRCERT counts as</span><select value={d.accreditorClass} onChange={(e) => set({ accreditorClass: e.target.value })} className="rounded border border-slate-300 px-2 py-1"><option value="">{ACCREDITOR_CLASS_LABEL[accreditorClassOf({ settingCode: d.settingCode, assetType: d.assetType })]} (derived)</option>{ACCREDITOR_CLASSES.map((x) => <option key={x} value={x}>{ACCREDITOR_CLASS_LABEL[x]}</option>)}</select></label>
+          {ctx.accreditorClass && <label className="block text-xs" title="How the JRCERT counts this asset on Form 1010R: radiographic and R&F rooms, mobile units and C-arms count; mammography, CT, MR, ultrasound, nuclear medicine, interventional, cardiovascular, bone densitometry and therapy do not"><span className="block text-[10px] text-slate-400">JRCERT counts as</span><select value={d.accreditorClass} onChange={(e) => set({ accreditorClass: e.target.value })} className="rounded border border-slate-300 px-2 py-1"><option value="">{ACCREDITOR_CLASS_LABEL[accreditorClassOf({ settingCode: d.settingCode, assetType: d.assetType })]} (derived)</option>{ACCREDITOR_CLASSES.map((x) => <option key={x} value={x}>{ACCREDITOR_CLASS_LABEL[x]}</option>)}</select></label>}
           <div className="rounded-md bg-slate-800 px-2.5 py-2 text-xs text-white">
             <div><strong>{n0(w.shifts)}</strong> shifts · <strong>{n0(w.hours)}</strong> hrs a week</div>
             <div className="text-slate-300">{n0(w.learnerShifts)} learner-shifts · {n0(w.learnerHours)} learner-hrs a week</div>

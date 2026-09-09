@@ -15,19 +15,19 @@
     { "key": "remaining", "label": "Remaining cases", "min": 30, "scope": "any role, any specialty", "notes": "up to 10 diagnostic endoscopy and up to 5 vaginal delivery cases may count toward Second Scrub" }
   ],
   "items": [
-    { "category": "General Surgery", "name": "General surgery cases (30 · ≥20 First Scrub)", "mandatory": true, "minCount": 30, "role": "first scrub ≥ 20", "settingCodes": "OR,ORS" },
-    { "category": "Cardiothoracic", "name": "Cardiothoracic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "hospital ORs only" },
-    { "category": "ENT (otorhinolaryngology)", "name": "ENT cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
-    { "category": "Eye (ophthalmology)", "name": "Ophthalmic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS", "notes": "eye surgery centers are the usual source" },
-    { "category": "Genitourinary", "name": "GU cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
-    { "category": "Neurosurgery", "name": "Neurosurgical cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "hospital ORs only" },
-    { "category": "Obstetrics & gynecology", "name": "OB/GYN cases (cesarean, gynecologic)", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,OB" },
-    { "category": "Oral / maxillofacial", "name": "Oral and maxillofacial cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS,DENT" },
-    { "category": "Orthopedic", "name": "Orthopedic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
-    { "category": "Peripheral vascular", "name": "Peripheral vascular cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR" },
-    { "category": "Plastics & reconstructive", "name": "Plastic and reconstructive cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
-    { "category": "Procurement & transplant", "name": "Procurement and transplant cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "rare regionally — usually met at a tertiary center" },
-    { "category": "Diagnostic endoscopy", "name": "Diagnostic endoscopy (≤ 10 toward Second Scrub)", "mandatory": false, "electiveGroup": "remaining", "minCount": 0, "role": "second scrub", "settingCodes": "OR,ORS,FLUORO" },
+    { "category": "General Surgery", "name": "General surgery cases (30 · ≥20 First Scrub)", "mandatory": true, "minCount": 30, "role": "first scrub ≥ 20", "settingCodes": "ORS" },
+    { "category": "Cardiothoracic", "name": "Cardiothoracic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS", "notes": "hospital ORs only" },
+    { "category": "ENT (otorhinolaryngology)", "name": "ENT cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS" },
+    { "category": "Eye (ophthalmology)", "name": "Ophthalmic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS", "notes": "eye surgery centers are the usual source" },
+    { "category": "Genitourinary", "name": "GU cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS" },
+    { "category": "Neurosurgery", "name": "Neurosurgical cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS", "notes": "hospital ORs only" },
+    { "category": "Obstetrics & gynecology", "name": "OB/GYN cases (cesarean, gynecologic)", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS,OB" },
+    { "category": "Oral / maxillofacial", "name": "Oral and maxillofacial cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS,DENT" },
+    { "category": "Orthopedic", "name": "Orthopedic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS" },
+    { "category": "Peripheral vascular", "name": "Peripheral vascular cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS" },
+    { "category": "Plastics & reconstructive", "name": "Plastic and reconstructive cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS" },
+    { "category": "Procurement & transplant", "name": "Procurement and transplant cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "ORS", "notes": "rare regionally — usually met at a tertiary center" },
+    { "category": "Diagnostic endoscopy", "name": "Diagnostic endoscopy (≤ 10 toward Second Scrub)", "mandatory": false, "electiveGroup": "remaining", "minCount": 0, "role": "second scrub", "settingCodes": "ORS,ENDO" },
     { "category": "Vaginal delivery", "name": "Vaginal delivery (≤ 5 toward Second Scrub)", "mandatory": false, "electiveGroup": "remaining", "minCount": 0, "role": "second scrub", "settingCodes": "OB" }
   ]
 }

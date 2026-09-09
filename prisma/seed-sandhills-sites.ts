@@ -220,7 +220,7 @@ export const EXTRA_ROTATIONS: [string, string | null, string][] = [
   ["Med-Surg", "BEDS", "Inpatient beds"], ["Medical-Surgical", "BEDS", "Inpatient beds"], ["ICU / Critical Care", "ICU", "Inpatient beds"], ["ICU", "ICU", "Inpatient beds"], ["Critical Care", "ICU", "Inpatient beds"],
   ["OB / Maternity", "OB", "Inpatient beds"], ["Obstetrics", "OB", "Inpatient beds"], ["Behavioral Health", "BH", "Behavioral health"], ["Mental Health", "BH", "Behavioral health"],
   ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "ALF", "Adult care beds"],
-  ["Doctor's Office", "AMB", "Ambulatory"], ["Ambulatory / Clinic", "AMB", "Ambulatory"], ["Ambulatory Surgery", "OR", "Surgical"],
+  ["Doctor's Office", "AMB", "Ambulatory"], ["Ambulatory / Clinic", "AMB", "Ambulatory"], ["Ambulatory Surgery", "ORS", "Surgical"],
   ["Community / Public Health", "PH", "Ambulatory"], ["Community Health", "PH", "Ambulatory"], ["Home Health", "HH", "Home & community"], ["Hospice", "HOSP", "Home & community"],
   ["Laboratory", "LAB", "Laboratory"], ["MRI", "MRI", "Imaging"], ["Rehabilitation", "REHAB", "Ambulatory"], ["Emergency", "ED", "Emergency"],
 ];
@@ -228,7 +228,7 @@ export const EXTRA_ROTATIONS: [string, string | null, string][] = [
 /** Which families each asset setting serves (for per-family site agreements). */
 const FAMILY_SETTINGS: Record<string, string[]> = {
   Radiography: ["GEN", "ED", "PORT", "OR", "FLUORO", "CT", "MRI", "US", "MAMMO"],
-  "Surgical Technology": ["OR"],
+  "Surgical Technology": ["ORS"], // OR suites — never radiography's C-arm (setting OR)
   "Nurse Aide": ["LTC", "ALF", "BEDS", "HH", "HOSP"],
   "Medical Assisting": ["AMB", "PH", "LAB", "PHARM", "DENT"],
   Nursing: ["BEDS", "ICU", "OB", "PEDS", "BH", "ED", "LTC", "HH", "PH"],

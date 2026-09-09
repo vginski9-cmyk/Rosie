@@ -461,6 +461,15 @@ export async function getSiteRequirementFit(employerId: string) {
   return out;
 }
 
+/** The settings a family's clinicals happen in: its service areas plus every setting its requirement
+ *  items name (an OB unit for a surgical technology cesarean; a dental operatory for oral surgery). A
+ *  radiography C-arm (OR) is never a surgical technology asset — that job's rooms are OR suites (ORS). */
+function familySettingSet(fam: { serviceAreas: { settingCodes: string }[] }, req: { sets: { items: { settingCodes: string }[] }[] } | null | undefined): Set<string> {
+  const out = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  for (const set of req?.sets ?? []) for (const i of set.items) for (const c of i.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)) out.add(c);
+  return out;
+}
+
 /** THE per-program clinical setup hub: what completion requires (scored item by item against the
  *  network), how the family schedules, and every site serving it with its setup state — address
  *  located, agreement, accreditor recognition, assets in the family's settings, qualified staff,
@@ -471,7 +480,7 @@ export async function getFamilyClinicalSetup(familyId: string) {
   const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, clinicalNotes: true, capacityBasis: true, accreditor: true, accreditorProgramNumber: true, accreditedCapacity: true, rotationPrimarySetting: true, studentsPerStaff: true, casesPerStudentDay: true, institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: true } });
   if (!fam) return null;
   const req = await getFamilyRequirements(familyId);
-  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  const settingSet = familySettingSet(fam, req);
   const disc = disciplineOf(fam.name);
   const programIds = fam.programs.map((p) => p.id);
   const fsByEmp = new Map(fam.familySites.map((f) => [f.employerId, f]));
@@ -499,7 +508,12 @@ export async function getFamilyClinicalSetup(familyId: string) {
       inFamily: !!f, agreementStatus, accreditorStatus: f?.accreditorStatus ?? "none", approvedCapacity: f?.approvedCapacity ?? null, requestedCapacity: f?.requestedCapacity ?? null, qualifiedStaffOnShift: f?.qualifiedStaffOnShift ?? null, studentsAtOnce: f?.studentsAtOnce ?? null, casesPerDay: f?.casesPerDay ?? (e.annualSurgicalCases != null ? e.annualSurgicalCases / 250 : null), daysAllowed: f?.daysAllowed ?? null, blocksAllowed: f?.blocksAllowed ?? null,
       assets: mine.length, seatsBySetting, seats: Object.values(seatsBySetting).reduce((n, v) => n + v, 0), assetsUnverified: mine.filter((a) => a.dataSource !== "VERIFIED").length, preceptors, sections, students, fit, setup, setupDone: steps.filter(Boolean).length, setupSteps: steps.length,
     };
-  }).sort((a, b) => Number(b.inFamily) - Number(a.inFamily) || ["secured", "asked", "prospect", "none", "declined"].indexOf(a.agreementStatus) - ["secured", "asked", "prospect", "none", "declined"].indexOf(b.agreementStatus) || b.seats - a.seats || a.name.localeCompare(b.name));
+  });
+  // The program's primary setting (OR suites for surgical technology, radiographic rooms for radiography) is
+  // what most of the clinical hours happen in — sites that have it sort above the observation-only offices.
+  const primary = fam.rotationPrimarySetting ?? fam.serviceAreas[0]?.settingCodes.split(",")[0]?.trim() ?? null;
+  const hasPrimary = (x: { seatsBySetting: Record<string, number> }) => (primary && (x.seatsBySetting[primary] ?? 0) > 0 ? 1 : 0);
+  sites.sort((a, b) => Number(b.inFamily) - Number(a.inFamily) || hasPrimary(b) - hasPrimary(a) || ["secured", "asked", "prospect", "none", "declined"].indexOf(a.agreementStatus) - ["secured", "asked", "prospect", "none", "declined"].indexOf(b.agreementStatus) || b.seats - a.seats || a.name.localeCompare(b.name));
   const others = employers.filter((e) => !sites.some((s) => s.employerId === e.id)).map((e) => ({ id: e.id, name: e.name, facilityType: e.facilityType, city: e.city, ring: e.ring }));
   return {
     family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null, clinicalModel: fam.clinicalModel, clinicalNotes: fam.clinicalNotes, capacityBasis: fam.capacityBasis, accreditor: fam.accreditor, accreditorProgramNumber: fam.accreditorProgramNumber, accreditedCapacity: fam.accreditedCapacity, primarySetting: fam.rotationPrimarySetting, studentsPerStaff: fam.studentsPerStaff, casesPerStudentDay: fam.casesPerStudentDay, programs: fam.programs },
@@ -521,8 +535,8 @@ export async function getFamilySiteSetup(familyId: string, employerId: string) {
   if (!e || e.institutionId !== fam.institutionId) return null;
   const fs = fam.familySites[0] ?? null;
   const disc = disciplineOf(fam.name);
-  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
   const req = await getFamilyRequirements(familyId);
+  const settingSet = familySettingSet(fam, req);
   const siteLite = req?.sites.find((s) => s.employerId === employerId) ?? { employerId, name: e.name, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", inFamily: !!fs, agreementRank: 3, seatsBySetting: {}, casesPerDay: null, driveMinutes: e.driveMinutes, ring: e.ring };
   const sets = (req?.sets ?? []).map((set) => {
     const fit = siteFit(siteLite, set.items, set.provisions);
@@ -653,7 +667,7 @@ export async function getFamilySupply(familyId: string) {
       return {
         id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, county: e.county, ring: e.ring, facilityType: e.facilityType, address: e.address, city: e.city, state: e.state, zip: e.zip, status: e.status,
         agreementStatus: fs?.agreementStatus ?? "none", contactName: fs?.contactName ?? e.contactName, contactEmail: fs?.contactEmail ?? e.contactEmail, notes: fs?.notes ?? null,
-        assets: e.assets.filter((a) => settingSet.size === 0 || settingSet.has(a.settingCode) || !!fs).map((a) => ({
+        assets: e.assets.filter((a) => settingSet.size === 0 || settingSet.has(a.settingCode)).map((a) => ({
           id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status,
           settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
           hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,

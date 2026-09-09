@@ -30,7 +30,9 @@ export default async function FamilySitePage({ params }: { params: { id: string;
   const year = new Date().getUTCFullYear() + 1;
   const familyAssets = d.assets.filter((a) => a.inFamily);
   const seatsBySetting: Record<string, number> = {}; for (const a of familyAssets) if (a.status !== "archived") seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
-  const settingOptions = [...d.settings.map((code) => ({ code, name: SETTING_PRESETS.find((p) => p[0] === code)?.[1] ?? d.areas.find((a) => csv(a.settingCodes).includes(code))?.name ?? code, assetType: SETTING_PRESETS.find((p) => p[0] === code)?.[2] })), ...SETTING_PRESETS.filter((p) => !d.settings.includes(p[0])).map(([code, name, assetType]) => ({ code, name, assetType }))];
+  const otherAssets = d.assets.filter((a) => !a.inFamily);
+  // Only this program's settings can be added here — a surgical technology coordinator never builds a radiographic room.
+  const settingOptions = d.settings.map((code) => ({ code, name: SETTING_PRESETS.find((p) => p[0] === code)?.[1] ?? d.areas.find((a) => csv(a.settingCodes).includes(code))?.name ?? code, assetType: SETTING_PRESETS.find((p) => p[0] === code)?.[2] }));
   const preceptors = d.people.filter((p) => p.precepts), others = d.people.filter((p) => p.otherDiscipline), staffOther = d.people.filter((p) => !p.precepts && !p.otherDiscipline);
   const score = d.sets.reduce((a, s) => ({ requiredProvided: a.requiredProvided + s.score.requiredProvided, required: a.required + s.score.required, unverified: a.unverified + s.score.unverified, unknown: a.unknown + s.score.unknown }), { requiredProvided: 0, required: 0, unverified: 0, unknown: 0 });
   const steps: { key: string; label: string; done: boolean; href: string }[] = [
@@ -122,11 +124,18 @@ export default async function FamilySitePage({ params }: { params: { id: string;
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div><h2 className="text-lg font-semibold">{fam.accreditor ? "5" : "4"} · Assets &amp; shift structures <span className="text-sm font-normal text-slate-400">— every room, unit or machine {fam.name} students can be placed on here</span></h2>
             <p className="max-w-4xl text-sm text-slate-500">{fam.name} places students in <span className="font-mono text-xs">{d.settings.join(", ")}</span>. Each asset: what it is, which days it runs, which shifts and how long each is, and how many learners a shift takes. {fam.accreditor === "JRCERT" ? "Radiographic and R&F rooms, mobile units and C-arms are what the JRCERT counts as physical capacity; CT, MRI and the like are excluded from the count but still host rotations." : ""} What a site provides toward completion (below) is inferred from these assets until confirmed.</p></div>
-          <div className="text-xs text-slate-500">{familyAssets.length} of {d.assets.length} assets in {fam.name}&apos;s settings · {Object.entries(seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ") || "none yet"}</div>
+          <div className="text-xs text-slate-500">{familyAssets.length} {fam.name} asset{familyAssets.length === 1 ? "" : "s"} here · {Object.entries(seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ") || "none yet"}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <AssetBuilder employerId={site.id} siteName={site.name} siteExternalId={site.externalId} year={year} assets={d.assets} overrides={d.overrides} settings={settingOptions} />
+          <AssetBuilder employerId={site.id} siteName={site.name} siteExternalId={site.externalId} year={year} assets={familyAssets} overrides={d.overrides.filter((o) => familyAssets.some((a) => a.id === o.assetId))} settings={settingOptions} accreditorClass={fam.accreditor === "JRCERT"} />
         </div>
+        {otherAssets.length > 0 && (
+          <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50/40 px-3 py-2 text-xs text-slate-500">
+            <summary className="cursor-pointer">{otherAssets.length} other asset{otherAssets.length === 1 ? "" : "s"} at this site belong to other programs&apos; settings and are not part of {fam.name}&apos;s setup ▸</summary>
+            <div className="mt-1 flex flex-wrap gap-1">{Object.entries(otherAssets.reduce<Record<string, number>>((m, a) => { m[`${a.settingCode} · ${a.assetType}`] = (m[`${a.settingCode} · ${a.assetType}`] ?? 0) + 1; return m; }, {})).map(([k, n]) => <span key={k} className="rounded bg-white px-1.5 py-0.5 ring-1 ring-slate-200">{n} × {k}</span>)}</div>
+            <p className="mt-1 text-[11px]">They are managed on the <Link href={`/employers/${site.id}`} className="text-rose-600 hover:underline">organization record</Link> and on the program that uses them.</p>
+          </details>
+        )}
       </section>
 
       {/* 6 · Qualified staff */}
