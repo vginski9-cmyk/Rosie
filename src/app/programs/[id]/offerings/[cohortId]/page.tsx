@@ -8,7 +8,7 @@ import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { fmt } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
-import { computeCohortTiming, type TimingTerm } from "@/lib/term";
+import { computeCohortTiming, calendarWeeksBetween, seasonOfTerm, type TimingTerm } from "@/lib/term";
 import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { Collapse } from "@/components/Collapse";
@@ -216,13 +216,17 @@ export default async function OfferingPage({ params }: { params: { id: string; c
                     const ct = ctByTerm.get(t.id); const pv = preview?.terms.find((x) => x.termId === t.id);
                     const src = (ct?.source ?? pv?.startSource ?? "template") as DateSource;
                     const tplWeeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+                    // Semester and weeks read from the STORED dates (the source of truth the calendar and
+                    // every chart use) — the preview only explains where they came from.
+                    const semester = ct?.startDate ? `${seasonOfTerm({ semester: ct.semester, name: t.name }, ct.startDate) ?? ""} ${ct.startDate.getUTCFullYear()}`.trim() : pv?.semester ?? "—";
+                    const calWeeks = ct?.startDate && ct?.endDate ? calendarWeeksBetween(ct.startDate, ct.endDate) : pv?.calendarWeeks ?? tplWeeks;
                     return (
                       <tr key={t.id}>
                         <td className="px-2 py-1.5 font-medium text-slate-800">{t.name}</td>
-                        <td className="px-2 py-1.5 text-slate-600">{pv?.semester ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-slate-600">{semester}</td>
                         <td className="px-2 py-1.5 tabular-nums text-slate-800">{exactDate(ct?.startDate ?? null)}</td>
                         <td className="px-2 py-1.5 tabular-nums text-slate-800">{exactDate(ct?.endDate ?? null)}</td>
-                        <td className="px-2 py-1.5 tabular-nums text-slate-600">{pv ? (pv.calendarWeeks === tplWeeks ? `${tplWeeks}` : <span className={pv.calendarWeeks < tplWeeks ? "text-amber-700" : "text-slate-600"} title={`the template plans ${tplWeeks} weeks; the semester touches ${pv.calendarWeeks}`}>{pv.calendarWeeks} <span className="text-[10px] text-slate-400">(template {tplWeeks})</span></span>) : tplWeeks}</td>
+                        <td className="px-2 py-1.5 tabular-nums text-slate-600">{calWeeks === tplWeeks ? `${tplWeeks}` : <span className={calWeeks < tplWeeks ? "text-amber-700" : "text-slate-600"} title={`the template plans ${tplWeeks} weeks; the semester gives ${calWeeks}`}>{calWeeks} <span className="text-[10px] text-slate-400">(template {tplWeeks})</span></span>}</td>
                         <td className="px-2 py-1.5 text-xs">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SRC_TONE[src] ?? SRC_TONE.template}`}>{SOURCE_LABEL[src] ?? src}</span>
                           {pv?.startLabel && src !== "manual" && <span className="ml-1.5 text-slate-500">“{pv.startLabel}”{pv.endLabel ? ` → “${pv.endLabel}”` : ""}</span>}
@@ -235,9 +239,13 @@ export default async function OfferingPage({ params }: { params: { id: string; c
                 </tbody>
               </table>
             </div>
-            {preview && preview.warnings.length > 0 && (
-              <ul className="mt-2 space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">{preview.warnings.map((w, i) => <li key={i}>⚠ {w}</li>)}</ul>
-            )}
+            {(() => {
+              // Week warnings from the stored dates; the preview's other warnings (a moved start) still apply.
+              const stored = orderedTerms.flatMap((t) => { const ct = ctByTerm.get(t.id); if (!ct?.startDate || !ct.endDate) return []; const tpl = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1; const cal = calendarWeeksBetween(ct.startDate, ct.endDate); return cal < tpl ? [`${t.name}: the template plans ${tpl} weeks but ${seasonOfTerm({ semester: ct.semester, name: t.name }, ct.startDate)} ${ct.startDate.getUTCFullYear()} gives only ${cal} (${dateFmt(ct.startDate)} → ${dateFmt(ct.endDate)}); its sessions are fitted into those ${cal} weeks, in order.`] : []; });
+              const other = (preview?.warnings ?? []).filter((w) => !/template plans/.test(w));
+              const all = [...other, ...stored];
+              return all.length > 0 ? <ul className="mt-2 space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">{all.map((w, i) => <li key={i}>⚠ {w}</li>)}</ul> : null;
+            })()}
             {preview && preview.courses.length > 0 && (
               <p className="mt-2 text-xs text-slate-500">
                 Shorter courses get their own window from their session weeks: {preview.courses.map((c) => `${c.code ?? c.name} ${dateFmt(new Date(c.startIso + "T00:00:00Z"))} → ${dateFmt(new Date(c.endIso + "T00:00:00Z"))}${c.snappedTo ? ` (“${c.snappedTo}”)` : ""}`).join(" · ")}. Type a course&apos;s own dates on its card below to override.
