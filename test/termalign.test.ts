@@ -80,6 +80,30 @@ describe("alignOffering", () => {
     expect(a.terms[0].endSource).toBe("template");
   });
 
+  it("the term after a summer term is the FALL — the next semester boundary after the summer ends, not the next spring", () => {
+    const five: TermLite[] = [
+      { id: "t1", index: 1, name: "Term 1", semester: "Fall", startWeek: 1, endWeek: 16 },
+      { id: "t2", index: 2, name: "Term 2", semester: "Spring", startWeek: 17, endWeek: 32 },
+      { id: "t3", index: 3, name: "Term 3", semester: "Summer", startWeek: 33, endWeek: 48 },
+      { id: "t4", index: 4, name: "Term 4", semester: "Fall", startWeek: 49, endWeek: 64 },
+      { id: "t5", index: 5, name: "Term 5", semester: "Spring", startWeek: 65, endWeek: 80 },
+    ];
+    const a = alignOffering({ startIso: "2026-08-17", terms: five, courses: [], anchors, events: [] });
+    expect(a.terms.map((t) => t.semester)).toEqual(["Fall 2026", "Spring 2027", "Summer 2027", "Fall 2027", "Spring 2028"]);
+    expect(a.terms[3].startIso).toBe("2027-08-16");
+    expect(a.terms[4].startIso).toBe("2028-01-10");
+    // Without coded seasons the same sequence follows from the term ends alone.
+    const bare = alignOffering({ startIso: "2026-08-17", terms: five.map((t) => ({ ...t, semester: null })), courses: [], anchors, events: [] });
+    expect(bare.terms.map((t) => t.semester)).toEqual(["Fall 2026", "Spring 2027", "Summer 2027", "Fall 2027", "Spring 2028"]);
+  });
+
+  it("a coded season skips a semester that does not match (Term 2 = Fall after a spring start waits through the summer)", () => {
+    const two: TermLite[] = [{ id: "t1", index: 1, name: "Term 1", semester: "Spring", startWeek: 1, endWeek: 16 }, { id: "t2", index: 2, name: "Term 2", semester: "Fall", startWeek: 17, endWeek: 32 }];
+    const a = alignOffering({ startIso: "2027-01-11", terms: two, courses: [], anchors, events: [] });
+    expect(a.terms[1].semester).toBe("Fall 2027");
+    expect(a.terms[1].startIso).toBe("2027-08-16");
+  });
+
   it("keeps typed term dates and aligns the rest around them", () => {
     const a = alignOffering({ startIso: "2026-08-17", terms: TERMS, courses: [], anchors, events: EVENTS, manual: { t2: { startIso: "2027-01-19", endIso: null } } });
     expect(a.terms[1].startIso).toBe("2027-01-19");

@@ -9,10 +9,10 @@
 // no I/O — the actions persist the result; the calendar import, lock-in and the
 // "re-align" buttons all call the same thing, so nothing needs typing twice.
 
-import { nextSemesterStart, patternSemesterEnd, calendarWeeksBetween, fitWeek, type SemesterAnchors } from "./term";
+import { nextSemesterStart, patternSemesterEnd, calendarWeeksBetween, fitWeek, seasonOfTerm, type SemesterAnchors } from "./term";
 
 export interface CodedEventLite { iso: string; endIso: string | null; label: string; kind: string; season: string | null }
-export interface TermLite { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null }
+export interface TermLite { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; /** The season the template codes for this term (Fall | Spring | Summer), when it does. */ semester?: string | null }
 export interface CourseLite { id: string; termId: string; code: string | null; name: string; sessions: { week: number | null }[] }
 
 export type DateSource = "calendar" | "pattern" | "template" | "chosen" | "manual";
@@ -98,7 +98,13 @@ export function alignOffering(input: {
       else if (hit) { startIso = hit.iso; startSource = "calendar"; startLabel = hit.label; movedFrom = input.startIso; warnings.push(`${t.name}: chosen start ${fmt(input.startIso)} moved to the coded semester start ${fmt(hit.iso)} (${hit.label}).`); }
       else { startIso = input.startIso; startSource = "chosen"; }
     } else {
-      const next = iso(nextSemesterStart(dateOf(cursor), anchors));
+      // The next semester boundary after the previous term ENDS (a summer term
+      // that ends in August is followed by Fall, never by the next Spring) — and
+      // when the template codes this term's season, the next boundary of THAT
+      // season (Term 4 = Fall means Fall, even if a summer session sits between).
+      let next = iso(nextSemesterStart(dateOf(cursor), anchors));
+      const wanted = seasonOfTerm({ semester: t.semester, name: t.name });
+      if (wanted) { let guard = 0; while (seasonOfIso(next) !== wanted && guard++ < 4) next = iso(nextSemesterStart(dateOf(addDays(next, 1)), anchors)); }
       const hit = starts.find((e) => e.iso === next);
       startIso = next; startSource = hit ? "calendar" : "pattern"; startLabel = hit?.label ?? null;
     }
@@ -127,9 +133,8 @@ export function alignOffering(input: {
     }
     const semester = `${startEvent(starts, startIso)?.season ?? seasonOfIso(startIso)} ${startIso.slice(0, 4)}`;
     out.push({ termId: t.id, index: t.index, name: t.name, startIso, endIso, startSource, endSource, semester, templateWeeks, calendarWeeks, startLabel, endLabel, ...(movedFrom ? { movedFrom } : {}) });
-    // The next term may start only after this one's last template week — the
-    // calendar's shorter semester never pulls the next term earlier.
-    cursor = addDays(startIso, Math.max(templateWeeks, calendarWeeks) * 7);
+    // The next term starts at the first semester boundary after this one's last day.
+    cursor = addDays(endIso, 1);
   }
 
   // Courses that don't span the whole term get their own window: the weeks

@@ -210,7 +210,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   if (!opts.resetManual) for (const ct of cohort.cohortTerms) if (ct.source === "manual" && ct.startDate) manual[ct.termId] = { startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) };
   const a = alignOffering({
     startIso: isoOf(cohort.startDate)!,
-    terms: cohort.program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek })),
+    terms: cohort.program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })),
     courses: cohort.program.terms.flatMap((t) => t.courses),
     anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
     events: (inst?.academicEvents ?? []).map((e) => ({ iso: isoOf(e.date)!, endIso: isoOf(e.endDate), label: e.label, kind: e.kind, season: e.season })),
@@ -1128,7 +1128,7 @@ export async function lockInInstantiation(
   const inst = await prisma.institution.findUnique({ where: { id: program.institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const preview = alignOffering({
     startIso: input.startDate,
-    terms: program.terms.map((term) => ({ id: term.id, index: term.index, name: term.name, startWeek: term.startWeek, endWeek: term.endWeek })),
+    terms: program.terms.map((term) => ({ id: term.id, index: term.index, name: term.name, semester: term.semester, startWeek: term.startWeek, endWeek: term.endWeek })),
     courses: [],
     anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
     events: (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season })),

@@ -190,7 +190,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         // The same engine that set these dates, run again here only to explain them (labels, warnings).
         const preview = offering.startDate ? alignOffering({
           startIso: isoD(offering.startDate)!,
-          terms: orderedTerms.map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek })),
+          terms: orderedTerms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })),
           courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, termId: t.id, sessions: c.sessions }))),
           anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
           events,

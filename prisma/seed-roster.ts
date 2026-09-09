@@ -175,7 +175,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     const t = deriveCohortTargets(o.goal, rates, Math.max(1, program.terms.length));
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
     const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
-    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
+    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
     const termStarts = aligned.terms.map((t) => new Date(t.startIso + "T00:00:00Z"));
     const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
     let name = `Class of ${endYear}`;
