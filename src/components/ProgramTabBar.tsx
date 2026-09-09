@@ -8,12 +8,12 @@ import { usePathname } from "next/navigation";
 // Grouped by intent: Design (the template) → Operate (a live cohort) → Analyze.
 
 const TABS: { label: string; seg: string; group: string }[] = [
-  { label: "Overview", seg: "", group: "" },
+  { label: "Overview & offerings", seg: "", group: "" },
   { label: "Design & sequence", seg: "structure", group: "Design" },
   { label: "Students", seg: "students", group: "Operate" },
 ];
 
-export function ProgramTabBar({ programId }: { programId: string }) {
+export function ProgramTabBar({ programId, familyId }: { programId: string; familyId?: string | null }) {
   const pathname = usePathname() ?? "";
   const base = `/programs/${programId}`;
 
@@ -47,6 +47,9 @@ export function ProgramTabBar({ programId }: { programId: string }) {
           <span className="whitespace-nowrap border-b-2 border-rose-600 px-3 py-2.5 text-sm font-medium text-rose-700">
             Offering
           </span>
+        )}
+        {familyId && (
+          <Link href={`/families/${familyId}/clinical`} className="ml-auto whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700">Clinical sites &amp; requirements →</Link>
         )}
       </nav>
     </div>

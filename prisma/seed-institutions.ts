@@ -164,6 +164,8 @@ export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Brunswick Community College", "Cape Fear Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College", "Roanoke-Chowan Community College",
   "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
+  // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
+  "Carteret Community College", "College of The Albemarle", "Craven Community College", "Lenoir Community College",
 ]);
 
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {

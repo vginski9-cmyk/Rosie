@@ -1,6 +1,5 @@
 import { getInsightsFacts } from "@/lib/queries";
 import { PivotExplorer } from "@/components/PivotExplorer";
-import { InsightsTabs } from "@/components/InsightsTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +14,6 @@ export default async function InsightsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
         <p className="text-sm text-slate-500">Aggregate or disaggregate every program&apos;s pipeline and delivery — explore the full table, or zoom into one term.</p>
       </div>
-      <InsightsTabs />
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Explore</h2>
         <p className="max-w-3xl text-sm text-slate-500">

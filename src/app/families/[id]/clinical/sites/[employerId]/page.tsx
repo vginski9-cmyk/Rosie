@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFamilySiteSetup } from "@/lib/queries";
 import { upsertFamilySite, removeFamilySite, updateSiteAvailability, relocateSite } from "@/lib/actions";
-import { AssetBuilder } from "@/components/AssetBuilder";
+import { AssetRoster } from "@/components/AssetRoster";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { SiteProvisionChecklist } from "@/components/SiteProvisionChecklist";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
@@ -127,7 +127,7 @@ export default async function FamilySitePage({ params }: { params: { id: string;
           <div className="text-xs text-slate-500">{familyAssets.length} {fam.name} asset{familyAssets.length === 1 ? "" : "s"} here · {Object.entries(seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ") || "none yet"}</div>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-3">
-          <AssetBuilder employerId={site.id} siteName={site.name} siteExternalId={site.externalId} year={year} assets={familyAssets} overrides={d.overrides.filter((o) => familyAssets.some((a) => a.id === o.assetId))} settings={settingOptions} accreditorClass={fam.accreditor === "JRCERT"} />
+          <AssetRoster employerId={site.id} siteName={site.name} siteExternalId={site.externalId} assets={familyAssets} settings={settingOptions} programName={fam.name} organizationHref={`/employers/${site.id}`} />
         </div>
         {otherAssets.length > 0 && (
           <details className="rounded-lg border border-dashed border-slate-300 bg-slate-50/40 px-3 py-2 text-xs text-slate-500">

@@ -719,6 +719,17 @@ export async function saveClinicalAsset(employerId: string, assetId: string | nu
   revalidateAssets(employerId);
   return { id: row.id };
 }
+/** Create N assets of one kind in one go (the roster's "add rooms" bar), numbered on from the highest in that setting. */
+export async function createClinicalAssets(employerId: string, input: AssetInput, count: number, prefix?: string | null): Promise<void> {
+  const data = assetRowFrom(input);
+  const max = await prisma.clinicalAsset.aggregate({ where: { employerId, settingCode: data.settingCode }, _max: { assetNumber: true } });
+  let n = max._max.assetNumber ?? 0;
+  for (let i = 0; i < Math.min(60, Math.max(1, Math.round(count))); i++) {
+    n++;
+    await prisma.clinicalAsset.create({ data: { employerId, ...data, assetNumber: n, externalId: prefix ? `${prefix}-${data.settingCode}-${String(n).padStart(2, "0")}` : null } });
+  }
+  revalidateAssets(employerId);
+}
 /** "Add N more like this" — copies of an asset, numbered on from the highest in that setting. */
 export async function duplicateClinicalAsset(assetId: string, count: number): Promise<void> {
   const a = await prisma.clinicalAsset.findUnique({ where: { id: assetId } });

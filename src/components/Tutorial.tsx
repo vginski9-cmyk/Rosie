@@ -127,10 +127,6 @@ const TOURS: Tour[] = [
     steps: [{ h: "Who's in session", b: "Every cohort in a given semester — what term they're in, their courses, and their headcounts." }],
   },
   {
-    key: "courses", match: /^\/courses$/, title: "Shared course demand",
-    steps: [{ h: "Cross-program sections", b: "Courses several programs need, with combined headcount — how big those sections actually have to be." }],
-  },
-  {
     key: "directory", match: /^\/(students|people|employers|facilities)$/, title: "Directory",
     steps: [{ h: "The people and places", b: "Students, faculty & staff, employer partners and facilities — every entity the planning surfaces reference, with live workload and capacity where it applies." }],
   },

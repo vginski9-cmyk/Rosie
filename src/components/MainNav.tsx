@@ -1,82 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Grouped top navigation with dropdown menus, so a now-rich platform reads cleanly:
-// North Star · Calendar · Insights ▾ · Directory ▾.
-
-type Item = { label: string; href: string };
-type Group = { label: string; items: Item[] };
-
-const GROUPS: Group[] = [
-  { label: "Insights", items: [
-    { label: "Clinical scheduler — supply vs demand", href: "/scheduler" },
-    { label: "Asset supply explorer", href: "/supply" },
-    { label: "Room & campus utilization", href: "/utilization" },
-    { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
-    { label: "Clinical sites", href: "/insights/clinical-sites" },
-    { label: "Daily coverage", href: "/insights/coverage" },
-    { label: "Explore", href: "/insights" },
-    { label: "Semester", href: "/semester" },
-    { label: "Shared course demand", href: "/courses" },
-  ] },
-  { label: "Directory", items: [
-    { label: "Organizations — set up & map", href: "/orgs" },
-    { label: "Students", href: "/students" },
-    { label: "Learner analytics", href: "/students/analytics" },
-    { label: "People (faculty & staff)", href: "/people" },
-    { label: "Clinical setup by program", href: "/clinical" },
-    { label: "Organizations (all partners, cross-program)", href: "/employers" },
-    { label: "Rooms, buildings & equipment", href: "/facilities" },
-  ] },
+// One flat bar. Each item is a place, and each place has its own tabs — no menus to hunt through.
+//   Home (the setup and where things stand) · Programs · Clinical sites · Students · People · Calendar · Insights · Setup
+const ITEMS: { label: string; href: string; match: (p: string) => boolean }[] = [
+  { label: "Home", href: "/", match: (p) => p === "/" || p === "/goals" },
+  { label: "Programs", href: "/programs", match: (p) => p.startsWith("/programs") || p.startsWith("/courses") || (p.startsWith("/families/") && !p.includes("/clinical")) },
+  { label: "Clinical sites", href: "/clinical", match: (p) => p.startsWith("/clinical") || p.startsWith("/employers") || p.includes("/clinical") },
+  { label: "Students", href: "/students", match: (p) => p.startsWith("/students") },
+  { label: "People", href: "/people", match: (p) => p.startsWith("/people") },
+  { label: "Calendar", href: "/calendar", match: (p) => p.startsWith("/calendar") },
+  { label: "Insights", href: "/insights/staffing-need", match: (p) => p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") },
+  { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") || p.startsWith("/facilities") },
 ];
 
 export function MainNav() {
   const pathname = usePathname() ?? "";
-  const [open, setOpen] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(null); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
-  useEffect(() => { setOpen(null); }, [pathname]);
-
-  const homeActive = pathname === "/";
-  const groupActive = (g: Group) => g.items.some((it) => pathname === it.href || pathname.startsWith(it.href + "/"));
-
   if (pathname === "/login") return null; // the door has no menu
-
   return (
-    <nav ref={ref} className="flex items-center gap-1 text-sm">
-      <Link href="/" className={`rounded-lg px-3 py-1.5 font-medium ${homeActive ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>North Star</Link>
-      <Link href="/calendar" className={`rounded-lg px-3 py-1.5 font-medium ${pathname === "/calendar" || pathname.startsWith("/calendar/") ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>Calendar</Link>
-      {GROUPS.map((g) => {
-        const isOpen = open === g.label;
-        const active = groupActive(g);
-        return (
-          <div key={g.label} className="relative">
-            <button
-              onClick={() => setOpen(isOpen ? null : g.label)}
-              className={`flex items-center gap-1 rounded-lg px-3 py-1.5 font-medium ${active ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}
-            >
-              {g.label}<span className={`text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>▾</span>
-            </button>
-            {isOpen && (
-              <div className="absolute right-0 z-50 mt-1 min-w-[15rem] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                {g.items.map((it) => {
-                  const itActive = pathname === it.href || pathname.startsWith(it.href + "/");
-                  return (
-                    <Link key={it.href} href={it.href} className={`block px-4 py-2 text-sm ${itActive ? "bg-rose-50 font-medium text-rose-700" : "text-slate-600 hover:bg-slate-50"}`}>{it.label}</Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
+    <nav className="flex items-center gap-0.5 text-sm">
+      {ITEMS.map((it) => {
+        const active = it.match(pathname);
+        return <Link key={it.href} href={it.href} className={`rounded-lg px-2.5 py-1.5 font-medium ${active ? "bg-rose-50 text-rose-700" : "text-slate-600 hover:bg-slate-100"}`}>{it.label}</Link>;
       })}
     </nav>
   );

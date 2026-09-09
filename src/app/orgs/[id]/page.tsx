@@ -48,7 +48,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/orgs" className="text-sm text-slate-500 hover:text-slate-700">← Organizations</Link>
+        <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">← Home</Link>
         <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{inst.name}</h1>

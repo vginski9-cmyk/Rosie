@@ -21,11 +21,11 @@ export default async function ProgramLayout({ children, params }: { children: Re
       {program && (
         <div className="mb-4">
           <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/" className="hover:text-slate-700">{program.institution.name}</Link>
+            <Link href="/programs" className="hover:text-slate-700">Programs</Link>
             {program.family && (
               <>
                 <span className="text-slate-300">/</span>
-                <Link href={`/families/${program.family.id}`} className="hover:text-rose-700">{program.family.name} family</Link>
+                <Link href={`/families/${program.family.id}`} className="hover:text-rose-700">{program.family.name}</Link>
               </>
             )}
           </div>
@@ -41,7 +41,7 @@ export default async function ProgramLayout({ children, params }: { children: Re
           )}
         </div>
       )}
-      <ProgramTabBar programId={params.id} />
+      <ProgramTabBar programId={params.id} familyId={program?.family?.id ?? null} />
       {children}
     </div>
   );
