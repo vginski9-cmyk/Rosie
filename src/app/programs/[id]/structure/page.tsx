@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getProgramFull } from "@/lib/queries";
+import { getProgramFull, getProgramRequirementCoverage } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
 import { ClinicalRequirementsGrid } from "@/components/ClinicalRequirementsGrid";
+import { RequirementCoveragePanel } from "@/components/RequirementCoveragePanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function StructureEditor({ params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) notFound();
+  const reqCov = await getProgramRequirementCoverage(params.id);
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
 
   const terms: DTerm[] = program.terms.map((t) => ({
@@ -54,6 +56,16 @@ export default async function StructureEditor({ params }: { params: { id: string
           preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks,
         }}
       />
+
+      {reqCov && (
+        <section id="requirements" className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div>
+            <h2 className="text-lg font-semibold">What completion requires <span className="text-sm font-normal text-slate-400">— the mix of clinical experiences {reqCov.sets.map((x) => x.authority).join(" · ")} requires of every {reqCov.family.name} graduate, against this template&apos;s clinical courses</span></h2>
+            <p className="max-w-4xl text-sm text-slate-500">Design the clinical courses so that, between them, their rotations reach every required category — the rotation types coded on each clinical session are what decide it. A category no course reaches cannot be scheduled later, whatever the sites offer. The list itself, its settings and the sites that supply each experience are maintained in the directory, per job.</p>
+          </div>
+          <RequirementCoveragePanel cov={reqCov} />
+        </section>
+      )}
 
       {program.family && (
         <ClinicalRequirementsGrid

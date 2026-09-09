@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords } from "./seed-roster";
+import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
 
@@ -1339,6 +1340,10 @@ async function main() {
 
   // ----- Dummy roster: rooms, faculty, preceptors, site agreements, and a few
   //       locked-in offerings with sections waiting for assignments ----------
+  // Where every site is and how far from the campus that delivers the programs — rings are coded from drive time, not typed.
+  console.log("geography:", await seedGeography(prisma, sandhills.id, { address: "3395 Airport Rd", city: "Pinehurst", state: "NC", zip: "28374" }));
+  for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true } })) await seedGeography(prisma, inst.id);
+  console.log("requirement sets:", await seedRequirementSets(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
   const clinical = await loadClinicalModels(sandhills.id);

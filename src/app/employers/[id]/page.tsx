@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { seasonOfDate } from "@/lib/term";
-import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity } from "@/lib/queries";
+import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity, getSiteRequirementFit } from "@/lib/queries";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
-import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit } from "@/lib/actions";
+import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit, setSiteGeography, relocateSite } from "@/lib/actions";
+import { dec } from "@/lib/format";
 import { AssetBuilder } from "@/components/AssetBuilder";
 
 const SETTING_PRESETS = [
@@ -34,6 +35,11 @@ export default async function EmployerPage({ params }: { params: { id: string } 
   // Accreditor recognition (JRCERT Form 1010R) for every accredited family this institution runs — one block per family.
   const accreditedFamilies = await getAccreditedFamiliesForEmployer(e.id);
   const accreditorReports = (await Promise.all(accreditedFamilies.map((f) => getAccreditorCapacity(f.id, e.id)))).filter((r): r is NonNullable<typeof r> => !!r && r.sites.length > 0);
+  // What this site can supply of each program's required clinical experiences, from its assets.
+  const fit = (await getSiteRequirementFit(e.id)) ?? [];
+  const campus = e.institution.campuses[0] ?? null;
+  const bands = { core: e.institution.ringCoreMinutes, one: e.institution.ringOneMinutes, two: e.institution.ringTwoMinutes };
+  const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
 
   // WBL capacity is read from placement records, not a static slot count: "asked"
   // = every non-cancelled rotation directed here; "secured" = active + completed.
@@ -65,6 +71,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             <p className="text-sm text-slate-700">{[e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · ") || <span className="text-amber-700">No address on file — add one below.</span>}</p>
           </div>
           <div className="flex items-center gap-2">
+            {e.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`} title="drive-time ring from the main campus">{e.ring}{e.driveMinutes != null ? ` · ≈ ${Math.round(e.driveMinutes)} min` : ""}</a>}
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{e.status}</span>
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${fillRate >= 90 ? "bg-emerald-100 text-emerald-700" : fillRate >= 70 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
               {secured} of {asked} rotations secured ({fillRate}%)
@@ -127,12 +134,10 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             </select>
           </label>
           <Field name="county" label="County" defaultValue={e.county} />
-          <label className="block">
+          <div className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring (drive time)</span>
-            <select name="ring" defaultValue={e.ring ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              <option value="">—</option>{["Core", "Ring 1", "Ring 2", "Outside"].map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </label>
+            <a href="#location" className="block rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-sm text-slate-600">{e.ring ?? "not located"} — auto-coded from the address ↓</a>
+          </div>
           <Field name="licensedBeds" label="Licensed acute beds" type="number" defaultValue={e.licensedBeds != null ? String(e.licensedBeds) : ""} />
           <Field name="nursingHomeBeds" label="Nursing home beds" type="number" defaultValue={e.nursingHomeBeds != null ? String(e.nursingHomeBeds) : ""} />
           <Field name="adultCareBeds" label="Adult care beds" type="number" defaultValue={e.adultCareBeds != null ? String(e.adultCareBeds) : ""} />
@@ -154,6 +159,80 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           </div>
         </form>
       </section>
+
+      {/* ── Location & drive time — auto-coded from the address ── */}
+      <section id="location" className="scroll-mt-16 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-semibold text-slate-700">Location &amp; drive time from campus <span className="font-normal text-slate-400">— auto-coded from the address; the ring follows the drive</span></h2>
+            <p className="mt-0.5 max-w-3xl text-xs text-slate-500">
+              Measured from {campus ? <>{campus.name}{campus.city ? ` (${campus.city})` : ""}{campus.lat == null ? <span className="text-amber-700"> — campus not located yet; set its address on the organization page</span> : null}</> : <span className="text-amber-700">no campus on file — add one on the organization page</span>}. Bands for {e.institution.name}: Core ≤ {bands.core} min · Ring 1 ≤ {bands.one} · Ring 2 ≤ {bands.two} · Ring 3 beyond.
+            </p>
+          </div>
+          <form action={relocateSite.bind(null, e.id)}><button className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Re-locate from address</button></form>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-lg border border-slate-200 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring</div>
+            <div className="mt-0.5 text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{e.ring}</span> : <span className="text-amber-600">—</span>}</div>
+            <div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "overridden by hand — release below to follow the drive time again" : "from the drive time, under the institution's bands"}</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Drive from campus</div>
+            <div className="mt-0.5 text-lg font-semibold tabular-nums">{e.driveMinutes != null ? `≈ ${Math.round(e.driveMinutes)} min` : "—"}</div>
+            <div className="text-[11px] text-slate-500">{e.distanceMiles != null ? `${dec(e.distanceMiles, 1)} mi straight-line · ≈ ${dec(e.distanceMiles * 1.25, 1)} road mi` : "not computed"}</div>
+          </div>
+          <div className="rounded-lg border border-slate-200 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Coordinates</div>
+            <div className="mt-0.5 font-mono text-sm tabular-nums">{e.lat != null && e.lng != null ? `${dec(e.lat, 4)}, ${dec(e.lng, 4)}` : <span className="text-amber-600">not located</span>}</div>
+            <div className="text-[11px] text-slate-500">{e.geoSource === "census" ? "Census geocoder — street-level" : e.geoSource === "gazetteer" ? "built-in gazetteer — town centre (±1–2 mi); a street-level fix needs the online geocoder" : e.geoSource === "manual" ? "pinned by hand" : "no source — the address could not be located"}</div>
+          </div>
+          <form action={setSiteGeography.bind(null, e.id)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Correct it</div>
+            <label className="mt-1 block">ring override
+              <select name="ring" defaultValue={e.ringSource === "manual" ? e.ring ?? "auto" : "auto"} className="ml-1 rounded border border-slate-300 px-1.5 py-0.5">
+                <option value="auto">auto (follow the drive time)</option>{["Core", "Ring 1", "Ring 2", "Ring 3"].map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+            <div className="mt-1 flex items-center gap-1">pin <input name="lat" placeholder="lat" defaultValue={e.geoSource === "manual" && e.lat != null ? String(e.lat) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /><input name="lng" placeholder="lng" defaultValue={e.geoSource === "manual" && e.lng != null ? String(e.lng) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /></div>
+            <button className="mt-1.5 rounded bg-slate-800 px-2.5 py-1 font-medium text-white hover:bg-slate-700">Apply</button>
+          </form>
+        </div>
+      </section>
+
+      {/* ── What this site can supply of each program's required clinical experiences ── */}
+      {fit.length > 0 && (
+        <section id="fit" className="scroll-mt-16 space-y-3">
+          <div>
+            <h2 className="text-lg font-semibold">What this site can supply, by program <span className="text-sm font-normal text-slate-400">— each program&apos;s required clinical experiences against the assets mapped below</span></h2>
+            <p className="text-sm text-slate-500">A category is supplied when this site has an active asset in one of the category&apos;s settings; the seats are the learners those assets take per shift. What is missing here must come from another site in the family&apos;s network — or from an asset added below.</p>
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            {fit.map((f) => f.sets.map((set) => (
+              <div key={set.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <Link href={`/families/${f.family.id}/clinical`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.family.name} ↦</Link>
+                  <span className="text-[11px] text-slate-500">{set.authority} · agreement: <span className={`rounded-full px-1.5 py-0.5 font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.agreement}</span></span>
+                </div>
+                <div className="mt-1 text-xs"><span className={`rounded-full px-2 py-0.5 font-medium ${set.suppliedMandatory === set.mandatoryCategories ? "bg-emerald-100 text-emerald-700" : set.suppliedMandatory > 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{set.suppliedMandatory} of {set.mandatoryCategories} required categories supplied here</span>{set.missingMandatory.length > 0 && <span className="ml-2 text-slate-500">missing: {set.missingMandatory.join(", ")}</span>}</div>
+                <table className="mt-2 w-full text-xs">
+                  <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 text-left">Category</th><th className="py-1 text-right">Items</th><th className="py-1 text-left">Settings</th><th className="py-1 text-right">Seats / shift here</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {set.categories.map((c) => (
+                      <tr key={c.category} className={c.supplies ? "" : "text-slate-400"}>
+                        <td className="py-1 font-medium">{c.supplies ? "✓ " : "· "}{c.category}{c.roles.length ? <span className="ml-1 font-normal text-slate-400">({c.roles.join(" / ")})</span> : null}</td>
+                        <td className="py-1 text-right tabular-nums">{c.mandatory ? <span className="font-semibold">{c.mandatory} req</span> : null}{c.mandatory && c.elective ? " · " : ""}{c.elective ? <span className="text-slate-500">{c.elective} elec</span> : null}</td>
+                        <td className="py-1">{c.settings.map((x) => <span key={x} className="mr-1 rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-600">{x}</span>)}</td>
+                        <td className="py-1 text-right tabular-nums">{c.supplies ? c.seats : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )))}
+          </div>
+        </section>
+      )}
 
       {/* ── Functional units — the asset map's master grain ── */}
       <section className="space-y-3">

@@ -720,8 +720,9 @@ export async function addFamilySite(familyId: string, formData: FormData): Promi
   let employerId = str(formData.get("employerId"));
   if (!employerId) {
     const name = str(formData.get("name")); if (!name) throw new Error("site name required");
-    const e = await prisma.employer.create({ data: { institutionId: fam.institutionId, name, externalId: str(formData.get("externalId")) || null, facilityType: str(formData.get("facilityType")) || null, setting: str(formData.get("facilityType")) || null, county: str(formData.get("county")) || null, ring: str(formData.get("ring")) || null, address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || null, zip: str(formData.get("zip")) || null, organization: str(formData.get("organization")) || null, contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, status: "active", agreementStatus: "none" } });
+    const e = await prisma.employer.create({ data: { institutionId: fam.institutionId, name, externalId: str(formData.get("externalId")) || null, facilityType: str(formData.get("facilityType")) || null, setting: str(formData.get("facilityType")) || null, county: str(formData.get("county")) || null, address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || "NC", zip: str(formData.get("zip")) || null, organization: str(formData.get("organization")) || null, contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, status: "active", agreementStatus: "none" } });
     employerId = e.id;
+    await geocodeInstitutionSites(fam.institutionId, e.id); // ring, distance and drive time come from the address
   }
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: {}, create: { familyId, employerId, agreementStatus: str(formData.get("agreementStatus")) || "none" } });
   revalidateFamilyClinical(familyId); revalidatePath("/employers");
@@ -739,6 +740,69 @@ export async function updateClinicalAsset(assetId: string, employerId: string, f
 export async function deleteClinicalAsset(assetId: string, employerId: string): Promise<void> {
   await prisma.clinicalAsset.delete({ where: { id: assetId } });
   revalidateAssets(employerId);
+}
+
+// ── Geography: locate sites, code drive times and rings ───────────────────────
+/** Locate the main campus and every site of an institution (Census geocoder when reachable, the built-in
+ *  NC gazetteer otherwise) and code each site's distance, drive time and ring under the institution's bands.
+ *  A manual ring override is kept. */
+export async function geocodeInstitutionSites(institutionId: string, onlyEmployerId?: string): Promise<void> {
+  const { locate, distanceFrom } = await import("./geo");
+  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true } });
+  if (!inst) return;
+  const bands = { coreMinutes: inst.ringCoreMinutes, oneMinutes: inst.ringOneMinutes, twoMinutes: inst.ringTwoMinutes };
+  const campus = (await prisma.campus.findFirst({ where: { institutionId, isMain: true } })) ?? (await prisma.campus.findFirst({ where: { institutionId }, orderBy: { createdAt: "asc" } }));
+  if (!campus) return;
+  const cLoc = campus.geoSource === "manual" && campus.lat != null && campus.lng != null ? { lat: campus.lat, lng: campus.lng, source: "manual" as const } : await locate({ address: campus.address, city: campus.city, state: campus.state ?? "NC", zip: campus.zip });
+  if (!cLoc) return;
+  if (campus.geoSource !== "manual") await prisma.campus.update({ where: { id: campus.id }, data: { lat: cLoc.lat, lng: cLoc.lng, geoSource: cLoc.source, isMain: true } });
+  const sites = await prisma.employer.findMany({ where: { institutionId, ...(onlyEmployerId ? { id: onlyEmployerId } : {}) }, select: { id: true, address: true, city: true, state: true, zip: true, ringSource: true, geoSource: true, lat: true, lng: true } });
+  for (const s of sites) {
+    const loc = s.geoSource === "manual" && s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng, source: "manual" as const } : await locate({ address: s.address, city: s.city, state: s.state ?? "NC", zip: s.zip });
+    if (!loc) continue;
+    const d = distanceFrom(cLoc, loc, bands);
+    await prisma.employer.update({ where: { id: s.id }, data: { lat: loc.lat, lng: loc.lng, geoSource: loc.source, distanceMiles: d.miles, driveMinutes: d.minutes, ...(s.ringSource === "manual" ? {} : { ring: d.ring }) } });
+  }
+  revalidatePath("/employers"); revalidatePath(`/orgs/${institutionId}`); revalidatePath("/clinical");
+}
+/** Form-friendly wrapper: locate every site of an institution (button on the directory). */
+export async function locateInstitutionSites(institutionId: string, _formData?: FormData): Promise<void> {
+  await geocodeInstitutionSites(institutionId);
+}
+/** Re-locate one site from its address (drops a hand-pinned coordinate) and recode its drive time and ring. */
+export async function relocateSite(employerId: string): Promise<void> {
+  const e = await prisma.employer.update({ where: { id: employerId }, data: { geoSource: null }, select: { institutionId: true } });
+  await geocodeInstitutionSites(e.institutionId, employerId);
+  revalidatePath(`/employers/${employerId}`);
+}
+/** Override (or release) one site's ring, or pin its coordinates by hand. */
+export async function setSiteGeography(employerId: string, formData: FormData): Promise<void> {
+  const ring = str(formData.get("ring"));
+  const lat = str(formData.get("lat")), lng = str(formData.get("lng"));
+  const data: Record<string, unknown> = {};
+  if (ring === "auto") data.ringSource = "auto"; else if (["Core", "Ring 1", "Ring 2", "Ring 3"].includes(ring)) { data.ring = ring; data.ringSource = "manual"; }
+  if (lat && lng) { data.lat = numOr(lat, 0); data.lng = numOr(lng, 0); data.geoSource = "manual"; }
+  const e = await prisma.employer.update({ where: { id: employerId }, data, select: { institutionId: true } });
+  await geocodeInstitutionSites(e.institutionId, employerId);
+  revalidatePath(`/employers/${employerId}`);
+}
+/** The institution's drive-time bands and its main campus address. */
+export async function updateInstitutionGeography(institutionId: string, formData: FormData): Promise<void> {
+  await prisma.institution.update({ where: { id: institutionId }, data: { ringCoreMinutes: Math.max(1, Math.round(numOr(formData.get("ringCoreMinutes"), 30))), ringOneMinutes: Math.max(1, Math.round(numOr(formData.get("ringOneMinutes"), 60))), ringTwoMinutes: Math.max(1, Math.round(numOr(formData.get("ringTwoMinutes"), 90))) } });
+  const campus = (await prisma.campus.findFirst({ where: { institutionId, isMain: true } })) ?? (await prisma.campus.findFirst({ where: { institutionId }, orderBy: { createdAt: "asc" } }));
+  const address = str(formData.get("campusAddress")), city = str(formData.get("campusCity")), zip = str(formData.get("campusZip"));
+  if (campus && (address || city)) await prisma.campus.update({ where: { id: campus.id }, data: { address: address || campus.address, city: city || campus.city, zip: zip || campus.zip, state: campus.state ?? "NC", isMain: true, geoSource: null } });
+  await geocodeInstitutionSites(institutionId);
+}
+
+// ── Requirement sets (what completion requires) ───────────────────────────────
+export async function updateRequirementSet(setId: string, formData: FormData): Promise<void> {
+  const set = await prisma.clinicalRequirementSet.update({ where: { id: setId }, data: { verified: formData.get("verified") != null, edition: str(formData.get("edition")) || null, summary: str(formData.get("summary")) || null, notes: str(formData.get("notes")) || null, sourceUrl: str(formData.get("sourceUrl")) || null }, select: { familyId: true } });
+  revalidatePath(`/families/${set.familyId}/clinical`);
+}
+export async function updateRequirementItem(itemId: string, formData: FormData): Promise<void> {
+  const item = await prisma.clinicalRequirementItem.update({ where: { id: itemId }, data: { settingCodes: str(formData.get("settingCodes")).toUpperCase().replace(/\s+/g, ""), mandatory: formData.get("mandatory") != null, minCount: str(formData.get("minCount")) === "" ? null : Math.max(0, Math.round(numOr(formData.get("minCount"), 0))), role: str(formData.get("role")) || null, notes: str(formData.get("notes")) || null }, select: { set: { select: { familyId: true } } } });
+  revalidatePath(`/families/${item.set.familyId}/clinical`);
 }
 
 // ── Accreditor recognition of clinical settings (JRCERT Form 1010R) ──────────
@@ -867,7 +931,7 @@ export async function assignSectionSite(meetingId: string, employerId: string | 
 export async function createEmployer(formData: FormData): Promise<void> {
   const institutionId = str(formData.get("institutionId"));
   if (!institutionId) return;
-  await prisma.employer.create({
+  const created = await prisma.employer.create({
     data: {
       institutionId,
       name: str(formData.get("name")) || "New partner",
@@ -884,12 +948,14 @@ export async function createEmployer(formData: FormData): Promise<void> {
       notes: str(formData.get("notes")) || null,
     },
   });
+  await geocodeInstitutionSites(institutionId, created.id);
   revalidatePath("/employers");
 }
 
 export async function updateEmployer(employerId: string, formData: FormData): Promise<void> {
   const intOr = (name: string) => { const v = optNum(formData.get(name)); return v == null ? null : Math.round(v); };
-  await prisma.employer.update({
+  const before = await prisma.employer.findUnique({ where: { id: employerId }, select: { address: true, city: true, state: true, zip: true, institutionId: true } });
+  const after = await prisma.employer.update({
     where: { id: employerId },
     data: {
       name: str(formData.get("name")) || "Partner",
@@ -908,13 +974,18 @@ export async function updateEmployer(employerId: string, formData: FormData): Pr
       organization: str(formData.get("organization")) || null,
       facilityType: str(formData.get("facilityType")) || null,
       county: str(formData.get("county")) || null,
-      ring: str(formData.get("ring")) || null,
       licensedBeds: intOr("licensedBeds"), nursingHomeBeds: intOr("nursingHomeBeds"), adultCareBeds: intOr("adultCareBeds"),
       operatingRooms: intOr("operatingRooms"), annualSurgicalCases: intOr("annualSurgicalCases"),
       agreementStatus: str(formData.get("agreementStatus")) || "none",
       agreementNotes: str(formData.get("agreementNotes")) || null,
     },
+    select: { address: true, city: true, state: true, zip: true, institutionId: true },
   });
+  // The address moved → the location, drive time and ring are recoded (a hand-pinned coordinate is released).
+  if (before && (before.address !== after.address || before.city !== after.city || before.state !== after.state || before.zip !== after.zip)) {
+    await prisma.employer.update({ where: { id: employerId }, data: { geoSource: null } });
+    await geocodeInstitutionSites(after.institutionId, employerId);
+  }
   revalidatePath("/insights/clinical-sites");
   revalidatePath("/employers");
   revalidatePath(`/employers/${employerId}`);

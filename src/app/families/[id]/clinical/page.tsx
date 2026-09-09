@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getFamilySupply, getAccreditorCapacity, getFamilyClinicalRules } from "@/lib/queries";
+import { getFamilySupply, getAccreditorCapacity, getFamilyClinicalRules, getFamilyRequirements } from "@/lib/queries";
+import { RequirementsPanel } from "@/components/RequirementsPanel";
 import { ClinicalRulesPanel } from "@/components/ClinicalRulesPanel";
 import { SupplyMapBoard } from "@/components/SupplyMapBoard";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
@@ -16,6 +17,7 @@ export default async function FamilyClinicalPage({ params }: { params: { id: str
   if (!data) notFound();
   const year = new Date().getUTCFullYear() + 1;
   const rules = await getFamilyClinicalRules(params.id);
+  const req = await getFamilyRequirements(params.id);
   const full = await getAccreditorCapacity(params.id);
   const report = full && (full.family.accreditor || /radiograph|imaging/i.test(full.family.name)) ? full : null;
   return (
@@ -27,6 +29,15 @@ export default async function FamilyClinicalPage({ params }: { params: { id: str
           {data.family.occupation ?? data.family.name}{data.family.soc ? ` (SOC ${data.family.soc})` : ""} at {data.family.institution}. The sites and physical assets that host this job&apos;s clinicals, each with its own shift structure: which days it runs, which shifts, when each starts and how long it lasts, and how many learners it takes. This is supply only — what each course needs is set in program design.
         </p>
       </div>
+      {req && req.sets.length > 0 && (
+        <section className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div>
+            <h2 className="text-lg font-semibold">What completion requires <span className="text-sm font-normal text-slate-400">— {req.sets.map((x) => x.authority).join(" · ")}, mapped to the settings and sites that can supply each experience</span></h2>
+            <p className="max-w-4xl text-sm text-slate-500">Every graduate must finish this list. Each category is tied to the asset settings that provide it, so the table shows at once which experiences the secured network can deliver, which depend on a site still being asked, and which nothing in the network provides — the gaps to close with an agreement or an asset before a cohort is scheduled.</p>
+          </div>
+          <RequirementsPanel req={req} />
+        </section>
+      )}
       {rules && (
         <section className="space-y-2 rounded-xl border border-rose-200 bg-white p-4 shadow-sm">
           <div>

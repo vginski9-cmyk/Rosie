@@ -54,7 +54,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   ];
   // Campus → buildings → rooms. Open hours are structured per weekday (not
   // free text), and each room's fixed equipment is its own inventory row.
-  const campus = await prisma.campus.create({ data: { institutionId, name: "Main Campus", city: "Pinehurst", state: "NC" } });
+  const campus = (await prisma.campus.findFirst({ where: { institutionId }, orderBy: { createdAt: "asc" } })) ?? (await prisma.campus.create({ data: { institutionId, name: "Main Campus", city: "Pinehurst", state: "NC", isMain: true } }));
   const buildingIds = new Map<string, string>();
   for (const [name, code] of [["Kennedy Hall", "KH"], ["Blue Hall", "BH"], ["Health Sciences", "HS"], ["Van Dusen Hall", "VD"]] as const) {
     const b = await prisma.building.create({ data: { institutionId, campusId: campus.id, name, code } });

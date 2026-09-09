@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createEmployer } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 export interface HostPeriod { year: number; season: string; sections: number; students: number }
 export interface DirEmployer {
@@ -22,7 +23,10 @@ export interface DirEmployer {
   licensedBeds?: number | null; nursingHomeBeds?: number | null; adultCareBeds?: number | null; operatingRooms?: number | null;
   agreementStatus?: string;
   units?: { unitCategory: string; studentsPerShift: number; shiftsPerDay: number; days: string; status: string }[];
+  /** Auto-coded location: coordinates + their source, distance and drive time from the main campus, and whether the ring was overridden. */
+  geo?: { lat: number | null; lng: number | null; source: string | null; distanceMiles: number | null; driveMinutes: number | null; ringSource: string };
 }
+const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
 const AGREEMENT_BADGE: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 export interface InstLite { id: string; name: string }
 
@@ -163,7 +167,8 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
           <thead>
             <tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-3 py-2 text-left font-semibold">Site</th>
-              <th className="px-3 py-2 text-left font-semibold">Type · county · ring</th>
+              <th className="px-3 py-2 text-left font-semibold">Type · county</th>
+              <th className="px-3 py-2 text-left font-semibold">Ring · drive from campus</th>
               <th className="px-3 py-2 text-right font-semibold">Beds / ORs</th>
               <th className="px-3 py-2 text-left font-semibold">Units · students / shift</th>
               <th className="px-3 py-2 text-left font-semibold">Agreement</th>
@@ -183,7 +188,11 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                     <span className="block text-[11px] text-slate-400">{e.organization}</span>
                     <span className="block text-[11px] text-slate-500">{[e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · ") || <span className="text-amber-600">no address</span>}</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county, e.ring].filter(Boolean).join(" · ") || "—"}</td>
+                  <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county].filter(Boolean).join(" · ") || "—"}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {e.ring ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.geo?.ringSource === "manual" ? " ✎" : ""}</span> : <span className="text-slate-300">not located</span>}
+                    {e.geo?.driveMinutes != null && <span className="block text-[10px] tabular-nums text-slate-500">≈ {Math.round(e.geo.driveMinutes)} min · {e.geo.distanceMiles != null ? `${dec(e.geo.distanceMiles, 1)} mi` : ""}{e.geo.source === "gazetteer" ? " · town centre" : e.geo.source === "manual" ? " · pinned" : ""}</span>}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{e.licensedBeds ?? e.nursingHomeBeds ?? "—"}{e.operatingRooms ? ` / ${e.operatingRooms} OR` : ""}</td>
                   <td className="px-3 py-2 text-slate-600">{(() => {
                     const byCat = new Map<string, number>();
@@ -203,7 +212,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                 </tr>
               );
             })}
-            {filtered.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">No sites match these filters.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">No sites match these filters.</td></tr>}
           </tbody>
         </table>
       </div>

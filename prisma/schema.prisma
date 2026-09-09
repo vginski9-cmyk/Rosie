@@ -30,6 +30,10 @@ model Institution {
   serviceArea  String? // free-text description of the geographic service area
   /// Academic calendar pattern: each semester starts on the Monday on/after this
   /// MM-DD anchor. Derived term dates (lock-in) follow it, year after year.
+  /// Drive-time bands (minutes from the main campus) that code a clinical site's ring.
+  ringCoreMinutes Int @default(30)
+  ringOneMinutes  Int @default(60)
+  ringTwoMinutes  Int @default(90)
   springStart  String  @default("01-08")
   summerStart  String  @default("05-28")
   fallStart    String  @default("08-15")
@@ -73,6 +77,11 @@ model Campus {
   state         String?
   zip           String?
   notes         String?
+  lat           Float?
+  lng           Float?
+  geoSource     String?  // census | gazetteer | manual
+  /// The campus clinical drive times are measured from (one per institution).
+  isMain        Boolean  @default(false)
   createdAt     DateTime @default(now())
 
   buildings Building[]
@@ -300,6 +309,7 @@ model ProgramFamily {
   serviceAreas ServiceArea[]
   familySites FamilySite[]
   allocations SettingAllocation[]
+  requirementSets ClinicalRequirementSet[]
 
   @@index([institutionId])
 }
@@ -1188,7 +1198,15 @@ model Employer {
   organization  String?  // licensee / health system
   facilityType  String?  // Acute care hospital | Ambulatory surgery center | Nursing home | …
   county        String?
-  ring          String?  // Core | Ring 1 | Ring 2
+  ring          String?  // Core | Ring 1 | Ring 2 | Ring 3 — auto-coded from drive time unless ringSource = manual
+  /// Location and distance from the delivering campus, auto-coded from the address (Census geocoder online,
+  /// a built-in NC gazetteer offline) — the ring falls out of the drive time under the institution's bands.
+  lat           Float?
+  lng           Float?
+  geoSource     String?  // census | gazetteer | manual
+  distanceMiles Float?
+  driveMinutes  Float?
+  ringSource    String   @default("auto") // auto | manual
   licensedBeds  Int?
   nursingHomeBeds Int?
   adultCareBeds Int?
@@ -1748,4 +1766,47 @@ model Intervention {
   createdAt   DateTime @default(now())
 
   @@index([familyId])
+}
+
+/// WHAT COMPLETION REQUIRES for a job family — the credentialing / accrediting body's clinical
+/// requirements (ARRT competencies for radiography, the AST Core Curriculum case log for surgical
+/// technology, federal + state hours for nurse aide), as data: rules (totals, minimums, elective
+/// groups) and items (procedures, case specialties, hour blocks), each mapped to the asset settings
+/// that can provide it — so sites, assets and rotations are configured against what students must finish.
+model ClinicalRequirementSet {
+  id         String @id @default(cuid())
+  familyId   String
+  family     ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  name       String
+  authority  String   // ARRT | ARC/STSA (CAAHEP) | CMS / NC DHSR …
+  edition    String?  // e.g. "2022 edition, effective January 1, 2022"
+  kind       String   @default("competency") // competency | cases | hours
+  summary    String?
+  /// JSON list of rules: [{ key, label, min, of, scope, notes }]
+  rules      String   @default("[]")
+  sourceUrl  String?
+  /// Starter content from the public standard until the program verifies it against the current edition.
+  verified   Boolean  @default(false)
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  items ClinicalRequirementItem[]
+
+  @@index([familyId])
+}
+model ClinicalRequirementItem {
+  id            String @id @default(cuid())
+  setId         String
+  set           ClinicalRequirementSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  category      String   // Chest · Fluoroscopy · General Surgery · Orthopedic …
+  name          String
+  mandatory     Boolean  @default(true)
+  electiveGroup String?  // the elective rule this item counts toward (e.g. "head", "fluoro")
+  minCount      Int?     // cases / repetitions required (case-based sets)
+  role          String?  // first scrub | second scrub | observation (case-based sets)
+  settingCodes  String   @default("") // csv of asset settings that can provide it
+  notes         String?
+  sortOrder     Int      @default(0)
+
+  @@index([setId])
 }

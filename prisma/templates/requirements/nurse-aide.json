@@ -1,0 +1,19 @@
+{
+  "name": "Nurse Aide I training and clinical requirements",
+  "authority": "CMS (42 CFR §483.152) · NC DHSR Nurse Aide I curriculum · NNAAP / NC Nurse Aide Registry",
+  "edition": "Federal minimums under 42 CFR 483.152 and the NC DHSR-approved NA I curriculum — starter content: verify hours against the current state curriculum",
+  "kind": "hours",
+  "sourceUrl": "https://info.ncdhhs.gov/dhsr/hcpr/",
+  "summary": "A nurse aide training program must provide at least 75 clock hours, including at least 16 hours of supervised practical (clinical / laboratory) training, and the first 16 hours of instruction (communication, infection control, safety, residents' rights, independence) must come before any direct contact with a resident. Clinical training happens in a licensed long-term care facility (or hospital unit) under an RN instructor with a bounded student-to-instructor ratio; the state competency evaluation then covers the written test and the skills demonstration. Sites are limited by the supervising RN's ratio and the unit's resident census.",
+  "rules": [
+    { "key": "total", "label": "Total training hours", "min": 75, "scope": "all" },
+    { "key": "clinical", "label": "Supervised practical (clinical) training hours", "min": 16, "scope": "category == Clinical" },
+    { "key": "pre-contact", "label": "Hours before any direct resident contact", "min": 16, "scope": "category == Pre-clinical" },
+    { "key": "ratio", "label": "Students per RN instructor in clinical", "notes": "per the state-approved program; the planner uses the family's students-per-staff setting" }
+  ],
+  "items": [
+    { "category": "Pre-clinical", "name": "Communication, infection control, safety, residents' rights, promoting independence (first 16 h)", "mandatory": true, "settingCodes": "" },
+    { "category": "Clinical", "name": "Supervised practical training in a licensed facility", "mandatory": true, "minCount": 16, "settingCodes": "LTC,ALF,BEDS" },
+    { "category": "Clinical", "name": "Skills demonstration (bathing, transfers, vital signs, feeding, toileting, range of motion …)", "mandatory": true, "settingCodes": "LTC,BEDS" }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "Surgical technology clinical case requirements",
+  "authority": "ARC/STSA · CAAHEP (program accreditation) · AST Core Curriculum (case log) · CST exam (NBSTSA)",
+  "edition": "AST Core Curriculum for Surgical Technology, 7th edition (2021) case requirements, as enforced by ARC/STSA — starter content: verify against the current Core Curriculum and the ARC/STSA case-log guidance before relying on counts",
+  "kind": "cases",
+  "sourceUrl": "https://www.arcstsa.org/",
+  "summary": "Every graduate must complete a documented log of 120 surgical cases: 30 in General Surgery, at least 20 of them in the First Scrub role; 90 in the surgical specialties, at least 60 of them First Scrub, spread across a minimum of four specialties with no more than 15 First Scrub cases in any one specialty counting toward the 60; the remaining 30 may be First Scrub, Second Scrub or Observation in any specialty, with up to 10 diagnostic endoscopy cases and up to 5 vaginal delivery cases countable toward the Second Scrub cases. First Scrub means the student verified supplies and equipment, set up the sterile field, performed the counts with the circulator, passed instruments and supplies to the surgeon throughout, and maintained sterile technique for the whole case; Second Scrub means the student assisted (sponging, suctioning, cutting suture, holding retractors) without meeting every First Scrub criterion; Observation means in the room, not scrubbed. Cases are what limit a site: a hospital or ambulatory surgery center takes as many students a day as its case volume supports, and a site only counts toward a specialty if it actually does those procedures.",
+  "rules": [
+    { "key": "total", "label": "Total surgical cases", "min": 120, "scope": "all" },
+    { "key": "general", "label": "General Surgery cases", "min": 30, "scope": "category == General Surgery" },
+    { "key": "general-fs", "label": "General Surgery — First Scrub", "min": 20, "scope": "category == General Surgery && role == first scrub" },
+    { "key": "specialty", "label": "Specialty cases", "min": 90, "scope": "category != General Surgery" },
+    { "key": "specialty-fs", "label": "Specialty — First Scrub", "min": 60, "scope": "category != General Surgery && role == first scrub", "notes": "across a minimum of four specialties; no more than 15 First Scrub cases in any one specialty count toward the 60" },
+    { "key": "specialty-spread", "label": "Specialties represented", "min": 4, "scope": "distinct specialties with First Scrub cases" },
+    { "key": "remaining", "label": "Remaining cases", "min": 30, "scope": "any role, any specialty", "notes": "up to 10 diagnostic endoscopy and up to 5 vaginal delivery cases may count toward Second Scrub" }
+  ],
+  "items": [
+    { "category": "General Surgery", "name": "General surgery cases (30 · ≥20 First Scrub)", "mandatory": true, "minCount": 30, "role": "first scrub ≥ 20", "settingCodes": "OR,ORS" },
+    { "category": "Cardiothoracic", "name": "Cardiothoracic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "hospital ORs only" },
+    { "category": "ENT (otorhinolaryngology)", "name": "ENT cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
+    { "category": "Eye (ophthalmology)", "name": "Ophthalmic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS", "notes": "eye surgery centers are the usual source" },
+    { "category": "Genitourinary", "name": "GU cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
+    { "category": "Neurosurgery", "name": "Neurosurgical cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "hospital ORs only" },
+    { "category": "Obstetrics & gynecology", "name": "OB/GYN cases (cesarean, gynecologic)", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,OB" },
+    { "category": "Oral / maxillofacial", "name": "Oral and maxillofacial cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS,DENT" },
+    { "category": "Orthopedic", "name": "Orthopedic cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
+    { "category": "Peripheral vascular", "name": "Peripheral vascular cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR" },
+    { "category": "Plastics & reconstructive", "name": "Plastic and reconstructive cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR,ORS" },
+    { "category": "Procurement & transplant", "name": "Procurement and transplant cases", "mandatory": false, "electiveGroup": "specialty", "settingCodes": "OR", "notes": "rare regionally — usually met at a tertiary center" },
+    { "category": "Diagnostic endoscopy", "name": "Diagnostic endoscopy (≤ 10 toward Second Scrub)", "mandatory": false, "electiveGroup": "remaining", "minCount": 0, "role": "second scrub", "settingCodes": "OR,ORS,FLUORO" },
+    { "category": "Vaginal delivery", "name": "Vaginal delivery (≤ 5 toward Second Scrub)", "mandatory": false, "electiveGroup": "remaining", "minCount": 0, "role": "second scrub", "settingCodes": "OB" }
+  ]
+}

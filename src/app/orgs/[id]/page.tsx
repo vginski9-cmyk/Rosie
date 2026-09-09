@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOrganization, getWorkloadPolicies, getInstitutionsLite, getStaffRoles, getAssetsLite, getRoomsWorkspace } from "@/lib/queries";
-import { updateInstitution } from "@/lib/actions";
+import { updateInstitution, updateInstitutionGeography } from "@/lib/actions";
 import { AcademicCalendar } from "@/components/AcademicCalendar";
 import { WorkloadPolicies } from "@/components/WorkloadPolicies";
 import { StaffRoles } from "@/components/StaffRoles";
 import { RoomsWorkspace } from "@/components/RoomsWorkspace";
 import { Collapse } from "@/components/Collapse";
+import { dec } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,9 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   const agree = new Map<string, number>(); for (const e of inst.employers) agree.set(e.agreementStatus, (agree.get(e.agreementStatus) ?? 0) + 1);
   const peopleByRole = new Map<string, number>(); for (const p of inst.people) if (p.active) peopleByRole.set(p.role, (peopleByRole.get(p.role) ?? 0) + 1);
   const ownPolicies = policies.filter((p) => p.institutionId === inst.id);
+  const mainCampus = inst.campuses[0] ?? null;
+  const located = inst.employers.filter((e) => e.driveMinutes != null).length;
+  const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
   const programs = inst.programFamilies.reduce((n, f) => n + f.programs.length, 0);
   const steps = [
     { label: "Basics", ok: !!(inst.kind && inst.city), href: "#basics" },
@@ -90,7 +94,23 @@ export default async function OrganizationPage({ params }: { params: { id: strin
 
       {/* 4 · Clinical sites & assets */}
       <section id="sites" className="scroll-mt-16">
-        <Collapse title="4 · Clinical sites & their physical assets" sub="Partner organizations, agreements, and every room, unit and machine a learner can be placed on, by setting" summary={<>{inst.employers.length} sites · {assets.reduce((n, a) => n + a.count, 0)} assets · {[...agree.entries()].map(([k, n]) => `${n} ${AGREE_LABEL[k] ?? k}`).join(" · ")}</>}>
+        <Collapse title="4 · Clinical sites & their physical assets" sub="Partner organizations, agreements, and every room, unit and machine a learner can be placed on, by setting — each site auto-located, with its drive from the main campus and its ring" summary={<>{inst.employers.length} sites · {located} located · {assets.reduce((n, a) => n + a.count, 0)} assets · {[...agree.entries()].map(([k, n]) => `${n} ${AGREE_LABEL[k] ?? k}`).join(" · ")}</>}>
+          <form action={updateInstitutionGeography.bind(null, inst.id)} className="mb-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Main campus &amp; drive-time rings <span className="font-normal normal-case text-slate-400">— every site&apos;s ring is auto-coded from its drive time from this address; nobody types a ring</span></div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              <label className="block lg:col-span-2"><span className={lbl}>Campus street address</span><input name="campusAddress" defaultValue={mainCampus?.address ?? ""} placeholder="3395 Airport Rd" className={inp} /></label>
+              <label className="block"><span className={lbl}>City</span><input name="campusCity" defaultValue={mainCampus?.city ?? inst.city ?? ""} className={inp} /></label>
+              <label className="block"><span className={lbl}>ZIP</span><input name="campusZip" defaultValue={mainCampus?.zip ?? ""} className={inp} /></label>
+              <div className="lg:col-span-2 text-xs text-slate-500">
+                {mainCampus ? <>{mainCampus.name}{mainCampus.lat != null ? <> · located {mainCampus.geoSource === "census" ? "street-level (Census)" : mainCampus.geoSource === "gazetteer" ? "at the town centre (built-in gazetteer)" : "by hand"} · <span className="font-mono">{dec(mainCampus.lat, 4)}, {mainCampus.lng != null ? dec(mainCampus.lng, 4) : ""}</span></> : <span className="text-amber-700"> · not located yet</span>}</> : <span className="text-amber-700">No campus yet — saving creates one.</span>}
+              </div>
+              <label className="block"><span className={lbl}>Core ≤ minutes</span><input name="ringCoreMinutes" type="number" min={1} defaultValue={inst.ringCoreMinutes} className={inp} /></label>
+              <label className="block"><span className={lbl}>Ring 1 ≤ minutes</span><input name="ringOneMinutes" type="number" min={1} defaultValue={inst.ringOneMinutes} className={inp} /></label>
+              <label className="block"><span className={lbl}>Ring 2 ≤ minutes</span><input name="ringTwoMinutes" type="number" min={1} defaultValue={inst.ringTwoMinutes} className={inp} /></label>
+              <div className="text-xs text-slate-500 lg:col-span-2">Ring 3 is everything beyond Ring 2. Drive time is estimated from straight-line distance with a road factor at rural / regional speeds — for banding, not routing.</div>
+              <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Save &amp; recompute drive times</button></div>
+            </div>
+          </form>
           <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Assets by setting</div>
@@ -102,9 +122,9 @@ export default async function OrganizationPage({ params }: { params: { id: strin
             </div>
             <div className="max-h-96 overflow-y-auto rounded-xl border border-slate-200 bg-white">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">Site</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Ring</th><th className="px-2 py-1.5 text-left">Agreement</th><th className="px-2 py-1.5 text-right">Assets</th><th className="px-2 py-1.5 text-right">Preceptors</th></tr></thead>
+                <thead className="sticky top-0 bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">Site</th><th className="px-2 py-1.5 text-left">Type</th><th className="px-2 py-1.5 text-left">Ring · drive</th><th className="px-2 py-1.5 text-left">Agreement</th><th className="px-2 py-1.5 text-right">Assets</th><th className="px-2 py-1.5 text-right">Preceptors</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {inst.employers.map((e) => <tr key={e.id}><td className="px-3 py-1"><Link href={`/employers/${e.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{e.name}</Link></td><td className="px-2 py-1 text-slate-600">{e.facilityType ?? "—"}</td><td className="px-2 py-1 text-slate-600">{e.ring ?? "—"}</td><td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${e.agreementStatus === "secured" ? "bg-emerald-100 text-emerald-800" : e.agreementStatus === "asked" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-500"}`}>{AGREE_LABEL[e.agreementStatus] ?? e.agreementStatus}</span></td><td className="px-2 py-1 text-right tabular-nums">{e._count.assets}</td><td className="px-2 py-1 text-right tabular-nums">{e._count.people}</td></tr>)}
+                  {[...inst.employers].sort((a, b) => (a.driveMinutes ?? 9e9) - (b.driveMinutes ?? 9e9) || a.name.localeCompare(b.name)).map((e) => <tr key={e.id}><td className="px-3 py-1"><Link href={`/employers/${e.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{e.name}</Link><span className="block text-[10px] text-slate-400">{e.city ?? ""}</span></td><td className="px-2 py-1 text-slate-600">{e.facilityType ?? "—"}</td><td className="px-2 py-1 whitespace-nowrap">{e.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.ringSource === "manual" ? " ✎" : ""}</span> : <span className="text-slate-300">—</span>}{e.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">≈ {Math.round(e.driveMinutes)} min</span>}</td><td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${e.agreementStatus === "secured" ? "bg-emerald-100 text-emerald-800" : e.agreementStatus === "asked" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-500"}`}>{AGREE_LABEL[e.agreementStatus] ?? e.agreementStatus}</span></td><td className="px-2 py-1 text-right tabular-nums">{e._count.assets}</td><td className="px-2 py-1 text-right tabular-nums">{e._count.people}</td></tr>)}
                   {inst.employers.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-center text-slate-400">No clinical sites yet.</td></tr>}
                 </tbody>
               </table>
