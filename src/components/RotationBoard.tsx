@@ -22,7 +22,6 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
   const areas = input?.areas ?? [];
   const tone = new Map(areas.map((a, i) => [a.code, PALETTE[i % PALETTE.length]]));
   const toneOf = (code: string) => tone.get(code) ?? "bg-slate-100 text-slate-700 ring-slate-200";
-  const settings = [...new Set([...areas.flatMap((a) => a.settingCodes), ...(input?.shifts.map((s) => s.settingCode).filter((x): x is string => !!x) ?? [])])];
   const weeks = plan?.weeks ?? [...new Set(input?.shifts.map((s) => s.weekMonday) ?? [])].sort();
   const shiftsByWeek = new Map<string, string[]>();
   for (const s of input?.shifts ?? []) { const l = shiftsByWeek.get(s.weekMonday) ?? []; l.push(s.sessionId); shiftsByWeek.set(s.weekMonday, l); }
@@ -60,14 +59,21 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
             <span>· {input.students.length} students · {input.sites.filter((x) => x.agreementRank <= input.options.maxAgreementRank).length} allowed sites</span>
           </div>
 
-          {/* Build */}
-          <form action={buildClinicalRotations.bind(null, data.cohort.id, course.id)} className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-xs">
-            <label className="block"><span className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">Sites allowed</span><select name="maxAgreementRank" defaultValue={String(input.options.maxAgreementRank)} className={inp}><option value="0">secured agreements only</option><option value="1">secured + asked</option><option value="2">any site with the setting</option></select></label>
-            <label className="block"><span className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">Primary setting</span><select name="primarySetting" defaultValue={plan?.primarySetting ?? ""} className={inp}><option value="">auto (most-required area)</option>{settings.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-            <label className="block" title="With a site's annual surgical volume, the cases one student needs per OR day caps how many students the OR takes a day (0 = ignore case volume)"><span className="block text-[9px] font-semibold uppercase tracking-wide text-slate-500">OR cases per student-day</span><input name="casesPerStudentDay" type="number" step="any" min="0" defaultValue={input.options.casesPerStudentDay} className={inp + " w-20"} /></label>
-            <label className="flex items-center gap-1 pb-1"><input name="keepHome" type="checkbox" defaultChecked={input.options.keepHome} value="on" /> <span>stay at the home site when it has the setting</span></label>
-            <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700">{plan ? "Rebuild rotation plan" : "Build rotation plan"}</button>
-            <span className="text-[11px] text-slate-500">Each date, every student gets the area they are furthest behind on that still has a seat — staying in an out-rotation until its hours are done, at home when home has the setting, never past a seat, a site&apos;s approved capacity or the day&apos;s cases.{pinnedCount > 0 ? ` ${pinnedCount} pinned cell${pinnedCount === 1 ? "" : "s"} stay put.` : ""}</span>
+          {/* Build — from the family's clinical set-up; nothing is configured here */}
+          <form action={buildClinicalRotations.bind(null, data.cohort.id, course.id)} className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-xs">
+            <div className="min-w-0 flex-1 text-[11px] text-slate-600">
+              <span className="font-semibold text-slate-800">Built from {data.family?.name ?? "the program family"}&apos;s clinical set-up:</span>{" "}
+              availability counted by <span className="font-medium">{input.options.basis === "cases" ? `cases (${dec(input.options.casesPerStudentDay)} cases per student-day over ${input.options.caseDaysPerYear} case days a year)` : input.options.basis === "staff" ? `staff on shift (${dec(input.options.studentsPerStaff)} students per qualified staff member)` : "seats (learners per shift per room / unit)"}</span>
+              {" "}· primary experience <span className="font-medium">{input.options.primarySetting ?? `${plan?.primarySetting ?? "auto"} (most-required area)`}</span>
+              {" "}· sites: <span className="font-medium">{input.options.maxAgreementRank === 0 ? "secured agreements only" : input.options.maxAgreementRank === 1 ? "secured + asked" : "any site with the setting"}</span>
+              {" "}· {input.options.keepHome ? "students stay at their home site when it has the setting" : "students go to the least-loaded allowed site"}
+              {" "}· {input.options.skipHolidays ? "holidays left open" : "holidays scheduled"}
+              {" "}· plus each site&apos;s agreed students-at-once, accreditor-approved capacity, daily cases, days and shift blocks.
+              {data.family?.notes ? <span className="block text-slate-500">{data.family.notes}</span> : null}
+              {data.family && <Link href={`/families/${data.family.id}/clinical`} className="ml-1 text-rose-600 hover:underline">Change these rules or a site&apos;s availability in the directory →</Link>}
+            </div>
+            <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700">{plan ? "Rebuild clinical schedule" : "Build clinical schedule"}</button>
+            {pinnedCount > 0 && <span className="text-[11px] text-slate-500">{pinnedCount} pinned cell{pinnedCount === 1 ? "" : "s"} stay put.</span>}
           </form>
 
           {plan && s && (
@@ -117,7 +123,6 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
                                   {missing > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700 ring-1 ring-rose-200" title="no seat that day">✕{missing > 1 ? missing : ""}</span>}
                                 </div>
                                 <form action={pinStudentWeek.bind(null, data.cohort.id, course.id, st.studentId, w)} className={`flex items-center ${pinned ? "" : "opacity-30 group-hover:opacity-100"}`}>
-                                  <input type="hidden" name="maxAgreementRank" value={String(input.options.maxAgreementRank)} /><input type="hidden" name="casesPerStudentDay" value={input.options.casesPerStudentDay} /><input type="hidden" name="primarySetting" value={plan.primarySetting ?? ""} />
                                   <select name="area" defaultValue={pinArea} className={`w-9 rounded border px-0 text-[9px] ${pinned ? "border-rose-400 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-400"}`} title={pinned ? "pinned — choose 'auto' to release" : "pin this week to an area"}>
                                     <option value="">auto</option>
                                     {areas.map((a) => <option key={a.code} value={a.code}>{a.code}</option>)}
@@ -160,7 +165,7 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
               </details>
             </>
           )}
-          {!plan && <p className="text-xs text-slate-500">No rotation plan yet for this course — build one above. Until then every student sits in the section&apos;s booked site for every shift.</p>}
+          {!plan && <p className="text-xs text-slate-500">No clinical schedule yet for this course — build one above from the family&apos;s availability. Until then every student sits in the section&apos;s booked site for every shift.</p>}
         </>
       )}
     </div>

@@ -751,6 +751,32 @@ export async function updateFamilyAccreditation(familyId: string, formData: Form
   } });
   revalidatePath(`/families/${familyId}/clinical`); revalidatePath(`/families/${familyId}`);
 }
+/** How a family schedules its clinicals — the basis its availability is counted on and the placement rules. */
+export async function updateFamilyRotationPolicy(familyId: string, formData: FormData): Promise<void> {
+  const num = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : numOr(v, 0); };
+  const basis = str(formData.get("capacityBasis"));
+  const agreements = str(formData.get("rotationAgreements"));
+  await prisma.programFamily.update({ where: { id: familyId }, data: {
+    capacityBasis: ["seats", "cases", "staff"].includes(basis) ? basis : "seats",
+    casesPerStudentDay: num("casesPerStudentDay"), caseDaysPerYear: num("caseDaysPerYear") == null ? null : Math.round(num("caseDaysPerYear")!), studentsPerStaff: num("studentsPerStaff"),
+    rotationPrimarySetting: str(formData.get("rotationPrimarySetting")) || null,
+    rotationAgreements: ["secured", "secured+asked", "any"].includes(agreements) ? agreements : "secured+asked",
+    rotationKeepHome: formData.get("rotationKeepHome") != null, rotationSkipHolidays: formData.get("rotationSkipHolidays") != null,
+    rotationNotes: str(formData.get("rotationNotes")) || null,
+    clinicalModel: ["hours", "competency", "mixed"].includes(str(formData.get("clinicalModel"))) ? str(formData.get("clinicalModel")) : undefined,
+  } });
+  revalidatePath(`/families/${familyId}/clinical`);
+}
+/** What one site makes available to one family: students at once, daily cases, days and blocks. */
+export async function updateSiteAvailability(familyId: string, employerId: string, formData: FormData): Promise<void> {
+  const num = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : numOr(v, 0); };
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => formData.get(`day_${d}`) != null);
+  const blocks = ["Day", "Evening", "Night"].filter((b) => formData.get(`block_${b}`) != null);
+  const data = { studentsAtOnce: num("studentsAtOnce") == null ? null : Math.round(num("studentsAtOnce")!), casesPerDay: num("casesPerDay"), daysAllowed: days.length ? days.join(",") : null, blocksAllowed: blocks.length ? blocks.join(",") : null, availabilityNotes: str(formData.get("availabilityNotes")) || null };
+  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
+  revalidatePath(`/families/${familyId}/clinical`);
+}
+
 /** One site's recognition for one family: status, approved / requested capacity, the human-resource count and the student hours it was counted for. */
 export async function updateSiteAccreditation(familyId: string, employerId: string, formData: FormData): Promise<void> {
   const opt = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : Math.max(0, Math.round(numOr(v, 0))); };
@@ -2397,21 +2423,15 @@ export async function logShiftsThrough(cohortId: string, studentId: string | nul
 /** Build the rotation plan for one clinical course of an offering under the options in the form,
  *  and save it: every student's shift gets its asset (site + setting) and a preceptor at that site,
  *  and the seats are booked on the asset map so other cohorts see them taken. Pinned cells stay. */
-export async function buildClinicalRotations(cohortId: string, courseId: string, formData: FormData): Promise<void> {
+export async function buildClinicalRotations(cohortId: string, courseId: string, _formData?: FormData): Promise<void> {
+  void _formData;
   const { getRotationInput } = await import("./queries");
-  const { buildRotationPlan, DEFAULT_ROTATION_OPTIONS } = await import("./rotations");
+  const { buildRotationPlan } = await import("./rotations");
   const { AUTO_PLAN_NOTE } = await import("./scheduler");
   const r = await getRotationInput(cohortId, courseId);
   if (!r || !r.input) return;
-  const rank = str(formData.get("maxAgreementRank"));
-  const options = {
-    ...DEFAULT_ROTATION_OPTIONS,
-    maxAgreementRank: (rank === "0" ? 0 : rank === "2" ? 2 : 1) as 0 | 1 | 2,
-    casesPerStudentDay: Math.max(0, numOr(formData.get("casesPerStudentDay"), DEFAULT_ROTATION_OPTIONS.casesPerStudentDay)),
-    keepHome: formData.get("keepHome") !== "off",
-    primarySetting: str(formData.get("primarySetting")) || null,
-  };
-  const plan = buildRotationPlan({ ...r.input, options });
+  // The plan is built from the family's clinical set-up (directory) — nothing is configured here.
+  const plan = buildRotationPlan(r.input);
   const note = `${AUTO_PLAN_NOTE} rotation`;
   const sessionIds = r.input.shifts.map((s) => s.sessionId);
   await prisma.assetBooking.deleteMany({ where: { cohortId, sessionId: { in: sessionIds }, note } });
@@ -2456,7 +2476,7 @@ export async function pinStudentWeek(cohortId: string, courseId: string, student
   for (const sessionId of sessionIds) {
     await prisma.studentShift.upsert({ where: { studentId_cohortId_sessionId: { studentId, cohortId, sessionId } }, update: { pinnedArea: area }, create: { studentId, cohortId, sessionId, sectionIndex: r.input.students.find((s) => s.id === studentId)?.sectionIndex ?? 1, pinnedArea: area } });
   }
-  await buildClinicalRotations(cohortId, courseId, formData);
+  await buildClinicalRotations(cohortId, courseId);
 }
 
 /** Put the student on every clinical shift of a course, section = their seat's section. */

@@ -368,6 +368,24 @@ export async function getFamilyClinical(familyId: string) {
 /** ONE job's clinical SUPPLY map — nothing about demand: its settings catalog,
  *  every site that serves it with each site's physical assets and their shift
  *  structures, plus the directory of organizations that can be added. */
+/** A family's clinical scheduling rules and each site's agreed availability — the directory set-up the rotation planner reads. */
+export async function getFamilyClinicalRules(familyId: string) {
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, capacityBasis: true, casesPerStudentDay: true, caseDaysPerYear: true, studentsPerStaff: true, rotationPrimarySetting: true, rotationAgreements: true, rotationKeepHome: true, rotationSkipHolidays: true, rotationNotes: true, accreditor: true, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, familySites: { select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true, qualifiedStaffOnShift: true, studentsAtOnce: true, casesPerDay: true, daysAllowed: true, blocksAllowed: true, availabilityNotes: true } } } });
+  if (!fam) return null;
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  const employers = await prisma.employer.findMany({ where: { institutionId: fam.institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, facilityType: true, agreementStatus: true, annualSurgicalCases: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true, days: true, shiftBlocks: true } } } });
+  const fs = new Map(fam.familySites.map((f) => [f.employerId, f]));
+  const sites = employers.filter((e) => fs.has(e.id) || e.assets.some((a) => settingSet.has(a.settingCode))).map((e) => {
+    const f = fs.get(e.id);
+    const seatsBySetting: Record<string, number> = {};
+    for (const a of e.assets) if (settingSet.size === 0 || settingSet.has(a.settingCode)) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
+    const days = [...new Set(e.assets.flatMap((a) => a.days.split(",").map((x) => x.trim())))];
+    const blocks = [...new Set(e.assets.flatMap((a) => a.shiftBlocks.split(",").map((x) => x.trim())))];
+    return { employerId: e.id, name: e.name, facilityType: e.facilityType, agreementStatus: f?.agreementStatus ?? e.agreementStatus ?? "none", accreditorStatus: f?.accreditorStatus ?? "none", approvedCapacity: f?.approvedCapacity ?? null, qualifiedStaffOnShift: f?.qualifiedStaffOnShift ?? null, studentsAtOnce: f?.studentsAtOnce ?? null, casesPerDay: f?.casesPerDay ?? null, annualSurgicalCases: e.annualSurgicalCases, daysAllowed: f?.daysAllowed ?? null, blocksAllowed: f?.blocksAllowed ?? null, availabilityNotes: f?.availabilityNotes ?? null, seatsBySetting, seats: Object.values(seatsBySetting).reduce((n, v) => n + v, 0), assetDays: days, assetBlocks: blocks };
+  }).sort((a, b) => ["secured", "asked", "prospect", "none", "declined"].indexOf(a.agreementStatus) - ["secured", "asked", "prospect", "none", "declined"].indexOf(b.agreementStatus) || b.seats - a.seats || a.name.localeCompare(b.name));
+  return { family: { id: fam.id, name: fam.name, clinicalModel: fam.clinicalModel, capacityBasis: fam.capacityBasis, casesPerStudentDay: fam.casesPerStudentDay, caseDaysPerYear: fam.caseDaysPerYear, studentsPerStaff: fam.studentsPerStaff, rotationPrimarySetting: fam.rotationPrimarySetting, rotationAgreements: fam.rotationAgreements, rotationKeepHome: fam.rotationKeepHome, rotationSkipHolidays: fam.rotationSkipHolidays, rotationNotes: fam.rotationNotes, accreditor: fam.accreditor }, settings: [...settingSet], areas: fam.serviceAreas.map((a) => ({ code: a.code, name: a.name, settingCodes: a.settingCodes })), sites };
+}
+
 /** The accreditor's clinical-capacity picture (JRCERT Form 1010R for radiography) for one
  *  family across its sites — or one site: physical resources counted from the asset map,
  *  the human count from the site record, the lower of the two, what the accreditor has
@@ -2185,10 +2203,12 @@ export interface RotationBoardData {
   sessionByDate: Record<string, string>;
   siteNames: Record<string, string>;
   areaNames: Record<string, string>;
+  /** The family whose clinical set-up (directory) the plan is built from. */
+  family: { id: string; name: string; clinicalModel: string; notes: string | null } | null;
 }
 
 export async function getRotationInput(cohortId: string, courseId: string) {
-  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true, familyId: true } }, meetings: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true, employerId: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } } } });
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true, familyId: true, family: { select: { id: true, name: true, clinicalModel: true, capacityBasis: true, casesPerStudentDay: true, caseDaysPerYear: true, studentsPerStaff: true, rotationPrimarySetting: true, rotationAgreements: true, rotationKeepHome: true, rotationSkipHolidays: true, rotationNotes: true } } } }, meetings: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true, employerId: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } } } });
   if (!co) return null;
   const course = await prisma.course.findUnique({ where: { id: courseId }, select: { id: true, code: true, name: true, termId: true, term: { select: { name: true } }, sessions: { where: { kind: "CLINICAL" }, orderBy: [{ week: "asc" }, { number: "asc" }], select: { id: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, rotationType: true, deliveryMode: true, location: true } }, clinicalRequirements: { select: { hoursPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } } } });
   if (!course) return null;
@@ -2203,11 +2223,11 @@ export async function getRotationInput(cohortId: string, courseId: string) {
     .map((x) => { const iso = dates.get(x.id) ?? null; return iso ? { sessionId: x.id, date: iso, weekMonday: mondayOf(iso), block: shiftBlockOf(x.startTime), hours: x.lengthHours, rotationType: x.rotationType, settingCode: rotations.get((x.rotationType ?? "").trim().toLowerCase()) ?? null, holiday: holidays[iso] ?? null } : null; })
     .filter((x): x is NonNullable<typeof x> => !!x)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!shifts.length) return { co, course, input: null, existing: [], status: {} };
+  if (!shifts.length) return { co, course, input: null, existing: [], status: {}, family: co.program.family ? { id: co.program.family.id, name: co.program.family.name, clinicalModel: co.program.family.clinicalModel, notes: co.program.family.rotationNotes } : null };
   const from = shifts[0].date, to = shifts[shifts.length - 1].date;
   const [map, familySites, employers, studentsRaw] = await Promise.all([
     getAssetMap(co.program.institutionId, from, to),
-    co.program.familyId ? prisma.familySite.findMany({ where: { familyId: co.program.familyId }, select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true } }) : Promise.resolve([]),
+    co.program.familyId ? prisma.familySite.findMany({ where: { familyId: co.program.familyId }, select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true, qualifiedStaffOnShift: true, studentsAtOnce: true, casesPerDay: true, daysAllowed: true, blocksAllowed: true } }) : Promise.resolve([]),
     prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, agreementStatus: true, annualSurgicalCases: true } }),
     prisma.student.findMany({ where: { cohortId, status: { in: ["enrolled", "admitted"] } }, orderBy: { sectionIndex: "asc" }, select: { id: true, name: true, sectionIndex: true, sections: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true } }, shifts: { where: { session: { courseId } }, select: { sessionId: true, assetId: true, settingCode: true, pinnedArea: true, status: true, hoursLogged: true, asset: { select: { employerId: true, settingCode: true } } } } } }),
   ]);
@@ -2215,7 +2235,8 @@ export async function getRotationInput(cohortId: string, courseId: string) {
   const fs = new Map(familySites.map((f) => [f.employerId, f]));
   const homeOf = new Map(co.meetings.map((m) => [m.sectionIndex, m.employerId]));
   const students = studentsRaw.map((st) => { const sec = st.sections[0]?.sectionIndex ?? st.sectionIndex; return { id: st.id, name: st.name, seat: st.sectionIndex, sectionIndex: sec, homeEmployerId: homeOf.get(sec) ?? null }; });
-  const sites = employers.filter((e) => map.assets.some((a) => a.employerId === e.id)).map((e) => { const f = fs.get(e.id); return { employerId: e.id, name: e.name, agreementRank: RANK[f?.agreementStatus ?? e.agreementStatus ?? "none"] ?? 3, approvedCapacity: f?.accreditorStatus === "recognized" ? f.approvedCapacity ?? null : null, annualSurgicalCases: e.annualSurgicalCases }; });
+  const csv = (v: string | null | undefined) => (v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const sites: import("./rotations").RotationSite[] = employers.filter((e) => map.assets.some((a) => a.employerId === e.id)).map((e) => { const f = fs.get(e.id); return { employerId: e.id, name: e.name, agreementRank: RANK[f?.agreementStatus ?? e.agreementStatus ?? "none"] ?? 3, approvedCapacity: f?.accreditorStatus === "recognized" ? f.approvedCapacity ?? null : null, studentsAtOnce: f?.studentsAtOnce ?? null, casesPerDay: f?.casesPerDay ?? null, annualSurgicalCases: e.annualSurgicalCases, qualifiedStaffOnShift: f?.qualifiedStaffOnShift ?? null, daysAllowed: csv(f?.daysAllowed), blocksAllowed: csv(f?.blocksAllowed) }; });
   const areas = course.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, name: r.serviceArea.name, settingCodes: r.serviceArea.settingCodes.split(",").map((x) => x.trim()).filter(Boolean), hours: r.hoursPerStudent }));
   const sessionIds = new Set(shifts.map((s) => s.sessionId));
   const existingBookings = map.bookings.filter((b) => !(b.cohortId === cohortId && b.sessionId && sessionIds.has(b.sessionId)));
@@ -2230,9 +2251,17 @@ export async function getRotationInput(cohortId: string, courseId: string) {
     if (sh.pinnedArea) pins[`${st.id}|${s.date}`] = sh.pinnedArea;
     if (sh.assetId && sh.asset) { const setting = sh.asset.settingCode; const home = students.find((x) => x.id === st.id)?.homeEmployerId ?? null; existing.push({ studentId: st.id, sessionId: sh.sessionId, date: s.date, block: s.block, hours: s.hours, areaCode: areaOf(setting) ?? setting, settingCode: setting, employerId: sh.asset.employerId, assetId: sh.assetId, away: sh.asset.employerId !== home, pinned: !!sh.pinnedArea, reason: "saved" }); }
   }
-  const { DEFAULT_ROTATION_OPTIONS } = await import("./rotations");
-  const input: import("./rotations").RotationInput = { students, shifts, areas, sites, assets: map.assets, overrides: map.overrides, existingBookings, pins, options: { ...DEFAULT_ROTATION_OPTIONS } };
-  return { co, course, input, existing, status };
+  const { DEFAULT_ROTATION_POLICY } = await import("./rotations");
+  const fam = co.program.family;
+  const basis = (fam?.capacityBasis === "cases" || fam?.capacityBasis === "staff" ? fam.capacityBasis : "seats") as import("./rotations").CapacityBasis;
+  const policy: import("./rotations").RotationPolicy = {
+    ...DEFAULT_ROTATION_POLICY, basis,
+    casesPerStudentDay: fam?.casesPerStudentDay ?? DEFAULT_ROTATION_POLICY.casesPerStudentDay, caseDaysPerYear: fam?.caseDaysPerYear ?? DEFAULT_ROTATION_POLICY.caseDaysPerYear, studentsPerStaff: fam?.studentsPerStaff ?? DEFAULT_ROTATION_POLICY.studentsPerStaff,
+    maxAgreementRank: fam?.rotationAgreements === "secured" ? 0 : fam?.rotationAgreements === "any" ? 2 : 1,
+    keepHome: fam?.rotationKeepHome ?? true, skipHolidays: fam?.rotationSkipHolidays ?? true, primarySetting: fam?.rotationPrimarySetting || null,
+  };
+  const input: import("./rotations").RotationInput = { students, shifts, areas, sites, assets: map.assets, overrides: map.overrides, existingBookings, pins, options: policy };
+  return { co, course, input, existing, status, family: fam ? { id: fam.id, name: fam.name, clinicalModel: fam.clinicalModel, notes: fam.rotationNotes } : null };
 }
 
 /** The rotation board for one offering: its clinical courses, and the selected course's saved plan scored. */
@@ -2241,13 +2270,13 @@ export async function getRotationBoard(cohortId: string, courseId?: string | nul
   if (!co) return null;
   const courses = co.program.terms.flatMap((t) => t.courses.filter((c) => c._count.sessions > 0).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, shifts: c._count.sessions })));
   const chosen = courses.find((c) => c.id === courseId) ?? courses[0] ?? null;
-  const base: RotationBoardData = { cohort: { id: co.id, name: co.name, programId: co.program.id, programName: co.program.name, institutionId: co.program.institutionId }, courses, course: chosen, input: null, plan: null, status: {}, sessionByDate: {}, siteNames: {}, areaNames: {} };
+  const base: RotationBoardData = { cohort: { id: co.id, name: co.name, programId: co.program.id, programName: co.program.name, institutionId: co.program.institutionId }, courses, course: chosen, input: null, plan: null, status: {}, sessionByDate: {}, siteNames: {}, areaNames: {}, family: null };
   if (!chosen) return base;
   const r = await getRotationInput(cohortId, chosen.id);
   if (!r || !r.input) return base;
   const { evaluatePlan } = await import("./rotations");
   const plan = r.existing.length ? evaluatePlan(r.input, r.existing) : null;
-  return { ...base, input: r.input, plan, status: r.status, sessionByDate: Object.fromEntries(r.input.shifts.map((s) => [s.date, s.sessionId])), siteNames: Object.fromEntries(r.input.sites.map((s) => [s.employerId, s.name])), areaNames: Object.fromEntries(r.input.areas.map((a) => [a.code, a.name])) };
+  return { ...base, input: r.input, plan, status: r.status, sessionByDate: Object.fromEntries(r.input.shifts.map((s) => [s.date, s.sessionId])), siteNames: Object.fromEntries(r.input.sites.map((s) => [s.employerId, s.name])), areaNames: Object.fromEntries(r.input.areas.map((a) => [a.code, a.name])), family: r.family };
 }
 
 /** Every session of an offering dated on its calendar: session id → ISO date (null when undated). */

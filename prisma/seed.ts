@@ -1289,8 +1289,10 @@ async function main() {
   }
 
   // ----- Families (one per job) ---------------------------------------------
-  const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region.", accreditor: "JRCERT", accreditationNotes: "Enter the JRCERT program number and the accredited program total clinical capacity from the most recent recognition letter." } });
-  const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates." } });
+  const radFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: radOcc.id, name: "Radiography", description: "Radiography program templates producing ARRT-eligible radiographers for the Sandhills region.", accreditor: "JRCERT", accreditationNotes: "Enter the JRCERT program number and the accredited program total clinical capacity from the most recent recognition letter.",
+    capacityBasis: "seats", rotationPrimarySetting: "GEN", rotationAgreements: "secured+asked", rotationKeepHome: true, rotationNotes: "Hours per service area from the course allocation grid; one student per room / unit per shift; out-rotations (ED, portables, C-arm, fluoro, CT) in blocks at the home hospital when it has them, else at a partner that does." } });
+  const surgFamily = await prisma.programFamily.create({ data: { institutionId: sandhills.id, occupationId: surgOcc.id, name: "Surgical Technology", description: "Surgical Technology program templates.",
+    capacityBasis: "cases", casesPerStudentDay: 2, caseDaysPerYear: 250, rotationPrimarySetting: "OR", rotationAgreements: "secured+asked", rotationKeepHome: true, rotationNotes: "Case-based: a student needs first- and second-scrub cases, so a site takes as many students a day as its case volume supports (daily cases ÷ cases per student-day); doctor's-office days fill the rest." } });
   const assets = await loadAssetMap(sandhills.id);
   console.log(`asset map: ${assets.facilities} clinical sites, ${assets.units} functional units`);
   const radMap = await loadRadAssetMap(sandhills.id);

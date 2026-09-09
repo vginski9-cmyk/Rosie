@@ -9,11 +9,12 @@ const asset = (id: string, employerId: string, settingCode: string, learnersPerS
 });
 // Sixteen Tuesday shifts of 7.5 h, Sept–Dec 2026.
 const shifts: RotationShift[] = Array.from({ length: 16 }, (_, w) => { const d = new Date(Date.UTC(2026, 8, 1) + w * 7 * 86400000); const iso = d.toISOString().slice(0, 10); const mon = new Date(d.getTime() - 86400000).toISOString().slice(0, 10); return { sessionId: `s${w + 1}`, date: iso, weekMonday: mon, block: "Day", hours: 7.5, rotationType: "General", settingCode: "GEN", holiday: null }; });
+const site = (employerId: string, name: string) => ({ employerId, name, agreementRank: 0, approvedCapacity: null, studentsAtOnce: null, casesPerDay: null, annualSurgicalCases: null, qualifiedStaffOnShift: null, daysAllowed: [] as string[], blocksAllowed: [] as string[] });
 const students = Array.from({ length: 6 }, (_, i) => ({ id: `st${i + 1}`, name: `Student ${i + 1}`, seat: i + 1, sectionIndex: i + 1, homeEmployerId: "hosp" }));
 const base = (): RotationInput => ({
   students, shifts,
   areas: [{ code: "GEN", name: "General", settingCodes: ["GEN"], hours: 75 }, { code: "ED", name: "Emergency", settingCodes: ["ED"], hours: 15 }, { code: "PORT", name: "Portables", settingCodes: ["PORT"], hours: 15 }],
-  sites: [{ employerId: "hosp", name: "Hospital", agreementRank: 0, approvedCapacity: null, annualSurgicalCases: null }, { employerId: "clinic", name: "Clinic", agreementRank: 0, approvedCapacity: null, annualSurgicalCases: null }],
+  sites: [site("hosp", "Hospital"), site("clinic", "Clinic")],
   assets: [asset("g1", "hosp", "GEN", 4), asset("g2", "hosp", "GEN", 2), asset("e1", "hosp", "ED", 1), asset("p1", "hosp", "PORT", 1), asset("g3", "clinic", "GEN", 2)],
   overrides: [], existingBookings: [], pins: {}, options: { ...DEFAULT_ROTATION_OPTIONS },
 });
@@ -56,14 +57,30 @@ describe("clinical rotation planner", () => {
     expect(plan.students.every((s) => s.byArea.PORT.short === 15)).toBe(true);
     expect(plan.summary.studentsShort).toBe(6);
   });
-  it("caps OR days by case volume", () => {
+  it("a case-based family caps OR days by case volume; a seat-based family ignores cases", () => {
     const input = base();
     input.areas = [{ code: "OR", name: "Operating room", settingCodes: ["OR"], hours: 120 }];
     input.assets = [asset("or1", "hosp", "OR", 10)];
     input.sites[0].annualSurgicalCases = 1000; // 4 cases a day → 2 students a day at 2 cases each
+    input.options = { ...input.options, basis: "cases" };
     const plan = buildRotationPlan(input);
     for (const l of plan.loads) expect(l.used).toBeLessThanOrEqual(2);
     expect(plan.unplaced.length).toBe(6 * 16 - 2 * 16);
+    const seats = buildRotationPlan({ ...input, options: { ...input.options, basis: "seats" } });
+    expect(seats.unplaced.length).toBe(0);
+  });
+  it("a staff-based family caps a site-day by staff × students per staff; a site's own days and students-at-once cap apply", () => {
+    const input = base();
+    input.options = { ...input.options, basis: "staff", studentsPerStaff: 2 };
+    input.sites[0].qualifiedStaffOnShift = 1; // 2 students a day at the hospital
+    const plan = buildRotationPlan(input);
+    for (const d of [...new Set(plan.placements.map((p) => p.date))]) expect(plan.placements.filter((p) => p.date === d && p.employerId === "hosp").length).toBeLessThanOrEqual(2);
+    const input2 = base();
+    input2.sites[1].daysAllowed = ["Mon"]; // clinic never takes students on Tuesdays
+    input2.sites[0].studentsAtOnce = 3;
+    const plan2 = buildRotationPlan(input2);
+    expect(plan2.placements.some((p) => p.employerId === "clinic")).toBe(false);
+    for (const d of [...new Set(plan2.placements.map((p) => p.date))]) expect(plan2.placements.filter((p) => p.date === d && p.employerId === "hosp").length).toBeLessThanOrEqual(3);
   });
   it("evaluatePlan scores saved placements the same way", () => {
     const input = base();

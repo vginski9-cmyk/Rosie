@@ -276,6 +276,23 @@ model ProgramFamily {
   accreditorProgramNumber String?
   accreditedCapacity      Int?
   accreditationNotes      String?
+  /// HOW THIS JOB SCHEDULES CLINICALS — the family's own way of counting availability and
+  /// placing students, set up once in the directory and read by every offering's rotation planner.
+  /// capacityBasis: seats (learners per shift per room / unit — radiography), cases (a site's daily
+  /// case volume ÷ cases one student needs a day — surgical technology), staff (qualified staff on
+  /// shift × students each may supervise — nurse aide, nursing).
+  capacityBasis        String  @default("seats")
+  casesPerStudentDay   Float?
+  caseDaysPerYear      Int?
+  studentsPerStaff     Float?
+  /// Primary experience setting (everything else is an out-rotation); blank = the most-required area.
+  rotationPrimarySetting String?
+  /// Which site agreements may host: secured | secured+asked | any.
+  rotationAgreements   String  @default("secured+asked")
+  rotationKeepHome     Boolean @default(true)
+  rotationSkipHolidays Boolean @default(true)
+  /// The program's clinical quirks in words (case logs, competency sign-offs, call shifts …).
+  rotationNotes        String?
   createdAt     DateTime @default(now())
 
   programs Program[]
@@ -947,6 +964,14 @@ model FamilySite {
   studentHoursWindow    String?  // e.g. "07:00–15:30"
   accreditorNotes       String?
   capacityUpdatedAt     DateTime?
+  /// AVAILABILITY the site agreed for THIS family (the rotation planner's hard limits at this site):
+  /// students at any one time, the site's daily case volume for the family's cases (blank = the
+  /// site's annual surgical cases ÷ case days), and the days / shift blocks students may attend.
+  studentsAtOnce        Int?
+  casesPerDay           Float?
+  daysAllowed           String?  // csv of Mon..Sun; blank = every day the assets run
+  blocksAllowed         String?  // csv of Day,Evening,Night; blank = every block the assets run
+  availabilityNotes     String?
 
   @@unique([familyId, employerId])
 }

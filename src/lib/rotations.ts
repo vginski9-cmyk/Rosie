@@ -35,24 +35,42 @@ export interface RotationSite {
   agreementRank: number;
   /** Accreditor-approved students at any one time (JRCERT capacity), when recognized. */
   approvedCapacity: number | null;
-  /** Annual surgical case volume, for the OR case constraint. */
+  /** Students at any one time the site agreed for this family (the agreement's own cap). */
+  studentsAtOnce: number | null;
+  /** The site's daily case volume for this family's cases (surgical technology); blank = annual surgical cases ÷ case days. */
+  casesPerDay: number | null;
+  /** Annual surgical case volume, the fallback for casesPerDay. */
   annualSurgicalCases: number | null;
+  /** Qualified staff on shift during student hours (nurse aide / nursing: students per staff). */
+  qualifiedStaffOnShift: number | null;
+  /** Days and shift blocks students may attend here for this family; empty = whatever the assets run. */
+  daysAllowed: string[];
+  blocksAllowed: string[];
 }
-export interface RotationOptions {
+export type CapacityBasis = "seats" | "cases" | "staff";
+/** HOW A PROGRAM FAMILY SCHEDULES CLINICALS — set up once in the directory, read by every offering. */
+export interface RotationPolicy {
+  /** How a site's availability is counted: seats (learners per shift per room / unit), cases (daily case
+   *  volume ÷ cases one student needs a day), staff (qualified staff on shift × students each supervises). */
+  basis: CapacityBasis;
+  casesPerStudentDay: number;
+  caseDaysPerYear: number;
+  studentsPerStaff: number;
   /** Which agreements may host: 0 secured only, 1 secured + asked, 2 any. */
   maxAgreementRank: 0 | 1 | 2;
-  /** Cases one student needs per OR day — with a site's annual volume this caps students in the OR per day (0 = ignore case volume). */
-  casesPerStudentDay: number;
-  /** Working days a year the case volume spreads over. */
-  caseDaysPerYear: number;
   /** Keep a student at their home site whenever it has the setting (else the least-loaded allowed site). */
   keepHome: boolean;
   /** Leave holiday shifts unplaced. */
   skipHolidays: boolean;
   /** The setting that counts as the course's primary experience (everything else is an out-rotation); null = the most-required area's first setting. */
   primarySetting: string | null;
+  /** Settings the case basis applies to (an OR rotation is case-limited; a clinic day is not). */
+  caseSettings: string[];
 }
-export const DEFAULT_ROTATION_OPTIONS: RotationOptions = { maxAgreementRank: 1, casesPerStudentDay: 2, caseDaysPerYear: 250, keepHome: true, skipHolidays: true, primarySetting: null };
+export const DEFAULT_ROTATION_POLICY: RotationPolicy = { basis: "seats", casesPerStudentDay: 2, caseDaysPerYear: 250, studentsPerStaff: 2, maxAgreementRank: 1, keepHome: true, skipHolidays: true, primarySetting: null, caseSettings: ["OR", "ORS"] };
+/** @deprecated use RotationPolicy */
+export type RotationOptions = RotationPolicy;
+export const DEFAULT_ROTATION_OPTIONS = DEFAULT_ROTATION_POLICY;
 
 export interface RotationInput {
   students: RotationStudent[];
@@ -65,7 +83,7 @@ export interface RotationInput {
   existingBookings: AssetBookingLite[];
   /** studentId|date → area code the coordinator pinned. */
   pins: Record<string, string>;
-  options: RotationOptions;
+  options: RotationPolicy;
 }
 export interface Placement { studentId: string; sessionId: string; date: string; block: ShiftBlock; hours: number; areaCode: string; settingCode: string; employerId: string; assetId: string; away: boolean; pinned: boolean; reason: string }
 export interface Unplaced { studentId: string; sessionId: string; date: string; reason: string }
@@ -94,15 +112,38 @@ function supply(input: RotationInput) {
   const opensCache = new Map<string, boolean>();
   const opens = (a: AssetLite, date: string, block: ShiftBlock) => { const k = key(a.id, date, block); let v = opensCache.get(k); if (v == null) { v = blocksOn(a, date, ov.get(overrideKey(a.id, date))).includes(block); opensCache.set(k, v); } return v; };
   const freeOf = (a: AssetLite, date: string, block: ShiftBlock) => Math.max(0, a.learnersPerShift - (used.get(key(a.id, date, block)) ?? 0));
-  const caseCap = (employerId: string) => { const s = siteById.get(employerId); if (!s?.annualSurgicalCases || input.options.casesPerStudentDay <= 0) return Infinity; return Math.max(0, Math.floor(s.annualSurgicalCases / Math.max(1, input.options.caseDaysPerYear) / input.options.casesPerStudentDay)); };
-  /** Free seats of one setting at one site on a date × block, respecting the site cap and (for the OR) the case volume. */
+  const pol = input.options;
+  const weekdayOf = (iso: string) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(iso + "T00:00:00Z").getUTCDay()];
+  /** The family's own way of counting a site's daily capacity for a setting. */
+  const basisCap = (site: RotationSite | undefined, settingCode: string): number => {
+    if (!site) return Infinity;
+    if (pol.basis === "cases" && pol.caseSettings.includes(settingCode)) {
+      const perDay = site.casesPerDay ?? (site.annualSurgicalCases != null ? site.annualSurgicalCases / Math.max(1, pol.caseDaysPerYear) : null);
+      if (perDay == null || pol.casesPerStudentDay <= 0) return Infinity;
+      return Math.max(0, Math.floor(perDay / pol.casesPerStudentDay));
+    }
+    if (pol.basis === "staff") {
+      if (site.qualifiedStaffOnShift == null || pol.studentsPerStaff <= 0) return Infinity;
+      return Math.max(0, Math.floor(site.qualifiedStaffOnShift * pol.studentsPerStaff));
+    }
+    return Infinity;
+  };
+  /** Free seats of one setting at one site on a date × block: the assets' learners per shift, capped by the
+   *  agreement's students-at-once, the accreditor's approved capacity, the family's basis (cases / staff) and
+   *  the days and blocks the site allows this family. */
   const siteFree = (employerId: string, settingCode: string, date: string, block: ShiftBlock) => {
+    const site = siteById.get(employerId);
+    if (site && site.daysAllowed.length && !site.daysAllowed.includes(weekdayOf(date))) return { assets: [] as AssetLite[], free: 0 };
+    if (site && site.blocksAllowed.length && !site.blocksAllowed.includes(block)) return { assets: [] as AssetLite[], free: 0 };
     const assets = allowed.filter((a) => a.employerId === employerId && a.settingCode === settingCode && opens(a, date, block));
     const seats = assets.reduce((n, a) => n + freeOf(a, date, block), 0);
-    const cap = siteById.get(employerId)?.approvedCapacity;
-    const capLeft = cap == null ? Infinity : Math.max(0, cap - (siteUsed.get(key(employerId, date, block)) ?? 0));
-    const caseLeft = settingCode === "OR" || settingCode === "ORS" ? Math.max(0, caseCap(employerId) - (siteSettingUsed.get(key(employerId, date, block, settingCode)) ?? 0)) : Infinity;
-    return { assets, free: Math.min(seats, capLeft, caseLeft) };
+    const cap = Math.min(site?.approvedCapacity ?? Infinity, site?.studentsAtOnce ?? Infinity);
+    const capLeft = cap === Infinity ? Infinity : Math.max(0, cap - (siteUsed.get(key(employerId, date, block)) ?? 0));
+    // Cases limit the case settings per site-day; the staff basis limits the whole site-day.
+    const basis = basisCap(site, settingCode);
+    const basisUsed = pol.basis === "cases" ? (siteSettingUsed.get(key(employerId, date, block, settingCode)) ?? 0) : (siteUsed.get(key(employerId, date, block)) ?? 0);
+    const basisLeft = basis === Infinity ? Infinity : Math.max(0, basis - basisUsed);
+    return { assets, free: Math.min(seats, capLeft, basisLeft) };
   };
   const take = (employerId: string, settingCode: string, date: string, block: ShiftBlock): string | null => {
     const { assets, free } = siteFree(employerId, settingCode, date, block);
@@ -256,8 +297,9 @@ function finish(input: RotationInput, placements: Placement[], unplaced: Unplace
     if (!cell) {
       const assets = S.allowed.filter((a) => a.employerId === p.employerId && a.settingCode === p.settingCode && S.opens(a, p.date, p.block));
       const seats = assets.reduce((n, a) => n + a.learnersPerShift, 0);
-      const cap = S.siteById.get(p.employerId)?.approvedCapacity;
-      cell = { date: p.date, block: p.block, employerId: p.employerId, siteName: siteName(p.employerId), settingCode: p.settingCode, used: 0, capacity: cap == null ? seats : Math.min(seats, cap) };
+      const site = S.siteById.get(p.employerId);
+      const cap = Math.min(site?.approvedCapacity ?? Infinity, site?.studentsAtOnce ?? Infinity);
+      cell = { date: p.date, block: p.block, employerId: p.employerId, siteName: siteName(p.employerId), settingCode: p.settingCode, used: 0, capacity: cap === Infinity ? seats : Math.min(seats, cap) };
       loadKeys.set(k, cell);
     }
     cell.used++;
