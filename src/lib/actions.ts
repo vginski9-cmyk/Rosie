@@ -2393,6 +2393,72 @@ export async function logShiftsThrough(cohortId: string, studentId: string | nul
   void n;
 }
 
+// ── Clinical rotations: build, save and pin ──────────────────────────────────
+/** Build the rotation plan for one clinical course of an offering under the options in the form,
+ *  and save it: every student's shift gets its asset (site + setting) and a preceptor at that site,
+ *  and the seats are booked on the asset map so other cohorts see them taken. Pinned cells stay. */
+export async function buildClinicalRotations(cohortId: string, courseId: string, formData: FormData): Promise<void> {
+  const { getRotationInput } = await import("./queries");
+  const { buildRotationPlan, DEFAULT_ROTATION_OPTIONS } = await import("./rotations");
+  const { AUTO_PLAN_NOTE } = await import("./scheduler");
+  const r = await getRotationInput(cohortId, courseId);
+  if (!r || !r.input) return;
+  const rank = str(formData.get("maxAgreementRank"));
+  const options = {
+    ...DEFAULT_ROTATION_OPTIONS,
+    maxAgreementRank: (rank === "0" ? 0 : rank === "2" ? 2 : 1) as 0 | 1 | 2,
+    casesPerStudentDay: Math.max(0, numOr(formData.get("casesPerStudentDay"), DEFAULT_ROTATION_OPTIONS.casesPerStudentDay)),
+    keepHome: formData.get("keepHome") !== "off",
+    primarySetting: str(formData.get("primarySetting")) || null,
+  };
+  const plan = buildRotationPlan({ ...r.input, options });
+  const note = `${AUTO_PLAN_NOTE} rotation`;
+  const sessionIds = r.input.shifts.map((s) => s.sessionId);
+  await prisma.assetBooking.deleteMany({ where: { cohortId, sessionId: { in: sessionIds }, note } });
+  const secOf = new Map(r.input.students.map((s) => [s.id, s.sectionIndex]));
+  for (let i = 0; i < plan.placements.length; i += 400) await prisma.assetBooking.createMany({ data: plan.placements.slice(i, i + 400).map((p) => ({ assetId: p.assetId, cohortId, sessionId: p.sessionId, sectionIndex: secOf.get(p.studentId) ?? 1, date: new Date(p.date + "T00:00:00Z"), block: p.block, students: 1, note })) });
+  // Preceptors at each site, for shifts away from home (or unprecepted): dealt round-robin per site.
+  const preceptors = await prisma.person.findMany({ where: { institutionId: r.co.program.institutionId, active: true, role: "preceptor", employerId: { in: [...new Set(plan.placements.map((p) => p.employerId))] } }, select: { id: true, employerId: true, title: true } });
+  const disc = /Radiograph/i.test(r.co.program.name) ? /Radiolog|RT\(R\)|Radiograph|MRI/i : /Surgical/i.test(r.co.program.name) ? /Surg|OR |CST|CSFA|Operating/i : /./;
+  const bySite = new Map<string, string[]>();
+  for (const p of preceptors) if (p.employerId && disc.test(p.title ?? "")) { const l = bySite.get(p.employerId) ?? []; l.push(p.id); bySite.set(p.employerId, l); }
+  const rr = new Map<string, number>();
+  const current = new Map((await prisma.studentShift.findMany({ where: { cohortId, sessionId: { in: sessionIds } }, select: { id: true, studentId: true, sessionId: true, preceptorId: true, preceptor: { select: { employerId: true } } } })).map((s) => [`${s.studentId}|${s.sessionId}`, s]));
+  // Group the writes by (asset, setting, preceptor) so a 1,300-shift plan is a few dozen statements, not 1,300.
+  const groups = new Map<string, { assetId: string; settingCode: string; preceptorId: string | null; ids: string[] }>();
+  const creates: { studentId: string; cohortId: string; sessionId: string; sectionIndex: number; assetId: string; settingCode: string; preceptorId: string | null }[] = [];
+  for (const p of plan.placements) {
+    const cur = current.get(`${p.studentId}|${p.sessionId}`);
+    let preceptorId = cur?.preceptorId ?? null;
+    if (!preceptorId || cur?.preceptor?.employerId !== p.employerId) { const pool = bySite.get(p.employerId) ?? []; if (pool.length) { const n = rr.get(p.employerId) ?? 0; preceptorId = pool[n % pool.length]; rr.set(p.employerId, n + 1); } }
+    if (cur) { const k = `${p.assetId}|${p.settingCode}|${preceptorId ?? ""}`; const g = groups.get(k) ?? { assetId: p.assetId, settingCode: p.settingCode, preceptorId, ids: [] }; g.ids.push(cur.id); groups.set(k, g); }
+    else creates.push({ studentId: p.studentId, cohortId, sessionId: p.sessionId, sectionIndex: secOf.get(p.studentId) ?? 1, assetId: p.assetId, settingCode: p.settingCode, preceptorId });
+  }
+  await prisma.$transaction([
+    ...[...groups.values()].map((g) => prisma.studentShift.updateMany({ where: { id: { in: g.ids } }, data: { assetId: g.assetId, settingCode: g.settingCode, preceptorId: g.preceptorId } })),
+    ...(creates.length ? [prisma.studentShift.createMany({ data: creates })] : []),
+  ]);
+  // Shifts the plan could not place lose any stale asset so the board shows them as open.
+  const placedKeys = new Set(plan.placements.map((p) => `${p.studentId}|${p.sessionId}`));
+  const stale = plan.unplaced.map((u) => current.get(`${u.studentId}|${u.sessionId}`)).filter((c): c is NonNullable<typeof c> => !!c && !placedKeys.has(`${c.studentId}|${c.sessionId}`)).map((c) => c.id);
+  if (stale.length) await prisma.studentShift.updateMany({ where: { id: { in: stale } }, data: { assetId: null } });
+  revalidatePath(`/programs/${r.co.program.id}/offerings/${cohortId}`);
+}
+
+/** Pin (or unpin) a student's shifts in one week to a service area, then rebuild the plan around it. */
+export async function pinStudentWeek(cohortId: string, courseId: string, studentId: string, weekMonday: string, formData: FormData): Promise<void> {
+  const area = str(formData.get("area")) || null;
+  const { getRotationInput } = await import("./queries");
+  const r = await getRotationInput(cohortId, courseId);
+  if (!r || !r.input) return;
+  const sessionIds = r.input.shifts.filter((s) => s.weekMonday === weekMonday).map((s) => s.sessionId);
+  if (!sessionIds.length) return;
+  for (const sessionId of sessionIds) {
+    await prisma.studentShift.upsert({ where: { studentId_cohortId_sessionId: { studentId, cohortId, sessionId } }, update: { pinnedArea: area }, create: { studentId, cohortId, sessionId, sectionIndex: r.input.students.find((s) => s.id === studentId)?.sectionIndex ?? 1, pinnedArea: area } });
+  }
+  await buildClinicalRotations(cohortId, courseId, formData);
+}
+
 /** Put the student on every clinical shift of a course, section = their seat's section. */
 export async function addStudentShiftsForCourse(studentId: string, formData: FormData): Promise<void> {
   const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId"));

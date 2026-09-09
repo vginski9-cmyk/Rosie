@@ -2173,6 +2173,83 @@ export async function getSupplyExplorer(institutionId: string | undefined, from:
 // LEARNERS — profile with assignments, and the analytics set
 // ---------------------------------------------------------------------------
 
+// ── Clinical rotations: the planner's input from the records, and the saved plan scored ──
+export interface RotationBoardData {
+  cohort: { id: string; name: string; programId: string; programName: string; institutionId: string };
+  courses: { id: string; code: string | null; name: string; term: string; shifts: number }[];
+  course: { id: string; code: string | null; name: string; term: string } | null;
+  input: import("./rotations").RotationInput | null;
+  plan: import("./rotations").RotationPlan | null;
+  /** Saved shift status per student × session, so the grid can show what already happened. */
+  status: Record<string, { status: string; hoursLogged: number | null }>;
+  sessionByDate: Record<string, string>;
+  siteNames: Record<string, string>;
+  areaNames: Record<string, string>;
+}
+
+export async function getRotationInput(cohortId: string, courseId: string) {
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true, familyId: true } }, meetings: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true, employerId: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } } } });
+  if (!co) return null;
+  const course = await prisma.course.findUnique({ where: { id: courseId }, select: { id: true, code: true, name: true, termId: true, term: { select: { name: true } }, sessions: { where: { kind: "CLINICAL" }, orderBy: [{ week: "asc" }, { number: "asc" }], select: { id: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, rotationType: true, deliveryMode: true, location: true } }, clinicalRequirements: { select: { hoursPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } } } });
+  if (!course) return null;
+  const { dates } = await sessionDatesForCohort(cohortId);
+  const { shiftBlockOf } = await import("./clinicalsupply");
+  const { holidayMap } = await import("./academiccalendar");
+  const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId: co.program.institutionId, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } })).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+  const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId: co.program.institutionId }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
+  const mondayOf = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); };
+  const shifts = course.sessions
+    .filter((x) => x.dayOfWeek && !(x.deliveryMode === "Online" || x.location === "Internet"))
+    .map((x) => { const iso = dates.get(x.id) ?? null; return iso ? { sessionId: x.id, date: iso, weekMonday: mondayOf(iso), block: shiftBlockOf(x.startTime), hours: x.lengthHours, rotationType: x.rotationType, settingCode: rotations.get((x.rotationType ?? "").trim().toLowerCase()) ?? null, holiday: holidays[iso] ?? null } : null; })
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!shifts.length) return { co, course, input: null, existing: [], status: {} };
+  const from = shifts[0].date, to = shifts[shifts.length - 1].date;
+  const [map, familySites, employers, studentsRaw] = await Promise.all([
+    getAssetMap(co.program.institutionId, from, to),
+    co.program.familyId ? prisma.familySite.findMany({ where: { familyId: co.program.familyId }, select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true } }) : Promise.resolve([]),
+    prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, agreementStatus: true, annualSurgicalCases: true } }),
+    prisma.student.findMany({ where: { cohortId, status: { in: ["enrolled", "admitted"] } }, orderBy: { sectionIndex: "asc" }, select: { id: true, name: true, sectionIndex: true, sections: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true } }, shifts: { where: { session: { courseId } }, select: { sessionId: true, assetId: true, settingCode: true, pinnedArea: true, status: true, hoursLogged: true, asset: { select: { employerId: true, settingCode: true } } } } } }),
+  ]);
+  const RANK: Record<string, number> = { secured: 0, asked: 1, prospect: 2, none: 3, declined: 9 };
+  const fs = new Map(familySites.map((f) => [f.employerId, f]));
+  const homeOf = new Map(co.meetings.map((m) => [m.sectionIndex, m.employerId]));
+  const students = studentsRaw.map((st) => { const sec = st.sections[0]?.sectionIndex ?? st.sectionIndex; return { id: st.id, name: st.name, seat: st.sectionIndex, sectionIndex: sec, homeEmployerId: homeOf.get(sec) ?? null }; });
+  const sites = employers.filter((e) => map.assets.some((a) => a.employerId === e.id)).map((e) => { const f = fs.get(e.id); return { employerId: e.id, name: e.name, agreementRank: RANK[f?.agreementStatus ?? e.agreementStatus ?? "none"] ?? 3, approvedCapacity: f?.accreditorStatus === "recognized" ? f.approvedCapacity ?? null : null, annualSurgicalCases: e.annualSurgicalCases }; });
+  const areas = course.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, name: r.serviceArea.name, settingCodes: r.serviceArea.settingCodes.split(",").map((x) => x.trim()).filter(Boolean), hours: r.hoursPerStudent }));
+  const sessionIds = new Set(shifts.map((s) => s.sessionId));
+  const existingBookings = map.bookings.filter((b) => !(b.cohortId === cohortId && b.sessionId && sessionIds.has(b.sessionId)));
+  const pins: Record<string, string> = {};
+  const areaOf = (setting: string | null) => (setting ? areas.find((a) => a.settingCodes.includes(setting))?.code ?? setting : null);
+  const existing: import("./rotations").Placement[] = [];
+  const status: Record<string, { status: string; hoursLogged: number | null }> = {};
+  const shiftById = new Map(shifts.map((s) => [s.sessionId, s]));
+  for (const st of studentsRaw) for (const sh of st.shifts) {
+    const s = shiftById.get(sh.sessionId); if (!s) continue;
+    status[`${st.id}|${sh.sessionId}`] = { status: sh.status, hoursLogged: sh.hoursLogged };
+    if (sh.pinnedArea) pins[`${st.id}|${s.date}`] = sh.pinnedArea;
+    if (sh.assetId && sh.asset) { const setting = sh.asset.settingCode; const home = students.find((x) => x.id === st.id)?.homeEmployerId ?? null; existing.push({ studentId: st.id, sessionId: sh.sessionId, date: s.date, block: s.block, hours: s.hours, areaCode: areaOf(setting) ?? setting, settingCode: setting, employerId: sh.asset.employerId, assetId: sh.assetId, away: sh.asset.employerId !== home, pinned: !!sh.pinnedArea, reason: "saved" }); }
+  }
+  const { DEFAULT_ROTATION_OPTIONS } = await import("./rotations");
+  const input: import("./rotations").RotationInput = { students, shifts, areas, sites, assets: map.assets, overrides: map.overrides, existingBookings, pins, options: { ...DEFAULT_ROTATION_OPTIONS } };
+  return { co, course, input, existing, status };
+}
+
+/** The rotation board for one offering: its clinical courses, and the selected course's saved plan scored. */
+export async function getRotationBoard(cohortId: string, courseId?: string | null): Promise<RotationBoardData | null> {
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true, terms: { orderBy: { index: "asc" }, select: { name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, _count: { select: { sessions: { where: { kind: "CLINICAL" } } } } } } } } } } } });
+  if (!co) return null;
+  const courses = co.program.terms.flatMap((t) => t.courses.filter((c) => c._count.sessions > 0).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, shifts: c._count.sessions })));
+  const chosen = courses.find((c) => c.id === courseId) ?? courses[0] ?? null;
+  const base: RotationBoardData = { cohort: { id: co.id, name: co.name, programId: co.program.id, programName: co.program.name, institutionId: co.program.institutionId }, courses, course: chosen, input: null, plan: null, status: {}, sessionByDate: {}, siteNames: {}, areaNames: {} };
+  if (!chosen) return base;
+  const r = await getRotationInput(cohortId, chosen.id);
+  if (!r || !r.input) return base;
+  const { evaluatePlan } = await import("./rotations");
+  const plan = r.existing.length ? evaluatePlan(r.input, r.existing) : null;
+  return { ...base, input: r.input, plan, status: r.status, sessionByDate: Object.fromEntries(r.input.shifts.map((s) => [s.date, s.sessionId])), siteNames: Object.fromEntries(r.input.sites.map((s) => [s.employerId, s.name])), areaNames: Object.fromEntries(r.input.areas.map((a) => [a.code, a.name])) };
+}
+
 /** Every session of an offering dated on its calendar: session id → ISO date (null when undated). */
 export async function sessionDatesForCohort(cohortId: string): Promise<{ dates: Map<string, string | null>; today: string }> {
   const cohort = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { terms: { select: { id: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { id: true, week: true, dayOfWeek: true } } } } } } } } } });

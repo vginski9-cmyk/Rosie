@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getCapacityModel, getOfferingStaffing, getOfferingLedger } from "@/lib/queries";
+import { getOffering, getCapacityModel, getOfferingStaffing, getOfferingLedger, getRotationBoard } from "@/lib/queries";
+import { RotationBoard } from "@/components/RotationBoard";
 import { OfferingLedger } from "@/components/OfferingLedger";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { AutoAssignButton } from "@/components/AutoAssignButton";
@@ -34,11 +35,11 @@ const PHASE_BADGE: Record<string, string> = {
 };
 const n1 = (v: number) => dec(v);
 
-export default async function OfferingPage({ params }: { params: { id: string; cohortId: string } }) {
+export default async function OfferingPage({ params, searchParams }: { params: { id: string; cohortId: string }; searchParams?: { course?: string } }) {
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const [capModel, staffing, ledger] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId)]);
+  const [capModel, staffing, ledger, rotations] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null)]);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -344,6 +345,20 @@ export default async function OfferingPage({ params }: { params: { id: string; c
             )}
           </div>
         </Collapse>
+      )}
+
+      {/* ── Clinical rotations: who is in which setting at which site, week by week ── */}
+      {rotations && rotations.courses.length > 0 && (
+        <div id="rotations">
+          <Collapse
+            title="Clinical rotations — who is where, week by week"
+            sub="Build each clinical course's rotation plan in one click: every student on every shift, in the service area they still owe hours in, at a site with a free seat — out-rotations in blocks, primary experience the rest of the time, never past a site's seats, its approved capacity or the day's cases. Pin any student-week and the rest re-flows."
+            summary={rotations.plan ? <>{rotations.course?.code}: {rotations.plan.summary.placed} of {rotations.plan.summary.shifts} placed{rotations.plan.summary.studentsShort > 0 ? <> · <span className="text-rose-600">{rotations.plan.summary.studentsShort} short</span></> : <> · <span className="text-emerald-700">all hours reachable</span></>}{rotations.plan.bottlenecks.length > 0 ? <> · <span className="text-amber-700">{rotations.plan.bottlenecks.length} bottlenecks</span></> : null}</> : <>{rotations.courses.length} clinical course{rotations.courses.length === 1 ? "" : "s"} · no plan built yet</>}
+            defaultOpen={!!searchParams?.course}
+          >
+            <RotationBoard data={rotations} programId={program.id} />
+          </Collapse>
+        </div>
       )}
 
       {/* ── The learners: sections, instructors, preceptors and the clinical hours ledger ── */}

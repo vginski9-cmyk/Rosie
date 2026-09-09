@@ -6,6 +6,7 @@ import { defaultSession, KIND_LABELS, type EditableField, type SessionKindKey } 
 import { SessionFieldGrid, HiddenSessionFields, harvestOptions, type FieldRow } from "@/components/SessionFields";
 import { updateSession, deleteSession, addSession, setSessionTiming } from "@/lib/actions";
 import { dec } from "@/lib/format";
+import { explainSession, hm } from "@/lib/explain";
 
 // The Raw Data & Calculations session table, one course at a time — every
 // workbook column (A–AE) with its full header, one session per row. Click a
@@ -82,6 +83,7 @@ export function SessionSheet({
               </button>
               {isOpen && (
                 <div className="border-t border-slate-100 px-3 py-3">
+                  <Meaning row={r} enrollment={enrollment} assumptions={assumptions} rows={rows} />
                   <SessionFieldGrid
                     row={r as unknown as FieldRow} seq={{ ...seq, G: String(r.number) }} enrollment={enrollment} assumptions={assumptions}
                     onChange={(f, v) => setField(r.id, f, v)} dataOptions={dataOptions}
@@ -154,6 +156,29 @@ export function SessionSheet({
           <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700">Apply to all of that type</button>
         </form>
       </details>
+    </div>
+  );
+}
+
+/** What this row's ratios mean in hours and minutes — per shift, per student, per week, per term, for the cohort. */
+function Meaning({ row, enrollment, assumptions, rows }: { row: SheetSession; enrollment: number; assumptions: WorkloadAssumptions; rows: SheetSession[] }) {
+  const sameKind = rows.filter((x) => x.kind === row.kind);
+  const weeks = new Set(sameKind.map((x) => x.week).filter((w): w is number => w != null));
+  const perWeek = weeks.size ? sameKind.filter((x) => x.week === row.week).length || Math.max(1, Math.round(sameKind.length / weeks.size)) : 1;
+  const m = explainSession(row, enrollment, assumptions, { occurrencesPerWeek: perWeek, weeks: Math.max(1, weeks.size), occurrencesTotal: sameKind.length });
+  return (
+    <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50/50 p-3 text-[12px] text-slate-700">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-sky-700">What these numbers mean · at {enrollment} students · {perWeek} {row.kind.toLowerCase()} occurrence{perWeek === 1 ? "" : "s"} a week · {sameKind.length} over the course</div>
+      <p className="mt-1">{m.headline}</p>
+      <ul className="mt-1 space-y-1">
+        {m.roles.filter((x) => x.ratio > 0).map((x) => (
+          <li key={x.role}>
+            <span className="font-semibold capitalize">{x.role}:</span> {x.text}
+            <span className="mt-0.5 block text-[11px] text-slate-500">per section per occurrence {hm(x.perSectionShift)} · per student: {hm(x.perStudentShift)} a shift, {hm(x.perStudentWeek)} a week, {hm(x.perStudentTerm)} a term · cohort: {hm(x.perCohortShift)} an occurrence, {hm(x.perCohortWeek)} a week, {hm(x.perCohortTerm)} a term · {dec(x.fteWeek)} FTE · {x.headsAtOnce} on duty at once</span>
+          </li>
+        ))}
+        {m.roles.every((x) => x.ratio <= 0) && <li className="text-slate-500">No instructor, preceptor or support ratio is coded on this row.</li>}
+      </ul>
     </div>
   );
 }

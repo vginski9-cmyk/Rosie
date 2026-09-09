@@ -1580,6 +1580,8 @@ model StudentShift {
   preceptor    Person?  @relation("shiftPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
   /// The asset setting the hours count toward (GEN, OR, ED …): the pinned asset's setting, else the session's rotation setting.
   settingCode  String?
+  /// Service area the coordinator pinned this shift to (the rotation planner keeps it there on every rebuild).
+  pinnedArea   String?
   createdAt    DateTime @default(now())
 
   @@unique([studentId, cohortId, sessionId])
