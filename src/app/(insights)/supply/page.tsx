@@ -16,12 +16,8 @@ export default async function SupplyPage({ searchParams }: { searchParams: { ins
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Asset supply explorer — {data.institution.name}</h1>
-        <p className="max-w-3xl text-sm text-slate-500">
-          Every partner site&apos;s physical assets, shift by shift, for any window: how many day, evening and night shifts run, how many
-          hours each offers, how many learner seats they carry, how many are booked and how many are open — by asset, site, setting,
-          day, week, month, semester or year. Filter by site, setting, asset, agreement status, weekday and shift; click any row to drill in.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">Asset supply</h1>
+        <p className="text-sm text-slate-500">Every site&apos;s assets shift by shift for any window: seats offered, booked and open — by asset, site, setting or period. Click a row to drill in.</p>
       </div>
       <SupplyExplorer institution={data.institution} institutions={data.institutions} assets={data.assets} overrides={data.overrides} bookings={data.bookings} from={win.from} to={win.to} preset={preset} windowLabel={win.label} />
     </div>

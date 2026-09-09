@@ -74,7 +74,7 @@ export async function createNorthStarGoal(formData: FormData): Promise<void> {
   }
   const fam = await prisma.programFamily.create({ data: { institutionId, occupationId, name } });
   revalidatePath("/");
-  redirect(`/families/${fam.id}`);
+  redirect("/goals");
 }
 
 export async function deleteNorthStarGoal(familyId: string): Promise<void> {
@@ -1897,7 +1897,7 @@ export async function requestPlacement(studentId: string, employerId: string, fa
   if (!dup) {
     await prisma.wblPlacement.create({ data: { studentId, employerId, cohortId: student?.cohortId ?? null, status: "planned" } });
   }
-  revalidatePath(`/families/${familyId}/wbl`);
+  revalidatePath("/students");
   revalidatePath(`/employers/${employerId}`);
 }
 

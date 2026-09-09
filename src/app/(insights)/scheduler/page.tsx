@@ -18,13 +18,8 @@ export default async function SchedulerPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical scheduler — supply vs demand, and the plan that balances them</h1>
-        <p className="max-w-4xl text-sm text-slate-500">
-          <strong>Demand</strong> is every dated clinical section of every offering: which setting, which date, which shift, how many students, how many preceptors.
-          <strong> Supply</strong> is every physical asset every partner reports, on every calendar day and shift, with the learners it can take.
-          The engine places demand onto supply under the levers below, names every placement&apos;s reason, and for everything it cannot place says exactly why and what would fix it.
-          Turn a lever and the whole plan, every analytic and every bottleneck recomputes instantly. Nothing is written until you apply the plan.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">Clinical scheduler</h1>
+        <p className="text-sm text-slate-500">Every dated clinical section (demand) placed onto every site&apos;s assets (supply), with the reason for each placement and what would fix each gap. Nothing is written until you apply the plan.</p>
       </div>
       <SchedulerBoard
         institutionId={data.institution.id}

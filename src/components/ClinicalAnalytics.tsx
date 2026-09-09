@@ -114,7 +114,7 @@ export function ClinicalAnalytics({ subject, courses, enrollment, sites = [], ac
                   <td className="px-2 py-1.5"><Chips slices={c.days} tone="emerald" compact /></td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{n0(c.sectionsAtEnrollment)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{n0(c.preceptorShiftsAtEnrollment)}</td>
-                  {sites.length > 0 && <td className="px-2 py-1.5 text-slate-600">{sitesFor(c.courseId).length ? sitesFor(c.courseId).map((s) => `${s.siteName} (${s.sections})`).join(" · ") : <span className="text-slate-300">not booked</span>}</td>}
+                  {sites.length > 0 && <td className="min-w-[14rem] px-2 py-1.5 text-slate-600">{(() => { const l = sitesFor(c.courseId); if (!l.length) return <span className="text-slate-300">not booked</span>; const top = [...l].sort((x, y) => y.sections - x.sections); return <span title={top.map((s) => `${s.siteName} (${s.sections})`).join(" · ")}>{top.slice(0, 3).map((s) => `${s.siteName.replace(/ — .*$/, "").slice(0, 28)} (${s.sections})`).join(" · ")}{top.length > 3 ? ` · +${top.length - 3} more sites` : ""}</span>; })()}</td>}
                 </tr>
               ))}
             </tbody>

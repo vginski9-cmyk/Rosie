@@ -32,15 +32,8 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Insights</h1>
-        <p className="text-sm text-slate-500">Aggregate or disaggregate every program&apos;s pipeline and delivery — explore the full table, or zoom into one term.</p>
-      </div>
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Semester</h2>
-        <p className="max-w-3xl text-sm text-slate-500">
-          Zoom into one term and see <strong>every offering running across all programs side by side</strong> — what&apos;s in
-          session, how many seats, and the combined staffing footprint. Pick a semester to compare the load.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">Semester</h1>
+        <p className="text-sm text-slate-500">Every offering in session in one term, side by side, with seats and the combined staffing footprint.</p>
       </div>
 
       {/* Semester selector */}
@@ -77,13 +70,10 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
             <section key={inst} className="space-y-3">
               <h2 className="text-lg font-semibold">{inst}</h2>
               {[...fams.entries()].map(([fam, list]) => {
-                const famId = list[0]?.familyId;
                 return (
                   <div key={fam} className="rounded-xl border border-slate-200 bg-slate-50/40 p-4">
                     <div className="mb-2 flex items-center gap-2">
-                      {famId ? (
-                        <Link href={`/families/${famId}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{fam} ↦</Link>
-                      ) : <span className="font-semibold text-slate-500">{fam}</span>}
+                      <span className="font-semibold text-slate-800">{fam}</span>
                       <span className="text-xs text-slate-400">{list.length} offering{list.length === 1 ? "" : "s"} in session</span>
                     </div>
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -114,7 +104,7 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
                           </div>
                           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
                             <span>{o.sections} sections · {fmt.num(o.spaceHours)} space hrs</span>
-                            <Link href={`/programs/${o.programId}/offerings/${o.cohortId}/schedule`} className="text-rose-600 hover:underline">schedule →</Link>
+                            <Link href={`/programs/${o.programId}/offerings/${o.cohortId}`} className="text-rose-600 hover:underline">offering →</Link>
                           </div>
                         </div>
                       ))}

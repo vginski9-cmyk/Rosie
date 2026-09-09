@@ -1,12 +1,15 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramFull, getProgramRequirementCoverage } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
 import { ClinicalRequirementsGrid } from "@/components/ClinicalRequirementsGrid";
 import { RequirementRollup } from "@/components/RequirementRollup";
+import { Collapse } from "@/components/Collapse";
 
 export const dynamic = "force-dynamic";
 
+// DESIGN & SEQUENCE — the program template: terms, courses, every class, lab and clinical
+// session with its capacity and staffing; then how the clinical sequence rolls up to what
+// the credentialing body requires.
 export default async function StructureEditor({ params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) notFound();
@@ -29,22 +32,11 @@ export default async function StructureEditor({ params }: { params: { id: string
       })),
     })),
   }));
+  const clinicalCourses = program.terms.flatMap((t) => t.courses.filter((c) => c.weeklyClinicalHours > 0 || c.clinicalRequirements.length > 0)).length;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Program &amp; course design</h1>
-        <p className="max-w-3xl text-sm text-slate-500">
-          The <strong>timeless template</strong>, laid out like the capacity workbook&apos;s Raw Data &amp; Calculations sheet:
-          every class, lab, and clinical session of every course as one row — blue cells are editable inputs, green cells
-          are the live formulas (sections = ROUNDUP(enrollment ÷ capacity), space hours, faculty &amp; preceptor contact
-          hours, semesterly and weekly conversions). Change any input, or run a test enrollment through the slider, and
-          the whole chain recalculates — then waterfalls into <strong>Instructors &amp; preceptors needed</strong>,
-          <strong> Clinical sites</strong>, and <strong>Daily coverage</strong> under Insights.
-          No instructors or students — those live on a <Link href={`/programs/${program.id}`} className="text-rose-700 hover:underline">scheduled offering</Link>.
-          Use the sticky bar to jump between terms, collapse what you&apos;re not editing, or open <strong>⇄ Re-sequence</strong> to drag courses across terms.
-        </p>
-      </div>
+      <p className="text-sm text-slate-500">The template every offering runs: terms, courses, and each class, lab and clinical session with its length, capacity and staffing. Open a course to edit its sessions.</p>
 
       <ProgramDesigner
         programId={program.id}
@@ -57,32 +49,31 @@ export default async function StructureEditor({ params }: { params: { id: string
         }}
       />
 
-      {reqCov && (
-        <section id="requirements" className="space-y-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div>
-            <h2 className="text-lg font-semibold">How the clinical sequence rolls up to what completion requires <span className="text-sm font-normal text-slate-400">— {reqCov.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")} for every {reqCov.family.name} graduate, course by course</span></h2>
-            <p className="max-w-4xl text-sm text-slate-500">Each clinical course puts students in certain settings for certain hours or cases; each experience on the credentialing body&apos;s list can only be had in certain settings. So the sequence, in order, decides which experiences first become reachable when, what is reachable in total by the end of each course, and whether the whole thing can ever satisfy the list. Set a target per rule by the end of each course (or let it pace evenly); every student&apos;s log is then measured against those targets on their page and on the offering.</p>
-          </div>
+      {reqCov && reqCov.sets.length > 0 && (
+        <section id="requirements" className="space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold">How the clinical sequence satisfies {reqCov.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")} <span className="text-sm font-normal text-slate-400">— course by course, which required experiences become reachable, and the target a student should have logged by the end of each</span></h2>
           <RequirementRollup cov={reqCov} />
         </section>
       )}
 
       {program.family && (
-        <ClinicalRequirementsGrid
-          programName={program.name}
-          family={{ id: program.family.id, name: program.family.name, clinicalModel: program.family.clinicalModel, clinicalNotes: program.family.clinicalNotes }}
-          areas={program.family.serviceAreas.map((a) => ({
-            id: a.id, code: a.code, name: a.name, notes: a.notes,
-            settingCodes: a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean),
-            unitCategories: a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean),
-          }))}
-          courses={program.terms.flatMap((t) => t.courses.map((c) => ({
-            id: c.id, code: c.code, name: c.name, termName: t.name, termIndex: t.index,
-            weeks: Math.max(1, (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), weeklyClinicalHours: c.weeklyClinicalHours,
-            requirements: c.clinicalRequirements.map((r) => ({ serviceAreaId: r.serviceAreaId, hoursPerStudent: r.hoursPerStudent, casesPerStudent: r.casesPerStudent })),
-          })))}
-          enrollment={defaultEnrollment}
-        />
+        <Collapse title="Clinical hours & cases per course, by setting" sub="The settings this program's clinicals happen in, and what each student must log per course in each — the demand the roll-up above reads" summary={<>{program.family.serviceAreas.length} settings · {clinicalCourses} clinical courses</>}>
+          <ClinicalRequirementsGrid
+            programName={program.name}
+            family={{ id: program.family.id, name: program.family.name, clinicalModel: program.family.clinicalModel, clinicalNotes: program.family.clinicalNotes }}
+            areas={program.family.serviceAreas.map((a) => ({
+              id: a.id, code: a.code, name: a.name, notes: a.notes,
+              settingCodes: a.settingCodes.split(",").map((s) => s.trim()).filter(Boolean),
+              unitCategories: a.unitCategories.split(",").map((s) => s.trim()).filter(Boolean),
+            }))}
+            courses={program.terms.flatMap((t) => t.courses.map((c) => ({
+              id: c.id, code: c.code, name: c.name, termName: t.name, termIndex: t.index,
+              weeks: Math.max(1, (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), weeklyClinicalHours: c.weeklyClinicalHours,
+              requirements: c.clinicalRequirements.map((r) => ({ serviceAreaId: r.serviceAreaId, hoursPerStudent: r.hoursPerStudent, casesPerStudent: r.casesPerStudent })),
+            })))}
+            enrollment={defaultEnrollment}
+          />
+        </Collapse>
       )}
     </div>
   );

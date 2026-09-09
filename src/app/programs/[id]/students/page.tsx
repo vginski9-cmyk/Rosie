@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramStudents } from "@/lib/queries";
 import { StudentRoster, type RosterStudent } from "@/components/StudentRoster";
@@ -27,8 +26,7 @@ export default async function ProgramStudentsPage({ params }: { params: { id: st
       <div>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Students</h1>
-            <p className="text-sm text-slate-500">{program.institution.name} · {program.name} · {students.length} people in the pipeline · click a stage to drill in</p>
+            <h2 className="text-lg font-semibold">Students <span className="text-sm font-normal text-slate-400">— {students.length} in the pipeline; click a stage to drill in</span></h2>
           </div>
         </div>
       </div>

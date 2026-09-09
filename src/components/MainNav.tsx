@@ -7,13 +7,13 @@ import { usePathname } from "next/navigation";
 //   Home (the setup and where things stand) · Programs · Clinical sites · Students · People · Calendar · Insights · Setup
 const ITEMS: { label: string; href: string; match: (p: string) => boolean }[] = [
   { label: "Home", href: "/", match: (p) => p === "/" || p === "/goals" },
-  { label: "Programs", href: "/programs", match: (p) => p.startsWith("/programs") || p.startsWith("/courses") || (p.startsWith("/families/") && !p.includes("/clinical")) },
-  { label: "Clinical sites", href: "/clinical", match: (p) => p.startsWith("/clinical") || p.startsWith("/employers") || p.includes("/clinical") },
+  { label: "Programs", href: "/programs", match: (p) => p.startsWith("/programs") || p.startsWith("/courses") || p.startsWith("/families/") },
+  { label: "Clinical sites", href: "/clinical", match: (p) => p.startsWith("/clinical") || p.startsWith("/employers") },
   { label: "Students", href: "/students", match: (p) => p.startsWith("/students") },
   { label: "People", href: "/people", match: (p) => p.startsWith("/people") },
   { label: "Calendar", href: "/calendar", match: (p) => p.startsWith("/calendar") },
   { label: "Insights", href: "/insights/staffing-need", match: (p) => p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") },
-  { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") || p.startsWith("/facilities") },
+  { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") },
 ];
 
 export function MainNav() {

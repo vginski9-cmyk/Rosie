@@ -34,8 +34,7 @@ export default async function HomePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">North Star goals</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            {institutions.length} institutions · {totals.families} target jobs · {totals.programs} programs · {fmt.num(totals.goal)} fully-productive placements as the {thisYear} goal · {totals.running} offerings running.
-            Open an institution to see its jobs, each job&apos;s multi-year goal, and the programs that deliver toward it.
+            {totals.families} target jobs · {totals.programs} programs · {fmt.num(totals.goal)} fully-productive placements as the {thisYear} goal · {totals.running} offerings running.
           </p>
         </div>
         <NewGoalForm institutions={lite} />
@@ -52,7 +51,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-br from-rose-50/60 to-white px-5 py-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{inst.name}</h2>
-              <div className="text-xs text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} · <Link href={`/orgs/${inst.id}`} className="text-rose-600 hover:underline">set-up &amp; mapping →</Link></div>
+              <div className="text-xs text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} · <Link href={`/orgs/${inst.id}`} className="text-rose-600 hover:underline">setup →</Link></div>
             </div>
             <div className="flex flex-wrap gap-4 text-right text-xs text-slate-500">
               <div><div className="text-2xl font-bold tabular-nums text-slate-900">{fmt.num(inst.thisYearGoal)}</div>{thisYear} goal · productive</div>
@@ -75,7 +74,7 @@ export default async function HomePage() {
                   <div>
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <Link href={`/families/${f.id}`} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.job} ↦</Link>
+                        <Link href={f.programs[0] ? `/programs/${f.programs[0].id}/goal` : "/programs"} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.job} ↦</Link>
                         <div className="text-xs text-slate-500">{f.name}{f.socCode ? ` · SOC ${f.socCode}` : ""}</div>
                       </div>
                       <form action={deleteNorthStarGoal.bind(null, f.id)}><button className="rounded p-1 text-xs text-slate-300 hover:text-rose-600" title="delete this North Star goal">✕</button></form>
@@ -96,7 +95,7 @@ export default async function HomePage() {
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${f.progress != null ? Math.min(100, f.progress * 100) : 0}%` }} /></div>
                     </div>
-                    <Link href={`/families/${f.id}`} className="mt-2 inline-block text-xs text-rose-600 hover:underline">open the goal planner →</Link>
+                    {f.programs[0] && <Link href={`/programs/${f.programs[0].id}/goal`} className="mt-2 inline-block text-xs text-rose-600 hover:underline">open the goal planner →</Link>}
                   </div>
 
                   {/* The programs (delivery models) under this job */}

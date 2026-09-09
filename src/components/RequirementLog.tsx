@@ -55,7 +55,7 @@ export function RequirementLog({ data }: { data: Data }) {
                   <ul className="mt-1 space-y-1">
                     {set.whereNext.slice(0, 6).map((w) => (
                       <li key={w.employerId} className="flex flex-wrap items-baseline gap-x-2">
-                        <Link href={`/families/${data.family.id}/clinical/sites/${w.employerId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{w.name}</Link>
+                        <Link href={`/programs/${data.student.programId}/clinical/sites/${w.employerId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{w.name}</Link>
                         <span className="text-slate-500">{w.driveMinutes != null ? `≈ ${Math.round(w.driveMinutes)} min · ` : ""}{w.required.length ? <span className="text-rose-700">{w.required.length} required: {w.required.slice(0, 5).join(", ")}{w.required.length > 5 ? ` +${w.required.length - 5}` : ""}</span> : null}{w.required.length && w.elective.length ? " · " : ""}{w.elective.length ? <span>{w.elective.length} elective{w.elective.length === 1 ? "" : "s"}</span> : null}</span>
                         <span className={`text-[10px] ${w.coming ? "text-emerald-700" : "text-amber-700"}`}>{w.coming ? `${w.coming} coming shift${w.coming === 1 ? "" : "s"} here` : "no shift booked here yet"}</span>
                       </li>

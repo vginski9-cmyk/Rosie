@@ -9,6 +9,7 @@ import type { getCohortRequirementProgress } from "@/lib/queries";
 type Data = NonNullable<Awaited<ReturnType<typeof getCohortRequirementProgress>>>;
 
 export function CohortRequirementProgress({ data, base }: { data: Data; base: string }) {
+  const programBase = base.replace(/\/offerings\/.*$/, "");
   return (
     <div className="space-y-6">
       {data.sets.map((set) => {
@@ -61,17 +62,17 @@ export function CohortRequirementProgress({ data, base }: { data: Data; base: st
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Where the outstanding requirements can be met</div>
-                  <p className="text-[11px] text-slate-500">Sites by how many student-experiences they can serve. The rotation plan below sends each student to the site that provides what they still lack, within every cap.</p>
+                  <p className="text-[11px] text-slate-500">Sites by how many outstanding student-experiences they can serve.</p>
                   <ul className="mt-2 space-y-1">
                     {set.sites.slice(0, 8).map((s) => (
                       <li key={s.employerId} className="flex items-baseline justify-between gap-2">
-                        <Link href={`/families/${data.family.id}/clinical/sites/${s.employerId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link>
+                        <Link href={`${programBase}/clinical/sites/${s.employerId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link>
                         <span className="whitespace-nowrap tabular-nums text-slate-600"><span className="text-rose-700">{s.required}</span> required · {s.studentItems} student-experiences</span>
                       </li>
                     ))}
                     {set.sites.length === 0 && <li className="text-slate-400">No secured site provides what is outstanding.</li>}
                   </ul>
-                  <div className="mt-3 flex flex-wrap gap-2"><a href={`${base}#rotations`} className="rounded-lg bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-700">Build the rotation plan from this ↓</a><Link href={`/families/${data.family.id}/clinical`} className="rounded-lg border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50">Program clinical setup →</Link></div>
+                  <div className="mt-3 flex flex-wrap gap-2"><a href={`${base}#rotations`} className="rounded-lg bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-700">Build the rotation plan from this ↓</a><Link href={`${programBase}/clinical`} className="rounded-lg border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50">Clinical sites &amp; requirements →</Link></div>
                 </div>
               </div>
             )}

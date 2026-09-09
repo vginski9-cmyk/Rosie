@@ -13,11 +13,7 @@ export default async function LearnerAnalyticsPage() {
       <div>
         <Link href="/students" className="text-sm text-slate-500 hover:text-slate-700">← Students</Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Learner analytics</h1>
-        <p className="max-w-3xl text-sm text-slate-500">
-          Aggregate and disaggregate every learner by coded demographics and outcomes: who enrolls, who completes, who withdraws and why,
-          average age — by sex, race / ethnicity, age band, county, residency, prior education, employment, first-generation, veteran,
-          Pell, disability, program, cohort, entry year. {learners.length} learners · {coded} with demographic data.
-        </p>
+        <p className="text-sm text-slate-500">Who enrolls, completes and withdraws, by any coded demographic. {learners.length} learners · {coded} with demographic data.</p>
       </div>
       <LearnerAnalytics learners={learners} today={today} />
     </div>

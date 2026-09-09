@@ -39,6 +39,8 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
   const [fStatus, setFStatus] = useState("");
   const [fSex, setFSex] = useState(""); const [fRace, setFRace] = useState(""); const [fAge, setFAge] = useState(""); const [fCounty, setFCounty] = useState(""); const [fRes, setFRes] = useState("");
   const [showEnroll, setShowEnroll] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 60;
   const today = new Date().toISOString().slice(0, 10);
 
   const programOptions = useMemo(() => {
@@ -135,7 +137,7 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map((s) => (
+            {(showAll ? filtered : filtered.slice(0, LIMIT)).map((s) => (
               <tr key={s.id} className="hover:bg-slate-50/60">
                 <td className="px-3 py-2">
                   <Link href={`/students/${s.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link>
@@ -153,6 +155,9 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
             ))}
             {filtered.length === 0 && (
               <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">No students match these filters.</td></tr>
+            )}
+            {!showAll && filtered.length > LIMIT && (
+              <tr><td colSpan={6} className="px-3 py-2 text-center text-xs"><button onClick={() => setShowAll(true)} className="text-rose-600 hover:underline">Show all {filtered.length} students</button></td></tr>
             )}
           </tbody>
         </table>

@@ -54,11 +54,11 @@ export default async function CoursePage({ params }: { params: { id: string } })
   }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-10">
+    <div className="mx-auto max-w-6xl space-y-8">
       {/* Header */}
       <div>
         <Link href={`/programs/${program.id}/structure`} className="text-sm text-slate-500 hover:text-slate-700">
-          ← {program.name} curriculum flow
+          ← {program.name} design &amp; sequence
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -107,10 +107,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
       {/* Session schedule + service requirements (interactive) */}
       <div>
         <h2 className="mb-1 text-xl font-semibold tracking-tight">Session-by-session schedule &amp; service requirements</h2>
-        <p className="mb-6 text-sm text-slate-500">
-          Every session a single student is required to attend, and the delivery footprint it creates once scaled to the
-          cohort. Drag the enrollment to watch the formulas recompute.
-        </p>
+        <p className="mb-4 text-sm text-slate-500">Every session one student attends, and the footprint it creates at cohort size.</p>
         {sessions.length > 0 ? (
           <CourseServicePanel sessions={sessions} defaultEnrollment={plannedEnrollment} />
         ) : (
@@ -121,18 +118,15 @@ export default async function CoursePage({ params }: { params: { id: string } })
       {/* Course planning — learning resources per session */}
       <div>
         <h2 className="mb-1 text-xl font-semibold tracking-tight">Course planning — learning resources</h2>
-        <p className="mb-6 text-sm text-slate-500">
-          For each session, what students should <strong>read, watch, practice</strong> or hand in — homework, outside
-          assignments, readings, and materials. These show up on the student&apos;s schedule.
-        </p>
-        <div className="space-y-4">
+        <p className="mb-4 text-sm text-slate-500">What students read, watch, practice or hand in for each session.</p>
+        <div className="space-y-2">
           {course.sessions.map((s) => (
-            <div key={s.id} className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center gap-2">
+            <details key={s.id} className="rounded-xl border border-slate-200 bg-white px-4 py-2" open={s.resources.length > 0}>
+              <summary className="flex cursor-pointer items-center gap-2">
                 <span className={`h-2 w-2 rounded-full ${KIND_DOT[s.kind] ?? "bg-slate-400"}`} />
                 <span className="text-sm font-semibold text-slate-800">{s.kind} {s.number}{s.title ? ` · ${s.title}` : ""}</span>
                 <span className="text-[11px] text-slate-400">{s.resources.length} resource{s.resources.length === 1 ? "" : "s"}</span>
-              </div>
+              </summary>
 
               {s.homework && <p className="mt-1 text-[12px] text-slate-500"><span className="font-medium text-slate-600">Quick note:</span> {s.homework}</p>}
 
@@ -164,7 +158,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
                 <input name="detail" placeholder="note (optional)" className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-sm" />
                 <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-900">+ Add</button>
               </form>
-            </div>
+            </details>
           ))}
         </div>
       </div>

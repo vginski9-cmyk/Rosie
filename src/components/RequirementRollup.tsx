@@ -41,13 +41,13 @@ export function RequirementRollup({ cov }: { cov: Cov }) {
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-                  <tr><th className="px-3 py-1.5 text-left">Course (in sequence)</th><th className="px-2 py-1.5 text-left">Settings · {cases ? "cases" : "hours"} per student</th><th className="min-w-[14rem] px-2 py-1.5 text-left">First reachable here</th>{counted.map((r) => <th key={r.key} className="px-2 py-1.5 text-right whitespace-nowrap" title={r.notes ?? ""}>{r.label}<span className="block font-normal normal-case text-slate-400">reachable · target by end</span></th>)}<th className="px-2 py-1.5"></th></tr>
+                  <tr><th className="px-3 py-1.5 text-left">Course (in sequence)</th><th className="min-w-[12rem] px-2 py-1.5 text-left">Settings · {cases ? "cases" : "hours"} per student</th><th className="min-w-[14rem] px-2 py-1.5 text-left">First reachable here</th>{counted.map((r) => <th key={r.key} className="px-2 py-1.5 text-right whitespace-nowrap" title={r.notes ?? ""}>{r.label}<span className="block font-normal normal-case text-slate-400">reachable · target by end</span></th>)}<th className="px-2 py-1.5"></th></tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {ru.courses.map((c) => (
                     <tr key={c.course.id} className="align-top">
                       <td className="px-3 py-1.5"><span className="font-medium text-slate-800">{c.course.code ?? c.course.name}</span><span className="block text-[10px] text-slate-400">{c.course.termName} · cumulative {cases ? `${dec(c.cumCases)} cases` : `${dec(c.cumHours, 1)} h`}</span></td>
-                      <td className="px-2 py-1.5">{c.course.settings.map((s) => <span key={s} className="mr-1 inline-block rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-700">{s}{cases ? (c.course.cases[s] ? ` ${dec(c.course.cases[s])}` : "") : (c.course.hours[s] ? ` ${dec(c.course.hours[s], 1)}` : "")}</span>)}</td>
+                      <td className="min-w-[12rem] px-2 py-1.5"><span className="flex flex-wrap gap-1">{c.course.settings.map((s) => <span key={s} className="inline-block whitespace-nowrap rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-700">{s}{cases ? (c.course.cases[s] ? ` ${dec(c.course.cases[s])}` : "") : (c.course.hours[s] ? ` ${dec(c.course.hours[s], 1)}` : "")}</span>)}</span></td>
                       <td className="min-w-[14rem] px-2 py-1.5 text-slate-600">{c.newItems.length ? <>{c.newItems.filter((i) => i.mandatory).length} required · {c.newItems.filter((i) => !i.mandatory).length} elective<span className="block text-[10px] text-slate-400">{c.newItems.slice(0, 4).map((i) => i.name.replace(/ \(.*$/, "")).join(", ")}{c.newItems.length > 4 ? ` +${c.newItems.length - 4}` : ""}</span></> : <span className="text-slate-300">nothing new</span>}</td>
                       {c.rules.map((r) => (
                         <td key={r.key} className="px-2 py-1.5 text-right tabular-nums whitespace-nowrap">
@@ -64,7 +64,7 @@ export function RequirementRollup({ cov }: { cov: Cov }) {
                 </tbody>
               </table>
             </div>
-            <p className="text-[11px] text-slate-400">Reachable = experiences whose settings a student has been in by the end of that course (a course reaches a setting when it codes hours or cases for a service area in it). Targets are what the program expects a student to have logged by the end of each course — blank cells are paced evenly across the courses that reach the rule; a target above what is reachable is a design contradiction. {cases ? "Cases coded on the courses are per student; the case log on each student's page is measured against these targets." : "Each student's competency log is measured against these targets on their page and on the offering."} The list itself, its settings and the sites that supply each experience live under <Link href={`/families/${cov.family.id}/clinical`} className="text-rose-600 hover:underline">Clinical setup → {cov.family.name}</Link>.</p>
+            <p className="text-[11px] text-slate-400">Reachable = experiences whose settings a student has been in by the end of that course. Targets are what a student should have logged by the end of each course; blank cells pace evenly, a target above what is reachable is flagged. The list and the sites that supply it are under <Link href={`/programs/${cov.programId}/clinical`} className="text-rose-600 hover:underline">Clinical sites &amp; requirements</Link>.</p>
           </div>
         );
       })}

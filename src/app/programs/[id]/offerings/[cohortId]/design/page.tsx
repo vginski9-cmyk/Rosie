@@ -62,19 +62,11 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-6">
       <div>
         <Link href={`/programs/${program.id}/offerings/${cohort.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {cohort.name}</Link>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight">Design &amp; sequence — {cohort.name}</h1>
-        <p className="max-w-3xl text-sm text-slate-500">
-          The <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">template</Link> is
-          the boilerplate; this is <strong>this instantiation&apos;s</strong> copy of it — the <strong>same Raw Data &amp;
-          Calculations columns (A–AE)</strong>, with column C set to <strong>this offering&apos;s enrollment target per
-          term</strong> so every formula shows what this run actually needs, plus each session&apos;s <strong>real date,
-          time, booked location, and instructor / preceptor</strong>. Edit any weekly pattern (day, time, room or partner
-          site, staff) and the same booking updates on the{" "}
-          <Link href="/calendar" className="text-rose-700 hover:underline">master calendar</Link> and everywhere else.
-        </p>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">Design &amp; sequence — {cohort.name}</h2>
+        <p className="text-sm text-slate-500">This offering&apos;s copy of the <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">template</Link>: every session with its real date, time, place and staff, at this run&apos;s enrollment. Edits here update the calendar.</p>
       </div>
 
       {meetings.length === 0 && (

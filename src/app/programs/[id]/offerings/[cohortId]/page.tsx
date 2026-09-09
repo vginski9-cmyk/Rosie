@@ -119,19 +119,17 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   })));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="space-y-6">
       <div>
-        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {program.name} template</Link>
+        <Link href={`/programs/${program.id}`} className="text-sm text-slate-500 hover:text-slate-700">← Offerings</Link>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{offering.name}</h1>
-            <p className="text-sm text-slate-500">
-              A scheduled offering of <Link href={`/programs/${program.id}`} className="text-rose-700 hover:underline">{program.name}</Link> · {program.institution.name}
-            </p>
+            <h2 className="text-xl font-semibold tracking-tight">{offering.name}</h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${PHASE_BADGE[timing.phase]}`}>{PHASE_LABEL[timing.phase]}</span>
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[offering.status] ?? "bg-slate-100 text-slate-600"}`}>{offering.status}</span>
+            <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700">Design &amp; sequence — this offering →</Link>
           </div>
         </div>
         {timing.phase === "in-program" && timing.currentTermName && (
@@ -160,7 +158,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {offering.stages.length > 0 && (
         <Collapse
           title="Talent pipeline"
-          sub="Goal vs actual at every stage — with enrollment through each term of the program"
+          sub="Goal vs actual at every stage, with enrollment through each term"
           summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(enrolledNow)} enrolled now</>}
           defaultOpen
         >
@@ -174,18 +172,6 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           />
         </Collapse>
       )}
-
-      {/* Design & sequence for THIS instantiation */}
-      <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50/40 px-4 py-3 hover:border-rose-300 hover:bg-rose-50/70">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">Design &amp; sequence — this offering ↦</div>
-          <div className="text-xs text-slate-500">
-            Every session of every course with its real date, time, location and instructor / preceptor — configure this
-            instantiation without touching the boilerplate template.
-          </div>
-        </div>
-        <span className="text-rose-600">→</span>
-      </Link>
 
       {/* ── One button: rooms, sites, staff and learners, all placed ─────────── */}
       <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={offering._count.students} />
@@ -212,7 +198,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         return (
           <Collapse
             title="Term dates — this offering"
-            sub={codedStarts ? `Every term's first and last day and every shorter course's window follow ${inst.name}'s calendar (set up under Directory → Organizations); nothing here needs typing` : `Each term follows ${inst.name}'s semester pattern and ends with its semester — the calendar itself is set up under Directory → Organizations`}
+            sub={codedStarts ? `Every term and course window follows ${inst.name}'s academic calendar (Setup)` : `Each term follows ${inst.name}'s semester pattern (Setup)`}
             summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{autoWindows ? ` · ${autoWindows} course window${autoWindows === 1 ? "" : "s"} from the calendar` : ""}{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
           >
             <div className="overflow-x-auto">
@@ -312,7 +298,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {/* ── Preferred course sequence (template-wide) ──────────────────────── */}
       <Collapse
         title="Preferred course sequence"
-        sub="Drag courses between terms; set each course's real start & end dates for THIS offering on its card"
+        sub="Drag courses between terms; set a course's own dates for this offering on its card"
         summary={<>{seqCourses.length} courses · {seqTerms.length} terms</>}
       >
         <CourseSequencer
@@ -326,7 +312,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {(staffing || capCohort) && (
         <Collapse
           title="Staffing — instructors & preceptors"
-          sub="How many people this run needs and when (FTE charts by semester, week and day), then who covers it: assign faculty, adjuncts, support staff and preceptors to every session under their workload policies. Split or co-teach any single shift on Design & sequence."
+          sub="How many people this run needs and when, then who covers each session"
           summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week{staffing ? <> · {staffing.loads.length} people assigned · {Math.round(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h</> : null}</>}
         >
           <div className="space-y-6">
@@ -354,7 +340,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <div id="requirements" className="scroll-mt-16">
           <Collapse
             title="Completion requirements — the credentialing body's list"
-            sub={`${reqProgress.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")}: every student's standing on every rule, the experiences the cohort still needs, and the secured sites that provide them — the demand the rotation plan below is built to serve.`}
+            sub={`${reqProgress.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")}: every student's standing, what the cohort still needs, and which sites provide it`}
             summary={<>{reqProgress.sets.map((x) => `${x.complete} of ${reqProgress.students} complete`).join(" · ")}</>}
             defaultOpen
           >
@@ -367,7 +353,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <div id="rotations">
           <Collapse
             title="Clinical rotations — who is where, week by week"
-            sub="Build each clinical course's rotation plan in one click: every student on every shift, in the service area they still owe hours in, at a site with a free seat — out-rotations in blocks, primary experience the rest of the time, never past a site's seats, its approved capacity or the day's cases. Pin any student-week and the rest re-flows."
+            sub="Every student on every clinical shift, at a site that provides what they still need, within every cap — pin any cell and the rest re-flows"
             summary={rotations.plan ? <>{rotations.course?.code}: {rotations.plan.summary.placed} of {rotations.plan.summary.shifts} placed{rotations.plan.summary.studentsShort > 0 ? <> · <span className="text-rose-600">{rotations.plan.summary.studentsShort} short</span></> : <> · <span className="text-emerald-700">all hours reachable</span></>}{rotations.plan.bottlenecks.length > 0 ? <> · <span className="text-amber-700">{rotations.plan.bottlenecks.length} bottlenecks</span></> : null}</> : <>{rotations.courses.length} clinical course{rotations.courses.length === 1 ? "" : "s"} · no plan built yet</>}
             defaultOpen={!!searchParams?.course}
           >
@@ -386,7 +372,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         return (
           <Collapse
             title="Students — sections, preceptors & clinical hours"
-            sub="Every learner in this run: the section they sit in for each class, lab and clinical, who teaches and precepts them, and their clinical hours logged against the program's requirement — with anyone short, unprecepted or unassigned flagged"
+            sub="Sections, preceptors and clinical hours logged, with anyone short or unprecepted flagged"
             summary={<>{active.length} enrolled · <span className="text-emerald-700">{n1(logged)} of {n1(required)} h logged</span>{short > 0 ? <> · <span className="text-rose-600">{short} short</span></> : null}{unpre > 0 ? <> · <span className="text-amber-700">{unpre} unprecepted</span></> : null}</>}
           >
             <OfferingLedger ledger={ledger} programId={program.id} />
@@ -398,7 +384,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {capCohort && (
         <Collapse
           title="Calendar"
-          sub="Exact dates, times & locations at four altitudes — semester, month, week, day; drag shifts between days, edit any shift's time, room/site and staff in the day view"
+          sub="Exact dates, times and places by semester, month, week or day; drag a shift to move it"
           summary={<>{exactDate(offering.startDate ?? timing.startDate)} → {exactDate(lastDay ?? timing.endDate)}</>}
         >
           <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} rooms={capModel?.rooms ?? []} people={capModel?.people ?? []} />

@@ -40,9 +40,9 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-slate-900">{set.name} <span className="font-normal text-slate-500">— {set.authority}</span></div>
                 <div className="text-[11px] text-slate-500">{set.edition}{set.sourceUrl ? <> · <a href={set.sourceUrl} target="_blank" rel="noreferrer" className="text-rose-600 hover:underline">source</a></> : null}</div>
-                {set.summary && <p className="mt-1 max-w-4xl text-xs text-slate-700">{set.summary}</p>}
+                {set.summary && <details className="mt-1 max-w-4xl text-xs text-slate-600"><summary className="cursor-pointer text-slate-500 hover:text-rose-600">what the standard says ▸</summary><p className="mt-1">{set.summary}</p></details>}
               </div>
-              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${set.verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{set.verified ? "verified against the current edition" : "starter content — verify against the current edition"}</span>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${set.verified ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{set.verified ? "verified" : "unverified — check against the current edition"}</span>
             </div>
 
             <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -127,6 +127,7 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
             </div>
 
             {!compact && (
+              <details><summary className="cursor-pointer text-[11px] text-slate-500 hover:text-rose-600">edition, source and verification ▸</summary>
               <form action={updateRequirementSet.bind(null, set.id)} className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 text-xs">
                 <label className="flex items-center gap-1"><input name="verified" type="checkbox" defaultChecked={set.verified} /> verified against the current edition</label>
                 <label className="block min-w-[18rem] flex-1"><span className="block text-[9px] font-semibold uppercase text-slate-500">Edition / source note</span><input name="edition" defaultValue={set.edition ?? ""} className={inp + " w-full"} /></label>
@@ -135,11 +136,12 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                 <input type="hidden" name="summary" value={set.summary ?? ""} />
                 <button className="rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white">Save</button>
               </form>
+              </details>
             )}
           </div>
         );
       })}
-      {!compact && <p className="text-[11px] text-slate-400"><span className="text-emerald-700">✓</span> confirmed with the site · <span className="text-amber-700">≈</span> estimate · <span className="text-slate-400">?</span> inferred from the site&apos;s assets only. Open a site to confirm what it actually does, item by item, and record annual volumes. Seats/day are the assets&apos; learners per shift in the category&apos;s settings, summed over sites with that agreement.</p>}
+      {!compact && <p className="text-[11px] text-slate-400"><span className="text-emerald-700">✓</span> confirmed with the site · <span className="text-amber-700">≈</span> estimate · <span className="text-slate-400">?</span> inferred from assets only — confirm on the site&apos;s page.</p>}
     </div>
   );
 }

@@ -10,7 +10,6 @@
 // clinical supply map; the two are not matched here.
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { requirementTotals } from "@/lib/clinicalmodel";
 import { updateFamilyClinicalModel, upsertServiceArea, deleteServiceArea, saveCourseRequirements } from "@/lib/actions";
@@ -64,13 +63,10 @@ export function ClinicalRequirementsGrid({ programName, family, areas, courses, 
   const showCases = family.clinicalModel !== "hours";
 
   return (
-    <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" id="clinical-requirements">
+    <section className="space-y-4" id="clinical-requirements">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Clinical requirements — what each course needs, by setting</h2>
-          <p className="max-w-3xl text-sm text-slate-500">
-            The demand side of clinicals for <strong>{programName}</strong>. Set how {family.name} administers clinicals, name the settings its clinicals happen in, and enter the hours (and cases) each student must log per course in each setting. The supply side — sites, assets and shifts — is mapped on the <Link href={`/families/${family.id}/clinical`} className="text-rose-700 hover:underline">clinical supply map</Link>.
-          </p>
+          <h3 className="text-sm font-semibold text-slate-900">Hours and cases each student must log, per course and setting <span className="font-normal text-slate-400">— the demand side of {programName}&apos;s clinicals</span></h3>
         </div>
       </div>
 

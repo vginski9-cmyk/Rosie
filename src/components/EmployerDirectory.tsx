@@ -48,6 +48,8 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
   const [fType, setFType] = useState("");
   const [fAgree, setFAgree] = useState("");
   const [showAdd, setShowAdd] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 60;
   const counties = useMemo(() => [...new Set(employers.map((e) => e.county).filter((x): x is string => !!x))].sort(), [employers]);
   const rings = useMemo(() => [...new Set(employers.map((e) => e.ring).filter((x): x is string => !!x))].sort(), [employers]);
   const types = useMemo(() => [...new Set(employers.map((e) => e.facilityType).filter((x): x is string => !!x))].sort(), [employers]);
@@ -159,7 +161,6 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
         <span className="text-slate-300">·</span>
         <span><span className="font-medium text-slate-700 tabular-nums">{totals.secured}</span> with a secured agreement</span>
         {unsecuredHosting > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">⚠ {unsecuredHosting} site{unsecuredHosting === 1 ? "" : "s"} on the calendar without a secured agreement</span>}
-        <span className="text-slate-400">placements come from the calendarized sections, not a static slot count</span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -177,7 +178,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map((e) => {
+            {(showAll ? filtered : filtered.slice(0, LIMIT)).map((e) => {
               const s = scoped(e);
               const agreement = bestAgreement(e);
               const gap = s.sections > 0 && agreement !== "secured";
@@ -213,6 +214,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
               );
             })}
             {filtered.length === 0 && <tr><td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">No sites match these filters.</td></tr>}
+            {!showAll && filtered.length > LIMIT && <tr><td colSpan={8} className="px-3 py-2 text-center text-xs"><button onClick={() => setShowAll(true)} className="text-rose-600 hover:underline">Show all {filtered.length} organizations</button></td></tr>}
           </tbody>
         </table>
       </div>

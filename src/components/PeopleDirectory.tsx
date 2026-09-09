@@ -78,6 +78,8 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [loadOpen, setLoadOpen] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 60;
 
   const years = useMemo(() => {
     const s = new Set<number>();
@@ -204,7 +206,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map((p) => {
+            {(showAll ? filtered : filtered.slice(0, LIMIT)).map((p) => {
               const hrs = scopedHours(p);
               const cohorts = scopedCohorts(p);
               return editing === p.id ? (
@@ -284,6 +286,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
               ) : null
             ))}
             {filtered.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">No people match these filters.</td></tr>}
+            {!showAll && filtered.length > LIMIT && <tr><td colSpan={7} className="px-3 py-2 text-center text-xs"><button onClick={() => setShowAll(true)} className="text-rose-600 hover:underline">Show all {filtered.length} people</button></td></tr>}
           </tbody>
         </table>
       </div>

@@ -54,7 +54,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
             <h1 className="text-2xl font-semibold tracking-tight">{inst.name}</h1>
             <p className="text-sm text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")}</p>
           </div>
-          <Link href={`/#inst-${inst.id}`} className="text-sm text-rose-600 hover:underline">North Star goals →</Link>
+          <Link href="/goals" className="text-sm text-rose-600 hover:underline">North Star goals →</Link>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {steps.map((s) => <a key={s.label} href={s.href} className={`rounded-full px-2.5 py-1 text-xs font-medium ${s.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>{s.ok ? "✓" : "○"} {s.label}</a>)}
@@ -96,7 +96,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       <section id="sites" className="scroll-mt-16">
         <Collapse title="4 · Clinical sites & their physical assets" sub="Partner organizations, agreements, and every room, unit and machine a learner can be placed on, by setting — each site auto-located, with its drive from the main campus and its ring" summary={<>{inst.employers.length} sites · {located} located · {assets.reduce((n, a) => n + a.count, 0)} assets · {[...agree.entries()].map(([k, n]) => `${n} ${AGREE_LABEL[k] ?? k}`).join(" · ")}</>}>
           <form action={updateInstitutionGeography.bind(null, inst.id)} className="mb-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Main campus &amp; drive-time rings <span className="font-normal normal-case text-slate-400">— every site&apos;s ring is auto-coded from its drive time from this address; nobody types a ring</span></div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Main campus &amp; drive-time rings <span className="font-normal normal-case text-slate-400">— every site&apos;s ring follows its drive time from this address</span></div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <label className="block lg:col-span-2"><span className={lbl}>Campus street address</span><input name="campusAddress" defaultValue={mainCampus?.address ?? ""} placeholder="3395 Airport Rd" className={inp} /></label>
               <label className="block"><span className={lbl}>City</span><input name="campusCity" defaultValue={mainCampus?.city ?? inst.city ?? ""} className={inp} /></label>
@@ -107,7 +107,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
               <label className="block"><span className={lbl}>Core ≤ minutes</span><input name="ringCoreMinutes" type="number" min={1} defaultValue={inst.ringCoreMinutes} className={inp} /></label>
               <label className="block"><span className={lbl}>Ring 1 ≤ minutes</span><input name="ringOneMinutes" type="number" min={1} defaultValue={inst.ringOneMinutes} className={inp} /></label>
               <label className="block"><span className={lbl}>Ring 2 ≤ minutes</span><input name="ringTwoMinutes" type="number" min={1} defaultValue={inst.ringTwoMinutes} className={inp} /></label>
-              <div className="text-xs text-slate-500 lg:col-span-2">Ring 3 is everything beyond Ring 2. Drive time is estimated from straight-line distance with a road factor at rural / regional speeds — for banding, not routing.</div>
+              <div className="text-xs text-slate-500 lg:col-span-2">Ring 3 is everything beyond Ring 2; drive time is an estimate for banding, not a route.</div>
               <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Save &amp; recompute drive times</button></div>
             </div>
           </form>
@@ -145,12 +145,12 @@ export default async function OrganizationPage({ params }: { params: { id: strin
 
       {/* 6 · Programs */}
       <section id="programs" className="scroll-mt-16">
-        <Collapse title="6 · Jobs & programs built on this set-up" sub="Each North Star job and the program templates that deliver toward it; configure courses, sessions and offerings from here" summary={<>{inst.programFamilies.length} jobs · {programs} programs</>} defaultOpen>
+        <Collapse title="6 · Programs built on this setup" sub="Each job and the program that delivers it" summary={<>{inst.programFamilies.length} jobs · {programs} programs</>} defaultOpen>
           <div className="space-y-3">
             {inst.programFamilies.map((f) => (
               <div key={f.id} className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <Link href={`/families/${f.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.occupation?.title ?? f.name} ↦</Link>
+                  <span className="font-semibold text-slate-800">{f.occupation?.title ?? f.name}</span>
                   <span className="text-xs text-slate-500">{f.name}{f.occupation ? ` · SOC ${f.occupation.socCode}` : ""}</span>
                 </div>
                 <div className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100">
@@ -158,7 +158,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
                     <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm">
                       <Link href={`/programs/${p.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.name}</Link>
                       <span className="text-xs text-slate-500">{p.credential ?? "—"} · {p.programType} · {p._count.terms} terms{p.defaultCohortSeats ? ` · up to ${p.defaultCohortSeats} seats` : ""} · {p._count.cohorts} offering{p._count.cohorts === 1 ? "" : "s"}</span>
-                      <span className="ml-auto flex gap-2 text-xs"><Link href={`/programs/${p.id}/structure`} className="text-rose-600 hover:underline">design &amp; sequence</Link></span>
+                      <span className="ml-auto flex gap-2 text-xs"><Link href={`/programs/${p.id}/structure`} className="text-rose-600 hover:underline">design</Link><Link href={`/programs/${p.id}/clinical`} className="text-rose-600 hover:underline">clinical sites</Link><Link href={`/programs/${p.id}/goal`} className="text-rose-600 hover:underline">goal</Link></span>
                     </div>
                   ))}
                   {f.programs.length === 0 && <div className="px-3 py-2 text-xs text-slate-400">No program templates yet.</div>}

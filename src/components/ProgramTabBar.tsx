@@ -3,25 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// One consistent navigation strip for every program page, so a program reads as
-// a single workspace with clear facets instead of a scatter of sibling routes.
-// Grouped by intent: Design (the template) → Operate (a live cohort) → Analyze.
+// One strip of tabs for everything about a program, in the order the work happens:
+// design it, set up its clinical network, set the goal, run offerings, follow the students.
 
-const TABS: { label: string; seg: string; group: string }[] = [
-  { label: "Overview & offerings", seg: "", group: "" },
-  { label: "Design & sequence", seg: "structure", group: "Design" },
-  { label: "Students", seg: "students", group: "Operate" },
+const TABS: { label: string; seg: string }[] = [
+  { label: "Overview & offerings", seg: "" },
+  { label: "Design & sequence", seg: "structure" },
+  { label: "Clinical sites & requirements", seg: "clinical" },
+  { label: "Goal & pipeline", seg: "goal" },
+  { label: "Students", seg: "students" },
 ];
 
-export function ProgramTabBar({ programId, familyId }: { programId: string; familyId?: string | null }) {
+export function ProgramTabBar({ programId }: { programId: string }) {
   const pathname = usePathname() ?? "";
   const base = `/programs/${programId}`;
-
-  const isActive = (seg: string) => {
-    if (seg === "") return pathname === base;
-    return pathname === `${base}/${seg}` || pathname.startsWith(`${base}/${seg}/`);
-  };
-  // Offering (cohort) pages live under the program but aren't a template facet.
+  const isActive = (seg: string) => (seg === "" ? pathname === base : pathname === `${base}/${seg}` || pathname.startsWith(`${base}/${seg}/`));
   const onOffering = pathname.startsWith(`${base}/offerings/`);
 
   return (
@@ -30,27 +26,12 @@ export function ProgramTabBar({ programId, familyId }: { programId: string; fami
         {TABS.map((t) => {
           const active = !onOffering && isActive(t.seg);
           return (
-            <Link
-              key={t.seg || "overview"}
-              href={t.seg ? `${base}/${t.seg}` : base}
-              className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                active
-                  ? "border-rose-600 text-rose-700"
-                  : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"
-              }`}
-            >
+            <Link key={t.seg || "overview"} href={t.seg ? `${base}/${t.seg}` : base} className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${active ? "border-rose-600 text-rose-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"}`}>
               {t.label}
             </Link>
           );
         })}
-        {onOffering && (
-          <span className="whitespace-nowrap border-b-2 border-rose-600 px-3 py-2.5 text-sm font-medium text-rose-700">
-            Offering
-          </span>
-        )}
-        {familyId && (
-          <Link href={`/families/${familyId}/clinical`} className="ml-auto whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-sm font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700">Clinical sites &amp; requirements →</Link>
-        )}
+        {onOffering && <span className="whitespace-nowrap border-b-2 border-rose-600 px-3 py-2.5 text-sm font-medium text-rose-700">Offering</span>}
       </nav>
     </div>
   );

@@ -10,12 +10,9 @@ export default async function NewProgramPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">← Dashboard</Link>
+        <Link href="/programs" className="text-sm text-slate-500 hover:text-slate-700">← Programs</Link>
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">New program</h1>
-        <p className="text-sm text-slate-500">
-          Create a program shell — a first term and a talent-pipeline cohort are scaffolded automatically. Works for
-          short-term certificates and multi-year degrees alike. Everything is editable afterward.
-        </p>
+        <p className="text-sm text-slate-500">A first term and a pipeline cohort are scaffolded; everything is editable afterward.</p>
       </div>
 
       <form action={createProgram} className="card card-pad space-y-4">
@@ -41,7 +38,7 @@ export default async function NewProgramPage() {
           <input name="monthsToFullProductivity" type="number" min={0} placeholder="6" className="input" />
         </Field>
         <div className="flex justify-end gap-2">
-          <Link href="/" className="btn-ghost">Cancel</Link>
+          <Link href="/programs" className="btn-ghost">Cancel</Link>
           <button type="submit" className="btn-primary">Create program</button>
         </div>
       </form>

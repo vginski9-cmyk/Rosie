@@ -529,7 +529,7 @@ export async function getStudentRequirementProgress(studentId: string) {
   const siteIds = [...new Set([...req.sites.filter((x) => x.inFamily).map((x) => x.employerId), ...shifts.map((x) => x.employerId).filter((x): x is string => !!x)])];
   const sites = await prisma.employer.findMany({ where: { id: { in: siteIds } }, orderBy: { name: "asc" }, select: { id: true, name: true, people: { where: { active: true, role: { in: ["preceptor", "supervisor"] } }, select: { id: true, name: true, title: true } } } });
   return {
-    student: { id: st.id, name: st.name, cohortId: st.cohortId }, family: req.family, sets, shifts, today,
+    student: { id: st.id, name: st.name, cohortId: st.cohortId, programId: st.program.id }, family: req.family, sets, shifts, today,
     sites: sites.map((e) => ({ id: e.id, name: e.name, preceptors: e.people.filter((p) => disc.title.test(p.title ?? "")).map((p) => ({ id: p.id, name: p.name })) })),
   };
 }
@@ -1186,6 +1186,7 @@ export async function getEmployer(id: string) {
     include: {
       institution: { select: { id: true, name: true, ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true, campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], take: 1, select: { id: true, name: true, address: true, city: true, lat: true, lng: true, geoSource: true } } } },
       units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
+      people: { where: { active: true }, select: { id: true } },
       assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } },
       meetings: {
         orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
@@ -1868,7 +1869,7 @@ export async function getActionQueue(): Promise<ActionItem[]> {
     if (goalNow > 0) {
       const placedNow = fam.programs.reduce((n, p) => n + p.cohorts.filter((c) => gradYearOf(c.name) === nowYear).reduce((m, c) => m + c.students.filter((s) => (RANK[s.status] ?? -1) >= 6).length, 0), 0);
       if (placedNow < goalNow) {
-        items.push({ severity: placedNow < goalNow * 0.5 ? "red" : "amber", kind: "goal-gap", family: fam.name, title: `${nowYear} goal at risk: ${placedNow} placed of ${goalNow}`, detail: `The ${nowYear} North-Star goal is ${goalNow} placed; live student data shows ${placedNow}. Work the graduating cohorts and placement pipeline.`, href: `/families/${fam.id}` });
+        items.push({ severity: placedNow < goalNow * 0.5 ? "red" : "amber", kind: "goal-gap", family: fam.name, title: `${nowYear} goal at risk: ${placedNow} placed of ${goalNow}`, detail: `The ${nowYear} North-Star goal is ${goalNow} placed; live student data shows ${placedNow}. Work the graduating cohorts and placement pipeline.`, href: "/goals" });
       }
     }
     // 2) RECRUITING SHORTFALL — recruiting cohorts under seat target.
@@ -1879,7 +1880,7 @@ export async function getActionQueue(): Promise<ActionItem[]> {
         const seats = Math.round(c.plannedSeats ?? p.defaultCohortSeats ?? 0);
         const admitted = c.students.filter((s) => (RANK[s.status] ?? -1) >= 2).length;
         if (seats > 0 && admitted < seats * 0.8) {
-          items.push({ severity: admitted < seats * 0.5 ? "red" : "amber", kind: "recruiting", family: fam.name, title: `${c.name} recruiting behind: ${admitted} admitted of ${seats} seats`, detail: `Starts ${start.toLocaleDateString(undefined, { month: "short", year: "numeric" })}. Interventions targeting qualified/enrolled are the lever.`, href: `/families/${fam.id}/design` });
+          items.push({ severity: admitted < seats * 0.5 ? "red" : "amber", kind: "recruiting", family: fam.name, title: `${c.name} recruiting behind: ${admitted} admitted of ${seats} seats`, detail: `Starts ${start.toLocaleDateString(undefined, { month: "short", year: "numeric" })}. Interventions targeting qualified/enrolled are the lever.`, href: "/programs" });
         }
       }
     }
@@ -1887,7 +1888,7 @@ export async function getActionQueue(): Promise<ActionItem[]> {
     const anyFuture = fam.programs.some((p) => p.cohorts.some((c) => { const s = c.cohortTerms.find((ct) => ct.term.index === 1)?.startDate; return s && s > today; }));
     const anyActive = fam.programs.some((p) => p.cohorts.length > 0);
     if (anyActive && !anyFuture) {
-      items.push({ severity: "amber", kind: "no-next-launch", family: fam.name, title: "No next cohort scheduled", detail: "Every instantiation has already started — there is no future intake on the calendar. Plan the next launch.", href: `/families/${fam.id}/design` });
+      items.push({ severity: "amber", kind: "no-next-launch", family: fam.name, title: "No next cohort scheduled", detail: "Every instantiation has already started — there is no future intake on the calendar. Plan the next launch.", href: "/programs" });
     }
   }
 
@@ -1926,7 +1927,7 @@ export async function getActionQueue(): Promise<ActionItem[]> {
   const noIntake = await prisma.student.count({ where: { status: "enrolled", alignmentProfiles: { none: {} }, cohort: { startDate: { lte: today } } } });
   if (noIntake > 0) {
     const firstFam = families[0];
-    items.push({ severity: "info", kind: "intake", family: null, title: `${noIntake} enrolled learners have no alignment intake`, detail: "Placement design runs on intake profiles — motivations, constraints, capacities. Work the intake worklist.", href: firstFam ? `/families/${firstFam.id}/wbl` : "/students" });
+    items.push({ severity: "info", kind: "intake", family: null, title: `${noIntake} enrolled learners have no alignment intake`, detail: "Placement design runs on intake profiles — motivations, constraints, capacities. Work the intake worklist.", href: "/students" });
   }
 
   const order = { red: 0, amber: 1, info: 2 } as const;
@@ -2714,4 +2715,15 @@ export async function getOfferingLedger(cohortId: string) {
 export async function getLearnerAnalytics() {
   const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true } } } });
   return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
+}
+
+/** The program a family's shared pages (clinical setup, goal) are shown under: its first template. */
+export async function getFamilyProgramId(familyId: string): Promise<string | null> {
+  const p = await prisma.program.findFirst({ where: { familyId }, orderBy: { name: "asc" }, select: { id: true } });
+  return p?.id ?? null;
+}
+/** The family a program belongs to — its clinical setup and goal are family-level. */
+export async function getProgramFamilyId(programId: string): Promise<string | null> {
+  const p = await prisma.program.findUnique({ where: { id: programId }, select: { familyId: true } });
+  return p?.familyId ?? null;
 }

@@ -70,7 +70,7 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
               {" "}· {input.options.skipHolidays ? "holidays left open" : "holidays scheduled"}
               {" "}· plus each site&apos;s agreed students-at-once, accreditor-approved capacity, daily cases, days and shift blocks.
               {data.family?.notes ? <span className="block text-slate-500">{data.family.notes}</span> : null}
-              {data.family && <Link href={`/families/${data.family.id}/clinical`} className="ml-1 text-rose-600 hover:underline">Change these rules or a site&apos;s availability in the directory →</Link>}
+              <Link href={`/programs/${programId}/clinical`} className="ml-1 text-rose-600 hover:underline">Change the rules or a site&apos;s availability →</Link>
             </div>
             <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700">{plan ? "Rebuild clinical schedule" : "Build clinical schedule"}</button>
             {pinnedCount > 0 && <span className="text-[11px] text-slate-500">{pinnedCount} pinned cell{pinnedCount === 1 ? "" : "s"} stay put.</span>}

@@ -1,97 +1,79 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { seasonOfDate } from "@/lib/term";
-import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity, getSiteRequirementFit } from "@/lib/queries";
+import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity, getSiteRequirementFit, getFamilyProgramId } from "@/lib/queries";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit, setSiteGeography, relocateSite } from "@/lib/actions";
 import { dec } from "@/lib/format";
+import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
-
+import { Collapse } from "@/components/Collapse";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
 
 export const dynamic = "force-dynamic";
 
+// THE ORGANIZATION RECORD — what a site is regardless of program: where it is, its assets and
+// their shift structures, its units, its people and placements. What it means to a program
+// (agreement, recognition, availability, what it provides) lives on that program's site page.
+
 const EMP_STATUSES = ["prospect", "active", "paused", "archived"];
-const PLACEMENT_NEXT: Record<string, string[]> = {
-  planned: ["active", "cancelled"], active: ["completed", "cancelled"], completed: [], cancelled: ["planned"],
-};
-const PSTATUS_BADGE: Record<string, string> = {
-  planned: "bg-sky-100 text-sky-700", active: "bg-emerald-100 text-emerald-700",
-  completed: "bg-slate-200 text-slate-600", cancelled: "bg-slate-100 text-slate-400",
-};
+const PLACEMENT_NEXT: Record<string, string[]> = { planned: ["active", "cancelled"], active: ["completed", "cancelled"], completed: [], cancelled: ["planned"] };
+const PSTATUS_BADGE: Record<string, string> = { planned: "bg-sky-100 text-sky-700", active: "bg-emerald-100 text-emerald-700", completed: "bg-slate-200 text-slate-600", cancelled: "bg-slate-100 text-slate-400" };
+const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
 const dateFmt = (d: Date | null) => (d ? new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—");
+const inp = "w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
+const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
 
 export default async function EmployerPage({ params }: { params: { id: string } }) {
   const e = await getEmployer(params.id);
   if (!e) notFound();
-  // Accreditor recognition (JRCERT Form 1010R) for every accredited family this institution runs — one block per family.
   const accreditedFamilies = await getAccreditedFamiliesForEmployer(e.id);
   const accreditorReports = (await Promise.all(accreditedFamilies.map((f) => getAccreditorCapacity(f.id, e.id)))).filter((r): r is NonNullable<typeof r> => !!r && r.sites.length > 0);
-  // What this site can supply of each program's required clinical experiences, from its assets.
   const fit = (await getSiteRequirementFit(e.id)) ?? [];
+  const programIds = new Map(await Promise.all(fit.map(async (f) => [f.family.id, await getFamilyProgramId(f.family.id)] as const)));
   const campus = e.institution.campuses[0] ?? null;
-  const bands = { core: e.institution.ringCoreMinutes, one: e.institution.ringOneMinutes, two: e.institution.ringTwoMinutes };
-  const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
-
-  // WBL capacity is read from placement records, not a static slot count: "asked"
-  // = every non-cancelled rotation directed here; "secured" = active + completed.
-  const seasonOf = seasonOfDate;
-  const live = e.placements.filter((p) => p.status !== "cancelled");
-  const asked = live.length;
+  const year = new Date().getUTCFullYear() + 1;
   const secured = e.placements.filter((p) => p.status === "active" || p.status === "completed").length;
-  const fillRate = asked > 0 ? Math.round((secured / asked) * 100) : 0;
-  const periodMap: Record<string, { year: number; season: string; asked: number; secured: number }> = {};
-  for (const p of live) {
-    if (!p.startDate) continue;
-    const d = new Date(p.startDate);
-    const key = `${d.getUTCFullYear()} ${seasonOf(d)}`;
-    const b = periodMap[key] ?? { year: d.getUTCFullYear(), season: seasonOf(d), asked: 0, secured: 0 };
-    b.asked += 1; if (p.status === "active" || p.status === "completed") b.secured += 1; periodMap[key] = b;
-  }
-  const periods = Object.values(periodMap).sort((a, b) => b.year - a.year || a.season.localeCompare(b.season));
+  const liveAssets = e.assets.filter((a) => a.status !== "archived");
+  const seatsBySetting: Record<string, number> = {}; for (const a of liveAssets) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
+  const rosterAssets = e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }));
+  const settings = SETTING_PRESETS.map(([code, name, assetType]) => ({ code, name, assetType }));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-8">
+    <div className="space-y-6">
       <div>
-        <Link href="/employers" className="text-sm text-slate-500 hover:text-slate-700">← Employer partners</Link>
+        <Link href="/employers" className="text-sm text-slate-500 hover:text-slate-700">← All organizations</Link>
         <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{e.name}</h1>
-            <p className="text-sm text-slate-500">
-              {[e.setting, e.institution.name].filter(Boolean).join(" · ")}
-            </p>
-            <p className="text-sm text-slate-700">{[e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(" · ") || <span className="text-amber-700">No address on file — add one below.</span>}</p>
+            <p className="text-sm text-slate-500">{[e.organization, e.facilityType ?? e.setting, [e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || <span className="text-amber-700">No address on file — add one under details.</span>}</p>
           </div>
-          <div className="flex items-center gap-2">
-            {e.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`} title="drive-time ring from the main campus">{e.ring}{e.driveMinutes != null ? ` · ≈ ${Math.round(e.driveMinutes)} min` : ""}</a>}
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">{e.status}</span>
-            <span className={`rounded-full px-3 py-1 text-xs font-medium ${fillRate >= 90 ? "bg-emerald-100 text-emerald-700" : fillRate >= 70 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>
-              {secured} of {asked} rotations secured ({fillRate}%)
-            </span>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {e.ring ? <a href="#location" className={`rounded-full px-3 py-1 font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.driveMinutes != null ? ` · ${Math.round(e.driveMinutes)} min from campus` : ""}</a> : <a href="#location" className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">not located</a>}
+            <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">{e.status}</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{liveAssets.length} assets · {e.people.length} people</span>
           </div>
         </div>
       </div>
 
-      {/* ── Programs this site serves — every program sets this site up its own way ── */}
-      <section id="programs" className="scroll-mt-16 space-y-2">
-        <div>
-          <h2 className="text-lg font-semibold">Programs this site serves <span className="text-sm font-normal text-slate-400">— each program sets this site up its own way; open one to see it as that program does</span></h2>
-          <p className="text-sm text-slate-500">Agreement, accreditor recognition, availability, qualified staff and which required experiences the site provides are all per program. The organization record below holds what is shared: the address, the assets and their shift structures, the people.</p>
-        </div>
-        {fit.length === 0 ? <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">No program has requirements this site can be scored against yet. Add it to a program from <Link href="/clinical" className="text-rose-600 hover:underline">Clinical setup by program</Link>.</p> : (
+      {/* 1 · Programs this site serves */}
+      <section className="space-y-2">
+        <h2 className="text-lg font-semibold">1 · Programs this site serves <span className="text-sm font-normal text-slate-400">— agreement, recognition, availability and what it provides are set per program</span></h2>
+        {fit.length === 0 ? <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">No program scores this site yet. Add it from a program&apos;s <Link href="/clinical" className="text-rose-600 hover:underline">clinical sites</Link> page.</p> : (
           <div className="grid gap-3 md:grid-cols-2">
             {fit.map((f) => f.sets.map((set) => {
               const pct = set.requiredItems ? set.requiredProvided / set.requiredItems : 0;
+              const pid = programIds.get(f.family.id);
+              const href = pid ? `/programs/${pid}/clinical/sites/${e.id}` : `/families/${f.family.id}/clinical/sites/${e.id}`;
               return (
-                <Link key={set.id} href={`/families/${f.family.id}/clinical/sites/${e.id}`} className="rounded-xl border border-slate-200 bg-white p-4 hover:border-rose-300 hover:bg-rose-50/30">
+                <Link key={set.id} href={href} className="rounded-xl border border-slate-200 bg-white p-4 hover:border-rose-300 hover:bg-rose-50/30">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <span className="text-base font-semibold text-slate-900">{f.family.name}</span>
-                    <span className="text-[11px] text-slate-500">agreement: <span className={`rounded-full px-1.5 py-0.5 font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.inFamily ? f.agreement : "not in this program"}</span></span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.inFamily ? f.agreement : "not in this program"}</span>
                   </div>
                   <div className="mt-2 flex items-baseline justify-between text-xs"><span className="text-slate-600">Required experiences provided here</span><span className={`font-semibold tabular-nums ${pct >= 1 ? "text-emerald-700" : pct > 0 ? "text-amber-700" : "text-slate-500"}`}>{set.requiredProvided} of {set.requiredItems}</span></div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-400" : "bg-rose-400"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
-                  <div className="mt-1 text-[11px] text-slate-500">{set.suppliedMandatory} of {set.mandatoryCategories} required categories{set.missingMandatory.length ? ` · missing: ${set.missingMandatory.slice(0, 3).join(", ")}${set.missingMandatory.length > 3 ? ` +${set.missingMandatory.length - 3}` : ""}` : ""}{set.unverified ? ` · ${set.unverified} inferred, unconfirmed` : ""}{set.declined ? ` · ${set.declined} ruled out` : ""}</div>
-                  <div className="mt-2 text-[11px] font-medium text-rose-700">Open in {f.family.name}&apos;s clinical setup →</div>
+                  <div className="mt-1 text-[11px] text-slate-500">{set.missingMandatory.length ? `missing: ${set.missingMandatory.slice(0, 3).join(", ")}${set.missingMandatory.length > 3 ? ` +${set.missingMandatory.length - 3}` : ""}` : "every required experience"}{set.unverified ? ` · ${set.unverified} unconfirmed` : ""}</div>
+                  <div className="mt-2 text-[11px] font-medium text-rose-700">Set up for {f.family.name} →</div>
                 </Link>
               );
             }))}
@@ -99,169 +81,104 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         )}
       </section>
 
-      {/* WBL capacity — sourced from placement records, by year & semester */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-700">WBL rotations — asked vs secured</h2>
-        <p className="mt-0.5 text-xs text-slate-400">Read live from placement records — what programs asked this partner to host vs what was actually secured. No static slot count, because real availability shifts week to week.</p>
-        {periods.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-400">No dated rotations yet.</p>
-        ) : (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {periods.map((p) => {
-              const gap = p.asked > p.secured;
-              return (
-                <div key={`${p.year}-${p.season}`} className="rounded-lg border border-slate-200 px-3 py-2">
-                  <div className="text-[11px] font-medium text-slate-500">{p.season} {p.year}</div>
-                  <div className="mt-0.5 text-sm tabular-nums">
-                    <span className={gap ? "font-semibold text-amber-600" : "text-emerald-600"}>{p.secured}</span>
-                    <span className="text-slate-400"> / {p.asked} secured</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      {/* 2 · Assets & shift structures */}
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h2 className="text-lg font-semibold">2 · Assets &amp; shift structures <span className="text-sm font-normal text-slate-400">— every room, unit and machine, which days and shifts it runs, and the learners a shift takes</span></h2>
+          <span className="text-xs text-slate-500">{Object.entries(seatsBySetting).map(([k, v]) => `${k} ${v} seats`).join(" · ") || "none yet"}</span>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <AssetRoster employerId={e.id} siteName={e.name} siteExternalId={e.externalId} assets={rosterAssets} settings={settings} programName="" organizationHref="#exceptions" />
+        </div>
+        <div id="exceptions" className="scroll-mt-16">
+          <Collapse title="Closures, exceptions & per-asset detail" sub="Close assets for a date range, the accreditor class of each room, and the year's shift totals" summary={<>{e.assetOverrides.length} exception day{e.assetOverrides.length === 1 ? "" : "s"} · <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${year}`} className="text-rose-600 hover:underline">workbook ↓</a></>}>
+            <AssetBuilder employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={year} assets={rosterAssets} overrides={e.assetOverrides} settings={settings} />
+          </Collapse>
+        </div>
       </section>
 
-      {/* Contact + details (editable) */}
-      <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-slate-700">Partner details</h2>
-        <form action={updateEmployer.bind(null, e.id)} className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* 3 · Details */}
+      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
+        <form action={updateEmployer.bind(null, e.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="name" label="Name" defaultValue={e.name} required />
-          <Field name="setting" label="Setting" defaultValue={e.setting} />
+          <Field name="organization" label="Organization / system" defaultValue={e.organization} />
+          <label className="block"><span className={lbl}>Facility type</span>
+            <select name="facilityType" defaultValue={e.facilityType ?? ""} className={inp}><option value="">—</option>{["Acute care hospital", "Specialty hospital", "Ambulatory surgery center", "Nursing home", "Combination home (NH + adult care)", "Adult care home", "Physician office / clinic", "Imaging center", "Behavioral health facility", "Home health / hospice", "Public health / community", "Other"].map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Status</span><select name="status" defaultValue={e.status} className={inp}>{EMP_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
           <Field name="address" label="Street address" defaultValue={e.address} />
           <Field name="city" label="City" defaultValue={e.city} />
           <Field name="state" label="State" defaultValue={e.state} />
           <Field name="zip" label="ZIP" defaultValue={e.zip} />
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Status</span>
-            <select name="status" defaultValue={e.status} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              {EMP_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </label>
+          <Field name="county" label="County" defaultValue={e.county} />
+          <Field name="setting" label="Setting (short label)" defaultValue={e.setting} />
+          <Field name="licensedBeds" label="Licensed acute beds" type="number" defaultValue={e.licensedBeds != null ? String(e.licensedBeds) : ""} />
+          <Field name="operatingRooms" label="Operating rooms" type="number" defaultValue={e.operatingRooms != null ? String(e.operatingRooms) : ""} />
+          <Field name="annualSurgicalCases" label="Annual surgical cases" type="number" defaultValue={e.annualSurgicalCases != null ? String(e.annualSurgicalCases) : ""} />
+          <Field name="nursingHomeBeds" label="Nursing home beds" type="number" defaultValue={e.nursingHomeBeds != null ? String(e.nursingHomeBeds) : ""} />
+          <Field name="adultCareBeds" label="Adult care beds" type="number" defaultValue={e.adultCareBeds != null ? String(e.adultCareBeds) : ""} />
+          <label className="block"><span className={lbl}>Umbrella agreement</span><select name="agreementStatus" defaultValue={e.agreementStatus} className={inp}>{["none", "prospect", "asked", "secured", "declined"].map((a) => <option key={a} value={a}>{a}</option>)}</select></label>
           <Field name="contactName" label="Contact name" defaultValue={e.contactName} />
           <Field name="contactEmail" label="Contact email" type="email" defaultValue={e.contactEmail} />
           <Field name="contactPhone" label="Contact phone" defaultValue={e.contactPhone} />
-          {/* ── Clinical asset map: facility level ── */}
-          <div className="sm:col-span-2 lg:col-span-4 mt-2 border-t border-slate-100 pt-3 text-[10px] font-semibold uppercase tracking-wide text-rose-500">Clinical asset map — facility</div>
-          <Field name="organization" label="Organization / licensee" defaultValue={e.organization} />
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Facility type</span>
-            <select name="facilityType" defaultValue={e.facilityType ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              <option value="">—</option>
-              {["Acute care hospital", "Specialty hospital", "Ambulatory surgery center", "Nursing home", "Combination home (NH + adult care)", "Adult care home", "Physician office / clinic", "Imaging center", "Behavioral health facility", "Home health / hospice", "Public health / community", "Other"].map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-          <Field name="county" label="County" defaultValue={e.county} />
-          <div className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring (drive time)</span>
-            <a href="#location" className="block rounded-lg border border-dashed border-slate-300 px-2.5 py-1.5 text-sm text-slate-600">{e.ring ?? "not located"} — auto-coded from the address ↓</a>
-          </div>
-          <Field name="licensedBeds" label="Licensed acute beds" type="number" defaultValue={e.licensedBeds != null ? String(e.licensedBeds) : ""} />
-          <Field name="nursingHomeBeds" label="Nursing home beds" type="number" defaultValue={e.nursingHomeBeds != null ? String(e.nursingHomeBeds) : ""} />
-          <Field name="adultCareBeds" label="Adult care beds" type="number" defaultValue={e.adultCareBeds != null ? String(e.adultCareBeds) : ""} />
-          <Field name="operatingRooms" label="Operating rooms" type="number" defaultValue={e.operatingRooms != null ? String(e.operatingRooms) : ""} />
-          <Field name="annualSurgicalCases" label="Annual surgical cases" type="number" defaultValue={e.annualSurgicalCases != null ? String(e.annualSurgicalCases) : ""} />
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Agreement with us</span>
-            <select name="agreementStatus" defaultValue={e.agreementStatus} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium">
-              {["none", "prospect", "asked", "secured", "declined"].map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </label>
-          <Field name="agreementNotes" label="Agreement notes (who, when, terms)" defaultValue={e.agreementNotes} />
-          <label className="block sm:col-span-2 lg:col-span-4">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Notes</span>
-            <textarea name="notes" defaultValue={e.notes ?? ""} rows={2} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
-          </label>
-          <div className="lg:col-span-4">
-            <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save details</button>
-          </div>
+          <Field name="agreementNotes" label="Agreement notes" defaultValue={e.agreementNotes} />
+          <label className="block sm:col-span-2 lg:col-span-4"><span className={lbl}>Notes</span><textarea name="notes" defaultValue={e.notes ?? ""} rows={2} className={inp} /></label>
+          <div className="lg:col-span-4"><button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save details</button></div>
         </form>
-      </section>
+      </Collapse>
 
-      {/* ── Location & drive time — auto-coded from the address ── */}
-      <section id="location" className="scroll-mt-16 rounded-xl border border-slate-200 bg-white p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-sm font-semibold text-slate-700">Location &amp; drive time from campus <span className="font-normal text-slate-400">— auto-coded from the address; the ring follows the drive</span></h2>
-            <p className="mt-0.5 max-w-3xl text-xs text-slate-500">
-              Measured from {campus ? <>{campus.name}{campus.city ? ` (${campus.city})` : ""}{campus.lat == null ? <span className="text-amber-700"> — campus not located yet; set its address on the organization page</span> : null}</> : <span className="text-amber-700">no campus on file — add one on the organization page</span>}. Bands for {e.institution.name}: Core ≤ {bands.core} min · Ring 1 ≤ {bands.one} · Ring 2 ≤ {bands.two} · Ring 3 beyond.
-            </p>
+      {/* 4 · Location */}
+      <div id="location" className="scroll-mt-16">
+        <Collapse title="4 · Location & drive time" sub={`Auto-coded from the address; the ring follows the drive from ${campus?.name ?? "the main campus"}`} summary={<>{e.ring ?? "not located"}{e.driveMinutes != null ? ` · ${Math.round(e.driveMinutes)} min` : ""}{e.lat != null && e.lng != null ? ` · ${dec(e.lat, 3)}, ${dec(e.lng, 3)}` : ""}</>}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+            <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Ring</div><div className="text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{e.ring}</span> : <span className="text-amber-600">—</span>}</div><div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "set by hand" : `from the drive time · Core ≤ ${e.institution.ringCoreMinutes} · Ring 1 ≤ ${e.institution.ringOneMinutes} · Ring 2 ≤ ${e.institution.ringTwoMinutes} min`}</div></div>
+            <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Drive from campus</div><div className="text-lg font-semibold tabular-nums">{e.driveMinutes != null ? `${Math.round(e.driveMinutes)} min` : "—"}</div><div className="text-[11px] text-slate-500">{e.distanceMiles != null ? `${dec(e.distanceMiles, 1)} mi straight-line` : "not computed"}</div></div>
+            <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Coordinates</div><div className="font-mono text-sm tabular-nums">{e.lat != null && e.lng != null ? `${dec(e.lat, 4)}, ${dec(e.lng, 4)}` : <span className="text-amber-600">not located</span>}</div><div className="text-[11px] text-slate-500">{e.geoSource === "census" ? "street-level" : e.geoSource === "gazetteer" ? "town centre (±1–2 mi)" : e.geoSource === "manual" ? "pinned by hand" : "no source"}</div><form action={relocateSite.bind(null, e.id)} className="mt-1"><button className="rounded border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50">Re-locate from address</button></form></div>
+            <form action={setSiteGeography.bind(null, e.id)} className="rounded-lg border border-slate-200 px-3 py-2">
+              <div className={lbl}>Correct it</div>
+              <label className="block">ring <select name="ring" defaultValue={e.ringSource === "manual" ? e.ring ?? "auto" : "auto"} className="ml-1 rounded border border-slate-300 px-1.5 py-0.5"><option value="auto">auto</option>{["Core", "Ring 1", "Ring 2", "Ring 3"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+              <div className="mt-1 flex items-center gap-1">pin <input name="lat" placeholder="lat" defaultValue={e.geoSource === "manual" && e.lat != null ? String(e.lat) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /><input name="lng" placeholder="lng" defaultValue={e.geoSource === "manual" && e.lng != null ? String(e.lng) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /></div>
+              <button className="mt-1.5 rounded bg-slate-800 px-2.5 py-1 font-medium text-white hover:bg-slate-700">Apply</button>
+            </form>
           </div>
-          <form action={relocateSite.bind(null, e.id)}><button className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Re-locate from address</button></form>
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-lg border border-slate-200 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring</div>
-            <div className="mt-0.5 text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{e.ring}</span> : <span className="text-amber-600">—</span>}</div>
-            <div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "overridden by hand — release below to follow the drive time again" : "from the drive time, under the institution's bands"}</div>
-          </div>
-          <div className="rounded-lg border border-slate-200 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Drive from campus</div>
-            <div className="mt-0.5 text-lg font-semibold tabular-nums">{e.driveMinutes != null ? `≈ ${Math.round(e.driveMinutes)} min` : "—"}</div>
-            <div className="text-[11px] text-slate-500">{e.distanceMiles != null ? `${dec(e.distanceMiles, 1)} mi straight-line · ≈ ${dec(e.distanceMiles * 1.25, 1)} road mi` : "not computed"}</div>
-          </div>
-          <div className="rounded-lg border border-slate-200 px-3 py-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Coordinates</div>
-            <div className="mt-0.5 font-mono text-sm tabular-nums">{e.lat != null && e.lng != null ? `${dec(e.lat, 4)}, ${dec(e.lng, 4)}` : <span className="text-amber-600">not located</span>}</div>
-            <div className="text-[11px] text-slate-500">{e.geoSource === "census" ? "Census geocoder — street-level" : e.geoSource === "gazetteer" ? "built-in gazetteer — town centre (±1–2 mi); a street-level fix needs the online geocoder" : e.geoSource === "manual" ? "pinned by hand" : "no source — the address could not be located"}</div>
-          </div>
-          <form action={setSiteGeography.bind(null, e.id)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Correct it</div>
-            <label className="mt-1 block">ring override
-              <select name="ring" defaultValue={e.ringSource === "manual" ? e.ring ?? "auto" : "auto"} className="ml-1 rounded border border-slate-300 px-1.5 py-0.5">
-                <option value="auto">auto (follow the drive time)</option>{["Core", "Ring 1", "Ring 2", "Ring 3"].map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </label>
-            <div className="mt-1 flex items-center gap-1">pin <input name="lat" placeholder="lat" defaultValue={e.geoSource === "manual" && e.lat != null ? String(e.lat) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /><input name="lng" placeholder="lng" defaultValue={e.geoSource === "manual" && e.lng != null ? String(e.lng) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /></div>
-            <button className="mt-1.5 rounded bg-slate-800 px-2.5 py-1 font-medium text-white hover:bg-slate-700">Apply</button>
-          </form>
-        </div>
-      </section>
+        </Collapse>
+      </div>
 
-      {/* ── Functional units — the asset map's master grain ── */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">Functional units <span className="text-sm font-normal text-slate-400">— where the capacity math happens</span></h2>
-          <p className="text-sm text-slate-500">Each unit: what it is, how many beds / rooms / stations, which shift blocks it runs and on which days, and how many students and preceptors a shift takes. Weekly student slots = students per shift × shifts per day × days open.</p>
-        </div>
+      {/* 5 · Accreditor reports */}
+      {accreditorReports.map((r) => (
+        <Collapse key={r.family.id} title={`${r.family.accreditor ?? "JRCERT"} capacity — ${r.family.name}`} sub="Form 1010R from this site's assets and record" summary={<>{r.sites[0]?.status ?? "none"}</>}>
+          <AccreditorCapacity report={r} mode="site" />
+        </Collapse>
+      ))}
+
+      {/* 6 · Functional units */}
+      <Collapse title="Functional units" sub="Beds, rooms and stations by unit with shift blocks and students per shift — the older grain some bookings still point at" summary={<>{e.units.length} unit{e.units.length === 1 ? "" : "s"}</>}>
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full text-xs">
             <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-              <tr><th className="px-2 py-2 font-semibold">Unit type</th><th className="px-2 py-2 font-semibold">Category</th><th className="px-2 py-2 font-semibold">Capacity</th><th className="px-2 py-2 font-semibold">Source</th><th className="px-2 py-2 font-semibold">Shifts / day · hrs</th><th className="px-2 py-2 font-semibold">Blocks</th><th className="px-2 py-2 font-semibold">Days open</th><th className="px-2 py-2 font-semibold">Students / shift</th><th className="px-2 py-2 font-semibold">Students / preceptor</th><th className="px-2 py-2 font-semibold">Preceptors / shift</th><th className="px-2 py-2 text-right font-semibold">Weekly slots</th><th className="px-2 py-2" /></tr>
+              <tr><th className="px-2 py-2 font-semibold">Unit</th><th className="px-2 py-2 font-semibold">Category</th><th className="px-2 py-2 font-semibold">Capacity</th><th className="px-2 py-2 font-semibold">Source</th><th className="px-2 py-2 font-semibold">Shifts / day · hrs</th><th className="px-2 py-2 font-semibold">Blocks</th><th className="px-2 py-2 font-semibold">Days</th><th className="px-2 py-2 font-semibold">Students / shift</th><th className="px-2 py-2 font-semibold">Per preceptor</th><th className="px-2 py-2 font-semibold">Preceptors / shift</th><th className="px-2 py-2 text-right font-semibold">Weekly slots</th><th className="px-2 py-2" /></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {[...e.units, null].map((u, i) => {
+              {[...e.units, null].map((u) => {
                 const isNew = u == null;
                 const days = (u?.days ?? "Mon,Tue,Wed,Thu,Fri").split(",");
                 const blocks = (u?.shiftBlocks ?? "Day").split(",");
-                const weekly = u ? u.studentsPerShift * blocks.length * days.length : 0;
                 const fid = isNew ? "unit-new" : `unit-${u.id}`;
                 return (
                   <tr key={u?.id ?? "new"} className={isNew ? "bg-rose-50/30" : ""}>
-                    <td className="px-2 py-1.5"><input form={fid} name="unitType" defaultValue={u?.unitType ?? ""} placeholder={isNew ? "new unit type" : ""} className="w-40 rounded border border-slate-300 px-1.5 py-1" /></td>
-                    <td className="px-2 py-1.5">
-                      <select form={fid} name="unitCategory" defaultValue={u?.unitCategory ?? "Inpatient beds"} className="rounded border border-slate-300 px-1.5 py-1">
-                        {["Inpatient beds", "Surgical", "Emergency", "Imaging", "Laboratory", "Long-term care beds", "Adult care beds", "Behavioral health", "Ambulatory office", "Community"].map((c) => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="capacityCount" type="number" step="any" defaultValue={u?.capacityCount ?? ""} className="w-16 rounded border border-slate-300 px-1.5 py-1 text-right" /> <input form={fid} name="uom" defaultValue={u?.uom ?? "beds"} className="w-16 rounded border border-slate-300 px-1.5 py-1" /></td>
+                    <td className="px-2 py-1.5"><input form={fid} name="unitType" defaultValue={u?.unitType ?? ""} placeholder="new unit" className="w-36 rounded border border-slate-300 px-1.5 py-1" /></td>
+                    <td className="px-2 py-1.5"><select form={fid} name="unitCategory" defaultValue={u?.unitCategory ?? "Inpatient beds"} className="rounded border border-slate-300 px-1.5 py-1">{["Inpatient beds", "Surgical", "Emergency", "Imaging", "Laboratory", "Long-term care beds", "Adult care beds", "Behavioral health", "Ambulatory office", "Community"].map((c) => <option key={c} value={c}>{c}</option>)}</select></td>
+                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="capacityCount" type="number" step="any" defaultValue={u?.capacityCount ?? ""} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /> <input form={fid} name="uom" defaultValue={u?.uom ?? "beds"} className="w-14 rounded border border-slate-300 px-1.5 py-1" /></td>
                     <td className="px-2 py-1.5"><select form={fid} name="dataSource" defaultValue={u?.dataSource ?? "ESTIMATE"} className="rounded border border-slate-300 px-1.5 py-1">{["VERIFIED", "ESTIMATE", "GAP"].map((d) => <option key={d} value={d}>{d}</option>)}</select></td>
-                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="shiftsPerDay" type="number" defaultValue={u?.shiftsPerDay ?? 2} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /> × <input form={fid} name="shiftLengthHrs" type="number" step="any" defaultValue={u?.shiftLengthHrs ?? 12} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" />h</td>
+                    <td className="px-2 py-1.5 whitespace-nowrap"><input form={fid} name="shiftsPerDay" type="number" defaultValue={u?.shiftsPerDay ?? 2} className="w-10 rounded border border-slate-300 px-1.5 py-1 text-right" /> × <input form={fid} name="shiftLengthHrs" type="number" step="any" defaultValue={u?.shiftLengthHrs ?? 12} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" />h</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">{["Day", "Evening", "Night"].map((b) => <label key={b} className="mr-1.5 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`block_${b}`} defaultChecked={blocks.includes(b)} />{b[0]}</label>)}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => <label key={d} className="mr-1 inline-flex items-center gap-0.5"><input form={fid} type="checkbox" name={`day_${d}`} defaultChecked={days.includes(d)} />{d[0]}</label>)}</td>
-                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerShift" type="number" defaultValue={u?.studentsPerShift ?? 0} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerPreceptor" type="number" defaultValue={u?.studentsPerPreceptor ?? 1} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5"><input form={fid} name="preceptorsPerShift" type="number" defaultValue={u?.preceptorsPerShift ?? 0} className="w-14 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
-                    <td className="px-2 py-1.5 text-right font-mono tabular-nums">{isNew ? "—" : weekly}</td>
+                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerShift" type="number" defaultValue={u?.studentsPerShift ?? 0} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5"><input form={fid} name="studentsPerPreceptor" type="number" defaultValue={u?.studentsPerPreceptor ?? 1} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5"><input form={fid} name="preceptorsPerShift" type="number" defaultValue={u?.preceptorsPerShift ?? 0} className="w-12 rounded border border-slate-300 px-1.5 py-1 text-right" /></td>
+                    <td className="px-2 py-1.5 text-right font-mono tabular-nums">{isNew ? "—" : u.studentsPerShift * blocks.length * days.length}</td>
                     <td className="px-2 py-1.5 whitespace-nowrap">
-                      {isNew ? (
-                        <form id={fid} action={createClinicalUnit.bind(null, e.id)}><button className="rounded bg-rose-600 px-2 py-1 font-medium text-white hover:bg-rose-700">+ Add unit</button></form>
-                      ) : (
-                        <span className="inline-flex items-center gap-1">
-                          <form id={fid} action={updateClinicalUnit.bind(null, u.id, e.id)}><input type="hidden" name="status" value={u.status} /><button className="rounded bg-slate-800 px-2 py-1 font-medium text-white hover:bg-slate-700">Save</button></form>
-                          <form action={deleteClinicalUnit.bind(null, u.id, e.id)}><button className="rounded px-1.5 py-1 text-slate-300 hover:text-rose-600" title="delete unit">✕</button></form>
-                        </span>
+                      {isNew ? <form id={fid} action={createClinicalUnit.bind(null, e.id)}><button className="rounded bg-rose-600 px-2 py-1 font-medium text-white hover:bg-rose-700">+ Add</button></form> : (
+                        <span className="inline-flex items-center gap-1"><form id={fid} action={updateClinicalUnit.bind(null, u.id, e.id)}><input type="hidden" name="status" value={u.status} /><button className="rounded bg-slate-800 px-2 py-1 font-medium text-white hover:bg-slate-700">Save</button></form><form action={deleteClinicalUnit.bind(null, u.id, e.id)}><button className="rounded px-1.5 py-1 text-slate-300 hover:text-rose-600" title="delete unit">✕</button></form></span>
                       )}
                     </td>
                   </tr>
@@ -270,122 +187,50 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             </tbody>
           </table>
         </div>
-      </section>
+      </Collapse>
 
-      {/* ── Physical assets — the 365-day asset map's grain ── */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Physical assets <span className="text-sm font-normal text-slate-400">— one card per room, unit or machine, with its shift structure</span></h2>
-            <p className="text-sm text-slate-500">What it is, which days it runs, which shifts and how long each one is, and how many learners a shift takes. Every day of the year follows the structure unless a closure says otherwise.</p>
-          </div>
-          <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${new Date().getUTCFullYear() + 1}`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Download this site&apos;s workbook</a>
+      {/* 7 · Sections & placements */}
+      <Collapse title="Booked here" sub="Clinical sections on the calendar at this site, and the students placed here" summary={<>{e.meetings.length} section{e.meetings.length === 1 ? "" : "s"} · {e.placements.length} placement{e.placements.length === 1 ? "" : "s"} · {secured} secured</>}>
+        <div className="space-y-4">
+          {e.meetings.length === 0 ? <p className="text-sm text-slate-400">No clinical section is booked here yet.</p> : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {e.meetings.map((m) => (
+                    <tr key={m.id}>
+                      <td className="px-3 py-1.5"><Link href={`/programs/${m.cohort.programId}/offerings/${m.cohort.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{m.cohort.name}</Link><span className="block text-slate-400">{m.cohort.program.name}</span></td>
+                      <td className="px-3 py-1.5">{m.course.code ?? m.course.name} §{m.sectionIndex}/{m.sectionCount}</td>
+                      <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {m.lengthHours}h</td>
+                      <td className="px-3 py-1.5">{m.unit?.unitType ?? <span className="text-slate-400">—</span>}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td>
+                      <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {e.placements.length > 0 && (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Student</th><th className="px-3 py-2 font-semibold">Cohort · term</th><th className="px-3 py-2 font-semibold">Window</th><th className="px-3 py-2 font-semibold">Status</th><th className="px-3 py-2 text-right font-semibold"></th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {e.placements.map((p) => (
+                    <tr key={p.id}>
+                      <td className="px-3 py-1.5"><Link href={`/students/${p.student.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.student.name}</Link><span className="block text-slate-400">{p.student.program.name}</span></td>
+                      <td className="px-3 py-1.5 text-slate-500">{[p.cohort?.name, p.term?.name].filter(Boolean).join(" · ") || "—"}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{p.startDate || p.endDate ? `${dateFmt(p.startDate)} → ${dateFmt(p.endDate)}` : "—"}{p.modality ? ` · ${p.modality}` : ""}</td>
+                      <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PSTATUS_BADGE[p.status] ?? "bg-slate-100 text-slate-600"}`}>{p.status}</span></td>
+                      <td className="px-3 py-1.5"><div className="flex items-center justify-end gap-1">{(PLACEMENT_NEXT[p.status] ?? []).map((s) => <form key={s} action={updatePlacementStatus.bind(null, p.id, s)}><button className="rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50">→ {s}</button></form>)}<form action={deletePlacement.bind(null, p.id)}><button className="rounded px-1.5 py-0.5 text-[11px] text-slate-300 hover:text-rose-600" title="remove placement">✕</button></form></div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        <AssetBuilder
-          employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={new Date().getUTCFullYear() + 1}
-          assets={e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }))}
-          overrides={e.assetOverrides}
-          settings={SETTING_PRESETS.map(([code, name, assetType]) => ({ code, name, assetType }))}
-        />
-      </section>
-
-      {/* ── Accreditor recognition of this setting (JRCERT Form 1010R) ── */}
-      {accreditorReports.map((r) => (
-        <section key={r.family.id} id="accreditor" className="space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">{r.family.accreditor ?? "JRCERT"} clinical capacity — {r.family.name} <span className="text-sm font-normal text-slate-400">— Form 1010R, from this site&apos;s assets and record</span></h2>
-            <p className="text-sm text-slate-500">Capacity is the lower of the physical resources counted from the assets below (radiographic + R&amp;F rooms, mobile + C-arm units) and the qualified radiographers scheduled while students are on site. Keep the approved number current; auto-assign never places more sections here at once than the accreditor approved. <Link href={`/families/${r.family.id}/clinical`} className="text-rose-600 hover:underline">All sites for {r.family.name} →</Link></p>
-          </div>
-          <AccreditorCapacity report={r} mode="site" />
-        </section>
-      ))}
-
-      {/* ── Sections hosted here ── */}
-      <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Clinical sections hosted here <span className="text-sm font-normal text-slate-400">— weekly bookings assigned to this site</span></h2>
-        {e.meetings.length === 0 ? (
-          <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">Nothing assigned yet — assign sections under Insights → Clinical sites → Assign sections.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="min-w-full text-xs">
-              <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {e.meetings.map((m) => (
-                  <tr key={m.id}>
-                    <td className="px-3 py-1.5"><Link href={`/programs/${m.cohort.programId}/offerings/${m.cohort.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{m.cohort.name}</Link><span className="block text-slate-400">{m.cohort.program.name}</span></td>
-                    <td className="px-3 py-1.5">{m.course.code ?? m.course.name} §{m.sectionIndex}/{m.sectionCount}</td>
-                    <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {m.lengthHours}h</td>
-                    <td className="px-3 py-1.5">{m.unit?.unitType ?? <span className="text-amber-600">unit not set</span>}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td>
-                    <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* Partner alignment intake */}
-      <Link href={`/employers/${e.id}/alignment`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">Partner alignment intake ↦</div>
-          <div className="text-xs text-slate-500">what this partner actually wants from hosting · hosting constraints · real capacities → hostable WBL modes</div>
-        </div>
-        <span className="text-rose-600">→</span>
-      </Link>
-
-      {/* Placements hosted here */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Placements <span className="text-sm font-normal text-slate-400">— students hosted here</span></h2>
-          <span className="text-xs text-slate-400">{e.placements.length} total · {secured} secured</span>
-        </div>
-        {e.placements.length === 0 ? (
-          <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No placements yet. Assign a student from their profile&apos;s WBL placement section.</p>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
-            <table className="min-w-full border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-2 text-left font-semibold">Student</th>
-                  <th className="px-3 py-2 text-left font-semibold">Cohort / term</th>
-                  <th className="px-3 py-2 text-left font-semibold">Window</th>
-                  <th className="px-3 py-2 text-left font-semibold">Modality</th>
-                  <th className="px-3 py-2 text-left font-semibold">Status</th>
-                  <th className="px-3 py-2 text-right font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {e.placements.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/60">
-                    <td className="px-3 py-2">
-                      <Link href={`/students/${p.student.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.student.name}</Link>
-                      <span className="block text-[11px] text-slate-400">{p.student.program.name}</span>
-                    </td>
-                    <td className="px-3 py-2 text-slate-500">{[p.cohort?.name, p.term?.name].filter(Boolean).join(" · ") || "—"}</td>
-                    <td className="px-3 py-2 text-slate-500">{p.startDate || p.endDate ? `${dateFmt(p.startDate)} → ${dateFmt(p.endDate)}` : "—"}{p.hoursPerWeek ? ` · ${p.hoursPerWeek}h/wk` : ""}</td>
-                    <td className="px-3 py-2 text-slate-500">{p.modality ?? "—"}</td>
-                    <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${PSTATUS_BADGE[p.status] ?? "bg-slate-100 text-slate-600"}`}>{p.status}</span></td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-end gap-1">
-                        {(PLACEMENT_NEXT[p.status] ?? []).map((s) => (
-                          <form key={s} action={updatePlacementStatus.bind(null, p.id, s)}>
-                            <button className="rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-600 hover:bg-slate-50">→ {s}</button>
-                          </form>
-                        ))}
-                        <form action={deletePlacement.bind(null, p.id)}>
-                          <button className="rounded px-1.5 py-0.5 text-[11px] text-slate-300 hover:text-rose-600" title="remove placement">✕</button>
-                        </form>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      </Collapse>
     </div>
   );
 }
@@ -393,8 +238,8 @@ export default async function EmployerPage({ params }: { params: { id: string } 
 function Field({ name, label, defaultValue, type = "text", required }: { name: string; label: string; defaultValue?: string | null; type?: string; required?: boolean }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
-      <input name={name} type={type} required={required} defaultValue={defaultValue ?? ""} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+      <span className={lbl}>{label}</span>
+      <input name={name} type={type} required={required} defaultValue={defaultValue ?? ""} className={inp} />
     </label>
   );
 }

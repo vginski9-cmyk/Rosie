@@ -39,12 +39,14 @@ const n2 = (n: number) => dec(n);
 
 export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Courses are closed by default: one row each; open one to edit its catalog fields and sessions.
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [showSeq, setShowSeq] = useState(false);
   const pid = programId;
-  const toggleTerm = (id: string) => setCollapsed((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const allCollapsed = terms.length > 0 && terms.every((t) => collapsed.has(t.id));
-  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(terms.map((t) => t.id)));
+  const allCourseIds = terms.flatMap((t) => t.courses.map((c) => c.id));
+  const toggleCourse = (id: string) => setOpen((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allOpen = allCourseIds.length > 0 && allCourseIds.every((id) => open.has(id));
+  const toggleAllCourses = () => setOpen(allOpen ? new Set() : new Set(allCourseIds));
 
   // Sequencer inputs (drag-drop), built from the same template.
   const seqTerms: SeqTerm[] = terms.map((t) => ({ id: t.id, name: t.name, courseCount: t.courses.length }));
@@ -104,133 +106,66 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
   const shTotal = calc.sectionHrs.CLASS + calc.sectionHrs.LAB + calc.sectionHrs.CLINICAL;
 
   return (
-    <div className="space-y-6">
-      {/* Enrollment driver + program tally */}
-      <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-rose-50/60 to-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-6">
-          <div>
-            <div className="text-sm font-semibold text-slate-700">Planned cohort enrollment</div>
-            <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500">
-              Pure planning — drag to see how the delivery footprint scales. Sections = ROUNDUP(enrollment ÷ capacity).
-              No instructors or students here; that&apos;s a scheduled offering.
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-56 accent-rose-600" />
-            <div className="text-right">
-              <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-right text-2xl font-semibold" />
-              <div className="text-[11px] uppercase tracking-wide text-slate-400">students enrolled</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {/* Per student (one seat) */}
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Hours a single student attends (whole program)</div>
-            <div className="mt-2 grid grid-cols-4 gap-2 text-center">
-              <Hr label="Class" v={calc.perStudent.CLASS} dot="bg-sky-500" />
-              <Hr label="Lab" v={calc.perStudent.LAB} dot="bg-violet-500" />
-              <Hr label="Clinical" v={calc.perStudent.CLINICAL} dot="bg-rose-500" />
-              <Hr label="Total" v={psTotal} bold />
-            </div>
-          </div>
-          {/* Across all sections at N */}
-          <div className="rounded-xl border border-rose-200 bg-white p-4 ring-1 ring-rose-100">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-rose-600">Delivery footprint across all sections @ {n0(enrollment)} students</div>
-            <div className="mt-2 grid grid-cols-4 gap-2 text-center">
-              <Hr label={`Class · ${n0(calc.sections.CLASS)} sec`} v={calc.sectionHrs.CLASS} dot="bg-sky-500" />
-              <Hr label={`Lab · ${n0(calc.sections.LAB)} sec`} v={calc.sectionHrs.LAB} dot="bg-violet-500" />
-              <Hr label={`Clinical · ${n0(calc.sections.CLINICAL)} sec`} v={calc.sectionHrs.CLINICAL} dot="bg-rose-500" />
-              <Hr label="Total space" v={shTotal} bold />
-            </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
-              <span>Faculty contact: <strong className="tabular-nums text-slate-700">{n1(calc.facHrs)}h</strong></span>
-              <span>Faculty FTE: <strong className="tabular-nums text-rose-700">{n2(calc.facFte)}</strong></span>
-              <span>Preceptor contact: <strong className="tabular-nums text-slate-700">{n1(calc.precHrs)}h</strong></span>
-              <span>Preceptor FTE: <strong className="tabular-nums text-rose-700">{n2(calc.precFte)}</strong></span>
-            </div>
-          </div>
-        </div>
+    <div className="space-y-4">
+      {/* Enrollment driver + what the design adds up to, one row */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <label className="flex items-center gap-3 text-sm">
+          <span className="font-semibold text-slate-700">Planned enrollment</span>
+          <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
+          <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
+        </label>
+        <span className="text-xs text-slate-500">Per student: <strong className="text-slate-800">{n1(psTotal)} h</strong> ({n1(calc.perStudent.CLASS)} class · {n1(calc.perStudent.LAB)} lab · {n1(calc.perStudent.CLINICAL)} clinical)</span>
+        <span className="text-xs text-slate-500">At {n0(enrollment)}: <strong className="text-slate-800">{n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} sections</strong> · {n0(shTotal)} space h · faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong></span>
       </div>
 
-      {/* Clinical analytics — settings, modes, shifts, days; top line and per course */}
-      <ClinicalAnalytics subject={programName ? `${programName} (template)` : "this template"} courses={analyticsCourses} enrollment={enrollment} />
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Clinical analytics <span className="font-normal text-slate-400">— settings, modes, shifts and days across the sequence</span></summary>
+        <div className="border-t border-slate-100 p-3"><ClinicalAnalytics subject={programName ? `${programName} (template)` : "this template"} courses={analyticsCourses} enrollment={enrollment} /></div>
+      </details>
 
-      {/* Workload assumption helpers (capacity model columns AH–AN) */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-sm font-semibold text-slate-700">Workload assumption helpers (columns AH–AN)</h3>
-          <span className="text-[11px] text-slate-400">The divisors behind the semesterly &amp; weekly conversions — every green formula column below divides by these cells</span>
-        </div>
-        <form action={updateWorkloadAssumptions.bind(null, programId)} className="grid gap-4 lg:grid-cols-2">
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Workload assumptions <span className="font-normal text-slate-400">— a full-time faculty or preceptor week, the divisors behind every FTE</span></summary>
+        <form action={updateWorkloadAssumptions.bind(null, programId)} className="grid gap-4 border-t border-slate-100 p-4 lg:grid-cols-2">
           {([
-            { title: "Faculty Workload Assumptions", fx: "columns AA & AB divide by AM2 / AI2", pre: false },
-            { title: "Preceptor Workload Assumptions", fx: "columns AD & AE divide by AM5 / AN5", pre: true },
-          ] as const).map(({ title, fx, pre }) => {
+            { title: "Faculty", pre: false },
+            { title: "Preceptors", pre: true },
+          ] as const).map(({ title, pre }) => {
             const d = deriveAssumptions(assumptions);
-            const who = pre ? "preceptor" : "faculty";
             const contact = pre ? assumptions.preContactHours : assumptions.facContactHours;
             const week = pre ? assumptions.preWorkWeekHours : assumptions.facWorkWeekHours;
             const tw = pre ? assumptions.preTermWeeks : assumptions.facTermWeeks;
             const conv = pre ? d.preConversion : d.facConversion;
             const sem = pre ? d.preSemesterHours : d.facSemesterHours;
-            const wk = pre ? d.preWeeklyHours : d.facWeeklyHours;
             return (
               <div key={title} className="rounded-lg border border-slate-200 p-3">
-                <div className="mb-2 text-xs font-semibold text-slate-600">{title} <span className="ml-1 font-mono text-[10px] font-normal text-emerald-700">{fx}</span></div>
+                <div className="mb-2 text-xs font-semibold text-slate-600">{title}</div>
                 <div className="grid grid-cols-3 gap-2 text-[11px]">
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Full time {who} {pre ? "contact hours" : "student contact hours"}</span>
-                    <input name={pre ? "preContactHours" : "facContactHours"} type="number" step="any" defaultValue={contact} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Number of hours in work week</span>
-                    <input name={pre ? "preWorkWeekHours" : "facWorkWeekHours"} type="number" step="any" defaultValue={week} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Full Time {pre ? "Preceptor" : "Faculty"} Contact Hour Conversion</span>
-                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AJ5/AI5" : "=AJ2/AI2"}>{n2(conv)}</span>
-                  </label>
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Number of weeks in Term</span>
-                    <input name={pre ? "preTermWeeks" : "facTermWeeks"} type="number" step="any" defaultValue={tw} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Total Semesterly {pre ? "Preceptor" : "Faculty"} Contact Hours</span>
-                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AL5×AI5" : "=AL2×AI2"}>{n0(sem)}</span>
-                  </label>
-                  <label className="block">
-                    <span className="mb-0.5 block leading-tight text-slate-500">Weekly {pre ? "Preceptor" : "Faculty"} Contact Hours</span>
-                    <span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900" title={pre ? "=AI5" : "=AI2"}>{n0(wk)}</span>
-                  </label>
+                  <label className="block"><span className="mb-0.5 block leading-tight text-slate-500">Full-time contact hours / week</span><input name={pre ? "preContactHours" : "facContactHours"} type="number" step="any" defaultValue={contact} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" /></label>
+                  <label className="block"><span className="mb-0.5 block leading-tight text-slate-500">Work week hours</span><input name={pre ? "preWorkWeekHours" : "facWorkWeekHours"} type="number" step="any" defaultValue={week} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" /></label>
+                  <label className="block"><span className="mb-0.5 block leading-tight text-slate-500">Weeks in a term</span><input name={pre ? "preTermWeeks" : "facTermWeeks"} type="number" step="any" defaultValue={tw} className="w-full rounded border border-blue-200 bg-blue-50/70 px-1.5 py-1 text-right font-mono text-blue-900" /></label>
+                  <span className="block"><span className="mb-0.5 block leading-tight text-slate-500">Work hours per contact hour</span><span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900">{n2(conv)}</span></span>
+                  <span className="block col-span-2"><span className="mb-0.5 block leading-tight text-slate-500">Contact hours in a full-time term</span><span className="block rounded border border-emerald-200 bg-emerald-50 px-1.5 py-1 text-right font-mono text-emerald-900">{n0(sem)}</span></span>
                 </div>
               </div>
             );
           })}
-          <div className="lg:col-span-2">
-            <button className="btn-primary py-1 text-xs">Save assumptions</button>
-            <span className="ml-2 text-[11px] text-slate-400">Saving recomputes every offering, calendar, and insight that reads this template.</span>
-          </div>
+          <div className="lg:col-span-2"><button className="btn-primary py-1 text-xs">Save assumptions</button></div>
         </form>
-      </div>
+      </details>
 
-      {/* Bring in a schedule someone already keeps in a spreadsheet */}
       <SheetImport mode="template" programId={pid} />
 
-      {/* Sticky jump-nav: terms, collapse, re-sequence, add term */}
+      {/* Sticky jump-nav: terms, expand, re-sequence, add term */}
       <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
         {terms.map((t) => (
           <a key={t.id} href={`#term-${t.index}`} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">{t.name}{t.semester ? <span className="ml-1 text-slate-400">· {t.semester}</span> : null}</a>
         ))}
         <span className="flex-1" />
         <button onClick={() => setShowSeq((v) => !v)} className={`rounded-lg px-2.5 py-1 text-xs font-medium ${showSeq ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>⇄ Re-sequence</button>
-        <button onClick={toggleAll} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200">{allCollapsed ? "Expand all" : "Collapse all"}</button>
+        <button onClick={toggleAllCourses} className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200">{allOpen ? "Collapse every course" : "Expand every course"}</button>
         <form action={addTerm.bind(null, pid)}><button className="rounded-lg bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-700">+ Add term</button></form>
       </div>
 
-      {/* Drag & drop sequencing, in place */}
       {showSeq && (
         <div className="rounded-xl border border-rose-200 bg-rose-50/30 p-4">
           <div className="mb-2 text-sm font-semibold text-slate-700">Re-sequence courses across terms (drag &amp; drop)</div>
@@ -240,119 +175,121 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
 
       {terms.map((term) => {
         const th = calc.termStudentHrs.get(term.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
-        const isCollapsed = collapsed.has(term.id);
         return (
-          <div key={term.id} id={`term-${term.index}`} className="card card-pad space-y-4 scroll-mt-16">
-            {/* Term header — name + weeks (extend / compress) */}
-            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-100 pb-3">
-              <div className="flex items-end gap-2">
-                <button onClick={() => toggleTerm(term.id)} className="pb-1 text-slate-400 hover:text-slate-700" title={isCollapsed ? "expand" : "collapse"}>{isCollapsed ? "▸" : "▾"}</button>
-                <form action={updateTerm.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2">
-                  <Field label="Term name"><input name="name" defaultValue={term.name} className="inp w-48" /></Field>
-                  <Field label="Semester"><select name="semester" defaultValue={term.semester ?? ""} className="inp w-28"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option></select></Field>
-                  <Field label="Starts in program week"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-20" /></Field>
-                  <Field label="Ends in program week"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-20" /></Field>
-                  <button className="btn-ghost py-1 text-xs">Save term</button>
-                  <span className="pb-1 text-[11px] text-slate-400">{(term.endWeek ?? 0) - (term.startWeek ?? 0) + 1} wks · {term.courses.length} courses · per student {n1(th.CLASS)}h class / {n1(th.LAB)}h lab / {n1(th.CLINICAL)}h clinical</span>
-                </form>
+          <div key={term.id} id={`term-${term.index}`} className="card scroll-mt-16">
+            {/* Term header */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+              <div>
+                <div className="text-base font-semibold text-slate-900">{term.name}{term.semester ? <span className="ml-2 text-sm font-normal text-slate-500">{term.semester}</span> : null}</div>
+                <div className="text-[11px] text-slate-500">weeks {term.startWeek ?? "?"}–{term.endWeek ?? "?"} · {term.courses.length} courses · per student {n1(th.CLASS)} h class · {n1(th.LAB)} h lab · {n1(th.CLINICAL)} h clinical</div>
               </div>
-              <form action={deleteTerm.bind(null, term.id, pid)}><button className="text-xs text-slate-400 hover:text-rose-600">Delete term</button></form>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-slate-500 hover:text-rose-700">edit term</summary>
+                <form action={updateTerm.bind(null, term.id, pid)} className="mt-2 flex flex-wrap items-end gap-2">
+                  <Field label="Name"><input name="name" defaultValue={term.name} className="inp w-40" /></Field>
+                  <Field label="Semester"><select name="semester" defaultValue={term.semester ?? ""} className="inp w-24"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option></select></Field>
+                  <Field label="Starts week"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-16" /></Field>
+                  <Field label="Ends week"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-16" /></Field>
+                  <button className="btn-ghost py-1 text-xs">Save</button>
+                  <button formAction={deleteTerm.bind(null, term.id, pid)} className="text-xs text-slate-400 hover:text-rose-600">Delete term</button>
+                </form>
+              </details>
             </div>
 
-            {!isCollapsed && term.courses.map((course) => {
-              const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
-              return (
-                <div key={course.id} className="rounded-lg border border-slate-200 p-3">
-                  {/* Course catalog — open, single grid */}
-                  <form action={updateCourse.bind(null, course.id, pid)} className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                    <Field label="Course code"><input name="code" defaultValue={course.code ?? ""} className="inp w-full" /></Field>
-                    <Field label="Course title"><input name="name" defaultValue={course.name} className="inp w-full" /></Field>
-                    <Field label="Credit hours"><input name="creditHours" type="number" step="any" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
-                    <Field label="Semester(s) offered"><select name="semesterOffered" defaultValue={course.semesterOffered ?? ""} className="inp w-full"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option><option value="Fall, Spring">Fall, Spring</option><option value="All">All</option></select></Field>
-                    <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="any" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
-                    <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="any" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
-                    <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="any" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
-                    <Field label="Course type"><select name="courseType" defaultValue={course.courseType ?? ""} className="inp w-full"><option value="">—</option><option value="CORE">Core</option><option value="GENED">General education</option><option value="SUPPORT">Support</option></select></Field>
-                    <Field label="Description"><input name="description" defaultValue={course.description ?? ""} className="inp w-full" /></Field>
-                    <Field label="Prerequisites / co-requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full lg:col-span-2" /></Field>
-                    <div className="flex items-center gap-3">
-                      <button className="btn-primary py-1 text-xs">Save course</button>
-                      <Link href={`/courses/${course.id}`} className="text-xs text-rose-600 hover:underline">open ↦</Link>
+            <div className="divide-y divide-slate-100">
+              {term.courses.map((course) => {
+                const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
+                const fp = calc.courseFootprint.get(course.id) ?? { sec: { CLASS: 0, LAB: 0, CLINICAL: 0 }, space: { CLASS: 0, LAB: 0, CLINICAL: 0 }, facFte: 0, precFte: 0 };
+                const isOpen = open.has(course.id);
+                const cc = courseClinical(course);
+                const n = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<Kind, number>; for (const s of course.sessions) n[s.kind]++;
+                return (
+                  <div key={course.id} className={isOpen ? "bg-slate-50/40" : ""}>
+                    {/* One row per course, closed */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
+                      <button onClick={() => toggleCourse(course.id)} className="w-4 text-slate-400 hover:text-slate-700" title={isOpen ? "collapse" : "open the sessions"}>{isOpen ? "▾" : "▸"}</button>
+                      <button onClick={() => toggleCourse(course.id)} className="text-left font-medium text-slate-800 hover:text-rose-700"><span className="text-slate-400">{course.code ?? ""}</span> {course.name}</button>
+                      <span className="text-xs text-slate-500">{course.creditHours != null ? `${n1(course.creditHours)} cr · ` : ""}{n1(course.weeklyClassHours)}/{n1(course.weeklyLabHours)}/{n1(course.weeklyClinicalHours)} h/wk</span>
+                      <span className="flex gap-1 text-[10px]">
+                        {n.CLASS > 0 && <span className="rounded bg-sky-100 px-1 text-sky-700">{n.CLASS} class</span>}
+                        {n.LAB > 0 && <span className="rounded bg-violet-100 px-1 text-violet-700">{n.LAB} lab</span>}
+                        {n.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{n.CLINICAL} clinical</span>}
+                        {n.CLASS + n.LAB + n.CLINICAL === 0 && <span className="rounded bg-amber-50 px-1 text-amber-700">no sessions yet</span>}
+                      </span>
+                      {cc.n > 0 && <span className="flex flex-wrap gap-1 text-[10px]">{cc.settings.map(([k, h]) => <span key={k} className={`rounded border px-1 ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{k} {n1(h)}h</span>)}</span>}
+                      <span className="ml-auto text-[11px] tabular-nums text-slate-500">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h / student · {n0(fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL)} sections · fac <strong className="text-rose-700">{n2(fp.facFte)}</strong>{fp.precFte > 0 ? <> · prec <strong className="text-rose-700">{n2(fp.precFte)}</strong></> : null} FTE</span>
+                      <Link href={`/courses/${course.id}`} className="text-[11px] text-rose-600 hover:underline">open ↦</Link>
                     </div>
-                  </form>
-                  {/* Per-course tallies — per student + delivery footprint @ N, live */}
-                  {(() => {
-                    const fp = calc.courseFootprint.get(course.id) ?? { sec: { CLASS: 0, LAB: 0, CLINICAL: 0 }, space: { CLASS: 0, LAB: 0, CLINICAL: 0 }, facFte: 0, precFte: 0 };
-                    const psTot = ch.CLASS + ch.LAB + ch.CLINICAL;
-                    const secTot = fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL;
-                    const spTot = fp.space.CLASS + fp.space.LAB + fp.space.CLINICAL;
-                    return (
-                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-[11px]">
-                        <span className="font-semibold uppercase tracking-wide text-slate-400">Per student</span>
-                        <Pill dot="bg-sky-500" t={`${n1(ch.CLASS)}h class`} />
-                        <Pill dot="bg-violet-500" t={`${n1(ch.LAB)}h lab`} />
-                        <Pill dot="bg-rose-500" t={`${n1(ch.CLINICAL)}h clinical`} />
-                        <span className="font-semibold text-slate-700">{n1(psTot)}h total</span>
-                        <span className="mx-1 text-slate-300">|</span>
-                        <span className="font-semibold uppercase tracking-wide text-rose-500">@ {n0(enrollment)}</span>
-                        <span className="text-slate-600">{n0(secTot)} sections ({n0(fp.sec.CLASS)}/{n0(fp.sec.LAB)}/{n0(fp.sec.CLINICAL)})</span>
-                        <span className="text-slate-600">{n0(spTot)} space hrs</span>
-                        <span className="text-slate-600">fac <strong className="text-rose-700">{n2(fp.facFte)}</strong> FTE</span>
-                        {fp.precFte > 0 && <span className="text-slate-600">prec <strong className="text-rose-700">{n2(fp.precFte)}</strong> FTE</span>}
-                        {(() => { const cc = courseClinical(course); if (!cc.n) return null; return (
-                          <span className="flex basis-full flex-wrap items-center gap-1 pt-1">
+
+                    {isOpen && (
+                      <div className="space-y-3 px-4 pb-4">
+                        <form action={updateCourse.bind(null, course.id, pid)} className="grid items-end gap-2 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-5">
+                          <Field label="Code"><input name="code" defaultValue={course.code ?? ""} className="inp w-full" /></Field>
+                          <Field label="Title"><input name="name" defaultValue={course.name} className="inp w-full lg:col-span-2" /></Field>
+                          <Field label="Credit hours"><input name="creditHours" type="number" step="any" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
+                          <Field label="Type"><select name="courseType" defaultValue={course.courseType ?? ""} className="inp w-full"><option value="">—</option><option value="CORE">Core</option><option value="GENED">General education</option><option value="SUPPORT">Support</option></select></Field>
+                          <Field label="Offered"><select name="semesterOffered" defaultValue={course.semesterOffered ?? ""} className="inp w-full"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option><option value="Fall, Spring">Fall, Spring</option><option value="All">All</option></select></Field>
+                          <Field label="Class h / wk"><input name="weeklyClassHours" type="number" step="any" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
+                          <Field label="Lab h / wk"><input name="weeklyLabHours" type="number" step="any" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
+                          <Field label="Clinical h / wk"><input name="weeklyClinicalHours" type="number" step="any" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
+                          <Field label="Prerequisites / co-requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full" /></Field>
+                          <Field label="Description"><input name="description" defaultValue={course.description ?? ""} className="inp w-full lg:col-span-3" /></Field>
+                          <div className="flex items-center gap-3 lg:col-span-2">
+                            <button className="btn-primary py-1 text-xs">Save course</button>
+                            <button formAction={deleteCourse.bind(null, course.id, pid)} className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button>
+                          </div>
+                        </form>
+                        {cc.n > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 text-[11px]">
                             <span className="font-semibold uppercase tracking-wide text-rose-500">Clinical</span>
-                            <span className="text-slate-500">settings:</span>{cc.settings.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{k} {n1(h)}h</span>)}
-                            <span className="ml-1 text-slate-500">modes:</span>{cc.modes.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-violet-200 bg-violet-50 text-violet-800"}`}>{k} {n1(h)}h</span>)}
+                            <span className="text-slate-500">modes:</span>{cc.modes.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-violet-200 bg-violet-50 text-violet-800"}`}>{k} {n1(h)}h</span>)}
                             <span className="ml-1 text-slate-500">shifts:</span>{cc.shifts.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>{k} {n1(h)}h</span>)}
                             <span className="ml-1 text-slate-500">days:</span>{cc.days.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{k} {n1(h)}h</span>)}
-                          </span>
-                        ); })()}
-                        <span className="flex-1" />
-                        <form action={deleteCourse.bind(null, course.id, pid)}><button className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button></form>
+                          </div>
+                        )}
+                        <SessionSheet
+                          programId={pid}
+                          courseId={course.id}
+                          courseCode={course.code}
+                          courseTitle={course.name}
+                          termNumber={term.index}
+                          semester={term.name}
+                          sessions={course.sessions.map((s) => ({
+                            id: s.id, kind: s.kind, number: s.number, title: s.title,
+                            deliveryMode: s.deliveryMode, location: s.location,
+                            lengthHours: s.lengthHours, maxStudents: s.maxStudents,
+                            facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
+                            supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
+                            week: s.week, dayOfWeek: s.dayOfWeek, notes: s.notes,
+                            preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
+                            rotationType: s.rotationType, clinicalMode: s.clinicalMode,
+                            startTime: s.startTime,
+                          }))}
+                          enrollment={enrollment}
+                          assumptions={assumptions}
+                          allSessions={allSessions}
+                        />
                       </div>
-                    );
-                  })()}
-
-                  {/* The Raw Data & Calculations session table for this course */}
-                  <SessionSheet
-                    programId={pid}
-                    courseId={course.id}
-                    courseCode={course.code}
-                    courseTitle={course.name}
-                    termNumber={term.index}
-                    semester={term.name}
-                    sessions={course.sessions.map((s) => ({
-                      id: s.id, kind: s.kind, number: s.number, title: s.title,
-                      deliveryMode: s.deliveryMode, location: s.location,
-                      lengthHours: s.lengthHours, maxStudents: s.maxStudents,
-                      facultyNeeded: s.facultyNeeded, facultyContactPolicy: s.facultyContactPolicy,
-                      supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
-                      week: s.week, dayOfWeek: s.dayOfWeek, notes: s.notes,
-                      preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
-                      rotationType: s.rotationType, clinicalMode: s.clinicalMode,
-                      startTime: s.startTime,
-                    }))}
-                    enrollment={enrollment}
-                    assumptions={assumptions}
-                    allSessions={allSessions}
-                  />
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })}
+              {term.courses.length === 0 && <p className="px-4 py-3 text-xs text-slate-400">No courses yet.</p>}
+            </div>
 
             {/* Add course */}
-            {!isCollapsed && (
-              <form action={addCourse.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
-                <Field label="Course code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
-                <Field label="Course title"><input name="name" required placeholder="Course title" className="inp w-56" /></Field>
-                <Field label="Credit hours"><input name="creditHours" type="number" step="any" className="inp w-16" /></Field>
-                <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
-                <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
-                <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
+            <details className="border-t border-slate-100 px-4 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-rose-600">+ Add a course to {term.name}</summary>
+              <form action={addCourse.bind(null, term.id, pid)} className="mt-2 flex flex-wrap items-end gap-2">
+                <Field label="Code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
+                <Field label="Title"><input name="name" required placeholder="Course title" className="inp w-56" /></Field>
+                <Field label="Credits"><input name="creditHours" type="number" step="any" className="inp w-16" /></Field>
+                <Field label="Class h / wk"><input name="weeklyClassHours" type="number" step="any" defaultValue="0" className="inp w-20" /></Field>
+                <Field label="Lab h / wk"><input name="weeklyLabHours" type="number" step="any" defaultValue="0" className="inp w-20" /></Field>
+                <Field label="Clinical h / wk"><input name="weeklyClinicalHours" type="number" step="any" defaultValue="0" className="inp w-20" /></Field>
                 <button className="btn-primary py-1 text-xs">+ Add course</button>
               </form>
-            )}
+            </details>
           </div>
         );
       })}
@@ -361,17 +298,6 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
   );
 }
 
-function Hr({ label, v, dot, bold }: { label: string; v: number; dot?: string; bold?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className={`break-all font-${bold ? "extrabold" : "semibold"} tabular-nums leading-tight ${bold ? "text-slate-900" : "text-slate-800"} ${n0(v).length > 9 ? "text-base" : n0(v).length > 6 ? "text-xl" : "text-2xl"}`}>{n0(v)}</div>
-      <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400">{dot && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />}{label}</div>
-    </div>
-  );
-}
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">{label}</span>{children}</label>;
-}
-function Pill({ dot, t }: { dot: string; t: string }) {
-  return <span className="inline-flex items-center gap-1 text-slate-600"><span className={`h-1.5 w-1.5 rounded-full ${dot}`} />{t}</span>;
 }

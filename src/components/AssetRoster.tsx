@@ -65,7 +65,7 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
 
       {/* Add rooms */}
       <div className="flex flex-wrap items-end gap-2 rounded-lg border border-rose-200 bg-rose-50/40 p-3 text-xs">
-        <div className="basis-full text-sm font-semibold text-slate-800">Add rooms, units or machines {programName} students can be placed on</div>
+        <div className="basis-full text-sm font-semibold text-slate-800">Add rooms, units or machines{programName ? ` ${programName} students can be placed on` : ""}</div>
         <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Setting</span>
           <select value={add.settingCode} onChange={(e) => { const s = settings.find((x) => x.code === e.target.value); setAdd({ ...add, settingCode: e.target.value, assetType: s?.assetType ?? add.assetType }); }} className={inp + " py-1"}>{settings.map((s) => <option key={s.code} value={s.code}>{s.code} · {s.name}</option>)}</select></label>
         <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">What it is</span><input value={add.assetType} onChange={(e) => setAdd({ ...add, assetType: e.target.value })} placeholder="e.g. OR suite, R&F room" className={inp + " w-40 py-1"} /></label>
@@ -79,7 +79,7 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
       </div>
 
       {/* The roster */}
-      {live.length === 0 ? <p className="text-sm text-slate-400">No {programName} assets at {siteName} yet — add the first ones above.</p> : (
+      {live.length === 0 ? <p className="text-sm text-slate-400">No {programName ? `${programName} ` : ""}assets at {siteName} yet — add the first ones above.</p> : (
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-1.5 text-left">#</th><th className="px-2 py-1.5 text-left">What it is</th><th className="px-2 py-1.5 text-left">Days it runs</th>{BLOCKS.map((b) => <th key={b} className="px-2 py-1.5 text-left whitespace-nowrap">{b} · start · hrs</th>)}<th className="px-2 py-1.5 text-right">Learners</th><th className="px-2 py-1.5 text-right">Preceptors</th><th className="px-2 py-1.5 text-left">Source</th><th className="px-2 py-1.5 text-right whitespace-nowrap">Wk learner-shifts</th><th className="px-2 py-1.5"></th></tr></thead>
@@ -111,7 +111,7 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
           </table>
         </div>
       )}
-      <p className="text-[11px] text-slate-400">Closures, holidays and other day-by-day exceptions for these assets are set on the <Link href={organizationHref} className="text-rose-600 hover:underline">organization record</Link>, where the calendar view lives; the year&apos;s shifts here follow the weekly structure unless an exception says otherwise.</p>
+      <p className="text-[11px] text-slate-400">Closures and other day-by-day exceptions are set on the <Link href={organizationHref} className="text-rose-600 hover:underline">organization record</Link>.</p>
     </div>
   );
 }
