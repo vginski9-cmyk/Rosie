@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createEmployer } from "@/lib/actions";
 
-export interface WblPeriod { year: number; season: string; asked: number; secured: number }
+export interface HostPeriod { year: number; season: string; sections: number; students: number }
 export interface DirEmployer {
   id: string;
   name: string;
@@ -15,7 +15,8 @@ export interface DirEmployer {
   contactName: string | null;
   institution: { id: string; name: string };
   _count: { people: number; units?: number; meetings?: number };
-  wbl: { asked: number; secured: number; periods: WblPeriod[] };
+  /** What the site hosts on the calendar: clinical sections and the students in them, by semester and by program family, plus family agreements. */
+  hosting: { sections: number; students: number; periods: HostPeriod[]; families: { family: string; sections: number; students: number }[]; agreements: { family: string; status: string }[] };
   // clinical asset map
   organization?: string | null; facilityType?: string | null; county?: string | null; ring?: string | null;
   licensedBeds?: number | null; nursingHomeBeds?: number | null; adultCareBeds?: number | null; operatingRooms?: number | null;
@@ -49,21 +50,26 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
 
   const years = useMemo(() => {
     const s = new Set<number>();
-    for (const e of employers) for (const p of e.wbl.periods) s.add(p.year);
+    for (const e of employers) for (const p of e.hosting.periods) s.add(p.year);
     return [...s].sort((a, b) => b - a);
   }, [employers]);
 
   const periodActive = fYear !== "" || fSeason !== "";
-  // Asked / secured for an employer scoped to the selected period (or all-time).
-  const scoped = (e: DirEmployer): { asked: number; secured: number } => {
-    if (!periodActive) return { asked: e.wbl.asked, secured: e.wbl.secured };
-    let asked = 0, secured = 0;
-    for (const p of e.wbl.periods) {
+  // Sections / students hosted by a site, scoped to the selected semester (or all-time).
+  const scoped = (e: DirEmployer): { sections: number; students: number } => {
+    if (!periodActive) return { sections: e.hosting.sections, students: e.hosting.students };
+    let sections = 0, students = 0;
+    for (const p of e.hosting.periods) {
       if (fYear && String(p.year) !== fYear) continue;
       if (fSeason && p.season !== fSeason) continue;
-      asked += p.asked; secured += p.secured;
+      sections += p.sections; students += p.students;
     }
-    return { asked, secured };
+    return { sections, students };
+  };
+  const bestAgreement = (e: DirEmployer): string => {
+    const order = ["secured", "asked", "prospect", "none", "declined"];
+    const all = [e.agreementStatus ?? "none", ...e.hosting.agreements.map((a) => a.status)];
+    return order.find((o) => all.includes(o)) ?? "none";
   };
 
   const filtered = useMemo(() => {
@@ -74,14 +80,14 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
       if (fCounty && e.county !== fCounty) return false;
       if (fRing && e.ring !== fRing) return false;
       if (fType && e.facilityType !== fType) return false;
-      if (fAgree && (e.agreementStatus ?? "none") !== fAgree) return false;
+      if (fAgree && bestAgreement(e) !== fAgree) return false;
       if (needle && !(e.name.toLowerCase().includes(needle) || (e.city ?? "").toLowerCase().includes(needle) || (e.address ?? "").toLowerCase().includes(needle) || (e.zip ?? "").includes(needle) || (e.setting ?? "").toLowerCase().includes(needle))) return false;
       return true;
     });
   }, [employers, q, fInst, fStatus, fCounty, fRing, fType, fAgree]);
 
-  const totals = filtered.reduce((acc, e) => { const s = scoped(e); return { asked: acc.asked + s.asked, secured: acc.secured + s.secured }; }, { asked: 0, secured: 0 });
-  const fillRate = totals.asked > 0 ? Math.round((totals.secured / totals.asked) * 100) : 0;
+  const totals = filtered.reduce((acc, e) => { const s = scoped(e); return { sections: acc.sections + s.sections, students: acc.students + s.students, hosting: acc.hosting + (s.sections ? 1 : 0), secured: acc.secured + (bestAgreement(e) === "secured" ? 1 : 0) }; }, { sections: 0, students: 0, hosting: 0, secured: 0 });
+  const unsecuredHosting = filtered.filter((e) => scoped(e).sections > 0 && bestAgreement(e) !== "secured").length;
   const periodLabel = periodActive ? `${fSeason || "all"} ${fYear || "years"}`.trim() : "all-time";
   const anyFilter = q || fInst || fStatus || periodActive || fCounty || fRing || fType || fAgree;
 
@@ -145,9 +151,11 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span><span className="font-medium text-slate-700">{filtered.length}</span> partners</span>
         <span className="text-slate-300">·</span>
-        <span>WBL rotations ({periodLabel}): <span className="font-medium text-slate-700 tabular-nums">{totals.secured}</span> secured of <span className="font-medium text-slate-700 tabular-nums">{totals.asked}</span> asked</span>
-        <span className={`rounded-full px-2 py-0.5 font-medium ${fillRate >= 90 ? "bg-emerald-100 text-emerald-700" : fillRate >= 70 ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{fillRate}% filled</span>
-        <span className="text-slate-400">slots are sourced from real placement records, not a static count</span>
+        <span>Hosting ({periodLabel}): <span className="font-medium text-slate-700 tabular-nums">{totals.sections}</span> clinical sections · <span className="font-medium text-slate-700 tabular-nums">{totals.students}</span> student placements at <span className="font-medium text-slate-700 tabular-nums">{totals.hosting}</span> sites</span>
+        <span className="text-slate-300">·</span>
+        <span><span className="font-medium text-slate-700 tabular-nums">{totals.secured}</span> with a secured agreement</span>
+        {unsecuredHosting > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">⚠ {unsecuredHosting} site{unsecuredHosting === 1 ? "" : "s"} on the calendar without a secured agreement</span>}
+        <span className="text-slate-400">placements come from the calendarized sections, not a static slot count</span>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-slate-200">
@@ -159,14 +167,15 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
               <th className="px-3 py-2 text-right font-semibold">Beds / ORs</th>
               <th className="px-3 py-2 text-left font-semibold">Units · students / shift</th>
               <th className="px-3 py-2 text-left font-semibold">Agreement</th>
-              <th className="px-3 py-2 text-center font-semibold">Rotations asked / secured</th>
+              <th className="px-3 py-2 text-left font-semibold">Hosting · sections / students</th>
               <th className="px-3 py-2 text-left font-semibold">Status</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map((e) => {
               const s = scoped(e);
-              const gap = s.asked > s.secured;
+              const agreement = bestAgreement(e);
+              const gap = s.sections > 0 && agreement !== "secured";
               return (
                 <tr key={e.id} className="hover:bg-slate-50/60">
                   <td className="px-3 py-2">
@@ -181,8 +190,15 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                     for (const u of e.units ?? []) if (u.status === "active") byCat.set(u.unitCategory, (byCat.get(u.unitCategory) ?? 0) + u.studentsPerShift);
                     return byCat.size ? [...byCat.entries()].map(([c, n]) => `${c} ${n}`).join(" · ") : <span className="text-slate-300">no units</span>;
                   })()}</td>
-                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT_BADGE[e.agreementStatus ?? "none"]}`}>{e.agreementStatus ?? "none"}</span></td>
-                  <td className={`px-3 py-2 text-center tabular-nums ${gap ? "font-semibold text-amber-600" : s.secured ? "text-emerald-600" : "text-slate-400"}`}>{s.asked || s.secured ? `${s.asked} / ${s.secured}` : "—"}</td>
+                  <td className="px-3 py-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT_BADGE[agreement]}`}>{agreement}</span>
+                    {e.hosting.agreements.length > 0 && <span className="block text-[10px] text-slate-400">{e.hosting.agreements.map((a) => `${a.family}: ${a.status}`).join(" · ")}</span>}
+                  </td>
+                  <td className={`px-3 py-2 tabular-nums ${gap ? "font-semibold text-amber-600" : s.sections ? "text-emerald-700" : "text-slate-400"}`}>
+                    {s.sections ? `${s.sections} / ${s.students}` : "—"}
+                    {s.sections > 0 && e.hosting.families.length > 0 && <span className="block text-[10px] font-normal text-slate-400">{e.hosting.families.map((f) => `${f.family} ${f.students}`).join(" · ")}</span>}
+                    {gap && <span className="block text-[10px] font-normal text-amber-600">no secured agreement</span>}
+                  </td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_BADGE[e.status] ?? "bg-slate-100 text-slate-600"}`}>{e.status}</span></td>
                 </tr>
               );

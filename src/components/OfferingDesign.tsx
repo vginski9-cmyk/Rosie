@@ -140,7 +140,7 @@ export function OfferingDesign({
     const m = new Map<string, RowState>();
     for (const t of terms) for (const c of t.courses) for (const s of c.sessions) {
       const o = ov.get(s.id);
-      const mt = meetings.find((x) => x.courseId === c.id && x.kind === s.kind);
+      const mt = meetings.find((x) => x.courseId === c.id && x.kind === s.kind && x.dayOfWeek === s.dayOfWeek) ?? meetings.find((x) => x.courseId === c.id && x.kind === s.kind);
       m.set(s.id, {
         ...s,
         title: o?.title ?? s.title,

@@ -16,7 +16,7 @@ export interface CalendarizeTerm {
   startMs: number | null;
   /** Real last day of the term (ms) — weekly bookings recur until it, not past the semester. */
   endMs?: number | null;
-  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; sectionTimes?: string | null; location?: string | null; rotationType?: string | null }[] }[];
+  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; endTime?: string | null; sectionTimes?: string | null; location?: string | null; rotationType?: string | null; deliveryMode?: string | null }[] }[];
 }
 export interface CalendarizeInput {
   cohortId: string;
@@ -54,36 +54,56 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
     const tw = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
     const endMs = t.startMs != null && t.endMs != null && t.endMs > t.startMs ? t.endMs + 24 * 3600 * 1000 : base + tw * WK_MS;
     for (const c of t.courses) {
-      // The course's weekly pattern per kind: the sheet's own day, time and room when it states them.
-      const kinds = new Map<string, { maxStudents: number; lengthHours: number; sample: (typeof c.sessions)[number] }>();
-      for (const s of c.sessions) {
-        const cur = kinds.get(s.kind);
-        // Prefer a session that states a day/time as the pattern's representative.
-        if (!cur || (!(cur.sample.dayOfWeek && (cur.sample.startTime || cur.sample.sectionTimes)) && s.dayOfWeek && (s.startTime || s.sectionTimes))) kinds.set(s.kind, { maxStudents: s.maxStudents, lengthHours: s.lengthHours, sample: s });
+      // The course's weekly pattern per kind AND weekday: a "TTh" clinical is two bookings a
+      // week, a "MWF" one three — each on the sheet's own day, time and room. Online sessions
+      // with no fixed weekday never book a room or a site (a kind that is only that has no
+      // pattern at all); a session the sheet gives a weekday and time is booked whatever its
+      // delivery code says — the contradiction is flagged in its notes, not hidden.
+      const kinds = new Map<string, { kind: string; day: string | null; maxStudents: number; lengthHours: number; sample: (typeof c.sessions)[number] }>();
+      const online = (s: (typeof c.sessions)[number]) => /online|internet/i.test(s.deliveryMode ?? "") || /^internet$/i.test(s.location ?? "");
+      const inPerson = c.sessions.filter((s) => !(online(s) && !s.dayOfWeek));
+      for (const s of inPerson) {
+        const key = `${s.kind}|${s.dayOfWeek ?? ""}`;
+        const cur = kinds.get(key);
+        // Prefer a session that states a time as the pattern's representative.
+        if (!cur || (!(cur.sample.startTime || cur.sample.sectionTimes) && (s.startTime || s.sectionTimes))) kinds.set(key, { kind: s.kind, day: s.dayOfWeek ?? null, maxStudents: s.maxStudents, lengthHours: s.lengthHours, sample: s });
       }
-      for (const [kind, info] of kinds) {
+      // A kind that has dated days drops its undated sessions (they are the same course's flex/TBA rows, not another weekly meeting).
+      for (const [key, info] of [...kinds]) if (info.day == null && [...kinds.values()].some((x) => x.kind === info.kind && x.day != null)) kinds.delete(key);
+      const siteSlotsByKind = new Map<string, string[]>();
+      for (const info of kinds.values()) {
+        const kind = info.kind;
         const cap = Math.max(1, info.maxStudents || (kind === "CLINICAL" ? 8 : 30));
         const sections = Math.max(1, Math.ceil(E / cap));
         const room = info.sample.location ? roomByName.get(normName(info.sample.location)) ?? null : null;
-        // Sites for this course's clinical: the settings its rotation types need, at sites that have them.
-        let slots: string[] = [];
-        if (kind === "CLINICAL" && input.hosts?.length) {
-          // Setting codes the course's clinical sessions need, most-used first (the primary setting).
-          const freq = new Map<string, number>();
-          for (const s of c.sessions) { if (s.kind !== "CLINICAL") continue; const code = codeOf.get((s.rotationType ?? "").trim().toLowerCase()); if (code) freq.set(code, (freq.get(code) ?? 0) + 1); }
-          const codes = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
-          slots = codes.length ? hostSlots(input.hosts, codes) : [];
-          if (!slots.length) slots = [...input.hosts].sort((a, b) => a.rank - b.rank).map((h) => h.employerId);
+        // Sites for this course's clinical: the settings its rotation types need, at sites that have them — the same site on every weekday of a section.
+        let slots = siteSlotsByKind.get(kind);
+        if (!slots) {
+          slots = [];
+          if (kind === "CLINICAL" && input.hosts?.length) {
+            // Setting codes the course's clinical sessions need, most-used first (the primary setting).
+            const freq = new Map<string, number>();
+            for (const s of c.sessions) { if (s.kind !== "CLINICAL") continue; const code = codeOf.get((s.rotationType ?? "").trim().toLowerCase()); if (code) freq.set(code, (freq.get(code) ?? 0) + 1); }
+            const codes = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+            slots = codes.length ? hostSlots(input.hosts, codes) : [];
+            if (!slots.length) slots = [...input.hosts].sort((a, b) => a.rank - b.rank).map((h) => h.employerId);
+          }
+          siteSlotsByKind.set(kind, slots);
+          siteSlots.set(`${c.id}|${kind}`, slots);
         }
-        siteSlots.set(`${c.id}|${kind}`, slots);
+        let seatStart = 1;
         for (let si = 1; si <= sections; si++) {
-          const id = `${input.cohortId}:${c.id}:${kind}:${si}`;
-          const slot = sectionSlot({ dayOfWeek: info.sample.dayOfWeek ?? null, startTime: info.sample.startTime ?? null, sectionTimes: info.sample.sectionTimes ?? null }, si);
-          const preferDay = (slot?.dayOfWeek ?? info.sample.dayOfWeek ?? undefined) as Weekday | undefined;
+          const id = `${input.cohortId}:${c.id}:${kind}:${si}:${info.day ?? "any"}`;
+          const slot = sectionSlot({ dayOfWeek: info.day, startTime: info.sample.startTime ?? null, endTime: info.sample.endTime ?? null, sectionTimes: info.sample.sectionTimes ?? null }, si);
+          const preferDay = (slot?.dayOfWeek ?? info.day ?? undefined) as Weekday | undefined;
           // Seats dealt evenly: 41 students in 4 sections are 11, 10, 10, 10 — never 44.
           const seats = Math.floor(E / sections) + (si <= E % sections ? 1 : 0);
-          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats, lengthHours: info.lengthHours || 2, weekStartMs: base, weekEndMs: endMs, preferDay, preferStartMin: slot ? toMinutes(slot.startTime) : undefined, preferFacilityId: room?.id ?? undefined });
-          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats, lengthHours: info.lengthHours || 2, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
+          // The booking occupies the window the sheet states ("8:30a-11:10a" holds the room 2h40, whatever the contact-hour count); the session's hours otherwise.
+          const span = slot?.endTime && toMinutes(slot.endTime) > toMinutes(slot.startTime) ? (toMinutes(slot.endTime) - toMinutes(slot.startTime)) / 60 : null;
+          const lengthHours = span ?? (info.lengthHours || 2);
+          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats, lengthHours, weekStartMs: base, weekEndMs: endMs, preferDay, preferStartMin: slot ? toMinutes(slot.startTime) : undefined, preferFacilityId: room?.id ?? undefined, seatStart });
+          seatStart += seats;
+          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats, lengthHours, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
         }
       }
     }

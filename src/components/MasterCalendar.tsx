@@ -200,7 +200,7 @@ export function MasterCalendar({
       {/* Summary */}
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
         <span className="rounded-full bg-slate-100 px-2 py-0.5">{new Set(campus.map((m) => `${m.courseId}|${m.kind}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} campus sessions this week ({campus.length} sections)</span>
-        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{new Set(clinical.map((m) => `${m.courseId}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} clinical sessions · {clinical.reduce((n, m) => n + m.seats, 0)} student placements{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}</span>
+        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{new Set(clinical.map((m) => `${m.courseId}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} clinical sessions · {clinical.reduce((n, m) => n + m.seats, 0)} student shifts{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}</span>
         {summary.unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{summary.unroomed} unroomed — needs space</span>}
         {conflictsForWeek.length > 0
           ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictsForWeek.length} conflicts this week</span>

@@ -51,7 +51,7 @@ export async function calendarizeCore(cohortId: string): Promise<number> {
     where: { id: cohortId },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
-      program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true, rotationType: true } } } } } } } },
+      program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
     },
   });
   if (!co) return 0;
@@ -136,13 +136,13 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
 
   // 3 · Staffing — fill every shift's remaining need under workload policies.
   const [sessions, people, policies, roleRows, existing, programAssignments, meetings] = await Promise.all([
-    prisma.session.findMany({ where: { course: { term: { programId: head.programId } } }, select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, supportStaffNeeded: true, startTime: true, course: { select: { id: true, code: true, name: true } } } }),
+    prisma.session.findMany({ where: { course: { term: { programId: head.programId } } }, select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, supportStaffNeeded: true, startTime: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true } } } }),
     prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, name: true, role: true, employmentType: true, title: true, employerId: true, assetId: true, institutionId: true } }),
     getWorkloadPolicies(),
     prisma.staffRole.findMany({ where: { institutionId }, select: { key: true, family: true } }),
     datedStaffAssignments({ institutionId }),
     prisma.assignment.findMany({ where: { programId: head.programId }, select: { personId: true } }),
-    prisma.meetingPattern.findMany({ where: { cohortId }, select: { courseId: true, kind: true, sectionIndex: true, employerId: true, staffPersonId: true } }),
+    prisma.meetingPattern.findMany({ where: { cohortId }, select: { courseId: true, kind: true, sectionIndex: true, dayOfWeek: true, employerId: true, staffPersonId: true } }),
   ]);
   const roleFamilies: Record<string, RoleFamily> = Object.fromEntries(roleRows.map((r) => [r.key, r.family as RoleFamily]));
   const famOf = (role: string) => familyOfRole(role, roleFamilies);
@@ -211,7 +211,7 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
           let who: (typeof people)[number] | null = null;
           if (nd.fam === "preceptor") {
             // The site the plan / weekly booking put this section at; its preceptors first, then the plan's named ones.
-            const m = meetings.find((x) => x.courseId === s.course.id && x.kind === "CLINICAL" && x.sectionIndex === sec) ?? meetings.find((x) => x.courseId === s.course.id && x.kind === "CLINICAL");
+            const m = meetings.find((x) => x.courseId === s.course.id && x.kind === "CLINICAL" && x.sectionIndex === sec && x.dayOfWeek === s.dayOfWeek) ?? meetings.find((x) => x.courseId === s.course.id && x.kind === "CLINICAL" && x.sectionIndex === sec) ?? meetings.find((x) => x.courseId === s.course.id && x.kind === "CLINICAL");
             const planned = planPreceptorBySection.get(k) ?? [];
             const siteId = m?.employerId ?? null;
             const pool = preceptorPool.filter((p) => !taken.has(p.id) && (planned.includes(p.id) || (siteId ? p.employerId === siteId : false)));

@@ -128,7 +128,8 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
       const C = Math.max(0, Math.round(r.computed.C));
       const seatsOf = (i: number) => Math.max(1, Math.floor(C / Y) + (i <= C % Y ? 1 : 0));
       for (let sIdx = 1; sIdx <= Y; sIdx++) {
-        const m = ms.find((x) => x.sectionIndex === sIdx) ?? null;
+        // The booking for this section on the session's own weekday (a TTh clinical has one per day), else the section's first booking.
+        const m = ms.find((x) => x.sectionIndex === sIdx && x.dayOfWeek === r.session.dayOfWeek) ?? ms.find((x) => x.sectionIndex === sIdx) ?? null;
         // The session's own day wins (a course with four clinical days a week has
         // four sessions with four days); the weekly booking only fills a blank.
         // An online / no-fixed-day session never borrows the booking's day — it stays off the day grid.

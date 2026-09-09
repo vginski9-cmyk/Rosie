@@ -162,7 +162,6 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   // ── Locked-in, calendarized offerings — sections waiting to be staffed ────
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
-  const hostIds = plan.filter((p) => p.agreementStatus === "secured").map((p) => p.id);
   // Each offering carries the family's whole-year North-Star goal (the
   // Radiography and Surgical Technology launches are the partner's 29 and 14)
   // and, exactly like lock-in, inherits the family's talent-pipeline rates —
@@ -171,9 +170,9 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
     { program: "Radiography", start: "2026-08-17", goal: 29 },
   ];
-  let offerings = 0, meetings = 0;
+  let offerings = 0;
   for (const o of OFFERINGS) {
-    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true, rotationType: true } } } } } }, cohorts: { select: { name: true } } } });
+    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
@@ -181,7 +180,6 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
     const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
     const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
-    const termStarts = aligned.terms.map((t) => new Date(t.startIso + "T00:00:00Z"));
     const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
     let name = `Class of ${endYear}`;
     if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }
@@ -191,14 +189,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
     for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
     for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
-    const { hosts: siteHosts, rotations } = await clinicalHostsFor(institutionId, program.familyId);
-    const rows = planMeetings({
-      cohortId: cohort.id, seats: Math.round(t.capacity), cohortStartMs: startD.getTime(),
-      terms: program.terms.map((term, i) => ({ id: term.id, index: term.index, startWeek: term.startWeek, endWeek: term.endWeek, startMs: termStarts[i].getTime(), endMs: aligned.terms.find((x) => x.termId === term.id)?.endIso ? new Date(aligned.terms.find((x) => x.termId === term.id)!.endIso + "T00:00:00Z").getTime() : null, courses: term.courses })),
-      rooms, hostIds, hosts: siteHosts, rotations,
-    });
-    for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
-    offerings++; meetings += rows.length;
+    offerings++;
   }
 
   return {
@@ -208,8 +199,40 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     preceptors: people.filter((p) => p.role === "preceptor").length,
     secured: plan.filter((p) => p.agreementStatus === "secured").length,
     asked: plan.filter((p) => p.agreementStatus === "asked").length,
-    offerings, meetings,
+    offerings,
   };
+}
+
+/** Calendarize every planned / active offering of the institution: one weekly booking
+ *  per course × session type × section, in campus rooms and at partner sites. Runs
+ *  AFTER the clinical models load, so clinical sections are placed against the
+ *  families' FINAL site agreements — never against a transient status. Re-plans
+ *  from scratch (existing bookings are replaced). */
+export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: string) {
+  const rooms = await prisma.facility.findMany({ where: { institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
+  const cohorts = await prisma.cohort.findMany({
+    where: { program: { institutionId }, status: { in: ["planned", "active"] } },
+    include: {
+      cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
+      program: { select: { familyId: true, defaultCohortSeats: true, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
+    },
+  });
+  const secured = (await prisma.employer.findMany({ where: { institutionId, status: "active", agreementStatus: "secured" }, select: { id: true } })).map((e) => e.id);
+  let meetings = 0, offerings = 0;
+  for (const co of cohorts) {
+    if (!co.cohortTerms.length) continue;
+    const { hosts, rotations } = await clinicalHostsFor(institutionId, co.program.familyId);
+    const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
+    const rows = planMeetings({
+      cohortId: co.id, seats: Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30), cohortStartMs: co.startDate?.getTime() ?? null,
+      terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctById.get(t.id)?.startDate?.getTime() ?? null, endMs: ctById.get(t.id)?.endDate?.getTime() ?? null, courses: t.courses })),
+      rooms, hostIds: secured, hosts, rotations,
+    });
+    await prisma.meetingPattern.deleteMany({ where: { cohortId: co.id } });
+    for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
+    meetings += rows.length; offerings++;
+  }
+  return { offerings, meetings };
 }
 
 // ── Workload policies (every institution) and demo shift assignments ────────
@@ -235,7 +258,33 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
     where: { program: { institutionId }, status: { in: ["planned", "active"] } },
     include: { program: { include: { terms: { include: { courses: { include: { sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true } } } } } } } }, meetings: { select: { courseId: true, kind: true, sectionIndex: true, employerId: true } }, _count: { select: { students: true } } },
   });
-  const people = await prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, role: true, title: true, employerId: true } });
+  const people = await prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, role: true, title: true, employerId: true, name: true } });
+  // Every site that hosts a clinical section has preceptors in that discipline — an RT
+  // at each imaging site, a CST / OR RN at each surgical site — so no section is
+  // precepted by someone from another field or left without a preceptor.
+  const DISCIPLINE: { test: RegExp; title: RegExp; titles: string[] }[] = [
+    { test: /Radiograph/i, title: /Radiolog|RT\(R\)|Radiograph|MRI/i, titles: ["Radiologic Technologist, RT(R)", "RT(R)(CT)", "Lead Radiographer"] },
+    { test: /Surgical/i, title: /Surg|OR |CST|CSFA|Operating/i, titles: ["CST, Preceptor", "OR RN, Preceptor", "CSFA, Preceptor"] },
+    { test: /Nurse Aide/i, title: /Nurse Aide|CNA|LPN|SNF|RN,/i, titles: ["LPN, Skilled Nursing", "Nurse Aide Preceptor, CNA II"] },
+  ];
+  const prand = rng(20260909);
+  const usedNames = new Set(people.map((p) => p.name));
+  const nextName = () => { for (;;) { const n = `${FIRST[Math.floor(prand() * FIRST.length)]} ${LAST[Math.floor(prand() * LAST.length)]}`; if (!usedNames.has(n)) { usedNames.add(n); return n; } } };
+  const employerName = new Map((await prisma.employer.findMany({ where: { institutionId }, select: { id: true, name: true, organization: true } })).map((e) => [e.id, e]));
+  for (const co of cohorts) {
+    const disc = DISCIPLINE.find((d) => d.test.test(co.program.name));
+    if (!disc) continue;
+    const hostIds = [...new Set(co.meetings.filter((m) => m.kind === "CLINICAL" && m.employerId).map((m) => m.employerId!))];
+    for (const eid of hostIds) {
+      const have = people.filter((p) => p.role === "preceptor" && p.employerId === eid && disc.title.test(p.title ?? "")).length;
+      const e = employerName.get(eid);
+      for (let i = have; i < 2; i++) {
+        const name = nextName();
+        const row = await prisma.person.create({ data: { institutionId, name, role: "preceptor", title: `${disc.titles[i % disc.titles.length]} — ${e?.name ?? "partner site"}`, email: emailOf(name, e?.organization ? e.organization.toLowerCase().replace(/[^a-z]/g, "").slice(0, 14) + ".org" : "partner.org"), employmentType: "preceptor", active: true, employerId: eid, startDate: new Date(Date.UTC(2018 + Math.floor(prand() * 7), 2, 1)) }, select: { id: true, role: true, title: true, employerId: true, name: true } });
+        people.push(row);
+      }
+    }
+  }
   let made = 0;
   for (const co of cohorts) {
     const key = /Radiograph/i.test(co.program.name) ? /Radiograph/i : /Surgical/i.test(co.program.name) ? /Surgical/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide/i : /./;
@@ -253,7 +302,12 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
           if (s.preceptorsNeeded <= 0) continue;
           for (let sec = 1; sec <= shifts; sec++) {
             const m = co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL" && x.sectionIndex === sec) ?? co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL");
-            const pool = people.filter((p) => p.role === "preceptor" && (!m?.employerId || p.employerId === m.employerId));
+            // The preceptor must work at the site the section is booked at AND practise the
+            // program's discipline (an RT precepts radiography, never a CMA at an office).
+            const siteIds = m?.employerId ? [m.employerId] : [...new Set(co.meetings.filter((x) => x.kind === "CLINICAL" && x.employerId).map((x) => x.employerId!))];
+            const disc = /Radiograph/i.test(co.program.name) ? /Radiolog|RT\(R\)|Radiograph|MRI/i : /Surgical/i.test(co.program.name) ? /Surg|OR |CST|CSFA|Operating/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide|CNA|LPN|SNF|RN,/i : /./;
+            const atSite = people.filter((p) => p.role === "preceptor" && p.employerId && siteIds.includes(p.employerId));
+            const pool = atSite.filter((p) => disc.test(p.title ?? ""));
             const pre = pool.length ? pool[(sec - 1) % pool.length] : null;
             if (pre) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: pre.id, sectionIndex: sec, role: "preceptor", contactHours: s.lengthHours, startOffsetMin: 0 } }); made++; }
           }

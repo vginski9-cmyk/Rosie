@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectConflicts, roomUtilization, autoSchedule, toMin, toHHMM, type Booking, type RoomLite, type PlaceReq } from "../src/lib/space";
+import { detectConflicts, roomUtilization, autoSchedule, seatStartsByGroup, seatsOverlap, toMin, toHHMM, type Booking, type RoomLite, type PlaceReq } from "../src/lib/space";
 
 const W = 7 * 24 * 3600 * 1000;
 const term = (startMs: number, weeks: number) => ({ weekStartMs: startMs, weekEndMs: startMs + weeks * W });
@@ -97,5 +97,26 @@ describe("autoSchedule", () => {
     const bks: Booking[] = reqs.map((r) => ({ ...mk({}), ...r, ...placements.get(r.id)!, staffPersonId: null }));
     expect(detectConflicts(bks).filter((c) => c.kind === "room").length).toBe(0);
     expect(Array.isArray(unroomed)).toBe(true);
+  });
+});
+
+describe("seat ranges", () => {
+  it("uneven sibling sections (21 / 20) never overlap when seat starts are exact", () => {
+    const rows = [{ id: "a", sectionIndex: 1, seats: 21, kind: "CLASS" }, { id: "b", sectionIndex: 2, seats: 20, kind: "CLASS" }];
+    const starts = seatStartsByGroup(rows, (r) => r.kind);
+    expect(starts.get("a")).toBe(1); expect(starts.get("b")).toBe(22);
+    expect(seatsOverlap({ ...rows[0], seatStart: 1 }, { ...rows[1], seatStart: 22 })).toBe(false);
+    // Without exact starts the equal-size assumption puts §2 at seat 21 — the old false conflict.
+    expect(seatsOverlap(rows[0], rows[1])).toBe(true);
+  });
+  it("a one-student clinical section collides with the class section holding that seat", () => {
+    const clin = { sectionIndex: 25, seats: 1, seatStart: 25 };
+    expect(seatsOverlap(clin, { sectionIndex: 1, seats: 21, seatStart: 1 })).toBe(false);
+    expect(seatsOverlap(clin, { sectionIndex: 2, seats: 20, seatStart: 22 })).toBe(true);
+  });
+  it("detectConflicts uses exact seat starts", () => {
+    const a = mk({ id: "a", sectionIndex: 1, seats: 21, seatStart: 1, facilityId: "r1" });
+    const b = mk({ id: "b", sectionIndex: 2, seats: 20, seatStart: 22, facilityId: "r2" });
+    expect(detectConflicts([a, b]).filter((c) => c.kind === "section").length).toBe(0);
   });
 });

@@ -43,16 +43,22 @@ export function hostsForSettings(hosts: HostLite[], settingCodes: string[]): Hos
     .sort((a, b) => a.h.rank - b.h.rank || Number(b.hasPrimary) - Number(a.hasPrimary) || b.cap - a.cap)
     .map((x) => x.h);
 }
-/** Site per section, dealt round-robin across the best sites (each site up to the learners
- *  its assets take per shift), so a cohort spreads across its secured partners instead of
- *  filling one clinic first. Returns one employer id per slot, in dealing order. */
+/** Site per section: sites are grouped into tiers — secured before asked before prospect,
+ *  and within an agreement tier the sites that have the PRIMARY setting (an OR for a
+ *  surgical course) before sites that only have a secondary one (a doctor's office) —
+ *  and each tier is filled to its capacity (learners per shift) before the next is
+ *  touched, dealing round-robin inside the tier so a cohort spreads across its secured
+ *  partners instead of filling one clinic first. Returns one employer id per slot. */
 export function hostSlots(hosts: HostLite[], settingCodes: string[]): string[] {
   const want = new Set(settingCodes);
-  const ranked = hostsForSettings(hosts, settingCodes).map((h) => ({ id: h.employerId, rank: h.rank, left: Math.max(1, Math.round(Object.entries(h.capacity).filter(([code]) => want.has(code)).reduce((n, [, v]) => n + v, 0))) }));
+  const primary = settingCodes[0];
+  const ranked = hostsForSettings(hosts, settingCodes).map((h) => ({
+    id: h.employerId, tier: h.rank * 2 + (primary && (h.capacity[primary] ?? 0) > 0 ? 0 : 1),
+    left: Math.max(1, Math.round(Object.entries(h.capacity).filter(([code]) => want.has(code)).reduce((n, [, v]) => n + v, 0))),
+  }));
   const out: string[] = [];
-  // Deal within the best agreement tier first, one section per site per pass, until that tier is full; then the next tier.
-  for (const tier of [...new Set(ranked.map((r) => r.rank))].sort((a, b) => a - b)) {
-    const pool = ranked.filter((r) => r.rank === tier);
+  for (const tier of [...new Set(ranked.map((r) => r.tier))].sort((a, b) => a - b)) {
+    const pool = ranked.filter((r) => r.tier === tier);
     let dealt = true;
     while (dealt) { dealt = false; for (const h of pool) if (h.left > 0) { out.push(h.id); h.left--; dealt = true; } }
   }

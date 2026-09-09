@@ -245,7 +245,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                       <span className="text-[12px] text-slate-300">{periodActive ? "no load this period" : "no shift assignments"}</span>
                     ) : (
                       <button onClick={() => setLoadOpen(loadOpen === p.id ? null : p.id)} className="text-left text-[12px] text-slate-600 hover:text-rose-700">
-                        <span className="tabular-nums text-rose-600">{hh(hrs)} h</span> · {cohorts.length} cohort{cohorts.length === 1 ? "" : "s"} · {p.workload.shifts} shifts
+                        <span className="tabular-nums text-rose-600">{hh(hrs)} h</span> · {(() => { const n = new Set(cohorts.map((c) => c.cohortId)).size; return `${n} offering${n === 1 ? "" : "s"}`; })()} · {cohorts.length} semester{cohorts.length === 1 ? "" : "s"} · {p.workload.shifts} shifts
                         {p.workload.peakWeek && <div className={`text-[10px] ${p.workload.overloadedWeeks.length ? "font-semibold text-amber-700" : "text-slate-400"}`}>peak week {hh(p.workload.peakWeek.contactHours)} h = {Math.round(p.workload.peakWeekLoad * 100)}% of load{p.workload.overloadedWeeks.length ? ` · ⚠ ${p.workload.overloadedWeeks.length} wk over` : ""}{p.workload.peakDay ? ` · peak day ${hh(p.workload.peakDay.contactHours)} h` : ""}</div>}
                         <span className="ml-1 text-slate-300">{loadOpen === p.id ? "▾ annual · semester · weekly · daily" : "▸ annual · semester · weekly · daily"}</span>
                       </button>

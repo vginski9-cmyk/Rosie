@@ -51,6 +51,8 @@ export interface Booking {
   weekEndMs: number; // calendar ms of the LAST week it recurs
   facilityId: string | null;
   staffPersonId: string | null;
+  /** Exact first seat this section covers (see seatStartsByGroup). */
+  seatStart?: number;
 }
 
 export type ConflictKind = "room" | "staff" | "section";
@@ -63,9 +65,25 @@ export interface Conflict {
   detail: string;
 }
 
-/** Seat range a section covers when seats are dealt in order (section i of size n = seats (i-1)n+1 … i·n). */
-const seatRange = (b: { sectionIndex: number; seats: number }): [number, number] => { const n = Math.max(1, b.seats); return [(b.sectionIndex - 1) * n + 1, b.sectionIndex * n]; };
-export const seatsOverlap = (a: { sectionIndex: number; seats: number }, b: { sectionIndex: number; seats: number }) => { const [a1, a2] = seatRange(a), [b1, b2] = seatRange(b); return a1 <= b2 && b1 <= a2; };
+/** Seat range a section covers when seats are dealt in order. `seatStart` is the exact
+ *  first seat (the sum of the sibling sections before it); without it, sections are
+ *  assumed equal-sized (section i of size n = seats (i-1)n+1 … i·n). */
+type SeatRef = { sectionIndex: number; seats: number; seatStart?: number };
+export const seatRange = (b: SeatRef): [number, number] => { const n = Math.max(1, b.seats); const s = b.seatStart ?? (b.sectionIndex - 1) * n + 1; return [s, s + n - 1]; };
+export const seatsOverlap = (a: SeatRef, b: SeatRef) => { const [a1, a2] = seatRange(a), [b1, b2] = seatRange(b); return a1 <= b2 && b1 <= a2; };
+/** Exact first seat of every row: within each group (one course × kind of one cohort — the
+ *  caller's key), seats are dealt to sections in index order, so §2's first seat is §1's
+ *  size + 1 — 21/20 splits never overlap at seat 21. Returns id → seatStart. */
+export function seatStartsByGroup<T extends { id: string; sectionIndex: number; seats: number }>(rows: T[], keyOf: (r: T) => string): Map<string, number> {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) { const k = keyOf(r); const arr = groups.get(k) ?? []; arr.push(r); groups.set(k, arr); }
+  const out = new Map<string, number>();
+  for (const arr of groups.values()) {
+    let next = 1;
+    for (const r of [...arr].sort((a, b) => a.sectionIndex - b.sectionIndex)) { out.set(r.id, next); next += Math.max(1, r.seats); }
+  }
+  return out;
+}
 
 /** All hard conflicts across a set of bookings: a room double-booked, a person
  *  teaching two at once, or one cohort-section expected in two places at once —
@@ -163,6 +181,8 @@ export interface PlaceReq {
   preferStartMin?: number;
   /** The room the sheet names for this session — tried first, whatever its kind. */
   preferFacilityId?: string;
+  /** Exact first seat of this section within its course × kind. */
+  seatStart?: number;
 }
 export interface Placement {
   dayOfWeek: Weekday;
@@ -266,6 +286,6 @@ function mkBooking(r: PlaceReq): Booking {
   return {
     id: r.id, cohortId: r.cohortId, sectionIndex: r.sectionIndex, kind: r.kind, seats: r.seats,
     lengthHours: r.lengthHours, dayOfWeek: "Mon", startMin: DAY_START_MIN,
-    weekStartMs: r.weekStartMs, weekEndMs: r.weekEndMs, facilityId: null, staffPersonId: r.staffPersonId ?? null,
+    weekStartMs: r.weekStartMs, weekEndMs: r.weekEndMs, facilityId: null, staffPersonId: r.staffPersonId ?? null, seatStart: r.seatStart,
   };
 }

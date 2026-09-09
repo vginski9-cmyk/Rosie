@@ -469,6 +469,7 @@ model Session {
   week          Int?
   dayOfWeek     String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
   startTime     String? // time of day, "HH:MM" (24h)
+  endTime       String? // stated end of the session's window on its day, "HH:MM" — the booking runs start→end when the sheet gives both
   /// Per-section day/time when the sheet states them ("Section 1: 8-10:50a; Section 2: 1:40-4:30p"):
   /// comma-separated entries "HH:MM" or "Wed@HH:MM", in section order. Section 1 = first entry.
   sectionTimes  String?

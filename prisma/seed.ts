@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster, seedWorkloadPolicies, seedShiftAssignments } from "./seed-roster";
+import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments } from "./seed-roster";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
 
@@ -213,7 +213,7 @@ function genSessions(c: CourseSeed, weeks: number) {
 type PackSession = {
   kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
   lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
-  supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null; startTime?: string | null; sectionTimes?: string | null;
+  supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null; startTime?: string | null; endTime?: string | null; sectionTimes?: string | null;
   notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
   rotationType: string | null; clinicalMode: string | null;
 };
@@ -253,7 +253,7 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
               lengthHours: x.lengthHours, maxStudents: x.maxStudents,
               facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
               facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, sectionTimes: x.sectionTimes ?? null, notes: x.notes,
+              week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, endTime: x.endTime ?? null, sectionTimes: x.sectionTimes ?? null, notes: x.notes,
               rotationType: x.rotationType, clinicalMode: x.clinicalMode,
             })),
           },
@@ -433,7 +433,8 @@ async function seedOfferingStudents() {
     const rows = Array.from({ length: seats }, (_, i) => {
       const x = mix(i, 1), y = mix(i, 2), z = mix(i, 3);
       const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30); // skews young, tail into the 40s
-      const dob = new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age, (y % 12), 1 + (z % 28)));
+      // Born a full year before the entry year minus their age, so nobody is 17 on entry day whatever the entry month.
+      const dob = new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age - 1, (y % 12), 1 + (z % 28)));
       const county = COUNTIES[(h + i * 3) % COUNTIES.length];
       // Only offerings already under way have had time to lose anyone.
       const withdrawn = started && (x % 100) < 12;
@@ -1287,11 +1288,13 @@ async function main() {
   //       locked-in offerings with sections waiting for assignments ----------
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
+  const clinical = await loadClinicalModels(sandhills.id);
+  console.log("clinical models by family:", clinical);
+  // Calendarize the offerings only now — against the families' final site agreements.
+  console.log("offering meetings:", await seedOfferingMeetings(prisma, sandhills.id));
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
-  const clinical = await loadClinicalModels(sandhills.id);
-  console.log("clinical models by family:", clinical);
 
   const counts = {
     institutions: await prisma.institution.count(),
