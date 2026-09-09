@@ -9,6 +9,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { saveWorkloadPolicy, deleteWorkloadPolicy, applyPolicyToEmployers } from "@/lib/actions";
 import { DEFAULT_POLICIES } from "@/lib/workload";
+import { dec } from "@/lib/format";
 
 export interface PolicyRow {
   id: string; institutionId: string; institutionName: string; employerId: string | null; employerName: string | null; assetId?: string | null; assetName?: string | null;
@@ -24,7 +25,7 @@ interface RoleLite { id: string; institutionId: string; key: string; label: stri
 const ROLES = ["instructor", "preceptor", "support", "supervisor", "coordinator"];
 const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "Preceptor", support: "Support staff", supervisor: "Supervisor", coordinator: "Coordinator" };
 const EMP_TYPES = ["full-time", "part-time", "adjunct", "contract", "preceptor"];
-const fmt = (n: number | null | undefined, dp = 2) => (n == null ? "—" : Number.isInteger(n) ? String(n) : n.toFixed(dp).replace(/\.?0+$/, ""));
+const fmt = (n: number | null | undefined, _dp = 2) => { void _dp; return dec(n); };
 const credit = (p: { hoursPerContactHour: number | null; workWeekHours: number; contactHoursPerWeek: number }) => p.hoursPerContactHour ?? (p.contactHoursPerWeek > 0 ? p.workWeekHours / p.contactHoursPerWeek : 1);
 
 export function WorkloadPolicies({ policies, institutions, employers, assets = [], roles = [], defaultInstitutionId }: { policies: PolicyRow[]; institutions: InstLite[]; employers: EmpLite[]; assets?: AssetLite[]; roles?: RoleLite[]; defaultInstitutionId?: string }) {

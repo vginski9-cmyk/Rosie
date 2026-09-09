@@ -5,7 +5,7 @@ import Link from "next/link";
 import { type StageKey } from "@/lib/funnel";
 import { buildTrajectory, buildConstellation, yearSpan } from "@/lib/goals";
 import { computeHealthMetrics, aggregateStages } from "@/lib/metrics";
-import { fmt } from "@/lib/format";
+import { fmt, dec } from "@/lib/format";
 
 export interface FamCohort {
   id: string;
@@ -156,13 +156,13 @@ export function FamilyAnalytics({
                 const hf = `${(d.facFte / maxFte) * 105}px`;
                 const hp = `${(d.precFte / maxFte) * 105}px`;
                 return (
-                  <div key={y} className="flex min-w-[58px] flex-1 flex-col items-center" title={`${y}: ${d.active} active cohort(s) · ${d.facFte.toFixed(2)} faculty FTE · ${d.precFte.toFixed(2)} preceptor FTE · ${fmt.num(d.facHrs)} faculty contact hrs`}>
+                  <div key={y} className="flex min-w-[58px] flex-1 flex-col items-center" title={`${y}: ${d.active} active cohort(s) · ${dec(d.facFte)} faculty FTE · ${dec(d.precFte)} preceptor FTE · ${fmt.num(d.facHrs)} faculty contact hrs`}>
                     <div className="flex flex-1 flex-col justify-end">
                       <div className="w-7 rounded-t bg-violet-500" style={{ height: hp }} />
                       <div className="w-7 bg-rose-600" style={{ height: hf }} />
                     </div>
                     <div className="mt-1 text-[11px] font-semibold tabular-nums text-slate-700">{y}</div>
-                    <div className="text-[9px] tabular-nums text-slate-400">{(d.facFte + d.precFte).toFixed(1)} FTE</div>
+                    <div className="text-[9px] tabular-nums text-slate-400">{dec((d.facFte + d.precFte))} FTE</div>
                   </div>
                 );
               })}
@@ -238,8 +238,8 @@ export function FamilyAnalytics({
             <div key={m.key} className={`rounded-xl border bg-white p-4 ${m.healthy === false ? "border-amber-200 ring-1 ring-amber-100" : "border-slate-200"}`}>
               <div className="text-[11px] font-medium leading-tight text-slate-500">{m.label}</div>
               <div className="mt-1 flex items-baseline gap-1.5">
-                <span className={`text-2xl font-bold tabular-nums ${m.healthy === false ? "text-amber-600" : "text-slate-900"}`}>{m.ratio != null ? (m.benchmark < 1.05 && m.den !== "demand" && m.key !== "interestedSurplus" && m.key !== "qualifiedSurplus" && m.key !== "offeredSurplus" ? fmt.pct(m.ratio) : m.ratio.toFixed(2)) : "—"}</span>
-                <span className="text-[11px] text-slate-400">vs {m.benchmark < 1.05 ? fmt.pct(m.benchmark) : m.benchmark.toFixed(2)}</span>
+                <span className={`text-2xl font-bold tabular-nums ${m.healthy === false ? "text-amber-600" : "text-slate-900"}`}>{m.ratio != null ? (m.benchmark < 1.05 && m.den !== "demand" && m.key !== "interestedSurplus" && m.key !== "qualifiedSurplus" && m.key !== "offeredSurplus" ? fmt.pct(m.ratio) : dec(m.ratio)) : "—"}</span>
+                <span className="text-[11px] text-slate-400">vs {m.benchmark < 1.05 ? fmt.pct(m.benchmark) : dec(m.benchmark)}</span>
               </div>
               {m.healthy != null && <div className={`mt-0.5 text-[10px] font-medium ${m.healthy ? "text-emerald-600" : "text-amber-600"}`}>{m.healthy ? "at/above benchmark" : "below benchmark"}</div>}
             </div>

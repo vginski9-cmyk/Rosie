@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCourse } from "@/lib/queries";
 import { addSessionResource, deleteSessionResource } from "@/lib/actions";
 import { CourseServicePanel, type PanelSession } from "@/components/CourseServicePanel";
+import { dec } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,7 @@ export default async function CoursePage({ params }: { params: { id: string } })
           <div key={h.key} className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{h.label}</div>
             <div className="mt-1 text-3xl font-semibold tabular-nums text-slate-900">
-              {(course[h.key] ?? 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+              {dec(course[h.key] ?? 0)}
             </div>
           </div>
         ))}

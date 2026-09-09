@@ -20,6 +20,7 @@
 import type { DatedInstance } from "./capacitymodel";
 import { blocksOn, overrideIndex, overrideKey, shiftHours, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
+import { dec } from "./format";
 
 export type Agreements = "secured" | "secured+asked" | "any";
 export type Ring = "Core" | "Ring 1" | "Ring 2" | "any";
@@ -139,7 +140,7 @@ export interface Plan {
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
 /** Which section (1-based) a seat number falls in when sections hold `seatsPerSection` students each. */
 export const sectionOfSeat = (seat: number, seatsPerSection: number) => Math.max(1, Math.ceil(Math.max(1, seat) / Math.max(1, seatsPerSection)));
-const num = (v: number) => Math.round(v).toLocaleString();
+const num = (v: number) => dec(v);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const mondayOf = (iso: string) => isoAdd(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
 

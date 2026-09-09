@@ -7,6 +7,7 @@ import {
   type ScheduleSession, type Shift, type SectionStudent, type SectionOverride,
 } from "@/lib/schedule";
 import { SectionManager } from "@/components/SectionManager";
+import { dec } from "@/lib/format";
 
 export interface TermTemplate {
   id: string;
@@ -277,7 +278,7 @@ export function ScheduleBoard({ programId, terms, roster, students, sectionOverr
                         </div>
                         <div className="shrink-0 text-right">
                           <div className="text-sm font-semibold tabular-nums">{l.contactHours.toLocaleString()} hrs</div>
-                          <div className="text-[11px] text-slate-400">{l.weeklyAvgHours.toFixed(1)}/wk · {l.shifts} shifts</div>
+                          <div className="text-[11px] text-slate-400">{dec(l.weeklyAvgHours)}/wk · {l.shifts} shifts</div>
                         </div>
                       </div>
                       <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-slate-100" title={`class ${l.classHours} · lab ${l.labHours} · clinical ${l.clinicalHours} hrs`}>
@@ -376,7 +377,7 @@ function ShiftDetail({ shift: s, students, assignments, assign, unassign, instru
       <div className="mt-3">
         <div className="flex items-center justify-between">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Staffing &amp; contact-hour allocation ({s.staffType})</div>
-          <span className={`text-[11px] tabular-nums ${over ? "font-semibold text-rose-600" : "text-slate-400"}`}>{Math.round(allocated * 10) / 10} / {s.lengthHours}h{over ? " over" : ""}</span>
+          <span className={`text-[11px] tabular-nums ${over ? "font-semibold text-rose-600" : "text-slate-400"}`}>{dec(allocated)} / {dec(s.lengthHours)}h{over ? " over" : ""}</span>
         </div>
         <div className="mt-1.5 space-y-1.5">
           {assigned.map((pid) => {
@@ -384,7 +385,7 @@ function ShiftDetail({ shift: s, students, assignments, assign, unassign, instru
             return (
               <div key={pid} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1">
                 <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-slate-800">{personName(pid)}{planned?.segment ? <span className="font-normal text-slate-400"> · {planned.segment}</span> : null}</span>
-                <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-[12px] tabular-nums" />
+                <input type="number" min={0} max={s.lengthHours} step="any" value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-[12px] tabular-nums" />
                 <span className="text-[11px] text-slate-400">h</span>
                 <button onClick={() => unassign(s, pid)} className="text-slate-300 hover:text-rose-600">×</button>
               </div>
@@ -544,7 +545,7 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
                         return (
                           <span key={pid} className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-2 pr-1 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>
                             {personName(pid)}
-                            <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
+                            <input type="number" min={0} max={s.lengthHours} step="any" value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
                             <span className="opacity-70">h</span>
                             <button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button>
                           </span>
@@ -613,7 +614,7 @@ function CourseStaffing({ shifts, assignments, assign, unassign, conflicts, inst
                         return (
                           <span key={pid} className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-2 pr-1 text-[11px] ${conflict ? "bg-amber-100 text-amber-800" : "bg-slate-900 text-white"}`}>
                             {personName(pid)}
-                            <input type="number" min={0} max={s.lengthHours} step={0.5} value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
+                            <input type="number" min={0} max={s.lengthHours} step="any" value={hoursFor(s, pid)} onChange={(e) => setHours(s, pid, Number(e.target.value))} className="w-10 rounded bg-white/20 px-1 py-0 text-right text-[10px] tabular-nums text-white [color-scheme:dark]" title="contact hours" />
                             <span className="opacity-70">h</span>
                             <button onClick={() => unassign(s, pid)} className="opacity-60 hover:opacity-100">×</button>
                           </span>

@@ -14,8 +14,9 @@ import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetm
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
 import { applySchedulerPlan, clearSchedulerPlan } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
-const n0 = (v: number) => Math.round(v).toLocaleString();
+const n0 = (v: number) => dec(v);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtW = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });

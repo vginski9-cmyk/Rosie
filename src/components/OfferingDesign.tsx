@@ -14,6 +14,7 @@ import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
 import { coverageOf, type RoleFamily } from "@/lib/workload";
 import { weekMonday, calendarWeeksBetween } from "@/lib/term";
+import { dec } from "@/lib/format";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -68,10 +69,10 @@ const fmtTime = (t: string | null) => {
 };
 const fmtDate = (d: Date) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const num = (v: number | null, dp = 2) =>
-  v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp });
-const n0 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-const n1 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 1 });
-const n2 = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  v == null ? "—" : dec(v);
+const n0 = (v: number) => dec(v);
+const n1 = (v: number) => dec(v);
+const n2 = (v: number) => dec(v);
 
 /** One editable row = the template session with this offering's overrides applied. */
 type RowState = DsSession & { overridden: boolean };

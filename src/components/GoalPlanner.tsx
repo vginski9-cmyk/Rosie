@@ -11,6 +11,7 @@ import {
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, type OfferingTargets } from "@/components/OfferingTargetsEditor";
+import { dec, numInput } from "@/lib/format";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -126,9 +127,9 @@ interface Persisted {
   allocationsByYear?: Record<string, Alloc[]>;
 }
 
-const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
-const pctOf = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`);
-const num = (v: number) => Math.round(v).toLocaleString();
+const pct = (v: number) => `${dec(v * 100)}%`;
+const pctOf = (v: number | null) => (v == null ? "—" : `${dec(v * 100)}%`);
+const num = (v: number) => dec(v);
 
 function attainColor(a: number | null): string {
   if (a == null) return "text-slate-400";
@@ -267,7 +268,7 @@ export function GoalPlanner({
       const known = out.reduce((n, o) => n + (o.goal ?? 0), 0);
       const each = Math.max(0, a.goal - known) / Math.max(1, missing);
       const ov = (a.termOverrides ?? []).map((v) => (v == null ? null : Math.round(v / Math.max(1, out.length))));
-      return out.map((o) => (o.goal == null ? { ...o, goal: Math.round(each * 10) / 10, termOverrides: o.termOverrides ?? ov } : o));
+      return out.map((o) => (o.goal == null ? { ...o, goal: each, termOverrides: o.termOverrides ?? ov } : o));
     }
     return out;
   };
@@ -528,7 +529,7 @@ export function GoalPlanner({
                         <span className="text-[11px] text-slate-400">{m.credential ?? ""} · {m.terms} terms</span>
                         <span className="ml-auto flex items-center gap-2 text-xs">
                           <span className="text-slate-500">its offerings cover</span>
-                          <strong className="tabular-nums text-slate-800">{Math.round(goalSum * 10) / 10}</strong>
+                          <strong className="tabular-nums text-slate-800">{dec(goalSum)}</strong>
                           <span className="text-slate-500">productive ({share}%)</span>
                           {lockedCount === 0 && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
                         </span>
@@ -633,7 +634,7 @@ export function GoalPlanner({
                         <span className="block text-[10px] text-slate-400">{d.of}</span>
                       </td>
                       <td className="px-2 py-1.5 text-right">
-                        <input type="number" value={Math.round(gv * 1000) / 10} step={1} onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
+                        <input type="number" value={numInput(gv * 100)} step="any" onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
                       </td>
                       <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${ar == null ? "text-slate-300" : healthy ? "text-emerald-600" : "text-amber-600"}`}>{ar == null ? "—" : pct(ar)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(d.benchmark)}</td>

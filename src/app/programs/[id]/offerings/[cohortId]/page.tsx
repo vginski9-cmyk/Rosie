@@ -7,7 +7,7 @@ import { AutoAssignButton } from "@/components/AutoAssignButton";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
-import { fmt } from "@/lib/format";
+import { fmt, dec } from "@/lib/format";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, calendarWeeksBetween, seasonOfTerm, type TimingTerm } from "@/lib/term";
 import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
@@ -32,7 +32,7 @@ const PHASE_BADGE: Record<string, string> = {
   recruiting: "bg-sky-100 text-sky-700", "in-program": "bg-emerald-100 text-emerald-700",
   graduated: "bg-slate-200 text-slate-600", unscheduled: "bg-slate-100 text-slate-400",
 };
-const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1 });
+const n1 = (v: number) => dec(v);
 
 export default async function OfferingPage({ params }: { params: { id: string; cohortId: string } }) {
   const offering = await getOffering(params.cohortId);

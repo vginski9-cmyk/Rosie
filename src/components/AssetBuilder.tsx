@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { assetTotals, blocksOn, overrideIndex, overrideKey, isoRange, type AssetLite, type AssetDayOverride } from "@/lib/assetmap";
 import { saveClinicalAsset, duplicateClinicalAsset, deleteClinicalAsset, setAssetDays, setAssetDay, type AssetInput } from "@/lib/actions";
 import { accreditorClassOf, ACCREDITOR_CLASSES, ACCREDITOR_CLASS_LABEL } from "@/lib/jrcert";
+import { dec } from "@/lib/format";
 
 export interface SettingOption { code: string; name: string; assetType?: string }
 export interface BuilderAsset extends AssetLite { notes?: string | null; exceptions?: number }
@@ -20,7 +21,7 @@ interface Draft { externalId: string; settingCode: string; setting: string; asse
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const BLOCKS: Block[] = ["Day", "Evening", "Night"];
-const n0 = (v: number) => Math.round(v).toLocaleString();
+const n0 = (v: number) => dec(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const endOf = (start: string, hours: number) => { const [h, m] = start.split(":").map(Number); const e = ((h * 60 + m + Math.round(hours * 60)) % 1440 + 1440) % 1440; return `${String(Math.floor(e / 60)).padStart(2, "0")}:${String(e % 60).padStart(2, "0")}`; };
 const dayLabel = (days: string[]) => { const idx = days.map((d) => DAYS.indexOf(d)).filter((i) => i >= 0).sort((a, b) => a - b); if (idx.length === 7) return "Every day"; if (idx.length === 0) return "No days"; const wk = [0, 1, 2, 3, 4]; if (idx.length === 5 && wk.every((i) => idx.includes(i))) return "Mon–Fri"; if (idx.length === 2 && idx.includes(5) && idx.includes(6)) return "Sat–Sun"; return idx.map((i) => DAYS[i]).join(", "); };
@@ -163,7 +164,7 @@ function AssetCard({ a, d, isNew, ctx }: { a: BuilderAsset | null; d: Draft; isN
               <div key={b} className={`flex flex-wrap items-center gap-2 rounded-md px-2 py-1 ${s.on ? "bg-sky-50" : "bg-slate-50"}`}>
                 <label className="inline-flex w-24 items-center gap-1.5 text-xs font-semibold text-slate-800"><input type="checkbox" checked={s.on} onChange={(e) => set((x) => ({ ...x, blocks: { ...x.blocks, [b]: { ...s, on: e.target.checked } } }))} />{b}</label>
                 <input type="time" value={s.start} disabled={!s.on} onChange={(e) => set((x) => ({ ...x, blocks: { ...x.blocks, [b]: { ...s, start: e.target.value || s.start } } }))} className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-40" />
-                <input type="number" min={0.5} step={0.5} value={s.hours} disabled={!s.on} onChange={(e) => set((x) => ({ ...x, blocks: { ...x.blocks, [b]: { ...s, hours: Number(e.target.value) || s.hours } } }))} className="w-14 rounded border border-slate-300 px-1.5 py-0.5 text-right text-xs disabled:opacity-40" /><span className="text-[10px] text-slate-500">hrs</span>
+                <input type="number" min={0} step="any" value={s.hours} disabled={!s.on} onChange={(e) => set((x) => ({ ...x, blocks: { ...x.blocks, [b]: { ...s, hours: Number(e.target.value) || s.hours } } }))} className="w-14 rounded border border-slate-300 px-1.5 py-0.5 text-right text-xs disabled:opacity-40" /><span className="text-[10px] text-slate-500">hrs</span>
                 <span className={`ml-auto text-xs ${s.on ? "font-medium text-sky-800" : "text-slate-300"}`}>{s.on ? `${s.start}–${endOf(s.start, s.hours)}` : "off"}</span>
               </div>
             ); })}

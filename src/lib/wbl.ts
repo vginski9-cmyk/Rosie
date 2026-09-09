@@ -1,4 +1,5 @@
 // WBL Alignment Engine.
+import { dec } from "./format";
 //
 // The research model profiles BOTH sides of a work-based-learning relationship
 // across three layers: MOTIVATIONS (what each side wants), CONSTRAINTS (what is
@@ -350,7 +351,7 @@ export function recommendPlacement(
 
   const metNeeds = best?.met ?? [];
   const actions: string[] = [];
-  if (best) actions.push(`Recommend placement at ${best.name}${best.score != null ? ` (fit ${(best.score * 100).toFixed(0)}%)` : ""}.`);
+  if (best) actions.push(`Recommend placement at ${best.name}${best.score != null ? ` (fit ${dec((best.score * 100))}%)` : ""}.`);
   else actions.push("No feasible placement yet — resolve the blocking needs below before assigning a site.");
   for (const n of unmetNeeds) actions.push(n.action);
 

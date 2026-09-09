@@ -6,6 +6,7 @@ import {
   PIPELINE_METRICS, type PipelineFact, type PipelineMetricKey,
 } from "@/lib/pipeline";
 import type { LadderRates } from "@/lib/northstar";
+import { dec } from "@/lib/format";
 
 // The talent-pipeline analytics board — the institution workbook's three output
 // surfaces on one page, computed live from the same facts:
@@ -20,9 +21,9 @@ import type { LadderRates } from "@/lib/northstar";
 export interface ProgramOpt { id: string; name: string; credential: string | null }
 export interface CohortOpt { id: string; name: string; programId: string; endYear: number }
 
-const fmtT = (v: number | null) => (v == null ? "—" : (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
-const fmtA = (v: number | null) => (v == null ? "—" : Math.round(v).toLocaleString());
-const fmtR = (v: number | null) => (v == null ? "—" : (Math.round(v * 100) / 100).toFixed(2));
+const fmtT = (v: number | null) => (v == null ? "—" : dec(v));
+const fmtA = (v: number | null) => (v == null ? "—" : dec(v));
+const fmtR = (v: number | null) => (v == null ? "—" : dec(v));
 const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`);
 
 function attainCls(actual: number | null, target: number | null): string {

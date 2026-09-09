@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createPerson, updatePerson, deletePerson } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 export interface LoadCohort { cohortId: string; name: string; program: string; hours: number; year: number | null; season: string | null }
 export interface DirPerson {
@@ -57,7 +58,7 @@ const ymd = (d: string | Date | null): string => {
   const dt = typeof d === "string" ? new Date(d) : d;
   return Number.isNaN(dt.getTime()) ? "" : dt.toISOString().slice(0, 10);
 };
-const hh = (n: number, dp = 1) => (Number.isInteger(n) ? String(n) : n.toFixed(dp));
+const hh = (n: number, _dp = 1) => { void _dp; return dec(n); };
 const dayLabel = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const monthYear = (d: string | Date | null): string | null => {
   if (!d) return null;
@@ -262,8 +263,8 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                 <tr key={p.id + "-load"} className="bg-slate-50/60">
                   <td colSpan={7} className="px-3 py-2">
                     <div className="grid gap-3 text-[11px] md:grid-cols-4">
-                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Annual</div>{p.workload.years.length === 0 ? <div className="text-slate-400">—</div> : p.workload.years.map((y) => <div key={y.key} className="tabular-nums"><strong>{y.key}</strong>: {hh(y.contactHours)} contact h · {hh(y.creditedHours)} work h · <span className="text-rose-600">{y.fte.toFixed(2)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.annualWeeks)} contact h over {hh(p.workload.annualWeeks)} wk</div></div>
-                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Semester</div>{p.workload.terms.map((t) => <div key={t.key} className="tabular-nums"><strong>{t.key}</strong>: {hh(t.contactHours)} contact h · {hh(t.creditedHours)} work h · <span className="text-rose-600">{t.fte.toFixed(2)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.termWeeks)} contact h over {hh(p.workload.termWeeks)} wk</div></div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Annual</div>{p.workload.years.length === 0 ? <div className="text-slate-400">—</div> : p.workload.years.map((y) => <div key={y.key} className="tabular-nums"><strong>{y.key}</strong>: {hh(y.contactHours)} contact h · {hh(y.creditedHours)} work h · <span className="text-rose-600">{dec(y.fte)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.annualWeeks)} contact h over {hh(p.workload.annualWeeks)} wk</div></div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Semester</div>{p.workload.terms.map((t) => <div key={t.key} className="tabular-nums"><strong>{t.key}</strong>: {hh(t.contactHours)} contact h · {hh(t.creditedHours)} work h · <span className="text-rose-600">{dec(t.fte)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.termWeeks)} contact h over {hh(p.workload.termWeeks)} wk</div></div>
                       <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Weekly · busiest first</div>{[...p.workload.weekly].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((w) => <div key={w.key} className={`tabular-nums ${p.workload.overloadedWeeks.includes(w.key) ? "font-semibold text-amber-700" : ""}`}>wk of {dayLabel(w.key)}: {hh(w.contactHours)} h ({Math.round((w.contactHours / Math.max(0.01, p.workload.contactHoursPerWeek)) * 100)}%)</div>)}{p.workload.weekly.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.weekly.length - 6} more weeks</div>}{p.workload.undatedHours > 0 && <div className="text-[10px] text-slate-400">{hh(p.workload.undatedHours)} h on undated shifts</div>}</div>
                       <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Daily · busiest first</div>{[...p.workload.daily].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((d) => <div key={d.key} className="tabular-nums">{dayLabel(d.key)}: {hh(d.contactHours)} h</div>)}{p.workload.daily.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.daily.length - 6} more days</div>}</div>
                     </div>

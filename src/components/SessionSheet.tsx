@@ -5,6 +5,7 @@ import { type SessionInput, type WorkloadAssumptions, computeColumns } from "@/l
 import { defaultSession, KIND_LABELS, type EditableField, type SessionKindKey } from "@/lib/sessionfields";
 import { SessionFieldGrid, HiddenSessionFields, harvestOptions, type FieldRow } from "@/components/SessionFields";
 import { updateSession, deleteSession, addSession, setSessionTiming } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 // The Raw Data & Calculations session table, one course at a time — every
 // workbook column (A–AE) with its full header, one session per row. Click a
@@ -15,7 +16,7 @@ export interface SheetSession extends SessionInput {
   startTime: string | null;
 }
 
-const num = (v: number | null, dp = 2) => (v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp }));
+const num = (v: number | null, dp = 2) => (v == null ? "—" : dec(v));
 const KIND_BADGE: Record<string, string> = { CLASS: "bg-sky-100 text-sky-700", LAB: "bg-violet-100 text-violet-700", CLINICAL: "bg-rose-100 text-rose-700" };
 const fmtT = (t: string | null) => { if (!t) return "—"; const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -147,7 +148,7 @@ export function SessionSheet({
           <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Session type</span><select name="kind" className="rounded border border-slate-300 px-2 py-1 text-xs"><option value="CLASS">Class</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option></select></label>
           <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">This session occurs on</span><select name="dayOfWeek" className="rounded border border-slate-300 px-2 py-1 text-xs"><option value="">(leave as is)</option>{DAYS.map((d) => <option key={d} value={d}>{d}</option>)}</select></label>
           <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Start time</span><input name="startTime" type="time" className="rounded border border-slate-300 px-2 py-1 text-xs" /></label>
-          <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Session length (in hours)</span><input name="lengthHours" type="number" step="0.25" className="w-24 rounded border border-slate-300 px-2 py-1 text-xs" /></label>
+          <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Session length (in hours)</span><input name="lengthHours" type="number" step="any" className="w-24 rounded border border-slate-300 px-2 py-1 text-xs" /></label>
           <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Max number of students per session</span><input name="maxStudents" type="number" className="w-24 rounded border border-slate-300 px-2 py-1 text-xs" /></label>
           <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-400">Session location</span><input name="location" className="w-40 rounded border border-slate-300 px-2 py-1 text-xs" /></label>
           <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700">Apply to all of that type</button>

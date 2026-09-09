@@ -10,13 +10,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addShiftAssignment, updateShiftAssignment, removeShiftAssignment, copyShiftAssignments } from "@/lib/actions";
 import { coverageOf, familyOfRole, type AssignmentLite, type RoleFamily } from "@/lib/workload";
+import { dec } from "@/lib/format";
 
 export interface ShiftPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employerName?: string | null }
 export interface ShiftAssignment extends AssignmentLite { sessionId: string; segment: string | null; personName: string; personRole: string }
 
 const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "Preceptor", support: "Support", supervisor: "Supervisor", coordinator: "Coordinator" };
 const ROLE_BADGE: Record<string, string> = { instructor: "bg-rose-100 text-rose-700", preceptor: "bg-orange-100 text-orange-700", support: "bg-sky-100 text-sky-700", supervisor: "bg-violet-100 text-violet-700", coordinator: "bg-emerald-100 text-emerald-700" };
-const h = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, ""));
+const h = (n: number) => dec(n);
 const clock = (startTime: string | null, offsetMin: number | null) => {
   if (startTime == null || offsetMin == null) return null;
   const [hh, mm] = startTime.split(":").map(Number); if (!Number.isFinite(hh)) return null;

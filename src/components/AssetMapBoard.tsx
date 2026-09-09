@@ -17,8 +17,9 @@ import {
 import { weekdayOfIso, type ShiftBlock } from "@/lib/clinicalsupply";
 import { bookAsset, unbookAsset, setAssetDay, importAssetMap, upsertRotationSetting } from "@/lib/actions";
 import type { CapacityCohort } from "@/components/CapacityBoard";
+import { dec } from "@/lib/format";
 
-const n0 = (v: number) => Math.round(v).toLocaleString();
+const n0 = (v: number) => dec(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 type Tab = "verdict" | "dates" | "book" | "assets" | "rotations" | "io";

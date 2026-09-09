@@ -1,4 +1,5 @@
 // Clinical analytics for a program design — template OR instantiation.
+import { dec } from "./format";
 //
 // Reads the session rows (the Raw Data & Calculations sheet) and answers, top
 // line and per course: how many clinical hours a student sits through, in
@@ -187,5 +188,5 @@ export function clinicalStatement(p: ClinicalProfile, subject: string): string {
   return `${parts.join("; ")}. ${at}${p.unscheduled ? ` ${p.unscheduled} clinical session${p.unscheduled === 1 ? " has" : "s have"} no start time yet, so its shift is unknown.` : ""}`;
 }
 
-const fmt = (v: number) => Math.round(v).toLocaleString();
-const fmt1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const fmt = (v: number) => dec(v);
+const fmt1 = (v: number) => dec(v);

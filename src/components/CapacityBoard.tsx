@@ -7,6 +7,7 @@ import {
 } from "@/lib/capacitymodel";
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
+import { dec } from "@/lib/format";
 
 // The capacity workbook's three output tabs, on live data:
 //   staffing — "How many instructors and preceptors do we need, and when?"  (FTEs per Week)
@@ -66,8 +67,8 @@ export interface ClinicalSite {
   status: string;
 }
 
-const n0 = (v: number) => Math.round(v).toLocaleString();
-const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1 });
+const n0 = (v: number) => dec(v);
+const n1 = (v: number) => dec(v);
 const nz2 = (v: number | null | undefined) => v ?? 0;
 const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtDateM = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });

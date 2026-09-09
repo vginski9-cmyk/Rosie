@@ -9,6 +9,7 @@ import { SheetImport } from "@/components/SheetImport";
 import { ClinicalAnalytics } from "@/components/ClinicalAnalytics";
 import { type AnalyticsCourse, shiftOf } from "@/lib/clinicalanalytics";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
+import { dec } from "@/lib/format";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
   updateWorkloadAssumptions,
@@ -32,9 +33,9 @@ export interface DCourse {
 }
 export interface DTerm { id: string; name: string; index: number; semester?: string | null; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
 
-const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 3 });
-const n2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+const n0 = (n: number) => dec(n);
+const n1 = (n: number) => dec(n);
+const n2 = (n: number) => dec(n);
 
 export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
@@ -362,8 +363,8 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
 
 function Hr({ label, v, dot, bold }: { label: string; v: number; dot?: string; bold?: boolean }) {
   return (
-    <div>
-      <div className={`text-2xl font-${bold ? "extrabold" : "semibold"} tabular-nums ${bold ? "text-slate-900" : "text-slate-800"}`}>{n0(v)}</div>
+    <div className="min-w-0">
+      <div className={`break-all font-${bold ? "extrabold" : "semibold"} tabular-nums leading-tight ${bold ? "text-slate-900" : "text-slate-800"} ${n0(v).length > 9 ? "text-base" : n0(v).length > 6 ? "text-xl" : "text-2xl"}`}>{n0(v)}</div>
       <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400">{dot && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />}{label}</div>
     </div>
   );

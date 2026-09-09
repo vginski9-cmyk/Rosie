@@ -70,7 +70,7 @@ export default async function WblProfilePage({ params }: { params: { id: string 
                 <input name="label" required placeholder="Factor" className="input-sm" />
                 <input name="detail" placeholder="Detail (optional)" className="input-sm" />
                 <div className="flex gap-2">
-                  <input name="weight" type="number" step="0.1" min="0" defaultValue="1" className="input-sm w-16" title="weight" />
+                  <input name="weight" type="number" step="any" min="0" defaultValue="1" className="input-sm w-16" title="weight" />
                   <input name="matchKey" placeholder="match key" className="input-sm" title="match key links to the other side" />
                 </div>
                 <div className="flex items-center justify-between">

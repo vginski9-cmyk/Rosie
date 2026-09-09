@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { pivot, distinct, applyFilters, DIMS, type Fact, type Dim, type Measure, type Filters, dimValue } from "@/lib/pivot";
 import { getCohortDrill, type CohortDrill } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 const fmtN = (v: number) => {
   if (v === 0) return "—";
   const abs = Math.abs(v);
-  return v.toLocaleString(undefined, { maximumFractionDigits: abs < 100 ? 2 : 0 });
+  return dec(v);
 };
 
 export function PivotExplorer({

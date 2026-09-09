@@ -285,10 +285,10 @@ export function staffLoadDetail(shifts: Shift[], assignments: Record<string, str
   return [...map.values()]
     .map(({ _days, ...d }) => ({
       ...d,
-      contactHours: Math.round(d.contactHours * 10) / 10,
-      classHours: Math.round(d.classHours * 10) / 10,
-      labHours: Math.round(d.labHours * 10) / 10,
-      clinicalHours: Math.round(d.clinicalHours * 10) / 10,
+      contactHours: d.contactHours,
+      classHours: d.classHours,
+      labHours: d.labHours,
+      clinicalHours: d.clinicalHours,
       distinctDays: _days.size,
       weeklyAvgHours: d.contactHours / weeks,
     }))

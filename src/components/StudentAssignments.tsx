@@ -1,4 +1,5 @@
 import { setStudentSection, addStudentShift, removeStudentShift, addStudentShiftsForCourse, logStudentShift, logShiftsThrough } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 // A learner's assignments inside their offering: the section (shift group) they
 // sit in for each course kind — and who teaches / precepts that section — the
@@ -22,7 +23,7 @@ type Asset = { id: string; label: string; settingCode: string };
 const KIND_LABEL: Record<string, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
 const STATUS_BADGE: Record<string, string> = { scheduled: "bg-sky-100 text-sky-700", completed: "bg-emerald-100 text-emerald-700", absent: "bg-rose-100 text-rose-700", excused: "bg-amber-100 text-amber-700" };
 const fmtDate = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }) : "undated");
-const h1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const h1 = (n: number) => dec(n);
 
 export function StudentAssignments({ studentId, cohort, courses, sections, staff, shifts, assets, seat, today }: { studentId: string; cohort: { id: string; name: string; enrolled: number } | null; courses: Course[]; sections: Section[]; staff: Staff[]; shifts: Shift[]; assets: Asset[]; seat: number; today: string }) {
   if (!cohort) return <p className="text-xs text-slate-400">Assign this learner to a cohort first — sections and clinical shifts belong to an offering.</p>;
@@ -168,7 +169,7 @@ export function StudentAssignments({ studentId, cohort, courses, sections, staff
                     <td className="px-2 py-1">
                       <form action={logStudentShift.bind(null, s.id, studentId)} className="flex items-center gap-1">
                         <select name="status" defaultValue={s.status} className={inp}>{["scheduled", "completed", "absent", "excused"].map((x) => <option key={x} value={x}>{x}</option>)}</select>
-                        <input name="hours" type="number" step="0.25" min="0" placeholder={String(s.session.lengthHours)} defaultValue={s.status === "completed" && s.hoursLogged != null && s.hoursLogged !== s.session.lengthHours ? s.hoursLogged : ""} className={inp + " w-16"} title="hours credited (blank = the session length)" />
+                        <input name="hours" type="number" step="any" min="0" placeholder={String(s.session.lengthHours)} defaultValue={s.status === "completed" && s.hoursLogged != null && s.hoursLogged !== s.session.lengthHours ? s.hoursLogged : ""} className={inp + " w-16"} title="hours credited (blank = the session length)" />
                         <input type="hidden" name="date" value={s.dateIso ?? ""} />
                         <button className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-white">log</button>
                       </form>

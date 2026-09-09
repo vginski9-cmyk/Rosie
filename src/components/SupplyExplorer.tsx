@@ -12,12 +12,13 @@ import { useRouter } from "next/navigation";
 import { shiftAtoms, explore, totals, weekdayGrid, type GroupBy, type ExplorerRow } from "@/lib/supplyexplorer";
 import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetmap";
 import type { ShiftBlock, Weekday } from "@/lib/clinicalsupply";
+import { dec } from "@/lib/format";
 
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
 const WEEKDAYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const GROUPS: { key: GroupBy; label: string }[] = [{ key: "asset", label: "Asset" }, { key: "site", label: "Site" }, { key: "setting", label: "Setting" }, { key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }, { key: "semester", label: "Semester" }, { key: "year", label: "Year" }];
 const PRESETS: { key: string; label: string }[] = [{ key: "today", label: "Today" }, { key: "week", label: "This week" }, { key: "next-week", label: "Next week" }, { key: "month", label: "This month" }, { key: "quarter", label: "This quarter" }, { key: "semester", label: "This semester" }, { key: "year", label: "This year" }, { key: "next-year", label: "Next year" }, { key: "custom", label: "Custom" }];
-const n = (x: number) => x.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const n = (x: number) => dec(x);
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 const BLOCK_TONE: Record<string, string> = { Day: "text-amber-700", Evening: "text-indigo-700", Night: "text-slate-700" };
 

@@ -19,6 +19,7 @@ import {
 import { moveShiftOccurrence, clearShiftMove } from "@/lib/actions";
 import { usHoliday, type DatedInstance } from "@/lib/capacitymodel";
 import type { CapacityCohort, ShiftMeeting, ShiftMoveInfo } from "@/components/CapacityBoard";
+import { dec } from "@/lib/format";
 
 export interface CalRoom { id: string; name: string; kind: string; capacity: number | null }
 export interface CalPerson { id: string; name: string; role: string }
@@ -26,8 +27,8 @@ export interface CalSite { id: string; name: string }
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAY_KEY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
-const n0 = (v: number) => Math.round(v).toLocaleString();
-const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { minimumFractionDigits: 1 });
+const n0 = (v: number) => dec(v);
+const n1 = (v: number) => dec(v);
 const nz = (v: number | null | undefined) => v ?? 0;
 const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtDateM = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });

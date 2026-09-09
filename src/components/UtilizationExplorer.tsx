@@ -11,11 +11,12 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { utilizationAtoms, utilizationRollup, utilizationTotals, hourHeat, groupKey, UTIL_GROUPS, DRILL_INTO, fmtMDY, type UtilGroup, type UtilRow, type UtilRoom, type UtilMeeting, type SemesterWindow } from "@/lib/utilization";
 import type { SemesterAnchors } from "@/lib/term";
+import { dec } from "@/lib/format";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const KINDS = [["CLASS", "Class"], ["LAB", "Lab"], ["CLINICAL", "Clinical"]] as const;
 const PRESETS: { key: string; label: string }[] = [{ key: "all", label: "Every scheduled week" }, { key: "week", label: "This week" }, { key: "next-week", label: "Next week" }, { key: "month", label: "This month" }, { key: "quarter", label: "This quarter" }, { key: "semester", label: "This semester" }, { key: "year", label: "This year" }, { key: "next-year", label: "Next year" }, { key: "custom", label: "Custom" }];
-const n = (x: number) => x.toLocaleString(undefined, { maximumFractionDigits: 1 });
+const n = (x: number) => dec(x);
 const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)}%`);
 const KIND_TONE: Record<string, string> = { CLASS: "text-sky-700", LAB: "text-violet-700", CLINICAL: "text-rose-700" };
 const heatColor = (v: number, max: number) => (v <= 0 ? "transparent" : `rgba(225, 29, 72, ${0.12 + 0.75 * Math.min(1, v / max)})`);

@@ -93,7 +93,7 @@ export interface CohortTargets {
   chain: DerivedStep[];
 }
 
-const r1 = (v: number) => Math.round(v * 10) / 10;
+const r1 = (v: number) => Number(v.toFixed(7));
 
 /**
  * Derive every funnel target for one cohort from its productivity goal —

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { courseService, DEFAULT_SERVICE, type ServiceSession } from "@/lib/service";
+import { dec } from "@/lib/format";
 
 export interface PanelSession extends ServiceSession {
   number: number;
@@ -18,7 +19,7 @@ function time12(hhmm?: string | null) {
   return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${ap}`;
 }
 
-const num = (n: number, d = 0) => n.toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 });
+const num = (n: number, d = 0) => dec(n);
 
 const KINDS: { key: "CLASS" | "LAB" | "CLINICAL"; label: string; accent: string; bar: string }[] = [
   { key: "CLASS", label: "Class sessions", accent: "text-sky-700", bar: "bg-sky-500" },

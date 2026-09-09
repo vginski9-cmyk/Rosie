@@ -9,6 +9,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createRoom, updateRoom, deleteFacility, setRoomClosure, deleteRoomClosure, saveCampus, deleteCampus, saveBuilding, deleteBuilding, saveEquipment, deleteEquipment, assignEquipment, removeEquipmentAssignment } from "@/lib/actions";
 import { HOURS_PRESETS, WEEKDAYS, EQUIPMENT_CATEGORIES, MOBILITY, type HoursSpan } from "@/lib/rooms";
+import { dec } from "@/lib/format";
 
 export interface WsRoom { id: string; institutionId: string; institution: string; name: string; kind: string; roomNumber: string | null; floor: string | null; buildingId: string | null; building: string | null; buildingCode: string | null; campus: string | null; campusId: string | null; capacity: number | null; areaSqft: number | null; availability: string | null; notes: string | null; status: string; hours: HoursSpan[]; hoursLabel: string; closures: { id: string; date: string; openTime: string | null; closeTime: string | null; note: string | null }[]; weeklyOpen: number; weeklyBooked: number; utilization: number; outsideHours: number; bookings: number; equipment: { id: string; name: string; category: string; mobility: string; quantity: number; status: string; via: "home" | "assigned" }[] }
 export interface WsCampus { id: string; institutionId: string; name: string; address: string | null; city: string | null; state: string | null; zip: string | null; notes: string | null; buildings: number }
@@ -23,7 +24,7 @@ const MOB_BADGE: Record<string, string> = { fixed: "bg-slate-200 text-slate-700"
 const inp = "w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
 const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const h1 = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+const h1 = (n: number) => dec(n);
 
 export function RoomsWorkspace({ rooms, campuses, buildings, equipment, institutions, defaultInstitutionId }: { rooms: WsRoom[]; campuses: WsCampus[]; buildings: WsBuilding[]; equipment: WsEquipment[]; institutions: InstLite[]; defaultInstitutionId?: string }) {
   const [tab, setTab] = useState<"rooms" | "buildings" | "equipment">("rooms");

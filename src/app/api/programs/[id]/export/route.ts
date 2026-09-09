@@ -28,9 +28,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       Stage: a.label,
       Target: a.target ?? "",
       Actual: a.actual ?? "",
-      "Plan conversion": a.targetConversion != null ? +(a.targetConversion * 100).toFixed(1) : "",
-      "Actual conversion": a.actualConversion != null ? +(a.actualConversion * 100).toFixed(1) : "",
-      "Attainment %": a.attainment != null ? +(a.attainment * 100).toFixed(1) : "",
+      "Plan conversion": a.targetConversion != null ? a.targetConversion * 100 : "",
+      "Actual conversion": a.actualConversion != null ? a.actualConversion * 100 : "",
+      "Attainment %": a.attainment != null ? a.attainment * 100 : "",
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Talent Pipeline");
   }
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     "Class sections": td.totals.classSections,
     "Lab sections": td.totals.labSections,
     "Clinical / WBL slots": td.totals.clinicalSections,
-    "Faculty FTE": +td.totals.facultyFTE.toFixed(2),
+    "Faculty FTE": td.totals.facultyFTE,
     Preceptors: td.totals.preceptorInstances,
     "Room-hours": td.totals.roomHours,
   }));
@@ -55,7 +55,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     "Class sections": demand.totals.classSections,
     "Lab sections": demand.totals.labSections,
     "Clinical / WBL slots": demand.totals.clinicalSections,
-    "Faculty FTE": +demand.totals.facultyFTE.toFixed(2),
+    "Faculty FTE": demand.totals.facultyFTE,
     Preceptors: demand.totals.preceptorInstances,
     "Room-hours": demand.totals.roomHours,
   });

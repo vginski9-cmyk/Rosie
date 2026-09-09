@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
+import { dec } from "@/lib/format";
 
 export interface RosterStudent {
   id: string;
@@ -120,7 +121,7 @@ export function StudentRoster({ programId, students }: { programId: string; stud
                       </span>
                     ) : "—"}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-700">{s.gpa != null ? s.gpa.toFixed(2) : "—"}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-slate-700">{s.gpa != null ? dec(s.gpa) : "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-600">{s.attendedCount || "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{s.missedCount ? <span className="text-rose-600">{s.missedCount}</span> : <span className="text-slate-300">0</span>}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-500">{s.grades || "—"}</td>

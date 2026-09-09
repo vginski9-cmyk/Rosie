@@ -11,8 +11,9 @@ import { useRouter } from "next/navigation";
 import { assetTotals, parseAssetMapWorkbook, type AssetDayOverride, type ParsedAssetMap } from "@/lib/assetmap";
 import { AssetBuilder, type BuilderAsset, type SettingOption } from "@/components/AssetBuilder";
 import { upsertServiceArea, deleteServiceArea, upsertFamilySite, removeFamilySite, addFamilySite, importAssetMap } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
-const n0 = (v: number) => Math.round(v).toLocaleString();
+const n0 = (v: number) => dec(v);
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 const AGREEMENTS = ["none", "prospect", "asked", "secured", "declined"];
 const FACILITY_TYPES = ["Acute care hospital", "Specialty hospital", "Ambulatory surgery center", "Imaging center", "Physician office / clinic", "Nursing home", "Combination home (NH + adult care)", "Adult care home", "Community health", "Other"];

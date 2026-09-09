@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { logShiftsThrough } from "@/lib/actions";
 import type { getOfferingLedger } from "@/lib/queries";
+import { dec } from "@/lib/format";
 
 // The offering's learner ledger: one row per student — sections they are missing,
 // sections with no instructor, who teaches them this term, and their clinical
@@ -8,7 +9,7 @@ import type { getOfferingLedger } from "@/lib/queries";
 // shifts flagged — so the coordinator sees who is short or uncovered at a glance.
 
 type Ledger = NonNullable<Awaited<ReturnType<typeof getOfferingLedger>>>;
-const h1 = (n: number) => (Math.round(n * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const h1 = (n: number) => dec(n);
 
 export function OfferingLedger({ ledger, programId }: { ledger: Ledger; programId: string }) {
   const active = ledger.students.filter((s) => s.status !== "withdrawn");

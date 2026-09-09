@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { assignCourseStaffBulk, removeCourseStaff } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 // Staffing for ONE offering: who covers this run, how loaded each person is
 // under their workload policy (annual · semester · weekly · daily contact
@@ -17,7 +18,7 @@ const ROLES = ["instructor", "preceptor", "support", "supervisor", "coordinator"
 const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "Preceptor", support: "Support", supervisor: "Supervisor", coordinator: "Coordinator" };
 const ROLE_BADGE: Record<string, string> = { instructor: "bg-rose-100 text-rose-700", preceptor: "bg-orange-100 text-orange-700", support: "bg-sky-100 text-sky-700", supervisor: "bg-violet-100 text-violet-700", coordinator: "bg-emerald-100 text-emerald-700" };
 const h = (n: number, dp = 1) => (Number.isInteger(n) ? String(n) : n.toFixed(dp));
-const fte = (n: number) => n.toFixed(2);
+const fte = (n: number) => dec(n);
 const day = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
 export function OfferingStaffing({ cohortId, programId, terms, assignments, people, loads, enrolled }: {

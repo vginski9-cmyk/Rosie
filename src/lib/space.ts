@@ -158,7 +158,7 @@ export function roomUtilization(bookings: Booking[], rooms: RoomLite[], openHour
     const days = new Set(arr.map((b) => b.dayOfWeek));
     return {
       facilityId: r.id, name: r.name, kind: r.kind, capacity: r.capacity,
-      bookedHoursPeakWeek: Math.round(peak * 10) / 10, openHoursPerWeek,
+      bookedHoursPeakWeek: peak, openHoursPerWeek,
       utilization: openHoursPerWeek > 0 ? Math.min(1, peak / openHoursPerWeek) : 0,
       meetingCount: arr.length, distinctDays: days.size,
     };

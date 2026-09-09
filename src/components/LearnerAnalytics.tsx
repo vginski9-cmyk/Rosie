@@ -8,12 +8,13 @@
 
 import { useMemo, useState } from "react";
 import { DIMENSIONS, pivot, crosstab, ageOn, dimensionValue, type Dimension, type LearnerLite } from "@/lib/learners";
+import { dec } from "@/lib/format";
 
 export interface AnalyticsLearner extends LearnerLite { institutionId: string; programId: string; cohortId: string | null }
 
 const n = (x: number) => x.toLocaleString();
 const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)}%`);
-const f1 = (x: number | null) => (x == null ? "—" : x.toFixed(1));
+const f1 = (x: number | null) => (x == null ? "—" : dec(x));
 
 export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearner[]; today: string }) {
   const [dim, setDim] = useState<Dimension>("raceEthnicity");
@@ -68,7 +69,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
                   <td className="px-2 py-1.5 text-right tabular-nums"><span className="inline-block h-2 rounded bg-rose-200 align-middle" style={{ width: `${Math.max(2, r.share * 80)}px` }} /> {pct(r.share)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{n(r.inProgress)}</td><td className="px-2 py-1.5 text-right tabular-nums">{n(r.completed)}</td><td className="px-2 py-1.5 text-right tabular-nums">{n(r.withdrawn)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.completionRate)}</td><td className="px-2 py-1.5 text-right tabular-nums">{pct(r.withdrawalRate)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{f1(r.avgAge)}</td><td className="px-2 py-1.5 text-right tabular-nums">{r.avgGpa == null ? "—" : r.avgGpa.toFixed(2)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{f1(r.avgAge)}</td><td className="px-2 py-1.5 text-right tabular-nums">{r.avgGpa == null ? "—" : dec(r.avgGpa)}</td>
                 </tr>
               ))}
             </tbody>

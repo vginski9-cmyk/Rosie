@@ -150,10 +150,10 @@ export async function getInsightsFacts() {
           const sem = ctSeason.get(t.id) ?? seasonOfTerm(t) ?? "Fall";
           const dbase = { ...base, cohort: co.name, metricGroup: "Delivery", year: termYear, term: t.name, semester: sem };
           const add = (metric: string, value: number) => facts.push({ ...dbase, metric, value, target: null, actual: value });
-          add("Faculty FTE", Math.round(r.facultyFte * 1000) / 1000);
-          add("Faculty contact hours", Math.round(r.facultyContactHours * 10) / 10);
-          add("Preceptor FTE", Math.round(r.preceptorFte * 1000) / 1000);
-          add("Preceptor contact hours", Math.round(r.preceptorContactHours * 10) / 10);
+          add("Faculty FTE", r.facultyFte);
+          add("Faculty contact hours", r.facultyContactHours);
+          add("Preceptor FTE", r.preceptorFte);
+          add("Preceptor contact hours", r.preceptorContactHours);
           add("Space / service hours", Math.round(r.spaceHours));
           add("Sections required", r.sections);
         }
@@ -1147,9 +1147,9 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
       cohortId: co.id, cohortName: co.name, programId: p.id, programName: p.name,
       family: p.family?.name ?? null, familyId: p.family?.id ?? null, institution: p.institution.name,
       termName: ct.term.name, termIndex: ct.term.index, enrollment,
-      facultyFte: t ? Math.round(t.facultyFte * 100) / 100 : 0,
-      preceptorFte: t ? Math.round(t.preceptorFte * 100) / 100 : 0,
-      spaceHours: t ? Math.round(t.spaceHours) : 0,
+      facultyFte: t ? t.facultyFte : 0,
+      preceptorFte: t ? t.preceptorFte : 0,
+      spaceHours: t ? t.spaceHours : 0,
       sections: t ? t.sections : 0,
       startDate: ct.startDate ?? null, endDate, inSessionNow,
       courses: ct.term.courses.map((c) => ({ id: c.id, name: c.name, sessions: c.sessions.length })),

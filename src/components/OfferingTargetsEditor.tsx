@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { RATE_DEFS, type LadderRates } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
+import { dec, numInput } from "@/lib/format";
 
 export interface OfferingTargets {
   /** Fully-productive placements this offering is responsible for. */
@@ -19,7 +20,7 @@ export interface OfferingTargets {
   rates: Partial<LadderRates>;
 }
 
-const num = (v: number) => Math.round(v).toLocaleString();
+const num = (v: number) => dec(v);
 
 export function effectiveRates(defaults: LadderRates, own: Partial<LadderRates> | undefined): LadderRates {
   return { ...defaults, ...(own ?? {}) };
@@ -97,8 +98,8 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
               <label key={d.key} className="flex items-center justify-between gap-2">
                 <span className="truncate text-slate-600" title={d.of}>{d.label}</span>
                 <span className="whitespace-nowrap">
-                  <input type="number" step={1} disabled={disabled} value={Math.round(rates[d.key] * 1000) / 10} onChange={(e) => onChange({ rates: { ...value.rates, [d.key]: (Number(e.target.value) || 0) / 100 } })} className={`${inp} w-14 ${value.rates?.[d.key] != null ? "border-rose-300 bg-white font-semibold text-rose-800" : ""}`} />%
-                  <span className="ml-1 text-[10px] text-slate-400">bench {Math.round(d.benchmark * 100)}%</span>
+                  <input type="number" step="any" disabled={disabled} value={numInput(rates[d.key] * 100)} onChange={(e) => onChange({ rates: { ...value.rates, [d.key]: (Number(e.target.value) || 0) / 100 } })} className={`${inp} w-14 ${value.rates?.[d.key] != null ? "border-rose-300 bg-white font-semibold text-rose-800" : ""}`} />%
+                  <span className="ml-1 text-[10px] text-slate-400">bench {dec(d.benchmark * 100)}%</span>
                 </span>
               </label>
             ))}

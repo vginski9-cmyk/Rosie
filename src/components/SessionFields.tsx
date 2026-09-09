@@ -9,10 +9,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { SESSION_FIELDS, FORM_FIELDS, KIND_LABELS, type EditableField, type SessionField } from "@/lib/sessionfields";
 import { computeColumns, type SessionInput, type WorkloadAssumptions } from "@/lib/capacitymodel";
+import { dec } from "@/lib/format";
 
 export type FieldRow = Record<EditableField, string | number | null>;
 
-const num = (v: number | null, dp = 4) => (v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp }));
+const num = (v: number | null, dp = 4) => (v == null ? "—" : dec(v));
 
 /** Options people added themselves, remembered in this browser per field. */
 function useExtraOptions(key: string): [string[], (v: string) => void] {

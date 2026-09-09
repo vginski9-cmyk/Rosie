@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getSemesterView } from "@/lib/queries";
 import { InsightsTabs } from "@/components/InsightsTabs";
-import { fmt } from "@/lib/format";
+import { fmt, dec } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -70,8 +70,8 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Offerings in session" value={String(offerings.length)} />
             <Stat label="Seats" value={fmt.num(totals.seats)} />
-            <Stat label="Faculty FTE" value={totals.fac.toFixed(2)} hint="combined across all programs" />
-            <Stat label="Preceptor FTE" value={totals.prec.toFixed(2)} hint={`${totals.sections} sections`} />
+            <Stat label="Faculty FTE" value={dec(totals.fac)} hint="combined across all programs" />
+            <Stat label="Preceptor FTE" value={dec(totals.prec)} hint={`${totals.sections} sections`} />
           </div>
 
           {/* Offerings grouped by institution → family */}
@@ -106,8 +106,8 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
                           )}
                           <div className="mt-2 grid grid-cols-3 gap-2 text-center">
                             <Mini label="Seats" value={String(o.enrollment)} />
-                            <Mini label="Fac FTE" value={o.facultyFte.toFixed(2)} />
-                            <Mini label="Prec FTE" value={o.preceptorFte.toFixed(2)} />
+                            <Mini label="Fac FTE" value={dec(o.facultyFte)} />
+                            <Mini label="Prec FTE" value={dec(o.preceptorFte)} />
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1">
                             {o.courses.map((c) => (

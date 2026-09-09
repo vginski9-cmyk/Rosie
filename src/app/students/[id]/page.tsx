@@ -5,7 +5,7 @@ import { updateStudentEnrollment, createPlacement, updatePlacementStatus, delete
 import { StudentAssignments } from "@/components/StudentAssignments";
 import { SEX, RACE_ETHNICITY, RESIDENCY, PRIOR_EDUCATION, EMPLOYMENT_STATUS, WITHDRAWAL_REASON, NC_COUNTIES, ageOn } from "@/lib/learners";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
-import { fmt } from "@/lib/format";
+import { fmt, dec } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -245,7 +245,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
 
       {/* KPI tiles */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Tile label="GPA" value={student.gpa != null ? student.gpa.toFixed(2) : "—"} sub="cumulative" />
+        <Tile label="GPA" value={student.gpa != null ? dec(student.gpa) : "—"} sub="cumulative" />
         <Tile label="Sessions attended" value={fmt.num(student.attendedCount)} sub={`of ${fmt.num(totalSessions)}`} />
         <Tile label="Sessions missed" value={fmt.num(student.missedCount)} sub={`${student.absences.filter((a) => a.excused).length} excused`} accent={student.missedCount > 0} />
         <Tile label="Attendance rate" value={attendanceRate != null ? fmt.pct(attendanceRate, 1) : "—"} sub="attended ÷ total" />

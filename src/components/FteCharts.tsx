@@ -1,4 +1,5 @@
 "use client";
+import { dec } from "@/lib/format";
 
 // Workbook-style pivot charts (vertical grouped columns) — the "FTEs per Week"
 // sheet's visuals, actionable: every cap carries its number, bands mirror the
@@ -12,8 +13,7 @@ export interface ColBand { label: string; groups: ColGroup[] }
 
 const fmtV = (v: number) => {
   if (v === 0) return "0";
-  if (v < 10) return (Math.round(v * 10) / 10).toString();
-  return Math.round(v).toLocaleString();
+  return dec(v);
 };
 
 export function ColumnChart({

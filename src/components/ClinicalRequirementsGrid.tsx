@@ -14,9 +14,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { requirementTotals } from "@/lib/clinicalmodel";
 import { updateFamilyClinicalModel, upsertServiceArea, deleteServiceArea, saveCourseRequirements } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
-const n0 = (v: number) => Math.round(v).toLocaleString();
-const n1 = (v: number) => (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const n0 = (v: number) => dec(v);
+const n1 = (v: number) => dec(v);
 const MODEL: Record<string, string> = {
   hours: "Hours-based — each student logs set hours in set settings",
   competency: "Competency / case-based — cases and check-offs, hours follow",

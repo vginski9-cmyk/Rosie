@@ -858,7 +858,7 @@ async function seedStudents(
             gradeRows.push({ courseId: c.id, termIndex: currentTerm, status: "in_progress", grade: null, gradePoints: null, completedDate: null });
           }
         }
-        gpa = n > 0 ? Math.round((pts / n) * 100) / 100 : null;
+        gpa = n > 0 ? pts / n : null;
 
         // Dated KSA assessments up through completed terms.
         const reach = currentTerm ?? completedTerms;
@@ -969,8 +969,8 @@ async function seedSessionStaff(
         const prec = (group.length ? group : preceptors)[s.number % Math.max(1, group.length || preceptors.length)];
         if (prec) rows.push({ sessionId: s.id, cohortId, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
       } else if (co && s.kind === "CLASS") {
-        const primShare = Math.round(s.lengthHours * co.primaryShare * 10) / 10;
-        const secShare = Math.round((s.lengthHours - primShare) * 10) / 10;
+        const primShare = s.lengthHours * co.primaryShare;
+        const secShare = s.lengthHours - primShare;
         rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: primShare, segment: co.segment[0] });
         if (secShare > 0) rows.push({ sessionId: s.id, cohortId, personId: secondary.id, role: "instructor", contactHours: secShare, segment: co.segment[1] });
       } else {

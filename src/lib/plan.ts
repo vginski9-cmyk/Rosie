@@ -21,6 +21,7 @@ import {
   type CapacityConfig,
 } from "./capacity";
 import { CYCLE, deliveryOrdinals, ordinalOfCalendar, termFromOrdinal, type AcademicTerm, type TermCode } from "./calendar";
+import { dec } from "./format";
 
 /** Default per-program-term retention (Term 1 = 1.0), gentle decline. */
 export const DEFAULT_ATTRITION = [1.0, 0.94, 0.88, 0.82, 0.76, 0.7, 0.66, 0.62, 0.6, 0.58, 0.56, 0.54];
@@ -152,7 +153,7 @@ export function buildAcademicPlan(
     };
     const bottlenecks: string[] = [];
     if (gaps.clinicalSlots.gap < 0) bottlenecks.push(`Clinical/WBL slots short by ${Math.ceil(-gaps.clinicalSlots.gap)}`);
-    if (gaps.facultyFte.gap < 0) bottlenecks.push(`Faculty short by ${(-gaps.facultyFte.gap).toFixed(1)} FTE`);
+    if (gaps.facultyFte.gap < 0) bottlenecks.push(`Faculty short by ${dec((-gaps.facultyFte.gap))} FTE`);
     if (gaps.preceptors.gap < 0) bottlenecks.push(`Preceptors short by ${Math.ceil(-gaps.preceptors.gap)}`);
 
     return { term: termFromOrdinal(ordinal), active, demand, supply, gaps, bottlenecks };
@@ -252,7 +253,7 @@ export function mergePlans(plans: AcademicPlan[], supply: Supply): AcademicPlan 
     };
     const bottlenecks: string[] = [];
     if (gaps.clinicalSlots.gap < 0) bottlenecks.push(`Clinical/WBL slots short by ${Math.ceil(-gaps.clinicalSlots.gap)}`);
-    if (gaps.facultyFte.gap < 0) bottlenecks.push(`Faculty short by ${(-gaps.facultyFte.gap).toFixed(1)} FTE`);
+    if (gaps.facultyFte.gap < 0) bottlenecks.push(`Faculty short by ${dec((-gaps.facultyFte.gap))} FTE`);
     if (gaps.preceptors.gap < 0) bottlenecks.push(`Preceptors short by ${Math.ceil(-gaps.preceptors.gap)}`);
     return { ...tp, supply, gaps, bottlenecks };
   });
