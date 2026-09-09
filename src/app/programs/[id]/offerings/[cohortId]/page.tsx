@@ -181,7 +181,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       {/* ── One button: rooms, sites, staff and learners, all placed ─────────── */}
       <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={offering._count.students} />
 
-      {/* ── Offering dates: on the academic calendar, automatically ─────────── */}
+      {/* ── Term dates for THIS offering (derived from the org's calendar; overridable here) ── */}
       {(() => {
         const inst = program.institution;
         const isoD = (d: Date | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -202,8 +202,8 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         const typedWindows = offering.courseDates.length - autoWindows;
         return (
           <Collapse
-            title="Offering dates — on the academic calendar"
-            sub={codedStarts ? `${inst.name}'s coded calendar sets every term's first and last day and every shorter course's window; nothing here needs typing` : `No coded calendar for ${inst.name} yet — each term follows the semester pattern and ends with its semester; import the calendar in the organization's set-up (Directory → Organizations) and every offering re-aligns itself`}
+            title="Term dates — this offering"
+            sub={codedStarts ? `Every term's first and last day and every shorter course's window follow ${inst.name}'s calendar (set up under Directory → Organizations); nothing here needs typing` : `Each term follows ${inst.name}'s semester pattern and ends with its semester — the calendar itself is set up under Directory → Organizations`}
             summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{autoWindows ? ` · ${autoWindows} course window${autoWindows === 1 ? "" : "s"} from the calendar` : ""}{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
           >
             <div className="overflow-x-auto">
@@ -267,7 +267,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
                   );
                 })}
                 <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700" title="terms you type here stay as typed; everything else keeps following the calendar around them">Save typed dates</button>
-                <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="drop every typed date and put every term back on the academic calendar from the offering start">Re-align to the academic calendar</button>
+                <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="drop every typed date and put every term back on the academic calendar from the offering start">Re-align to the organization&apos;s calendar</button>
               </form>
               <p className="mt-1 text-[11px] text-slate-400">Leave a term blank to keep it on the calendar. A typed term is marked “typed by hand” and left alone by future calendar imports until you re-align.</p>
             </details>
