@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOffering, getCapacityModel } from "@/lib/queries";
+import { getOffering, getCapacityModel, getOfferingStaffing } from "@/lib/queries";
+import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
@@ -35,7 +36,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const capModel = await getCapacityModel({ cohortId: params.cohortId });
+  const [capModel, staffing] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId)]);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -288,6 +289,19 @@ export default async function OfferingPage({ params }: { params: { id: string; c
           courseDates={Object.fromEntries(offering.courseDates.map((cd) => [cd.courseId, { start: iso(cd.startDate) || null, end: iso(cd.endDate) || null, auto: cd.auto }]))}
         />
       </Collapse>
+
+      {/* ── Staffing: who covers this run, under their workload policies ── */}
+      {staffing && (
+        <Collapse
+          title="Staffing — who covers this run"
+          sub="Assign faculty, adjuncts, support staff and preceptors to every session; each person's load (annual · semester · weekly · daily contact hours, FTE) follows their workload policy. Split or co-teach any single shift on Design & sequence."
+          summary={<>{staffing.loads.length} people · {Math.round(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h assigned</>}
+        >
+          <OfferingStaffing cohortId={offering.id} programId={program.id} enrolled={staffing.enrolled}
+            terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
+            assignments={staffing.assignments} people={staffing.people} loads={staffing.loads} />
+        </Collapse>
+      )}
 
       {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}
       {capCohort && (

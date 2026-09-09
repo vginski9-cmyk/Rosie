@@ -51,6 +51,7 @@ model Institution {
   wblSnapshots   WblSnapshot[]
   assignments    Assignment[]
   facilities     Facility[]
+  workloadPolicies WorkloadPolicy[]
 }
 
 /// A physical teaching space: classroom, lab, clinical/sim facility. Captures the
@@ -382,6 +383,10 @@ model SectionSchedule {
 /// Who staffs a session, and for how many of its contact hours. Co-teaching is
 /// modeled by multiple rows whose contactHours sum to (at most) the session
 /// length — e.g. a 3-hr class split 2 hrs / 1 hr between two instructors.
+/// One person's share of ONE shift: a session (class / lab / clinical row) in
+/// one section of one offering. A 3-hour class may be three rows — 1 h, 0.75 h
+/// and 1.25 h by three instructors — or two rows at the same offset when two
+/// people teach together. Contact hours × the person's workload policy = load.
 model SessionInstructor {
   id           String  @id @default(cuid())
   sessionId    String
@@ -392,8 +397,13 @@ model SessionInstructor {
   /// default applying to any offering that hasn't assigned its own staff.
   cohortId     String?
   cohort       Cohort? @relation(fields: [cohortId], references: [id], onDelete: Cascade)
-  role         String  @default("instructor") // instructor | preceptor | support
+  /// Which section (shift) of the session, 1-based.
+  sectionIndex Int     @default(1)
+  role         String  @default("instructor") // instructor | preceptor | support | coordinator | supervisor
   contactHours Float   // portion of the session length this person covers
+  /// Minutes into the session this person's portion starts (null = unspecified);
+  /// two rows whose spans overlap are co-teaching.
+  startOffsetMin Float?
   segment      String? // what they cover, e.g. "Lecture" | "Lab supervision"
 
   @@index([sessionId])
@@ -627,6 +637,44 @@ model Person {
 /// A FUNCTIONAL UNIT inside a clinical site — the asset map's master grain.
 /// Capacity math happens here: beds/rooms/stations × shifts × days →
 /// students per shift, preceptors per shift, weekly student slots.
+/// Workload policy & assumptions by institution, employer and position: what a
+/// full load is (contact hours per week), the work week, the weeks in a term
+/// and in a year, and how many work hours each contact hour is credited. The
+/// most specific matching policy governs a person: employer + position +
+/// employment type, then employer + position, then the institution's own for
+/// the position, then the institution's default for the role.
+model WorkloadPolicy {
+  id            String @id @default(cuid())
+  institutionId String
+  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  /// null = the institution's own staff; set = the partner's (preceptors at a site)
+  employerId    String?
+  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  /// Position: role (instructor | preceptor | support | supervisor | coordinator) …
+  role          String
+  /// … optionally narrowed to an employment type (full-time | part-time | adjunct | contract | preceptor) …
+  employmentType String?
+  /// … and/or a job title (matches Person.title, case-insensitive).
+  title         String?
+  label         String?  // e.g. "Full-time faculty", "Adjunct"
+  /// Contact (student-facing) hours per week that make a full load.
+  contactHoursPerWeek Float
+  /// Hours in the work week.
+  workWeekHours Float @default(40)
+  /// Weeks in a term and in a working year (annual load).
+  termWeeks     Float @default(16)
+  annualWeeks   Float @default(32)
+  /// Work hours credited per contact hour (null = workWeekHours ÷ contactHoursPerWeek).
+  hoursPerContactHour Float?
+  /// Contact hours per week above which the person is overloaded (null = contactHoursPerWeek).
+  maxContactHoursPerWeek Float?
+  notes         String?
+  createdAt     DateTime @default(now())
+
+  @@index([institutionId])
+  @@index([employerId])
+}
+
 model ClinicalUnit {
   id            String   @id @default(cuid())
   employerId    String
@@ -936,6 +984,7 @@ model Employer {
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
+  workloadPolicies WorkloadPolicy[]
   alignmentProfiles AlignmentProfile[]
   meetings MeetingPattern[]
   shiftMoves ShiftMove[]

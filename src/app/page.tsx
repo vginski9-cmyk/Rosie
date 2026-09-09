@@ -20,7 +20,6 @@ const entryOf = (launchTerms: string) => launchTerms.split(",").map((t) => TERM_
 export default async function HomePage() {
   const [institutions, lite] = await Promise.all([getInstitutionsHome(), getInstitutionsLite()]);
   const thisYear = new Date().getUTCFullYear();
-  const lastYear = thisYear - 1;
   const totals = {
     families: institutions.reduce((n, i) => n + i.families.length, 0),
     programs: institutions.reduce((n, i) => n + i.programs, 0),
@@ -92,7 +91,7 @@ export default async function HomePage() {
                     </div>
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{lastYear} delivered: <strong className="text-slate-700">{fmt.num(f.lastYearActual)}</strong></span>
+                        <span className="text-slate-500">{thisYear} placed so far</span>
                         <span className={f.progress == null ? "text-slate-400" : onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>{f.progress != null ? `${Math.round(f.progress * 100)}% of the ${thisYear} goal` : "no goal set"}</span>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${f.progress != null ? Math.min(100, f.progress * 100) : 0}%` }} /></div>

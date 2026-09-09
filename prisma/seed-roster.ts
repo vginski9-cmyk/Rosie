@@ -6,6 +6,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { alignOffering } from "../src/lib/termalign";
+import { DEFAULT_POLICIES } from "../src/lib/workload";
 import { deriveCohortTargets } from "../src/lib/pipeline";
 import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
@@ -162,4 +163,63 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     asked: plan.filter((p) => p.agreementStatus === "asked").length,
     offerings, meetings,
   };
+}
+
+// ── Workload policies (every institution) and demo shift assignments ────────
+
+/** The built-in policy set, coded per institution so the People page shows
+ *  real rows to edit (Sandhills' own numbers: FT 16/40 → 2.5, adjunct 18/40, support 1:1, preceptor 1:1). */
+export async function seedWorkloadPolicies(prisma: PrismaClient) {
+  const institutions = await prisma.institution.findMany({ select: { id: true } });
+  let n = 0;
+  for (const inst of institutions) for (const d of DEFAULT_POLICIES) {
+    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: d.contactHoursPerWeek, workWeekHours: d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null } });
+    n++;
+  }
+  return n;
+}
+
+/** Dummy staffing for the seeded offerings: each course's class and lab
+ *  sessions covered in full by the program's own instructors (round-robin per
+ *  shift), each clinical shift by a preceptor at the site its weekly booking
+ *  points to. Adjust any shift on the design page. */
+export async function seedShiftAssignments(prisma: PrismaClient, institutionId: string) {
+  const cohorts = await prisma.cohort.findMany({
+    where: { program: { institutionId }, status: { in: ["planned", "active"] } },
+    include: { program: { include: { terms: { include: { courses: { include: { sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true } } } } } } } }, meetings: { select: { courseId: true, kind: true, sectionIndex: true, employerId: true } }, _count: { select: { students: true } } },
+  });
+  const people = await prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, role: true, title: true, employerId: true } });
+  let made = 0;
+  for (const co of cohorts) {
+    const key = /Radiograph/i.test(co.program.name) ? /Radiograph/i : /Surgical/i.test(co.program.name) ? /Surgical/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide/i : /./;
+    const instructors = people.filter((p) => p.role === "instructor" && key.test(p.title ?? ""));
+    if (!instructors.length) continue;
+    const enrolled = Math.max(co._count.students, co.plannedSeats ?? 0, 1);
+    // Class and lab shifts rotate through the instructors so nobody carries a
+    // whole course alone; clinical shifts get a preceptor at the booked site
+    // (clinical faculty are left for someone to assign by hand).
+    let rr = 0;
+    for (const t of co.program.terms) for (const c of t.courses) {
+      for (const s of c.sessions) {
+        const shifts = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
+        if (s.kind === "CLINICAL") {
+          if (s.preceptorsNeeded <= 0) continue;
+          for (let sec = 1; sec <= shifts; sec++) {
+            const m = co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL" && x.sectionIndex === sec) ?? co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL");
+            const pool = people.filter((p) => p.role === "preceptor" && (!m?.employerId || p.employerId === m.employerId));
+            const pre = pool.length ? pool[(sec - 1) % pool.length] : null;
+            if (pre) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: pre.id, sectionIndex: sec, role: "preceptor", contactHours: s.lengthHours, startOffsetMin: 0 } }); made++; }
+          }
+          continue;
+        }
+        for (let sec = 1; sec <= shifts; sec++) {
+          const who = instructors[rr++ % instructors.length];
+          await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: who.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0 } });
+          made++;
+          if (s.facultyNeeded >= 2) { const second = instructors[rr++ % instructors.length]; if (second.id !== who.id) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: second.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: "co-teaching" } }); made++; } }
+        }
+      }
+    }
+  }
+  return made;
 }

@@ -702,78 +702,65 @@ export async function getFacilitiesDirectory() {
 /** Every staff person across institutions with assignment load, plus the
  *  institution + employer lists for the add/edit form. */
 export async function getPeopleDirectory() {
-  const [raw, institutions, employers, studentCount] = await Promise.all([
+  const { personLoad } = await import("./workload");
+  const [raw, institutions, employers, studentCount, policies, dated] = await Promise.all([
     prisma.person.findMany({
       orderBy: { name: "asc" },
       include: {
         institution: { select: { id: true, name: true } },
         employer: { select: { id: true, name: true } },
         _count: { select: { sessionStaff: true, assignments: true } },
-        // Cohort-level assignments (this run), for the time-bound load view. Pull
-        // the cohort start date + the session's term so each assignment can be
-        // bucketed to a real calendar year + semester (and flagged "in session now").
-        sessionStaff: {
-          where: { cohortId: { not: null } },
-          select: {
-            contactHours: true,
-            cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } } } },
-            session: { select: { course: { select: { term: { select: { name: true, startWeek: true, endWeek: true } } } } } },
-          },
-        },
       },
     }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.employer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, institutionId: true } }),
     prisma.student.count(),
+    getWorkloadPolicies(),
+    datedStaffAssignments(),
   ]);
+  const today = new Date().toISOString().slice(0, 10);
+  const byPerson = new Map<string, typeof dated>();
+  for (const d of dated) { const l = byPerson.get(d.personId) ?? []; l.push(d); byPerson.set(d.personId, l); }
 
-  const WEEK_MS = 7 * 24 * 3600 * 1000;
-  const today = new Date();
-  const seasonOf = (d: Date) => { const m = d.getUTCMonth(); return m >= 7 ? "Fall" : m >= 5 ? "Summer" : "Spring"; };
-
-  // Roll each person's cohort assignments into a time-bound load summary: total
-  // hours, per calendar year, per semester (year+season), per cohort, and whether
-  // any assignment falls in a term that is in session today ("currently working").
+  // Roll each person's shift assignments into a time-bound load: daily, weekly,
+  // per term, per year — credited by their workload policy — plus the same
+  // per-cohort buckets the filters use, and whether any shift is this week.
   const people = raw.map((p) => {
+    const mine = byPerson.get(p.id) ?? [];
+    const load = personLoad({ id: p.id, institutionId: p.institutionId, employerId: p.employerId, role: p.role, employmentType: p.employmentType, title: p.title }, mine, policies);
     type Bucket = { cohortId: string; name: string; program: string; hours: number; year: number | null; season: string | null };
     const buckets: Bucket[] = [];
     const byYear: Record<number, number> = {};
     const bySemester: Record<string, { year: number; season: string; hours: number }> = {};
-    let totalHours = 0;
-    let workingNow = false;
-    let currentHours = 0;
-    for (const si of p.sessionStaff) {
-      if (!si.cohort) continue;
-      const start = si.cohort.startDate;
-      const term = si.session?.course?.term ?? null;
-      let year: number | null = null, season: string | null = null;
-      if (start) {
-        const td = new Date(start.getTime() + (((term?.startWeek ?? 1) - 1) * WEEK_MS));
-        year = td.getUTCFullYear();
-        season = seasonOf(td);
-        const termEnd = new Date(start.getTime() + (((term?.endWeek ?? 16)) * WEEK_MS));
-        if (today >= td && today < termEnd) { workingNow = true; currentHours += si.contactHours; }
-      }
-      totalHours += si.contactHours;
-      if (year != null) byYear[year] = (byYear[year] ?? 0) + si.contactHours;
-      if (year != null && season) {
-        const key = `${year} ${season}`;
-        const b = bySemester[key] ?? { year, season, hours: 0 };
-        b.hours += si.contactHours; bySemester[key] = b;
-      }
-      // Aggregate into per-cohort+season buckets so the same cohort across terms
-      // still rolls up sensibly while keeping the period dimension.
-      const bk = buckets.find((x) => x.cohortId === si.cohort!.id && x.year === year && x.season === season);
-      if (bk) bk.hours += si.contactHours;
-      else buckets.push({ cohortId: si.cohort.id, name: si.cohort.name, program: si.cohort.program.name, hours: si.contactHours, year, season });
+    let workingNow = false, currentHours = 0;
+    const weekMonday = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); };
+    const thisMonday = weekMonday(today);
+    for (const a of mine) {
+      const season = a.termKey.split(" ")[0] || null; const year = a.year;
+      if (year != null) byYear[year] = (byYear[year] ?? 0) + a.contactHours;
+      if (year != null && season) { const key = `${year} ${season}`; const b = bySemester[key] ?? { year, season, hours: 0 }; b.hours += a.contactHours; bySemester[key] = b; }
+      if (a.dateIso && weekMonday(a.dateIso) === thisMonday) { workingNow = true; currentHours += a.contactHours; }
+      const bk = buckets.find((x) => x.cohortId === a.cohortId && x.year === year && x.season === season);
+      if (bk) bk.hours += a.contactHours; else buckets.push({ cohortId: a.cohortId, name: a.cohortName, program: a.programName, hours: a.contactHours, year, season });
     }
-    buckets.sort((a, b) => (b.year ?? 0) - (a.year ?? 0) || b.hours - a.hours);
-    const semesters = Object.values(bySemester).sort((a, b) => b.year - a.year || a.season.localeCompare(b.season));
-    const { sessionStaff: _drop, ...rest } = p;
-    return { ...rest, workingNow, currentHours, load: { cohorts: buckets, byYear, semesters, totalHours } };
+    buckets.sort((x, y) => (y.year ?? 0) - (x.year ?? 0) || y.hours - x.hours);
+    const semesters = Object.values(bySemester).sort((x, y) => y.year - x.year || x.season.localeCompare(y.season));
+    return {
+      ...p, workingNow, currentHours,
+      load: { cohorts: buckets, byYear, semesters, totalHours: load.totalContactHours },
+      workload: {
+        policyLabel: load.policy.label ?? [load.policy.employmentType, load.policy.role].filter(Boolean).join(" "), policySource: load.policySource, policyId: load.policy.id ?? null,
+        contactHoursPerWeek: load.policy.contactHoursPerWeek, workWeekHours: load.policy.workWeekHours, termWeeks: load.policy.termWeeks, annualWeeks: load.policy.annualWeeks,
+        creditPerContactHour: load.creditPerContactHour, totalContactHours: load.totalContactHours, totalCreditedHours: load.totalCreditedHours,
+        years: load.years.map((y) => ({ key: y.key, contactHours: y.contactHours, creditedHours: y.creditedHours, fte: load.yearFte.find((f) => f.key === y.key)?.fte ?? 0 })),
+        terms: load.terms.map((t) => ({ key: t.key, contactHours: t.contactHours, creditedHours: t.creditedHours, fte: load.termFte.find((f) => f.key === t.key)?.fte ?? 0 })),
+        weekly: load.weekly, daily: load.daily, peakWeek: load.peakWeek, peakDay: load.peakDay, peakWeekLoad: load.peakWeekLoad, overloadedWeeks: load.overloadedWeeks, undatedHours: load.undatedHours,
+        shifts: mine.length,
+      },
+    };
   });
 
-  return { people, institutions, employers, studentCount };
+  return { people, institutions, employers, studentCount, policies };
 }
 
 // ---------------------------------------------------------------------------
@@ -917,28 +904,37 @@ export async function getProgramSessionPlan(programId: string) {
 /** Per-offering staffing: the template's terms/courses/sessions, the staff already
  *  assigned to THIS cohort, and the institution's people pool to assign from. */
 export async function getOfferingStaffing(cohortId: string) {
+  const { personLoad } = await import("./workload");
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
       program: {
         include: {
           institution: { select: { id: true, name: true } },
-          terms: {
-            orderBy: { index: "asc" },
-            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { id: true, lengthHours: true, kind: true } } } } },
-          },
+          terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { select: { id: true, lengthHours: true, kind: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, supportStaffNeeded: true } } } } } },
         },
       },
-      sessionStaff: { include: { person: { select: { id: true, name: true, role: true } }, session: { select: { id: true, courseId: true } } } },
+      _count: { select: { students: true } },
     },
   });
   if (!cohort) return null;
-  const people = await prisma.person.findMany({
-    where: { institutionId: cohort.program.institution.id },
-    orderBy: [{ role: "asc" }, { name: "asc" }],
-    select: { id: true, name: true, role: true },
-  });
-  return { cohort, program: cohort.program, staff: cohort.sessionStaff, people };
+  const institutionId = cohort.program.institution.id;
+  const [people, policies, dated] = await Promise.all([
+    prisma.person.findMany({ where: { institutionId, active: true }, orderBy: [{ role: "asc" }, { name: "asc" }], select: { id: true, name: true, role: true, employmentType: true, title: true, employerId: true, institutionId: true, employer: { select: { name: true } } } }),
+    getWorkloadPolicies(),
+    datedStaffAssignments({ cohortId }),
+  ]);
+  const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
+  // Per-person load for THIS run (their whole load lives on the People page).
+  const byPerson = new Map<string, typeof dated>();
+  for (const d of dated) { const l = byPerson.get(d.personId) ?? []; l.push(d); byPerson.set(d.personId, l); }
+  const loads = [...byPerson.entries()].map(([pid, list]) => {
+    const p = people.find((x) => x.id === pid);
+    const lite = p ? { id: p.id, institutionId: p.institutionId, employerId: p.employerId, role: p.role, employmentType: p.employmentType, title: p.title } : { id: pid, institutionId, employerId: null, role: list[0].role, employmentType: null, title: null };
+    const l = personLoad(lite, list, policies);
+    return { personId: pid, name: list[0].personName, role: p?.role ?? list[0].role, employmentType: p?.employmentType ?? null, employer: p?.employer?.name ?? null, policyLabel: l.policy.label ?? l.policy.role, contactHoursPerWeek: l.policy.contactHoursPerWeek, credit: l.creditPerContactHour, total: l.totalContactHours, credited: l.totalCreditedHours, terms: l.terms.map((t) => ({ key: t.key, contactHours: t.contactHours, fte: l.termFte.find((f) => f.key === t.key)?.fte ?? 0 })), years: l.years.map((y) => ({ key: y.key, contactHours: y.contactHours, fte: l.yearFte.find((f) => f.key === y.key)?.fte ?? 0 })), peakWeek: l.peakWeek, peakDay: l.peakDay, peakWeekLoad: l.peakWeekLoad, overloadedWeeks: l.overloadedWeeks, shifts: list.length };
+  }).sort((a, b) => b.total - a.total);
+  return { cohort, program: cohort.program, enrolled, assignments: dated, people, loads };
 }
 
 export async function getOfferingScheduler(cohortId: string) {
@@ -1784,10 +1780,11 @@ export async function getOfferingDesign(cohortId: string) {
   const institutionId = cohort.program.institutionId;
   const [rooms, people, employers] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
-    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true }, orderBy: [{ role: "asc" }, { name: "asc" }], select: { id: true, name: true, role: true, employmentType: true, title: true, employerId: true, employer: { select: { name: true } } } }),
     prisma.employer.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, setting: true } }),
   ]);
-  return { cohort, rooms, people, employers };
+  const assignments = await prisma.sessionInstructor.findMany({ where: { cohortId }, include: { person: { select: { id: true, name: true, role: true } } }, orderBy: [{ sectionIndex: "asc" }, { startOffsetMin: "asc" }] });
+  return { cohort, rooms, people, employers, assignments };
 }
 
 /** Everything the clinical scheduler needs beyond the capacity model: the asset
@@ -1864,6 +1861,61 @@ export async function getInstitutionsHome(currentYear?: number): Promise<HomeIns
       id: inst.id, name: inst.name, shortName: inst.shortName, kind: inst.kind, city: inst.city, state: inst.state, serviceArea: inst.serviceArea, families,
       thisYearGoal: families.reduce((n, f) => n + f.thisYearGoal, 0), programs: families.reduce((n, f) => n + f.programs.length, 0),
       running: families.reduce((n, f) => n + f.running, 0), students: families.reduce((n, f) => n + f.students, 0), sites: inst._count.employers,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// WORKLOAD — policies by institution / employer / position, and dated staffing
+// assignments (one person's share of one shift) for load math
+// ---------------------------------------------------------------------------
+
+export async function getWorkloadPolicies() {
+  const rows = await prisma.workloadPolicy.findMany({
+    orderBy: [{ institutionId: "asc" }, { employerId: "asc" }, { role: "asc" }, { employmentType: "asc" }, { title: "asc" }],
+    include: { institution: { select: { id: true, name: true } }, employer: { select: { id: true, name: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id, institutionId: r.institutionId, institutionName: r.institution.name, employerId: r.employerId, employerName: r.employer?.name ?? null,
+    role: r.role, employmentType: r.employmentType, title: r.title, label: r.label,
+    contactHoursPerWeek: r.contactHoursPerWeek, workWeekHours: r.workWeekHours, termWeeks: r.termWeeks, annualWeeks: r.annualWeeks,
+    hoursPerContactHour: r.hoursPerContactHour, maxContactHoursPerWeek: r.maxContactHoursPerWeek, notes: r.notes,
+  }));
+}
+
+const DAY_OFF: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+const seasonOfDate = (d: Date) => { const m = d.getUTCMonth() + 1; return m <= 4 ? "Spring" : m <= 7 ? "Summer" : "Fall"; };
+
+/** Every offering-level staffing assignment (optionally for one cohort or one
+ *  person) with the shift's real date and term, ready for the workload engine. */
+export async function datedStaffAssignments(where: { cohortId?: string; personId?: string; institutionId?: string } = {}) {
+  const rows = await prisma.sessionInstructor.findMany({
+    where: {
+      cohortId: where.cohortId ?? { not: null },
+      ...(where.personId ? { personId: where.personId } : {}),
+      ...(where.institutionId ? { person: { institutionId: where.institutionId } } : {}),
+    },
+    include: {
+      person: { select: { id: true, name: true } },
+      session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } } } } } },
+      cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
+    },
+  });
+  return rows.map((r) => {
+    const ov = r.cohort?.sessionOverrides.find((o) => o.sessionId === r.sessionId);
+    const week = ov?.week ?? r.session.week; const day = ov?.dayOfWeek ?? r.session.dayOfWeek;
+    const ct = r.cohort?.cohortTerms.find((x) => x.termId === r.session.course.termId);
+    const cw = r.cohort?.courseDates.find((x) => x.courseId === r.session.course.id);
+    const anchor = cw?.startDate ?? ct?.startDate ?? null;
+    let dateIso: string | null = null;
+    if (anchor && week) { const off = day != null ? DAY_OFF[day] : undefined; if (off != null) dateIso = new Date(anchor.getTime() + ((week - 1) * 7 + off) * 86400000).toISOString().slice(0, 10); }
+    const termStart = ct?.startDate ?? null;
+    const termKey = termStart ? `${seasonOfDate(termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
+    const year = dateIso ? Number(dateIso.slice(0, 4)) : termStart ? termStart.getUTCFullYear() : null;
+    return {
+      id: r.id, personId: r.personId, personName: r.person.name, role: r.role, contactHours: r.contactHours, startOffsetMin: r.startOffsetMin, segment: r.segment, sectionIndex: r.sectionIndex,
+      sessionId: r.sessionId, dateIso, termKey, year, cohortId: r.cohortId!, cohortName: r.cohort?.name ?? "", programName: r.cohort?.program.name ?? "", courseCode: r.session.course.code, courseName: r.session.course.name, kind: r.session.kind,
+      termIndex: r.session.course.term.index,
     };
   });
 }

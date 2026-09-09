@@ -11,6 +11,8 @@ import { SessionFieldGrid, harvestOptions, type FieldRow } from "@/components/Se
 import type { EditableField } from "@/lib/sessionfields";
 import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnalytics";
 import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
+import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
+import { coverageOf } from "@/lib/workload";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -50,7 +52,7 @@ export interface DsMeeting {
 export interface DsCourse { id: string; code: string | null; name: string; startDate: string | null; endDate: string | null; sessions: DsSession[] }
 export interface DsTerm { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; startDate: string | null; courses: DsCourse[] }
 export interface DsRoom { id: string; name: string; kind: string; capacity: number | null }
-export interface DsPerson { id: string; name: string; role: string }
+export interface DsPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employer?: { name: string } | null }
 export interface DsEmployer { id: string; name: string; setting: string | null }
 
 const DAY_OFFSET: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
@@ -101,8 +103,10 @@ const addTally = (a: Tally, b: Tally): Tally => ({
 });
 
 export function OfferingDesign({
-  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {},
+  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {}, assignments = [],
 }: {
+  /** Every shift share for this offering (person × session × section). */
+  assignments?: ShiftAssignment[];
   cohortName?: string;
   /** Institution-coded holidays & breaks (ISO → label) — checked before the U.S. defaults. */
   holidays?: Record<string, string>;
@@ -448,6 +452,14 @@ export function OfferingDesign({
                           <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>
                           <span className="tabular-nums text-slate-500">{r.lengthHours}h · cap {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{offCampus && r.rotationType ? ` · @ ${r.rotationType}` : ""}</span>
                           <span className="tabular-nums text-emerald-800">{calcVal.Y} sec · {num(comp.Z, 1)} fac h{offCampus ? ` · ${num(comp.AC, 0)} prec h` : ""}</span>
+                          {(() => {
+                            const mine = assignments.filter((a) => a.sessionId === r.id);
+                            const secs = Math.max(1, comp.Y ?? 1);
+                            const statuses = Array.from({ length: secs }, (_, i) => coverageOf({ lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded }, mine.filter((a) => a.sectionIndex === i + 1)).status);
+                            const done = statuses.filter((x) => x === "staffed" || x === "over").length;
+                            const tone = done === secs ? "bg-emerald-100 text-emerald-800" : mine.length ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500";
+                            return <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>{mine.length ? `${done}/${secs} shifts staffed` : "unstaffed"}</span>;
+                          })()}
                           {holiday && <span className="rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800">⚠ {holiday}</span>}
                           {r.overridden && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">edited</span>}
                           {isDirty && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">unsaved</span>}
@@ -489,6 +501,10 @@ export function OfferingDesign({
                                 </div>
                               )}
                             />
+                            <ShiftStaffing cohortId={cohortId} programId={programId} sessionId={r.id} sectionCount={Math.max(1, comp.Y ?? 1)}
+                              need={{ lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded, kind: r.kind }}
+                              startTime={r.startTime} assignments={assignments.filter((a) => a.sessionId === r.id)}
+                              people={people.map((p): ShiftPerson => ({ id: p.id, name: p.name, role: p.role, employmentType: p.employmentType ?? null, title: p.title ?? null, employerName: p.employer?.name ?? null }))} />
                             <div className="mt-3 flex items-center gap-3">
                               <form action={async (fd) => { await saveSessionOverride(cohortId, r.id, programId, fd); setDirty((dd) => { const n = new Set(dd); n.delete(r.id); return n; }); router.refresh(); }}>
                                 {OVERRIDE_FIELDS.map((f) => <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />)}

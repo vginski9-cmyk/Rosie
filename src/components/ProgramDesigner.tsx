@@ -33,8 +33,8 @@ export interface DCourse {
 export interface DTerm { id: string; name: string; index: number; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
 
 const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 1 });
-const n2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 3 });
+const n2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
@@ -265,11 +265,11 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                   <form action={updateCourse.bind(null, course.id, pid)} className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-4">
                     <Field label="Course code"><input name="code" defaultValue={course.code ?? ""} className="inp w-full" /></Field>
                     <Field label="Course title"><input name="name" defaultValue={course.name} className="inp w-full" /></Field>
-                    <Field label="Credit hours"><input name="creditHours" type="number" step="0.5" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
+                    <Field label="Credit hours"><input name="creditHours" type="number" step="any" defaultValue={course.creditHours ?? ""} className="inp w-full" /></Field>
                     <Field label="Semester(s) offered"><select name="semesterOffered" defaultValue={course.semesterOffered ?? ""} className="inp w-full"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option><option value="Fall, Spring">Fall, Spring</option><option value="All">All</option></select></Field>
-                    <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="0.5" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
-                    <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="0.5" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
-                    <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
+                    <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="any" defaultValue={course.weeklyClassHours} className="inp w-full" /></Field>
+                    <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="any" defaultValue={course.weeklyLabHours} className="inp w-full" /></Field>
+                    <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="any" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
                     <Field label="Course type"><select name="courseType" defaultValue={course.courseType ?? ""} className="inp w-full"><option value="">—</option><option value="CORE">Core</option><option value="GENED">General education</option><option value="SUPPORT">Support</option></select></Field>
                     <Field label="Description"><input name="description" defaultValue={course.description ?? ""} className="inp w-full" /></Field>
                     <Field label="Prerequisites / co-requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full lg:col-span-2" /></Field>
@@ -344,10 +344,10 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
               <form action={addCourse.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
                 <Field label="Course code"><input name="code" placeholder="RAD-110" className="inp w-24" /></Field>
                 <Field label="Course title"><input name="name" required placeholder="Course title" className="inp w-56" /></Field>
-                <Field label="Credit hours"><input name="creditHours" type="number" step="0.5" className="inp w-16" /></Field>
-                <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
-                <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
-                <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="0.5" defaultValue="0" className="inp w-24" /></Field>
+                <Field label="Credit hours"><input name="creditHours" type="number" step="any" className="inp w-16" /></Field>
+                <Field label="Class hours per week"><input name="weeklyClassHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
+                <Field label="Lab hours per week"><input name="weeklyLabHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
+                <Field label="Clinical hours per week"><input name="weeklyClinicalHours" type="number" step="any" defaultValue="0" className="inp w-24" /></Field>
                 <button className="btn-primary py-1 text-xs">+ Add course</button>
               </form>
             )}

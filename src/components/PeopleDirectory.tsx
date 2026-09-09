@@ -25,6 +25,17 @@ export interface DirPerson {
     semesters: { year: number; season: string; hours: number }[];
     cohorts: LoadCohort[];
   };
+  workload: {
+    policyLabel: string; policySource: "employer" | "institution" | "default"; policyId: string | null;
+    contactHoursPerWeek: number; workWeekHours: number; termWeeks: number; annualWeeks: number;
+    creditPerContactHour: number; totalContactHours: number; totalCreditedHours: number;
+    years: { key: string; contactHours: number; creditedHours: number; fte: number }[];
+    terms: { key: string; contactHours: number; creditedHours: number; fte: number }[];
+    weekly: { key: string; contactHours: number; creditedHours: number }[];
+    daily: { key: string; contactHours: number; creditedHours: number }[];
+    peakWeek: { key: string; contactHours: number } | null; peakDay: { key: string; contactHours: number } | null;
+    peakWeekLoad: number; overloadedWeeks: string[]; undatedHours: number; shifts: number;
+  };
 }
 export interface InstLite { id: string; name: string }
 export interface EmpLite { id: string; name: string; institutionId: string }
@@ -43,6 +54,8 @@ const ymd = (d: string | Date | null): string => {
   const dt = typeof d === "string" ? new Date(d) : d;
   return Number.isNaN(dt.getTime()) ? "" : dt.toISOString().slice(0, 10);
 };
+const hh = (n: number, dp = 1) => (Number.isInteger(n) ? String(n) : n.toFixed(dp));
+const dayLabel = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const monthYear = (d: string | Date | null): string | null => {
   if (!d) return null;
   const dt = typeof d === "string" ? new Date(d) : d;
@@ -179,6 +192,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
               <th className="px-3 py-2 text-left font-semibold">Role</th>
               <th className="px-3 py-2 text-left font-semibold">Status</th>
               <th className="px-3 py-2 text-left font-semibold">Affiliation</th>
+              <th className="px-3 py-2 text-left font-semibold">Policy</th>
               <th className="px-3 py-2 text-left font-semibold">Workload <span className="font-normal normal-case text-slate-400">({periodLabel})</span></th>
               <th className="px-3 py-2 text-right font-semibold"></th>
             </tr>
@@ -189,7 +203,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
               const cohorts = scopedCohorts(p);
               return editing === p.id ? (
                 <tr key={p.id} className="bg-rose-50/30">
-                  <td colSpan={6} className="px-3 py-3">
+                  <td colSpan={7} className="px-3 py-3">
                     <PersonForm institutions={institutions} employers={employers} person={p} onDone={() => setEditing(null)} compact />
                   </td>
                 </tr>
@@ -217,14 +231,18 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
                       </div>
                     )}
                   </td>
+                  <td className="px-3 py-2 text-[11px] text-slate-600">
+                    <div>{p.workload.policyLabel}</div>
+                    <div className="text-[10px] text-slate-400">{hh(p.workload.contactHoursPerWeek)} contact h/wk · ×{hh(p.workload.creditPerContactHour, 2)} credit{p.workload.policySource === "default" ? " · built-in default" : p.workload.policySource === "employer" ? " · employer policy" : ""}</div>
+                  </td>
                   <td className="px-3 py-2">
                     {cohorts.length === 0 ? (
-                      <span className="text-[12px] text-slate-300">{periodActive ? "no load this period" : "no cohort assignments"}</span>
+                      <span className="text-[12px] text-slate-300">{periodActive ? "no load this period" : "no shift assignments"}</span>
                     ) : (
-                      <button onClick={() => setLoadOpen(loadOpen === p.id ? null : p.id)} className="text-[12px] text-slate-600 hover:text-rose-700">
-                        <span className="font-medium">{cohorts.length}</span> cohort{cohorts.length === 1 ? "" : "s"} · <span className="tabular-nums text-rose-600">{Math.round(hrs)}h</span>
-                        {p.workingNow && !periodActive && <span className="ml-1 tabular-nums text-slate-400">({Math.round(p.currentHours)}h now)</span>}
-                        <span className="ml-1 text-slate-300">{loadOpen === p.id ? "▾" : "▸"}</span>
+                      <button onClick={() => setLoadOpen(loadOpen === p.id ? null : p.id)} className="text-left text-[12px] text-slate-600 hover:text-rose-700">
+                        <span className="tabular-nums text-rose-600">{hh(hrs)} h</span> · {cohorts.length} cohort{cohorts.length === 1 ? "" : "s"} · {p.workload.shifts} shifts
+                        {p.workload.peakWeek && <div className={`text-[10px] ${p.workload.overloadedWeeks.length ? "font-semibold text-amber-700" : "text-slate-400"}`}>peak week {hh(p.workload.peakWeek.contactHours)} h = {Math.round(p.workload.peakWeekLoad * 100)}% of load{p.workload.overloadedWeeks.length ? ` · ⚠ ${p.workload.overloadedWeeks.length} wk over` : ""}{p.workload.peakDay ? ` · peak day ${hh(p.workload.peakDay.contactHours)} h` : ""}</div>}
+                        <span className="ml-1 text-slate-300">{loadOpen === p.id ? "▾ annual · semester · weekly · daily" : "▸ annual · semester · weekly · daily"}</span>
                       </button>
                     )}
                   </td>
@@ -237,8 +255,14 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
             {filtered.map((p) => (
               loadOpen === p.id && editing !== p.id ? (
                 <tr key={p.id + "-load"} className="bg-slate-50/60">
-                  <td colSpan={6} className="px-3 py-2">
-                    <div className="flex flex-wrap gap-1.5">
+                  <td colSpan={7} className="px-3 py-2">
+                    <div className="grid gap-3 text-[11px] md:grid-cols-4">
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Annual</div>{p.workload.years.length === 0 ? <div className="text-slate-400">—</div> : p.workload.years.map((y) => <div key={y.key} className="tabular-nums"><strong>{y.key}</strong>: {hh(y.contactHours)} contact h · {hh(y.creditedHours)} work h · <span className="text-rose-600">{y.fte.toFixed(2)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.annualWeeks)} contact h over {hh(p.workload.annualWeeks)} wk</div></div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Semester</div>{p.workload.terms.map((t) => <div key={t.key} className="tabular-nums"><strong>{t.key}</strong>: {hh(t.contactHours)} contact h · {hh(t.creditedHours)} work h · <span className="text-rose-600">{t.fte.toFixed(2)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.termWeeks)} contact h over {hh(p.workload.termWeeks)} wk</div></div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Weekly · busiest first</div>{[...p.workload.weekly].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((w) => <div key={w.key} className={`tabular-nums ${p.workload.overloadedWeeks.includes(w.key) ? "font-semibold text-amber-700" : ""}`}>wk of {dayLabel(w.key)}: {hh(w.contactHours)} h ({Math.round((w.contactHours / Math.max(0.01, p.workload.contactHoursPerWeek)) * 100)}%)</div>)}{p.workload.weekly.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.weekly.length - 6} more weeks</div>}{p.workload.undatedHours > 0 && <div className="text-[10px] text-slate-400">{hh(p.workload.undatedHours)} h on undated shifts</div>}</div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Daily · busiest first</div>{[...p.workload.daily].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((d) => <div key={d.key} className="tabular-nums">{dayLabel(d.key)}: {hh(d.contactHours)} h</div>)}{p.workload.daily.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.daily.length - 6} more days</div>}</div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{p.name} — load{periodActive ? ` (${periodLabel})` : " by term"}:</span>
                       {scopedCohorts(p).map((c, i) => (
                         <span key={c.cohortId + i} className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] ring-1 ring-slate-200">
@@ -253,7 +277,7 @@ export function PeopleDirectory({ people, institutions, employers }: { people: D
                 </tr>
               ) : null
             ))}
-            {filtered.length === 0 && <tr><td colSpan={6} className="px-3 py-8 text-center text-sm text-slate-400">No people match these filters.</td></tr>}
+            {filtered.length === 0 && <tr><td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">No people match these filters.</td></tr>}
           </tbody>
         </table>
       </div>

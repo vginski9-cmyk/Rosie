@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function OfferingDesignPage({ params }: { params: { id: string; cohortId: string } }) {
   const [data, capModel] = await Promise.all([getOfferingDesign(params.cohortId), getCapacityModel({ cohortId: params.cohortId })]);
   if (!data || data.cohort.programId !== params.id) notFound();
-  const { cohort, rooms, people, employers } = data;
+  const { cohort, rooms, people, employers, assignments } = data;
   const program = cohort.program;
 
   // This offering's per-term enrollment targets + workload assumptions —
@@ -97,6 +97,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         rooms={rooms}
         people={people}
         employers={employers}
+        assignments={assignments.map((a) => ({ id: a.id, sessionId: a.sessionId, personId: a.personId, personName: a.person.name, personRole: a.person.role, role: a.role, contactHours: a.contactHours, startOffsetMin: a.startOffsetMin, segment: a.segment, sectionIndex: a.sectionIndex }))}
         enrollmentByTerm={capCohort?.enrollmentByTerm ?? {}}
         holidays={holidayMap(program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })))}
         assumptions={capCohort?.assumptions ?? { facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks, preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks }}

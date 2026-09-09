@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster } from "./seed-roster";
+import { seedRoster, seedWorkloadPolicies, seedShiftAssignments } from "./seed-roster";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
 
@@ -1232,6 +1232,8 @@ async function main() {
   //       locked-in offerings with sections waiting for assignments ----------
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
+  console.log("workload policies:", await seedWorkloadPolicies(prisma));
+  console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
   const clinical = await loadClinicalModels(sandhills.id);
   console.log("clinical models by family:", clinical);

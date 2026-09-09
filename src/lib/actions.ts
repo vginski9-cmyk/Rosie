@@ -322,20 +322,6 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 // OFFERING STAFFING — assign people to a cohort's course (all its sessions)
 // ---------------------------------------------------------------------------
 
-/** Assign a person to every session of a course FOR THIS COHORT (per-run staffing). */
-export async function assignCourseStaff(cohortId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
-  const personId = str(formData.get("personId"));
-  if (!personId) return;
-  const role = str(formData.get("role")) || "instructor";
-  const sessions = await prisma.session.findMany({ where: { courseId }, select: { id: true, lengthHours: true } });
-  for (const s of sessions) {
-    const exists = await prisma.sessionInstructor.findFirst({ where: { cohortId, sessionId: s.id, personId } });
-    if (exists) continue;
-    await prisma.sessionInstructor.create({ data: { cohortId, sessionId: s.id, personId, role, contactHours: s.lengthHours, segment: role } });
-  }
-  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
-}
-
 /** Remove a person from all of a course's sessions for this cohort. */
 export async function removeCourseStaff(cohortId: string, courseId: string, personId: string, programId: string): Promise<void> {
   await prisma.sessionInstructor.deleteMany({ where: { cohortId, personId, session: { courseId } } });
@@ -1981,4 +1967,127 @@ export async function clearSchedulerPlan(cohortIds: string[]): Promise<void> {
   await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
   revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/insights/clinical-sites");
+}
+
+// ---------------------------------------------------------------------------
+// WORKLOAD POLICIES — assumptions by institution, employer and position
+// ---------------------------------------------------------------------------
+
+/** Create or update a workload policy row (the People page's policy table). */
+export async function saveWorkloadPolicy(formData: FormData): Promise<void> {
+  const id = str(formData.get("id"));
+  const institutionId = str(formData.get("institutionId"));
+  if (!institutionId) return;
+  const data = {
+    institutionId,
+    employerId: str(formData.get("employerId")) || null,
+    role: str(formData.get("role")) || "instructor",
+    employmentType: str(formData.get("employmentType")) || null,
+    title: str(formData.get("title")) || null,
+    label: str(formData.get("label")) || null,
+    contactHoursPerWeek: numOr(formData.get("contactHoursPerWeek"), 16),
+    workWeekHours: numOr(formData.get("workWeekHours"), 40),
+    termWeeks: numOr(formData.get("termWeeks"), 16),
+    annualWeeks: numOr(formData.get("annualWeeks"), 32),
+    hoursPerContactHour: optNum(formData.get("hoursPerContactHour")),
+    maxContactHoursPerWeek: optNum(formData.get("maxContactHoursPerWeek")),
+    notes: str(formData.get("notes")) || null,
+  };
+  if (id) await prisma.workloadPolicy.update({ where: { id }, data });
+  else await prisma.workloadPolicy.create({ data });
+  revalidatePath("/people");
+  revalidatePath("/", "layout");
+}
+
+export async function deleteWorkloadPolicy(id: string): Promise<void> {
+  await prisma.workloadPolicy.delete({ where: { id } }).catch(() => undefined);
+  revalidatePath("/people");
+  revalidatePath("/", "layout");
+}
+
+// ---------------------------------------------------------------------------
+// SHIFT ASSIGNMENTS — who covers which part of which shift, for THIS offering
+// ---------------------------------------------------------------------------
+
+function revalidateStaffing(programId: string, cohortId: string) {
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+  revalidatePath("/people");
+  revalidatePath("/calendar");
+}
+
+/** Add one person's share of one shift (session × section). `sectionIndex`
+ *  "all" puts the same share on every section of the session. Hours default
+ *  to the whole session length; an offset (minutes into the session) places
+ *  the share in time, so overlapping shares read as co-teaching. */
+export async function addShiftAssignment(cohortId: string, programId: string, formData: FormData): Promise<void> {
+  const sessionId = str(formData.get("sessionId")); const personId = str(formData.get("personId"));
+  if (!sessionId || !personId) return;
+  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { lengthHours: true } });
+  if (!session) return;
+  const role = str(formData.get("role")) || "instructor";
+  const hoursRaw = str(formData.get("contactHours"));
+  const contactHours = hoursRaw ? Math.max(0, numOr(formData.get("contactHours"), session.lengthHours)) : session.lengthHours;
+  const startOffsetMin = optNum(formData.get("startOffsetMin"));
+  const segment = str(formData.get("segment")) || null;
+  const secRaw = str(formData.get("sectionIndex")) || "1";
+  const sections = secRaw === "all" ? Array.from({ length: Math.max(1, numOr(formData.get("sectionCount"), 1)) }, (_, i) => i + 1) : [Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1)))];
+  for (const sectionIndex of sections) {
+    await prisma.sessionInstructor.create({ data: { cohortId, sessionId, personId, sectionIndex, role, contactHours, startOffsetMin, segment } });
+  }
+  revalidateStaffing(programId, cohortId);
+}
+
+export async function updateShiftAssignment(id: string, cohortId: string, programId: string, formData: FormData): Promise<void> {
+  await prisma.sessionInstructor.update({
+    where: { id },
+    data: {
+      personId: str(formData.get("personId")) || undefined,
+      role: str(formData.get("role")) || undefined,
+      contactHours: Math.max(0, numOr(formData.get("contactHours"), 0)),
+      startOffsetMin: optNum(formData.get("startOffsetMin")),
+      segment: str(formData.get("segment")) || null,
+    },
+  }).catch(() => undefined);
+  revalidateStaffing(programId, cohortId);
+}
+
+export async function removeShiftAssignment(id: string, cohortId: string, programId: string): Promise<void> {
+  await prisma.sessionInstructor.delete({ where: { id } }).catch(() => undefined);
+  revalidateStaffing(programId, cohortId);
+}
+
+/** Copy one section's assignments for a session onto every other section. */
+export async function copyShiftAssignments(cohortId: string, sessionId: string, fromSection: number, sectionCount: number, programId: string): Promise<void> {
+  const rows = await prisma.sessionInstructor.findMany({ where: { cohortId, sessionId, sectionIndex: fromSection } });
+  await prisma.sessionInstructor.deleteMany({ where: { cohortId, sessionId, sectionIndex: { not: fromSection } } });
+  for (let s = 1; s <= sectionCount; s++) {
+    if (s === fromSection) continue;
+    for (const r of rows) await prisma.sessionInstructor.create({ data: { cohortId, sessionId, sectionIndex: s, personId: r.personId, role: r.role, contactHours: r.contactHours, startOffsetMin: r.startOffsetMin, segment: r.segment } });
+  }
+  revalidateStaffing(programId, cohortId);
+}
+
+/** Bulk: one person covers every session of a course (optionally one kind) in
+ *  full, on the chosen section(s) — the fast path; refine any shift on the
+ *  design page. */
+export async function assignCourseStaffBulk(cohortId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
+  const personId = str(formData.get("personId"));
+  if (!personId) return;
+  const role = str(formData.get("role")) || "instructor";
+  const kind = str(formData.get("kind")) || "";
+  const secRaw = str(formData.get("sectionIndex")) || "1";
+  const sessions = await prisma.session.findMany({ where: { courseId, ...(kind ? { kind } : {}) }, select: { id: true, lengthHours: true, maxStudents: true } });
+  const cohort = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { plannedSeats: true, _count: { select: { students: true } } } });
+  const enrolled = Math.max(cohort?._count.students ?? 0, cohort?.plannedSeats ?? 0, 1);
+  for (const s of sessions) {
+    const sectionCount = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
+    const sections = secRaw === "all" ? Array.from({ length: sectionCount }, (_, i) => i + 1) : [Math.max(1, Math.round(Number(secRaw) || 1))];
+    for (const sectionIndex of sections) {
+      const exists = await prisma.sessionInstructor.findFirst({ where: { cohortId, sessionId: s.id, personId, sectionIndex } });
+      if (exists) continue;
+      await prisma.sessionInstructor.create({ data: { cohortId, sessionId: s.id, personId, sectionIndex, role, contactHours: s.lengthHours, segment: null } });
+    }
+  }
+  revalidateStaffing(programId, cohortId);
 }

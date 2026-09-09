@@ -12,7 +12,7 @@ import { computeColumns, type SessionInput, type WorkloadAssumptions } from "@/l
 
 export type FieldRow = Record<EditableField, string | number | null>;
 
-const num = (v: number | null, dp = 2) => (v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp }));
+const num = (v: number | null, dp = 4) => (v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: dp }));
 
 /** Options people added themselves, remembered in this browser per field. */
 function useExtraOptions(key: string): [string[], (v: string) => void] {
