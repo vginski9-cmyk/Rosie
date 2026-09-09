@@ -36,7 +36,7 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
 
   const rows: DatedInstance[] = useMemo(() => cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
-    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), holidays: c.holidays, courses: c.courses,
+    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.mondayIso != null)), [cohorts]);
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   const supply = useMemo(() => assetSupply(assets, overrides, from, to), [assets, overrides, from, to]);

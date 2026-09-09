@@ -204,6 +204,81 @@ export function nextSemesterStart(d: Date, anchors: SemesterAnchors = DEFAULT_AN
   return cands.find((c) => c.getTime() >= d.getTime()) ?? cands[cands.length - 1];
 }
 
+/** The last instructional day a semester can have under the pattern: the Friday
+ *  at least nine days before the NEXT semester starts (a week-plus break). A
+ *  16-week template term that starts late May therefore ends in early August,
+ *  not mid-September — the summer term ends with the summer. */
+export function patternSemesterEnd(startIso: string, anchors: SemesterAnchors = DEFAULT_ANCHORS): string {
+  const start = new Date(startIso + "T00:00:00Z");
+  const next = nextSemesterStart(new Date(start.getTime() + 7 * 86400000), anchors);
+  let d = new Date(next.getTime() - 9 * 86400000);
+  while (d.getUTCDay() !== 5) d = new Date(d.getTime() - 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Instructional weeks between a term's first and last day (week 1 = the start's week). */
+export const calendarWeeksBetween = (start: Date | string, end: Date | string): number => {
+  const s = typeof start === "string" ? new Date(start + "T00:00:00Z") : start;
+  const e = typeof end === "string" ? new Date(end + "T00:00:00Z") : end;
+  return Math.max(1, Math.floor((e.getTime() - s.getTime()) / (7 * 86400000)) + 1);
+};
+
+/** THE week rule: a template week lands on a calendar week of its term. When the
+ *  calendar gives the term fewer weeks than the template plans (a 10-week summer
+ *  for a 16-week template), the template weeks are fitted proportionally into
+ *  the weeks the term actually has, in order — nothing lands after the term ends. */
+export function fitWeek(week: number, templateWeeks: number, calendarWeeks: number): number {
+  if (!(templateWeeks > 0) || !(calendarWeeks > 0) || calendarWeeks >= templateWeeks) return week;
+  return 1 + Math.floor((Math.max(1, week) - 1) * calendarWeeks / templateWeeks);
+}
+
+/** What a session week is anchored to: the term (its real first and last day and
+ *  the weeks the template plans) and, for a shorter course with its own window,
+ *  the course's first day and the template week it begins in. */
+export interface WeekAnchor {
+  termStart: Date | string | null | undefined;
+  termEnd?: Date | string | null;
+  templateWeeks?: number | null;
+  courseStart?: Date | string | null;
+  courseFirstWeek?: number | null;
+}
+const asDate = (d: Date | string | null | undefined): Date | null => (d == null ? null : typeof d === "string" ? new Date(d.length === 10 ? d + "T00:00:00Z" : d) : d);
+/** The Monday of a session's week, everywhere: buildInstances, the design page, student itineraries, the master calendar. */
+export function weekMonday(a: WeekAnchor, week: number | null | undefined): Date | null {
+  const w = week && week > 0 ? week : 1;
+  const termStart = asDate(a.termStart), termEnd = asDate(a.termEnd), courseStart = asDate(a.courseStart);
+  const tpl = a.templateWeeks && a.templateWeeks > 0 ? a.templateWeeks : 16;
+  const cal = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : tpl;
+  const fw = fitWeek(w, tpl, cal);
+  if (courseStart) { const f0 = fitWeek(a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1, tpl, cal); return new Date(courseStart.getTime() + Math.max(0, fw - f0) * 7 * 86400000); }
+  if (!termStart) return null;
+  return new Date(termStart.getTime() + (fw - 1) * 7 * 86400000);
+}
+export const DAY_OFFSET: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
+/** The exact date of a session (its week's Monday + its weekday), or null when it has no day. */
+export function sessionDate(a: WeekAnchor, week: number | null | undefined, dayOfWeek: string | null | undefined): Date | null {
+  const mon = weekMonday(a, week);
+  const off = dayOfWeek != null ? DAY_OFFSET[dayOfWeek] : undefined;
+  return mon && off != null ? new Date(mon.getTime() + off * 86400000) : null;
+}
+
+/** The semester a DATE sits in under the pattern: the latest semester start on
+ *  or before it (Spring from early January, Summer from late May, Fall from
+ *  mid-August), so the first days of August still belong to the summer term. */
+export function semesterAt(d: Date, anchors: SemesterAnchors = DEFAULT_ANCHORS): { season: Season; year: number } {
+  let best: { start: Date; season: Season } | null = null;
+  for (const y of [d.getUTCFullYear() - 1, d.getUTCFullYear()]) {
+    const cands: { start: Date; season: Season }[] = [
+      { start: mondayOnOrAfter(y, anchors.springStart || DEFAULT_ANCHORS.springStart), season: "Spring" },
+      { start: mondayOnOrAfter(y, anchors.summerStart || DEFAULT_ANCHORS.summerStart), season: "Summer" },
+      { start: mondayOnOrAfter(y, anchors.fallStart || DEFAULT_ANCHORS.fallStart), season: "Fall" },
+    ];
+    for (const c of cands) if (c.start.getTime() <= d.getTime() && (!best || c.start > best.start)) best = c;
+  }
+  if (!best) return { season: seasonOfDate(d), year: d.getUTCFullYear() };
+  return { season: best.season, year: best.start.getUTCFullYear() };
+}
+
 /** Term start dates for a program from a chosen first day: term 1 on that day,
  *  every later term on the next semester boundary after the previous term ends. */
 export function deriveTermStarts(startIso: string, termWeeks: number[], anchors: SemesterAnchors = DEFAULT_ANCHORS): Date[] {

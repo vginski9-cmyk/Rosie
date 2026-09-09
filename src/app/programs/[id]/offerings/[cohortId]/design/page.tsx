@@ -20,10 +20,11 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   // they drive column C and every formula column on the sheet below.
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === cohort.id) ?? null;
 
-  const ctByTerm = new Map(cohort.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+  const ctByTerm = new Map(cohort.cohortTerms.map((ct) => [ct.termId, ct]));
   const terms: DsTerm[] = [...program.terms].sort((a, b) => a.index - b.index).map((t) => ({
     id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek,
-    startDate: ctByTerm.get(t.id)?.toISOString().slice(0, 10) ?? null,
+    startDate: ctByTerm.get(t.id)?.startDate?.toISOString().slice(0, 10) ?? null,
+    endDate: ctByTerm.get(t.id)?.endDate?.toISOString().slice(0, 10) ?? null,
     courses: t.courses.map((c) => {
       const cd = cohort.courseDates.find((x) => x.courseId === c.id);
       return {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOffering, getCapacityModel, getOfferingStaffing } from "@/lib/queries";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
+import { AutoAssignButton } from "@/components/AutoAssignButton";
 import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
@@ -62,6 +63,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
       cohortId: capCohort.cohortId, cohort: capCohort.cohort, programId: capCohort.programId, program: capCohort.program,
       enrollmentByTerm: capCohort.enrollmentByTerm,
       termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex as Record<string, string | null>).map(([k, v]) => [k, v ? new Date(v) : null])),
+      termEndByIndex: capCohort.termEndByIndex, termWeeksByIndex: capCohort.termWeeksByIndex,
       holidays: capCohort.holidays,
       courses: capCohort.courses,
     };
@@ -176,6 +178,9 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         <span className="text-rose-600">→</span>
       </Link>
 
+      {/* ── One button: rooms, sites, staff and learners, all placed ─────────── */}
+      <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={offering._count.students} />
+
       {/* ── Offering dates: on the academic calendar, automatically ─────────── */}
       {(() => {
         const inst = program.institution;
@@ -198,7 +203,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         return (
           <Collapse
             title="Offering dates — on the academic calendar"
-            sub={codedStarts ? `${inst.name}'s coded calendar sets every term's first and last day and every shorter course's window; nothing here needs typing` : `No coded calendar for ${inst.name} yet — dates follow the semester pattern and template weeks; import the calendar on the goal page and every offering re-aligns itself`}
+            sub={codedStarts ? `${inst.name}'s coded calendar sets every term's first and last day and every shorter course's window; nothing here needs typing` : `No coded calendar for ${inst.name} yet — each term follows the semester pattern and ends with its semester; import the calendar in the organization's set-up (Directory → Organizations) and every offering re-aligns itself`}
             summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{autoWindows ? ` · ${autoWindows} course window${autoWindows === 1 ? "" : "s"} from the calendar` : ""}{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
           >
             <div className="overflow-x-auto">
@@ -222,6 +227,7 @@ export default async function OfferingPage({ params }: { params: { id: string; c
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SRC_TONE[src] ?? SRC_TONE.template}`}>{SOURCE_LABEL[src] ?? src}</span>
                           {pv?.startLabel && src !== "manual" && <span className="ml-1.5 text-slate-500">“{pv.startLabel}”{pv.endLabel ? ` → “${pv.endLabel}”` : ""}</span>}
                           {src !== "manual" && pv?.endSource === "template" && codedStarts > 0 && <span className="ml-1.5 text-slate-400">no coded semester end — last template week</span>}
+                          {src !== "manual" && pv?.endSource === "pattern" && <span className="ml-1.5 text-slate-400">ends with its semester, before the next one starts</span>}
                         </td>
                       </tr>
                     );
@@ -290,27 +296,29 @@ export default async function OfferingPage({ params }: { params: { id: string; c
         />
       </Collapse>
 
-      {/* ── Staffing: who covers this run, under their workload policies ── */}
-      {staffing && (
+      {/* ── Staffing: how many instructors & preceptors, when — and who covers each shift ── */}
+      {(staffing || capCohort) && (
         <Collapse
-          title="Staffing — who covers this run"
-          sub="Assign faculty, adjuncts, support staff and preceptors to every session; each person's load (annual · semester · weekly · daily contact hours, FTE) follows their workload policy. Split or co-teach any single shift on Design & sequence."
-          summary={<>{staffing.loads.length} people · {Math.round(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h assigned</>}
+          title="Staffing — instructors & preceptors"
+          sub="How many people this run needs and when (FTE charts by semester, week and day), then who covers it: assign faculty, adjuncts, support staff and preceptors to every session under their workload policies. Split or co-teach any single shift on Design & sequence."
+          summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week{staffing ? <> · {staffing.loads.length} people assigned · {Math.round(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h</> : null}</>}
         >
-          <OfferingStaffing cohortId={offering.id} programId={program.id} enrolled={staffing.enrolled}
-            terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
-            assignments={staffing.assignments} people={staffing.people} loads={staffing.loads} />
-        </Collapse>
-      )}
-
-      {/* ── Week-by-week / day-by-day staffing for THIS instantiation ── */}
-      {capCohort && (
-        <Collapse
-          title="Instructors & preceptors"
-          sub="How many, and when — semester, week and day views: FTE charts and every shift with who staffs it"
-          summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week</>}
-        >
-          <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+          <div className="space-y-6">
+            {capCohort && (
+              <div>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">How many, and when</div>
+                <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+              </div>
+            )}
+            {staffing && (
+              <div>
+                <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Who covers this run</div>
+                <OfferingStaffing cohortId={offering.id} programId={program.id} enrolled={staffing.enrolled}
+                  terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
+                  assignments={staffing.assignments} people={staffing.people} loads={staffing.loads} />
+              </div>
+            )}
+          </div>
         </Collapse>
       )}
 

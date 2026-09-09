@@ -23,7 +23,7 @@ const TOURS: Tour[] = [
   {
     key: "family", match: /^\/families\/[^/]+$/, title: "The goal page — set it, then break it down",
     steps: [
-      { h: "The academic calendar, imported", b: "Paste the college's calendar (from its web page, its PDF, or a spreadsheet) into the Academic calendar drop-down — semester starts, ends, later sessions and every holiday / break are coded automatically; fix any line, save. Every offering's term dates follow the real dates, and sessions that land on a break are flagged." },
+      { h: "The academic calendar lives with the organization", b: "Term dates here follow the institution's coded academic calendar, which is set up once under Directory → Organizations (paste the college's calendar; semester starts, ends, later sessions and breaks are coded automatically). Every offering's term dates follow it, and sessions that land on a break are flagged." },
       { h: "The goal row", b: "One box per year, reading left to right — the stairstep of fully-productive workers this family owes the region. Type in a box to change that year's goal; + adds a year before the first or after the last, × removes one." },
       { h: "Click a year", b: "Below the row you get that year's talent-pipeline health targets (the editable % ladder) and the talent-pipeline target metrics for cohorts ending that year — goal vs actual, live from student records." },
       { h: "Who delivers the goal", b: "Drag prepopulated program templates into the box to say which instantiations are responsible — the evening class covers 15, the traditional program covers the rest. Each template shows its max cohort enrollment capacity; if the math needs more seats than a cohort can hold, the box flags it." },

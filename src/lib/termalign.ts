@@ -9,7 +9,7 @@
 // no I/O — the actions persist the result; the calendar import, lock-in and the
 // "re-align" buttons all call the same thing, so nothing needs typing twice.
 
-import { nextSemesterStart, type SemesterAnchors } from "./term";
+import { nextSemesterStart, patternSemesterEnd, calendarWeeksBetween, fitWeek, type SemesterAnchors } from "./term";
 
 export interface CodedEventLite { iso: string; endIso: string | null; label: string; kind: string; season: string | null }
 export interface TermLite { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null }
@@ -113,11 +113,17 @@ export function alignOffering(input: {
       const sameSemester = startEvent ? ends.filter((e) => e.season === startEvent.season && e.iso.slice(0, 4) === startEvent.iso.slice(0, 4)) : [];
       const pick = sameSemester[0] ?? ends[0] ?? null;
       if (pick) { endIso = pick.iso; endSource = "calendar"; endLabel = pick.label; }
+      else {
+        // No coded end: the term still ends with its semester — before the next
+        // one starts under the pattern (a summer term ends in the summer).
+        const bound = patternSemesterEnd(startIso, anchors);
+        if (bound < endIso) { endIso = bound; endSource = "pattern"; }
+      }
     }
     // Instructional weeks the semester touches (week 1 = the start's week).
-    const calendarWeeks = Math.max(1, Math.floor(daysBetween(startIso, endIso) / 7) + 1);
-    if (endSource === "calendar" && calendarWeeks < templateWeeks) {
-      warnings.push(`${t.name}: the template plans ${templateWeeks} weeks but the calendar gives ${seasonOfIso(startIso)} ${startIso.slice(0, 4)} only ${calendarWeeks} (${fmt(startIso)} → ${fmt(endIso)}); sessions in weeks ${calendarWeeks + 1}–${templateWeeks} land after the semester ends.`);
+    const calendarWeeks = calendarWeeksBetween(startIso, endIso);
+    if (calendarWeeks < templateWeeks) {
+      warnings.push(`${t.name}: the template plans ${templateWeeks} weeks but ${seasonOfIso(startIso)} ${startIso.slice(0, 4)} gives only ${calendarWeeks} (${fmt(startIso)} → ${fmt(endIso)}); its sessions are fitted into those ${calendarWeeks} weeks, in order.`);
     }
     const semester = `${startEvent(starts, startIso)?.season ?? seasonOfIso(startIso)} ${startIso.slice(0, 4)}`;
     out.push({ termId: t.id, index: t.index, name: t.name, startIso, endIso, startSource, endSource, semester, templateWeeks, calendarWeeks, startLabel, endLabel, ...(movedFrom ? { movedFrom } : {}) });
@@ -138,12 +144,14 @@ export function alignOffering(input: {
     const firstWeek = Math.min(...weeks); const lastWeek = Math.max(...weeks);
     const spansTerm = firstWeek <= 1 && lastWeek >= term.templateWeeks;
     if (spansTerm) continue;
-    let startIso = addDays(term.startIso, (firstWeek - 1) * 7); let snappedTo: string | null = null;
+    // Template weeks → the term's real weeks (fitted when the semester is shorter).
+    const f0 = fitWeek(firstWeek, term.templateWeeks, term.calendarWeeks), f1 = fitWeek(lastWeek, term.templateWeeks, term.calendarWeeks);
+    let startIso = addDays(term.startIso, (f0 - 1) * 7); let snappedTo: string | null = null;
     if (firstWeek > 1) {
       const hit = nearest(input.events.filter((e) => e.iso > term.startIso && e.iso <= term.endIso), "session_start", startIso, 7);
       if (hit) { startIso = hit.iso; snappedTo = hit.label; }
     }
-    const endIso = [addDays(startIso, (lastWeek - firstWeek + 1) * 7 - 3), term.endIso].sort()[0];
+    const endIso = [addDays(startIso, (f1 - f0 + 1) * 7 - 3), term.endIso].sort()[0];
     courses.push({ courseId: c.id, termId: c.termId, code: c.code, name: c.name, startIso, endIso, firstWeek, lastWeek, snappedTo });
   }
   return { terms: out, courses, warnings };

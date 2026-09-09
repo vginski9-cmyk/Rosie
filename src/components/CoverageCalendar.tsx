@@ -46,6 +46,11 @@ const KIND_CHIP: Record<string, string> = {
   CLINICAL: "border-l-4 border-rose-500 bg-rose-50 text-rose-900",
 };
 const KIND_DOT: Record<string, string> = { CLASS: "bg-sky-500", LAB: "bg-violet-500", CLINICAL: "bg-rose-500" };
+/** Location coloring: one hue per room / site (golden-angle spacing), grey for "no location" / "site TBD". */
+export type LocTone = Map<string, number | null>;
+const locName = (s: { loc: string | null }) => s.loc ?? "(no location)";
+const toneStyle = (hue: number | null | undefined): React.CSSProperties => (hue == null ? { borderLeft: "4px solid #94a3b8", background: "#f1f5f9", color: "#0f172a" } : { borderLeft: `4px solid hsl(${hue} 62% 42%)`, background: `hsl(${hue} 62% 94%)`, color: "#0f172a" });
+const toneSwatch = (hue: number | null | undefined) => (hue == null ? "#94a3b8" : `hsl(${hue} 62% 42%)`);
 const KIND_LABEL: Record<string, string> = { CLASS: "class", LAB: "lab", CLINICAL: "clinical" };
 
 /** One shift = one section of one session on one date. */
@@ -163,6 +168,16 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
     for (const c of shifts) { const l = m.get(c.dateIso) ?? []; l.push(c); m.set(c.dateIso, l); }
     return m;
   }, [shifts]);
+  // Color chips by session type (class / lab / clinical) or by location, so
+  // shifts in the same room or at the same site share a color.
+  const [colorBy, setColorBy] = useState<"kind" | "location">("kind");
+  const locTone: LocTone = useMemo(() => {
+    const names = [...new Set(shifts.map(locName))].sort((a, b) => a.localeCompare(b));
+    const m: LocTone = new Map();
+    names.forEach((nm, i) => m.set(nm, nm === "(no location)" || /TBD/i.test(nm) ? null : Math.round((i * 137.508) % 360)));
+    return m;
+  }, [shifts]);
+  const tone = colorBy === "location" ? locTone : null;
   const firstIso = shifts[0]?.dateIso ?? null;
   const cur = anchor ?? firstIso;
 
@@ -226,10 +241,18 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
                 <button onClick={() => setAnchor(firstIso)} className="text-xs text-slate-400 hover:text-rose-600">jump to first scheduled</button>
               )}
             </div>
-            <div className="flex items-center gap-4 text-xs text-slate-600">
-              <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-sky-500" /> Class</span>
-              <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-violet-500" /> Lab</span>
-              <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-rose-500" /> Clinical</span>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
+              <span className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-[11px]">
+                <button onClick={() => setColorBy("kind")} className={`px-2 py-1 ${colorBy === "kind" ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>color by type</button>
+                <button onClick={() => setColorBy("location")} className={`px-2 py-1 ${colorBy === "location" ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`} title="same color = same room or site">by location</button>
+              </span>
+              {colorBy === "kind" ? (<>
+                <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-sky-500" /> Class</span>
+                <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-violet-500" /> Lab</span>
+                <span className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm bg-rose-500" /> Clinical</span>
+              </>) : (
+                [...locTone.entries()].map(([nm, hue]) => <span key={nm} className="inline-flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-sm" style={{ background: toneSwatch(hue) }} /> {nm}</span>)
+              )}
               {pending && <span className="text-slate-400">saving…</span>}
             </div>
           </div>
@@ -242,8 +265,8 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           )}
 
           {view === "semester" && <SemesterView rows={rows} byDate={byDate} openDay={openDay} />}
-          {view === "month" && <MonthView cur={cur} byDate={byDate} openDay={openDay} />}
-          {view === "week" && <WeekView cur={cur} byDate={byDate} openDay={openDay} />}
+          {view === "month" && <MonthView cur={cur} byDate={byDate} openDay={openDay} tone={tone} />}
+          {view === "week" && <WeekView cur={cur} byDate={byDate} openDay={openDay} tone={tone} />}
           {view === "day" && (
             <DayView
               dateIso={cur} shifts={byDate.get(cur) ?? []}
@@ -256,7 +279,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
 
       <DragOverlay>
         {dragging && (
-          <div className={`rounded-r px-2 py-1 text-xs font-medium shadow-lg ${KIND_CHIP[dragging.kind]}`}>
+          <div className={`rounded-r px-2 py-1 text-xs font-medium shadow-lg ${tone ? "" : KIND_CHIP[dragging.kind]}`} style={tone ? toneStyle(tone.get(locName(dragging))) : undefined}>
             {fmtT(dragging.time)} · {dragging.courseCode ?? dragging.courseTitle}{dragging.of > 1 ? ` §${dragging.section}` : ""} · {n0(dragging.seats)} stu
           </div>
         )}
@@ -266,12 +289,13 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
 }
 
 // ─────────────────────────────── Draggable chip ───────────────────────────────
-function ShiftChipEl({ shift, size }: { shift: Shift; size: "sm" | "md" }) {
+function ShiftChipEl({ shift, size, tone }: { shift: Shift; size: "sm" | "md"; tone?: LocTone | null }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: shift.key, data: { shift } });
   return (
     <div
       ref={setNodeRef} {...attributes} {...listeners}
-      className={`select-none rounded-r ${KIND_CHIP[shift.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
+      style={tone ? toneStyle(tone.get(locName(shift))) : undefined}
+      className={`select-none rounded-r ${tone ? "" : KIND_CHIP[shift.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
       title={`${fmtT(shift.time)} · ${shift.courseCode ?? shift.courseTitle}${shift.of > 1 ? ` — shift ${shift.section} of ${shift.of}` : ""}${shift.sessionTitle ? ` — ${shift.sessionTitle}` : ""} · ${n0(shift.seats)} students · ${shift.lengthHours}h${shift.setting ? ` @ ${shift.setting}` : ""}${shift.loc ? ` (${shift.loc})` : ""} · ${shift.staffName ?? (shift.kind === "CLINICAL" ? "no preceptor" : "no instructor")} · ${shift.cohort} — drag to another day, or open Day view to edit date/time/location/staff`}
     >
       <span className="font-semibold">{fmtT(shift.time)} {shift.courseCode ?? shift.courseTitle}{shift.of > 1 ? ` §${shift.section}` : ""}{shift.moved ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`moved from ${shift.originDate}`}>moved</span> : null}</span>
@@ -281,7 +305,7 @@ function ShiftChipEl({ shift, size }: { shift: Shift; size: "sm" | "md" }) {
 }
 
 // ─────────────────────────────── Month view ───────────────────────────────────
-function MonthDayCell({ dateIso, shifts, openDay }: { dateIso: string; shifts: Shift[]; openDay: (iso: string) => void }) {
+function MonthDayCell({ dateIso, shifts, openDay, tone }: { dateIso: string; shifts: Shift[]; openDay: (iso: string) => void; tone?: LocTone | null }) {
   const { isOver, setNodeRef } = useDroppable({ id: dateIso });
   const dayNum = Number(dateIso.slice(8, 10));
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -294,7 +318,7 @@ function MonthDayCell({ dateIso, shifts, openDay }: { dateIso: string; shifts: S
       </div>
       <div className="space-y-1">
         {/* every shift is its own chip — 16 shifts, 16 draggable instances */}
-        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="sm" />)}
+        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="sm" tone={tone} />)}
         {shifts.length > 0 && (
           <button onClick={() => openDay(dateIso)} className="w-full rounded bg-slate-100 px-1 py-0.5 text-left text-[10px] font-medium text-slate-500 hover:bg-slate-200">
             open day — set exact date · time · place · staff ↦
@@ -305,7 +329,7 @@ function MonthDayCell({ dateIso, shifts, openDay }: { dateIso: string; shifts: S
   );
 }
 
-function MonthView({ cur, byDate, openDay }: { cur: string; byDate: Map<string, Shift[]>; openDay: (iso: string) => void }) {
+function MonthView({ cur, byDate, openDay, tone }: { cur: string; byDate: Map<string, Shift[]>; openDay: (iso: string) => void; tone?: LocTone | null }) {
   const ym = cur.slice(0, 7);
   const first = new Date(ym + "-01T00:00:00Z");
   const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
@@ -322,7 +346,7 @@ function MonthView({ cur, byDate, openDay }: { cur: string; byDate: Map<string, 
       </div>
       <div className="grid grid-cols-7">
         {cells.map((iso, i) => iso
-          ? <MonthDayCell key={iso} dateIso={iso} shifts={byDate.get(iso) ?? []} openDay={openDay} />
+          ? <MonthDayCell key={iso} dateIso={iso} shifts={byDate.get(iso) ?? []} openDay={openDay} tone={tone} />
           : <div key={`b${i}`} className="min-h-[128px] border-b border-r border-slate-100 bg-slate-50/40" />)}
       </div>
     </>
@@ -330,7 +354,7 @@ function MonthView({ cur, byDate, openDay }: { cur: string; byDate: Map<string, 
 }
 
 // ─────────────────────────────── Week view ────────────────────────────────────
-function WeekDayCol({ dateIso, shifts, openDay }: { dateIso: string; shifts: Shift[]; openDay: (iso: string) => void }) {
+function WeekDayCol({ dateIso, shifts, openDay, tone }: { dateIso: string; shifts: Shift[]; openDay: (iso: string) => void; tone?: LocTone | null }) {
   const { isOver, setNodeRef } = useDroppable({ id: dateIso });
   const holiday = shifts.find((c) => c.holiday)?.holiday ?? null;
   const students = studentsOnDay(shifts);
@@ -341,18 +365,18 @@ function WeekDayCol({ dateIso, shifts, openDay }: { dateIso: string; shifts: Shi
         <span className="block text-[10px] text-slate-500">{shifts.length ? `${n0(shifts.length)} shifts · ${n0(students)} students` : "—"}{holiday ? ` · ⚠ ${holiday}` : ""}</span>
       </button>
       <div className="flex-1 space-y-1 p-1.5">
-        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="md" />)}
+        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="md" tone={tone} />)}
       </div>
     </div>
   );
 }
 
-function WeekView({ cur, byDate, openDay }: { cur: string; byDate: Map<string, Shift[]>; openDay: (iso: string) => void }) {
+function WeekView({ cur, byDate, openDay, tone }: { cur: string; byDate: Map<string, Shift[]>; openDay: (iso: string) => void; tone?: LocTone | null }) {
   const monday = addDaysIso(cur, -((new Date(cur + "T00:00:00Z").getUTCDay() + 6) % 7));
   const days = Array.from({ length: 7 }, (_, i) => addDaysIso(monday, i));
   return (
     <div className="grid grid-cols-7">
-      {days.map((iso) => <WeekDayCol key={iso} dateIso={iso} shifts={byDate.get(iso) ?? []} openDay={openDay} />)}
+      {days.map((iso) => <WeekDayCol key={iso} dateIso={iso} shifts={byDate.get(iso) ?? []} openDay={openDay} tone={tone} />)}
     </div>
   );
 }

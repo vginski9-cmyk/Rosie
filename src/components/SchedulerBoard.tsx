@@ -41,7 +41,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   // Demand: every dated clinical section of the selected offerings inside the window.
   const rows: DatedInstance[] = useMemo(() => cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
-    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), holidays: c.holidays, courses: c.courses,
+    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null)), [cohorts]);
   const familyByCohort = useMemo(() => Object.fromEntries(cohorts.map((c) => [c.cohortId, (c as unknown as { familyId?: string | null }).familyId ?? null])), [cohorts]);
   const demandAll = useMemo(() => demandUnits(rows, rotations, cohorts.flatMap((c) => (c.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null }))), familyByCohort), [rows, rotations, cohorts, familyByCohort]);

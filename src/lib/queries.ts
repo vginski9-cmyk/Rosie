@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { seasonOfDate, seasonOfTerm, SEASON_ORDER as SEASON_RANK } from "./term";
+import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 
 /** Load a program's full archetype mapped to the capacity-engine shape. */
@@ -626,7 +626,7 @@ export async function getOffering(cohortId: string) {
       cohortTerms: { include: { term: true } },
       courseDates: true,
       stages: { orderBy: { sortOrder: "asc" } },
-      _count: { select: { students: true, sessionStaff: true } },
+      _count: { select: { students: true, sessionStaff: true, meetings: true, studentShifts: true } },
     },
   });
 }
@@ -1162,7 +1162,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
         course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
-        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } },
+        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } },
       },
     }),
   ]);
@@ -1178,7 +1178,8 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     const startMs = ct?.startDate ? ct.startDate.getTime() : 0;
     const tw = liveTw;
     const weekStartMs = startMs;
-    const weekEndMs = startMs + tw * WEEK_MS;
+    // A weekly booking recurs until the term's real last day (the semester's end), else the template weeks.
+    const weekEndMs = startMs && ct?.endDate ? ct.endDate.getTime() + 24 * 3600 * 1000 : startMs + tw * WEEK_MS;
     const endMin = toMin(m.startTime) + m.lengthHours * 60;
     return {
       id: m.id,
@@ -1252,7 +1253,7 @@ export async function getCohortSchedule(cohortId: string) {
   const WEEK_MS = 7 * 24 * 3600 * 1000;
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
-    select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true } }, cohortTerms: { select: { startDate: true, term: { select: { index: true, name: true } } } } },
+    select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true, name: true } } } } },
   });
   if (!cohort) return null;
   const institutionId = cohort.program.institutionId;
@@ -1260,13 +1261,13 @@ export async function getCohortSchedule(cohortId: string) {
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
     prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, employer: { select: { id: true, name: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
-    prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, course: { select: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, cohort: { select: { cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } } }),
+    prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, course: { select: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, cohort: { select: { cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } }),
   ]);
 
-  const winOf = (cohortTerms: { startDate: Date | null; term: { index: number } }[], termIndex: number, startWeek: number, endWeek: number) => {
+  const winOf = (cohortTerms: { startDate: Date | null; endDate: Date | null; term: { index: number } }[], termIndex: number, startWeek: number, endWeek: number) => {
     const ct = cohortTerms.find((c) => c.term.index === termIndex);
     const s = ct?.startDate ? ct.startDate.getTime() : 0;
-    return { weekStartMs: s, weekEndMs: s + Math.max(1, endWeek - startWeek + 1) * WEEK_MS };
+    return { weekStartMs: s, weekEndMs: s && ct?.endDate ? ct.endDate.getTime() + 24 * 3600 * 1000 : s + Math.max(1, endWeek - startWeek + 1) * WEEK_MS };
   };
   // Institution-wide bookings → conflicts; keep only those touching this cohort.
   const bookings = instMeetings.map((m) => ({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime), ...winOf(m.cohort.cohortTerms, m.course.term?.index ?? m.termIndex, m.course.term?.startWeek ?? m.startWeek, m.course.term?.endWeek ?? m.endWeek), facilityId: m.facilityId, staffPersonId: m.staffPersonId }));
@@ -1504,12 +1505,12 @@ export async function getActionQueue(): Promise<ActionItem[]> {
 
   // 4) SCHEDULE HEALTH — unstaffed / unroomed / conflicting bookings (live weeks only).
   const meetings = await prisma.meetingPattern.findMany({
-    include: { cohort: { select: { name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, term: { select: { index: true } } } } } } },
+    include: { cohort: { select: { name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } },
   });
   const live = meetings.map((m) => {
     const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex);
     const s = ct?.startDate ? ct.startDate.getTime() : 0;
-    return { m, weekStartMs: s, weekEndMs: s + Math.max(1, m.endWeek - m.startWeek + 1) * WEEK_MS };
+    return { m, weekStartMs: s, weekEndMs: s && ct?.endDate ? ct.endDate.getTime() + 24 * 3600 * 1000 : s + Math.max(1, m.endWeek - m.startWeek + 1) * WEEK_MS };
   }).filter((x) => x.weekStartMs && x.weekEndMs > today.getTime());
   const unstaffed = live.filter((x) => !x.m.staffPersonId);
   if (unstaffed.length) {
@@ -1601,7 +1602,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
         orderBy: { name: "asc" },
         include: {
           stages: true,
-          cohortTerms: { select: { termId: true, startDate: true } },
+          cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
           meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
@@ -1641,9 +1642,16 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
         : orderedTerms.map(() => Number(fallbackSeats));
       const enrollmentByTerm: Record<number, number> = {};
       orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(termOverrides[i] ?? derived[i] ?? derived[derived.length - 1] ?? 0); });
-      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
       const termStartByIndex: Record<number, string | null> = {};
-      orderedTerms.forEach((t) => { const d = ctById.get(t.id) ?? null; termStartByIndex[t.index] = d ? d.toISOString() : null; });
+      const termEndByIndex: Record<number, string | null> = {};
+      const termWeeksByIndex: Record<number, number | null> = {};
+      orderedTerms.forEach((t) => {
+        const ct = ctById.get(t.id) ?? null;
+        termStartByIndex[t.index] = ct?.startDate ? ct.startDate.toISOString() : null;
+        termEndByIndex[t.index] = ct?.endDate ? ct.endDate.toISOString() : null;
+        termWeeksByIndex[t.index] = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
+      });
       // Templates are timeless — days attach at instantiation. When this offering
       // has calendarized meetings, their day pattern dates the session rows.
       const meetingDay = new Map<string, string>();
@@ -1666,7 +1674,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         students: co._count.students,
-        enrollmentByTerm, termStartByIndex, holidays,
+        enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays,
         // One row per booked section — the calendar's draggable shift instances.
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
@@ -1751,7 +1759,7 @@ export async function getOfferingDesign(cohortId: string) {
           },
         },
       },
-      cohortTerms: { select: { termId: true, startDate: true } },
+      cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
       sessionOverrides: true,
       courseDates: true,
       meetings: {
@@ -1885,7 +1893,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     include: {
       person: { select: { id: true, name: true } },
       session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } } } } } },
-      cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true, semester: true } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
+      cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true, semester: true, term: { select: { startWeek: true, endWeek: true } } } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
     },
   });
   return rows.map((r) => {
@@ -1893,9 +1901,9 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     const week = ov?.week ?? r.session.week; const day = ov?.dayOfWeek ?? r.session.dayOfWeek;
     const ct = r.cohort?.cohortTerms.find((x) => x.termId === r.session.course.termId);
     const cw = r.cohort?.courseDates.find((x) => x.courseId === r.session.course.id);
-    const anchor = cw?.startDate ?? ct?.startDate ?? null;
-    let dateIso: string | null = null;
-    if (anchor && week) { const off = day != null ? DAY_OFF[day] : undefined; if (off != null) dateIso = new Date(anchor.getTime() + ((week - 1) * 7 + off) * 86400000).toISOString().slice(0, 10); }
+    const tplWeeks = ct?.term.startWeek != null && ct?.term.endWeek != null && ct.term.endWeek >= ct.term.startWeek ? ct.term.endWeek - ct.term.startWeek + 1 : null;
+    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cw?.startDate ?? null }, week, day);
+    const dateIso: string | null = d ? d.toISOString().slice(0, 10) : null;
     const termStart = ct?.startDate ?? null;
     const termKey = termStart ? `${seasonOfTerm({ semester: ct?.semester, name: null }, termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
     const year = dateIso ? Number(dateIso.slice(0, 4)) : termStart ? termStart.getUTCFullYear() : null;
@@ -2007,6 +2015,39 @@ export async function getAssetsLite() {
 }
 
 // ---------------------------------------------------------------------------
+// ROOM & CAMPUS UTILIZATION EXPLORER — the master calendar's analytics
+// ---------------------------------------------------------------------------
+
+export async function getUtilizationExplorer(institutionId?: string) {
+  const cal = await getMasterCalendar({ institutionId });
+  if (!cal.institutionId) return null;
+  const [ws, inst, events] = await Promise.all([
+    getRoomsWorkspace(cal.institutionId),
+    prisma.institution.findUnique({ where: { id: cal.institutionId }, select: { id: true, name: true, springStart: true, summerStart: true, fallStart: true } }),
+    prisma.academicEvent.findMany({ where: { institutionId: cal.institutionId, kind: { in: ["term_start", "term_end"] } }, orderBy: { date: "asc" }, select: { date: true, kind: true, season: true, label: true } }),
+  ]);
+  if (!inst) return null;
+  const semesters = events.filter((e) => e.kind === "term_start").map((s) => { const end = events.find((e) => e.kind === "term_end" && e.date > s.date && e.season === s.season && e.date.getUTCFullYear() === s.date.getUTCFullYear()); return { iso: s.date.toISOString().slice(0, 10), endIso: end?.date.toISOString().slice(0, 10) ?? null, season: s.season }; });
+  return {
+    institution: { id: inst.id, name: inst.name },
+    institutions: cal.institutions,
+    anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
+    semesters,
+    rooms: ws.rooms.filter((r) => r.status === "active").map((r) => ({ id: r.id, name: r.name, kind: r.kind, capacity: r.capacity, buildingId: r.buildingId, building: r.building, campusId: r.campusId, campus: r.campus, hours: r.hours, closures: r.closures })),
+    meetings: cal.meetings.map((m) => ({
+      id: m.id, cohortId: m.cohortId, cohort: m.cohortName, programId: m.programId, program: m.programName,
+      courseId: m.courseId, courseCode: m.courseCode, courseName: m.courseName, kind: m.kind, sectionIndex: m.sectionIndex, seats: m.seats,
+      dayOfWeek: m.dayOfWeek, startTime: m.startTime, lengthHours: m.lengthHours,
+      facilityId: m.facilityId, employerId: m.employerId, employerName: m.employerName,
+      weekStartMs: m.weekStartMs, weekEndMs: m.weekEndMs, termIndex: m.termIndex,
+    })),
+    programs: cal.programs,
+    /** The window the bookings span — the explorer's default "everything" range. */
+    span: cal.meetings.length ? { from: new Date(Math.min(...cal.meetings.filter((m) => m.weekStartMs).map((m) => m.weekStartMs))).toISOString().slice(0, 10), to: new Date(Math.max(...cal.meetings.map((m) => m.weekEndMs)) - 1).toISOString().slice(0, 10) } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // ASSET SUPPLY EXPLORER
 // ---------------------------------------------------------------------------
 
@@ -2030,11 +2071,15 @@ export async function getSupplyExplorer(institutionId: string | undefined, from:
 export async function getStudentAssignments(studentId: string) {
   const s = await prisma.student.findUnique({ where: { id: studentId }, select: { id: true, cohortId: true, programId: true, sectionIndex: true, sections: true, shifts: { include: { session: { select: { id: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, course: { select: { id: true, code: true, name: true, termId: true } } } }, asset: { select: { id: true, setting: true, assetNumber: true, employer: { select: { name: true } } } } }, orderBy: [{ session: { week: "asc" } }] } } });
   if (!s || !s.cohortId) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
-  const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true } } } } } } } } } });
+  const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true } } } } } } } } } });
   if (!cohort) return { cohort: null, courses: [], sections: [], shifts: [], assets: [] };
   const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
-  const DAY_OFF: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-  const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => { const anchor = cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? cohort.cohortTerms.find((x) => x.termId === termId)?.startDate ?? null; if (!anchor || !week || day == null || DAY_OFF[day] == null) return null; return new Date(anchor.getTime() + ((week - 1) * 7 + DAY_OFF[day]) * 86400000).toISOString().slice(0, 10); };
+  const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => {
+    const ct = cohort.cohortTerms.find((x) => x.termId === termId); const t = cohort.program.terms.find((x) => x.id === termId);
+    const tplWeeks = t?.startWeek != null && t?.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
+    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null }, week, day);
+    return d ? d.toISOString().slice(0, 10) : null;
+  };
   const courses = cohort.program.terms.flatMap((t) => t.courses.map((c) => ({
     id: c.id, code: c.code, name: c.name, term: t.name, termId: t.id,
     kinds: (["CLASS", "LAB", "CLINICAL"] as const).map((k) => { const ss = c.sessions.filter((x) => x.kind === k); const maxSec = ss.length ? Math.max(...ss.map((x) => Math.max(1, Math.ceil(enrolled / Math.max(1, x.maxStudents))))) : 0; return { kind: k, sessions: ss.length, sections: maxSec }; }).filter((k) => k.sessions > 0),

@@ -11,6 +11,8 @@ export interface CalendarizeTerm {
   id: string; index: number; startWeek: number | null; endWeek: number | null;
   /** Real first day of the term (ms), if dated. */
   startMs: number | null;
+  /** Real last day of the term (ms) — weekly bookings recur until it, not past the semester. */
+  endMs?: number | null;
   courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number }[] }[];
 }
 export interface CalendarizeInput {
@@ -38,6 +40,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
     const base = t.startMs ?? (input.cohortStartMs != null ? input.cohortStartMs + (t.index - 1) * 17 * WK_MS : null);
     if (base == null) continue;
     const tw = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
+    const endMs = t.startMs != null && t.endMs != null && t.endMs > t.startMs ? t.endMs + 24 * 3600 * 1000 : base + tw * WK_MS;
     for (const c of t.courses) {
       const kinds = new Map<string, { maxStudents: number; lengthHours: number }>();
       for (const s of c.sessions) if (!kinds.has(s.kind)) kinds.set(s.kind, { maxStudents: s.maxStudents, lengthHours: s.lengthHours });
@@ -46,7 +49,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
         const sections = Math.max(1, Math.ceil(E / cap));
         for (let si = 1; si <= sections; si++) {
           const id = `${input.cohortId}:${c.id}:${kind}:${si}`;
-          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, weekStartMs: base, weekEndMs: base + tw * WK_MS });
+          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, weekStartMs: base, weekEndMs: endMs });
           meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
         }
       }

@@ -42,6 +42,9 @@ export interface CapacityCohort {
   students: number;
   enrollmentByTerm: Record<number, number>;
   termStartByIndex: Record<number, string | null>;
+  /** Each term's real last day and the weeks the template plans — fits the template into the semester. */
+  termEndByIndex?: Record<number, string | null>;
+  termWeeksByIndex?: Record<number, number | null>;
   /** Institution's coded holidays & breaks (ISO → label). */
   holidays?: Record<string, string>;
   meetings?: ShiftMeeting[];
@@ -128,6 +131,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program,
         enrollmentByTerm: c.enrollmentByTerm,
         termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+        termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex,
         holidays: c.holidays,
         courses: c.courses,
       };
@@ -366,9 +370,11 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       k[0] += nz2(r.computed.AA); k[1] += nz2(r.computed.AD);
       s.set(r.session.kind, k);
     }
+    // The semester's real span: first dated session → last dated session (a
+    // summer term fitted into ten weeks ends in early August, not September).
     const spanOf = (year: string, sem: string) => {
-      const ws = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem).map((r) => r.mondayIso!).sort();
-      return ws.length ? `${fmtMD(ws[0])} → ${fmtMD(ws[ws.length - 1])}` : undefined;
+      const ds = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem).map((r) => r.dateIso ?? addDaysN(r.mondayIso!, 4)).sort();
+      return ds.length ? `${fmtMD(ds[0])} → ${fmtMD(ds[ds.length - 1])}` : undefined;
     };
     return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
       label: year,
@@ -482,7 +488,6 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       </div>
 
       {altitude === "semester" && (<>
-      <TermOrders rows={rows} />
       {/* ── FTEs per semester — what to budget, split class / lab / clinical ── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-2">
@@ -679,65 +684,6 @@ const endTime = (t: string | null, len: number) => {
   return `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 };
 
-/** Semester altitude: one staffing order per term — every week's people, the heaviest week called out. */
-function TermOrders({ rows }: { rows: DatedInstance[] }) {
-  const terms = [...new Set(rows.map((r) => r.termIndex))].sort((a, b) => a - b);
-  return (
-    <div className="space-y-4">
-      {terms.map((ti) => {
-        const tr = rows.filter((r) => r.termIndex === ti);
-        const weeks = weeklyNeedByKind(tr).filter((w) => w.totalFacFte > 0 || w.preceptorFte > 0);
-        if (!weeks.length) return null;
-        const first = weeks[0].mondayIso, last = weeks[weeks.length - 1].mondayIso;
-        const instOf = (w: (typeof weeks)[number]) => ceilP(w.classFte) + ceilP(w.labFte) + ceilP(w.clinicalFacFte);
-        const preOf = (w: (typeof weeks)[number]) => ceilP(w.preceptorFte);
-        const typInst = Math.round(median(weeks.map(instOf)));
-        const typPre = Math.round(median(weeks.map(preOf)));
-        const peak = weeks.reduce((b, w) => (instOf(w) + preOf(w) > instOf(b) + preOf(b) ? w : b), weeks[0]);
-        return (
-          <section key={ti} className="rounded-xl border border-slate-200 bg-white">
-            <div className="border-b border-slate-100 bg-slate-800 px-5 py-3 text-slate-100">
-              <div className="text-base font-semibold">{tr[0].termName} — {tr[0].semester} {first.slice(0, 4)} <span className="font-normal text-slate-300">· {fmtDateM(first)} → {fmtDateM(addDays7(last))} · {weeks.length} weeks</span></div>
-              <p className="mt-1 text-sm leading-relaxed text-slate-200">
-                To run this term, staff <strong className="text-white">{typInst} instructor{typInst === 1 ? "" : "s"}</strong>{typPre > 0 && <> and <strong className="text-amber-300">{typPre} preceptor{typPre === 1 ? "" : "s"}</strong></>} in a typical week.
-                {" "}The heaviest week is the week of <strong className="text-white">{fmtDateM(peak.mondayIso)}</strong>: <strong className="text-white">{instOf(peak)} instructors</strong>{preOf(peak) > 0 && <> + <strong className="text-amber-300">{preOf(peak)} preceptors</strong></>}.
-              </p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="px-4 py-2 font-semibold">Week of</th>
-                    <th className="px-3 py-2 text-right font-semibold text-sky-700">Class instructors</th>
-                    <th className="px-3 py-2 text-right font-semibold text-violet-700">Lab instructors</th>
-                    <th className="px-3 py-2 text-right font-semibold text-rose-700">Clinical faculty</th>
-                    <th className="px-3 py-2 text-right font-semibold">Instructors, total</th>
-                    <th className="px-3 py-2 text-right font-semibold text-amber-700">Preceptors</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {weeks.map((w) => {
-                    const isPeak = w.mondayIso === peak.mondayIso;
-                    return (
-                      <tr key={w.mondayIso} className={`border-b border-slate-100 ${isPeak ? "bg-rose-50" : ""}`}>
-                        <td className="whitespace-nowrap px-4 py-2 font-medium text-slate-700">{fmtDateM(w.mondayIso)}{isPeak && <span className="ml-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">heaviest</span>}</td>
-                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.classFte) || <span className="text-slate-300">·</span>}</td>
-                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.labFte) || <span className="text-slate-300">·</span>}</td>
-                        <td className="px-3 py-2 text-right text-lg tabular-nums text-slate-800">{ceilP(w.clinicalFacFte) || <span className="text-slate-300">·</span>}</td>
-                        <td className="px-3 py-2 text-right text-xl font-bold tabular-nums text-slate-900">{instOf(w)}</td>
-                        <td className="px-3 py-2 text-right text-xl font-bold tabular-nums text-amber-700">{preOf(w) || <span className="font-normal text-slate-300">·</span>}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
 const addDays7 = (iso: string) => new Date(new Date(iso + "T00:00:00Z").getTime() + 6 * 86400000).toISOString().slice(0, 10);
 const addDaysN = (iso: string, n: number) => new Date(new Date(iso + "T00:00:00Z").getTime() + n * 86400000).toISOString().slice(0, 10);
 

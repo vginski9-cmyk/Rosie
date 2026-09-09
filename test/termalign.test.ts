@@ -61,9 +61,23 @@ describe("alignOffering", () => {
     const short = [...EVENTS.filter((e) => e.iso !== "2026-12-11"), { iso: "2026-11-20", endIso: null, label: "Fall ends", kind: "term_end", season: "Fall" }];
     const a = alignOffering({ startIso: "2026-08-17", terms: TERMS, courses: [], anchors, events: short });
     expect(a.terms[0].endIso).toBe("2026-11-20");
-    expect(a.warnings.some((w) => /Term 1: the template plans 16 weeks but the calendar gives Fall 2026 only 14/.test(w))).toBe(true);
+    expect(a.warnings.some((w) => /Term 1: the template plans 16 weeks but Fall 2026 gives only 14/.test(w))).toBe(true);
     // The next term still waits for the template's 16 weeks to pass.
     expect(a.terms[1].startIso).toBe("2027-01-11");
+  });
+
+  it("without a coded end, a term still ends with its semester — a 16-week summer template ends in early August, not September", () => {
+    const sixteen: TermLite[] = [TERMS[0], TERMS[1], { id: "t3", index: 3, name: "Term 3", startWeek: 33, endWeek: 48 }];
+    const a = alignOffering({ startIso: "2026-08-17", terms: sixteen, courses: [], anchors, events: [] });
+    const summer = a.terms.find((t) => t.semester.startsWith("Summer"))!;
+    expect(summer.startIso).toBe("2027-05-31");
+    expect(summer.endIso).toBe("2027-08-06"); // the Friday at least nine days before Fall 2027 starts (Aug 16)
+    expect(summer.endSource).toBe("pattern");
+    expect(summer.calendarWeeks).toBe(10);
+    expect(a.warnings.some((w) => /Summer 2027 gives only 10/.test(w))).toBe(true);
+    // Fall and spring fit their 16 weeks, so the template end stands.
+    expect(a.terms[0].endIso).toBe("2026-12-04");
+    expect(a.terms[0].endSource).toBe("template");
   });
 
   it("keeps typed term dates and aligns the rest around them", () => {

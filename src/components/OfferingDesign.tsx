@@ -13,6 +13,7 @@ import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnal
 import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
 import { coverageOf, type RoleFamily } from "@/lib/workload";
+import { weekMonday, calendarWeeksBetween } from "@/lib/term";
 
 // Design & sequence for ONE instantiation — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
@@ -50,7 +51,7 @@ export interface DsMeeting {
   staffPersonId: string | null; staffName: string | null;
 }
 export interface DsCourse { id: string; code: string | null; name: string; startDate: string | null; endDate: string | null; sessions: DsSession[] }
-export interface DsTerm { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; startDate: string | null; courses: DsCourse[] }
+export interface DsTerm { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; startDate: string | null; endDate?: string | null; courses: DsCourse[] }
 export interface DsRoom { id: string; name: string; kind: string; capacity: number | null }
 export interface DsPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employer?: { name: string } | null }
 export interface DsEmployer { id: string; name: string; setting: string | null }
@@ -187,11 +188,16 @@ export function OfferingDesign({
     startTransition(async () => { await moveMeeting(id, patch); router.refresh(); });
   };
 
-  const sessionDateObj = (termStart: string | null, week: number | null, day: string | null): Date | null => {
-    if (!termStart || !week) return null;
-    const base = new Date(termStart + "T00:00:00Z");
+  // One week rule everywhere (src/lib/term.ts): a template week lands in its
+  // term's real weeks, fitted when the semester is shorter than the template.
+  const sessionDateObj = (t: DsTerm, c: DsCourse, week: number | null, day: string | null): Date | null => {
+    if (!week) return null;
+    const cw = c.sessions.map((s) => s.week).filter((w): w is number => w != null && w > 0);
+    const tpl = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
+    const mon = weekMonday({ termStart: t.startDate, termEnd: t.endDate ?? null, templateWeeks: tpl, courseStart: c.startDate, courseFirstWeek: cw.length ? Math.min(...cw) : 1 }, week);
+    if (!mon) return null;
     const off = day != null ? DAY_OFFSET[day] : undefined;
-    return new Date(base.getTime() + ((week - 1) * 7 + (off ?? 0)) * 86400000);
+    return new Date(mon.getTime() + (off ?? 0) * 86400000);
   };
 
   const inp = "w-full rounded border border-blue-200 bg-blue-50/70 px-1 py-0.5 text-[11px] text-blue-900 focus:bg-white focus:outline-blue-500";
@@ -430,8 +436,18 @@ export function OfferingDesign({
                 <div className="divide-y divide-slate-100">
                   {ordered.map((r) => {
                     const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
+                    const d = sessionDateObj(t, c, r.week, r.dayOfWeek);
                     const anchor = c.startDate ?? t.startDate;
-                    const d = sessionDateObj(anchor, r.week, r.dayOfWeek);
+                    // Inverse of the week rule for the date picker: a picked date → the template week that lands there.
+                    const weekFromDate = (picked: Date) => {
+                      const a0 = new Date(anchor + "T00:00:00Z");
+                      let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
+                      const calWeek = Math.floor(diff / 7) + 1;
+                      const tpl = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : 16;
+                      const cal = t.startDate && t.endDate ? calendarWeeksBetween(t.startDate, t.endDate) : tpl;
+                      const week = cal < tpl ? Math.min(tpl, Math.ceil((calWeek - 1) * tpl / cal) + 1) : calWeek;
+                      return { week, day: ALL_DAYS[diff % 7] };
+                    };
                     const holiday = d && r.dayOfWeek != null ? holidays[d.toISOString().slice(0, 10)] ?? usHoliday(d) : null;
                     const m = meetingsFor(c.id, r.kind)[0] ?? null;
                     const offCampus = r.kind === "CLINICAL";
@@ -483,9 +499,8 @@ export function OfferingDesign({
                                     {anchor ? (
                                       <input type="date" value={d && r.dayOfWeek != null ? d.toISOString().slice(0, 10) : ""} onChange={(e) => {
                                         if (!e.target.value) return;
-                                        const picked = new Date(e.target.value + "T00:00:00Z"); const a0 = new Date(anchor + "T00:00:00Z");
-                                        let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
-                                        setField(r.id, "week", Math.floor(diff / 7) + 1); setField(r.id, "dayOfWeek", ALL_DAYS[diff % 7]);
+                                        const wd = weekFromDate(new Date(e.target.value + "T00:00:00Z"));
+                                        setField(r.id, "week", wd.week); setField(r.id, "dayOfWeek", wd.day);
                                       }} className={inp} />
                                     ) : <span className="block text-xs text-slate-400">term not dated yet — set the offering dates first</span>}
                                   </label>

@@ -1886,29 +1886,9 @@ export async function deleteAlignmentProfile(profileId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function calendarizeCohort(cohortId: string, programId: string): Promise<void> {
-  const { planMeetings } = await import("./calendarize");
-  const existing = await prisma.meetingPattern.count({ where: { cohortId } });
-  if (existing > 0) return; // already calendarized — edit meetings instead
-  const co = await prisma.cohort.findUnique({
-    where: { id: cohortId },
-    include: {
-      cohortTerms: { select: { termId: true, startDate: true } },
-      program: { select: { institutionId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true } } } } } } } },
-    },
-  });
-  if (!co) return;
-  const rooms = await prisma.facility.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
-  // Clinical hosts: secured partner sites first, then any active hospital / imaging / surgical / clinic site.
-  const hosts = await prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active", OR: [{ agreementStatus: "secured" }, { setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] }, select: { id: true, agreementStatus: true } });
-  hosts.sort((a, b) => Number(b.agreementStatus === "secured") - Number(a.agreementStatus === "secured"));
-  const ctStart = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
-  const rows = planMeetings({
-    cohortId, seats: Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30), cohortStartMs: co.startDate?.getTime() ?? null,
-    terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctStart.get(t.id)?.getTime() ?? null, courses: t.courses })),
-    rooms, hostIds: hosts.map((h) => h.id),
-  });
-  if (!rows.length) return;
-  for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
+  const { calendarizeCore } = await import("./autoassign");
+  const made = await calendarizeCore(cohortId);
+  if (!made) return;
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath("/calendar");
 }
@@ -1973,6 +1953,18 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
   revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/insights/clinical-sites"); revalidatePath("/insights/coverage");
   for (const c of cohortIds) revalidatePath(`/programs/[id]/offerings/${c}`, "page");
   return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings };
+}
+
+/** AUTO-ASSIGN one offering end to end: calendarize, place every clinical
+ *  section on partner assets, staff every shift under workload policies, and
+ *  put every learner in sections and on their clinical shifts. Fills gaps only. */
+export async function autoAssignOffering(cohortId: string, programId: string): Promise<import("./autoassign").AutoAssignSummary | null> {
+  const { autoAssignOffering: run } = await import("./autoassign");
+  const summary = await run(cohortId);
+  revalidateStaffing(programId, cohortId);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`); revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
+  revalidatePath("/calendar"); revalidatePath("/scheduler"); revalidatePath("/students"); revalidatePath("/people"); revalidatePath("/supply"); revalidatePath("/utilization");
+  return summary;
 }
 
 /** Remove everything a plan wrote for these offerings (hand-made bookings stay). */

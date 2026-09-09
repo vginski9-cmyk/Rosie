@@ -292,6 +292,11 @@ export interface CohortCalendarInput {
   enrollmentByTerm: Record<number, number>;
   /** Real start date per term index (1-based); null terms produce undated instances. */
   termStartByIndex: Record<number, Date | null>;
+  /** Each term's real last day (academic calendar or pattern). With the template
+   *  weeks, this fits a 16-week template into a 10-week summer — nothing lands after the term. */
+  termEndByIndex?: Record<number, Date | string | null>;
+  /** Weeks the template plans per term (its start–end week span). */
+  termWeeksByIndex?: Record<number, number | null>;
   /** The institution's coded holidays & breaks (ISO → label) — beat the U.S. defaults. */
   holidays?: Record<string, string>;
   courses: {
@@ -328,10 +333,9 @@ export function usHoliday(d: Date): string | null {
   return null;
 }
 
-import { seasonOfMonth } from "./term";
+import { seasonOfMonth, weekMonday } from "./term";
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
-const mondayOfWeek = (termStart: Date, week: number) => addDays(termStart, (week - 1) * 7);
 
 /** Expand one cohort's template into dated session instances with computed columns. */
 export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumptions = DEFAULT_ASSUMPTIONS): DatedInstance[] {
@@ -348,12 +352,16 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
 
   for (const c of input.courses) {
     const courseStart = c.startDate ? (c.startDate instanceof Date ? c.startDate : new Date(c.startDate)) : null;
-    const start = courseStart ?? input.termStartByIndex[c.termIndex] ?? null;
-    const semester = start ? seasonOfMonth(start.getUTCMonth() + 1) : "—";
+    const termStart = input.termStartByIndex[c.termIndex] ?? null;
+    const start = courseStart ?? termStart;
+    // The semester is the TERM's, even for a course that starts later in it.
+    const semester = termStart ? seasonOfMonth(termStart.getUTCMonth() + 1) : start ? seasonOfMonth(start.getUTCMonth() + 1) : "—";
+    const courseWeeks = c.sessions.map((s) => s.week).filter((w): w is number => w != null && w > 0);
+    const anchor = { termStart, termEnd: input.termEndByIndex?.[c.termIndex] ?? null, templateWeeks: input.termWeeksByIndex?.[c.termIndex] ?? null, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1 };
     for (const s of c.sessions) {
       const computed = computeColumns(s, enrollment[c.termIndex] ?? 0, a);
       const week = s.week && s.week > 0 ? s.week : 1;
-      const monday = start ? mondayOfWeek(start, week) : null;
+      const monday = start ? weekMonday(anchor, week) : null;
       const off = s.dayOfWeek != null ? CAPACITY_DAY_OFFSET[s.dayOfWeek] : undefined;
       const date = monday != null && off != null ? addDays(monday, off) : null;
       out.push({

@@ -121,22 +121,7 @@ export default async function FamilyPage({ params }: { params: { id: string } })
         </div>
       </div>
 
-      {/* Academic calendar lives with the organization's set-up; every offering here follows it */}
-      {(() => {
-        const starts = family.institution.academicEvents.filter((e) => e.kind === "term_start").sort((a, b) => a.date.getTime() - b.date.getTime());
-        const label = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-        return (
-          <Link href={`/orgs/${family.institutionId}#calendar`} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 hover:border-rose-200 hover:bg-rose-50/40">
-            <div>
-              <div className="text-sm font-semibold text-slate-800">Academic calendar — {family.institution.name} ↦</div>
-              <div className="text-xs text-slate-500">
-                {starts.length ? `${starts.length} coded semester starts (${label(starts[0].date)} → ${label(starts[starts.length - 1].date)}) · ${family.institution.academicEvents.filter((e) => e.kind === "holiday").length} breaks — every offering's term dates follow them` : `No calendar imported yet — offerings follow the pattern (Spring ${family.institution.springStart} · Summer ${family.institution.summerStart} · Fall ${family.institution.fallStart}); import it in the organization's set-up`}
-              </div>
-            </div>
-            <span className="text-rose-600">→</span>
-          </Link>
-        );
-      })()}
+      {/* The academic calendar lives in one place — the organization's set-up (Directory → Organizations). */}
 
       {/* Design & pathways — delivery models + interventions per target population */}
       <div className="grid gap-3">

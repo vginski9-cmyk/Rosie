@@ -24,8 +24,11 @@ export interface CalConflict { kind: string; aId: string; bId: string; dayOfWeek
 export interface RoomOpt { id: string; name: string; kind: string; capacity: number | null }
 export interface CalPerson { id: string; name: string; role: string }
 
-const BASE_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const KIND_COLOR: Record<string, string> = { CLASS: "#0284c7", LAB: "#7c3aed", CLINICAL: "#e11d48" };
+/** A stable, distinct color per location: golden-angle hues over the sorted list of locations. */
+const locationColor = (index: number) => `hsl(${Math.round((index * 137.508) % 360)} 62% 42%)`;
+type ColorBy = "program" | "kind" | "location";
 const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
 const START_HOUR = 8, END_HOUR = 20, HOUR_PX = 44;
 const PALETTE = ["bg-rose-500", "bg-sky-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-teal-500", "bg-fuchsia-500", "bg-indigo-500", "bg-orange-500", "bg-cyan-500"];
@@ -47,6 +50,7 @@ export function MasterCalendar({
   const [fRoom, setFRoom] = useState("");
   const [fKind, setFKind] = useState("");
   const [conflictsOnly, setConflictsOnly] = useState(false);
+  const [colorBy, setColorBy] = useState<ColorBy>("location");
   const [editing, setEditing] = useState<CalMeeting | null>(null);
 
   const programColor = useMemo(() => {
@@ -54,6 +58,23 @@ export function MasterCalendar({
     programs.forEach((p, i) => m.set(p.id, PALETTE[i % PALETTE.length]));
     return m;
   }, [programs]);
+  // One color per location (room or partner site) across the whole calendar,
+  // so two blocks in the same place always match and different places never do.
+  const locationKey = (m: CalMeeting) => (m.kind === "CLINICAL" ? (m.employerId ? `site:${m.employerId}` : "site:tbd") : (m.facilityId ? `room:${m.facilityId}` : "room:none"));
+  const locationName = (m: CalMeeting) => (m.kind === "CLINICAL" ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room"));
+  const locationColors = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const m of meetings) names.set(locationKey(m), locationName(m));
+    const keys = [...names.keys()].sort((a, b) => names.get(a)!.localeCompare(names.get(b)!));
+    const colors = new Map<string, { color: string; name: string }>();
+    keys.forEach((k, i) => colors.set(k, { color: k === "room:none" || k === "site:tbd" ? "#94a3b8" : locationColor(i), name: names.get(k)! }));
+    return colors;
+  }, [meetings]);
+  const blockStyle = (m: CalMeeting): { className: string; style?: React.CSSProperties } => {
+    if (colorBy === "program") return { className: programColor.get(m.programId) ?? "bg-slate-500" };
+    if (colorBy === "kind") return { className: "", style: { backgroundColor: KIND_COLOR[m.kind] ?? "#64748b" } };
+    return { className: "", style: { backgroundColor: locationColors.get(locationKey(m))?.color ?? "#64748b" } };
+  };
 
   const conflictIds = useMemo(() => { const s = new Set<string>(); for (const c of conflicts) { s.add(c.aId); s.add(c.bId); } return s; }, [conflicts]);
   const weekIdx = weeks.findIndex((w) => w.ms === weekMs);
@@ -71,11 +92,16 @@ export function MasterCalendar({
 
   const campus = filtered.filter((m) => m.kind !== "CLINICAL");
   const clinical = filtered.filter((m) => m.kind === "CLINICAL");
-  // Week columns: Mon–Fri always; Sat/Sun appear when something is booked there.
-  const DAYS = useMemo(() => {
-    const used = new Set(meetings.map((m) => m.dayOfWeek));
-    return ALL_DAYS.filter((d) => BASE_DAYS.includes(d) || used.has(d));
-  }, [meetings]);
+  // Every week shows all seven days — weekends included, booked or not.
+  const DAYS = ALL_DAYS;
+  // Legend for the current coloring, limited to what is on screen this week.
+  const legend = useMemo(() => {
+    if (colorBy === "kind") return [["Lecture", KIND_COLOR.CLASS], ["Lab", KIND_COLOR.LAB], ["Clinical", KIND_COLOR.CLINICAL]] as [string, string][];
+    if (colorBy === "program") return [] as [string, string][];
+    const keys = [...new Set(filtered.map(locationKey))];
+    return keys.map((k) => [locationColors.get(k)?.name ?? k, locationColors.get(k)?.color ?? "#64748b"] as [string, string]).sort((a, b) => a[0].localeCompare(b[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colorBy, filtered, locationColors]);
 
   // Per-day lane packing so overlapping blocks sit side by side. EVERYTHING is
   // on the one master calendar — campus classes/labs AND clinical rotations
@@ -142,6 +168,12 @@ export function MasterCalendar({
           Conflicts only
         </label>
         {(fProgram || fRoom || fKind || conflictsOnly) && <button onClick={() => { setFProgram(""); setFRoom(""); setFKind(""); setConflictsOnly(false); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Color by</span>
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs">
+            {([["location", "Location"], ["kind", "Type"], ["program", "Program"]] as [ColorBy, string][]).map(([k, l]) => <button key={k} onClick={() => setColorBy(k)} className={`px-2.5 py-1.5 ${colorBy === k ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`} title={k === "location" ? "same color = same room or site" : k === "kind" ? "lecture / lab / clinical" : "one color per program"}>{l}</button>)}
+          </div>
+        </label>
         <div className="ml-auto flex items-center gap-2">
           <button disabled={weekIdx <= 0} onClick={() => setWeekMs(weeks[weekIdx - 1].ms)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">←</button>
           <select value={weekMs} onChange={(e) => setWeekMs(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
@@ -161,11 +193,20 @@ export function MasterCalendar({
           : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">no conflicts this week</span>}
         {pending && <span className="text-slate-400">saving…</span>}
       </div>
+      {/* Legend — what the colors mean this week */}
+      {(legend.length > 0 || colorBy === "program") && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
+          <span className="text-slate-400">{colorBy === "location" ? "same color = same room or site:" : colorBy === "kind" ? "session type:" : "program:"}</span>
+          {colorBy === "program"
+            ? programs.map((p) => <span key={p.id} className="inline-flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded-sm ${programColor.get(p.id)}`} />{p.name}</span>)
+            : legend.map(([name, color]) => <span key={name} className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />{name}</span>)}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
         {/* Timetable */}
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
-          <div className="flex min-w-[680px]">
+          <div className="flex min-w-[840px]">
             {/* time gutter */}
             <div className="w-12 shrink-0 pt-7">
               {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
@@ -185,13 +226,13 @@ export function MasterCalendar({
                     {placed.map(({ m, s, lane }) => {
                       const top = ((s - START_HOUR * 60) / 60) * HOUR_PX;
                       const height = Math.max(18, m.lengthHours * HOUR_PX - 2);
-                      const color = programColor.get(m.programId) ?? "bg-slate-500";
+                      const bs = blockStyle(m);
                       const conflict = conflictIds.has(m.id);
                       const w = 100 / lanes;
                       return (
                         <button key={m.id} onClick={() => setEditing(m)}
-                          style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)` }}
-                          className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${color} ${m.kind === "CLINICAL" ? "border-2 border-dashed border-white/70" : ""} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
+                          style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)`, ...(bs.style ?? {}) }}
+                          className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${bs.className} ${m.kind === "CLINICAL" ? "border-2 border-dashed border-white/70" : ""} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
                           <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}{m.kind === "CLINICAL" ? " ⚕" : ""}</span>
                           <span className="block truncate text-[9px] leading-tight opacity-90">{m.kind === "CLINICAL" ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "⚠ no room")}</span>
                           <span className="block truncate text-[9px] leading-tight opacity-75">{fmtTime(m.startTime)} · {m.cohortName}</span>
