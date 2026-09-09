@@ -20,13 +20,13 @@ export default async function EmployersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical sites &amp; employer partners</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Organizations — all partners, cross-program</h1>
         <p className="max-w-3xl text-sm text-slate-500">
-          The physical supply of clinical placement: every hospital, surgery center, nursing home and office in the region
-          — with its beds, operating rooms and <strong>functional units</strong> (the shift structure, days open, students
-          and preceptors per shift) — and where each one stands on an agreement with you. Open a site to configure its
-          units and see the sections it hosts.
-          {" "}{employers.length} sites · {active} open · {secured} with a secured agreement · {hosting} hosting {students} student placements on the calendar.
+          The shared record of every hospital, surgery center, nursing home and office in the region: address and drive
+          time, beds and operating rooms, the physical assets and their shift structures, the people. What a site means to
+          a program — its agreement, accreditor recognition, availability, qualified staff and which required experiences
+          it provides — is set up per program under <Link href="/clinical" className="text-rose-600 hover:underline">Clinical setup by program</Link>, never here.
+          {" "}{employers.length} organizations · {active} open · {secured} with a secured agreement · {hosting} hosting {students} student placements on the calendar.
         </p>
       </div>
       <section className="rounded-xl border border-slate-200 bg-white p-4">

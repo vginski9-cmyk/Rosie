@@ -308,7 +308,11 @@ export async function getFamiliesClinical() {
   });
   const reqSets = await prisma.clinicalRequirementSet.findMany({ select: { familyId: true, authority: true, kind: true, verified: true, items: { select: { mandatory: true, category: true } } } });
   const reqByFamily = new Map(reqSets.map((r) => [r.familyId, { authority: r.authority, kind: r.kind, verified: r.verified, mandatory: r.items.filter((i) => i.mandatory).length, elective: r.items.filter((i) => !i.mandatory).length, categories: new Set(r.items.map((i) => i.category)).size }]));
+  // Item-level scorecard (required experiences a secured site provides) for families that have a network to score.
+  const scores = new Map<string, { requiredCovered: number; required: number; electiveCovered: number; elective: number; unverified: number; gaps: string[] }>();
+  for (const f of fams) if (reqByFamily.has(f.id) && f.familySites.length) { const r = await getFamilyRequirements(f.id); if (r?.sets.length) { const t = r.sets.reduce((a, s) => ({ requiredCovered: a.requiredCovered + s.score.requiredCovered, required: a.required + s.score.required, electiveCovered: a.electiveCovered + s.score.electiveCovered, elective: a.elective + s.score.elective, unverified: a.unverified + s.score.unverified, gaps: [...a.gaps, ...s.score.gaps] }), { requiredCovered: 0, required: 0, electiveCovered: 0, elective: 0, unverified: 0, gaps: [] as string[] }); scores.set(f.id, t); } }
   return fams.map((f) => ({
+    score: scores.get(f.id) ?? null,
     id: f.id, name: f.name, institution: f.institution.name, institutionId: f.institution.id, occupation: f.occupation?.title ?? null, soc: f.occupation?.socCode ?? null,
     clinicalModel: f.clinicalModel, clinicalNotes: f.clinicalNotes, programs: f._count.programs, allocations: f._count.allocations,
     requirements: reqByFamily.get(f.id) ?? null, capacityBasis: f.capacityBasis,
@@ -374,18 +378,27 @@ export async function getFamilyClinical(familyId: string) {
 /** What completion requires for a family, and which sites / assets can supply each category. */
 export async function getFamilyRequirements(familyId: string) {
   const { requirementCoverage } = await import("./requirements");
-  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, capacityBasis: true, casesPerStudentDay: true, caseDaysPerYear: true, requirementSets: { orderBy: { createdAt: "asc" }, include: { items: { orderBy: { sortOrder: "asc" } } } }, familySites: { select: { employerId: true, agreementStatus: true, casesPerDay: true } } } });
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, capacityBasis: true, casesPerStudentDay: true, caseDaysPerYear: true, requirementSets: { orderBy: { createdAt: "asc" }, include: { items: { orderBy: { sortOrder: "asc" }, include: { provisions: true } } } }, familySites: { select: { employerId: true, agreementStatus: true, casesPerDay: true } } } });
   if (!fam) return null;
   const RANK: Record<string, number> = { secured: 0, asked: 1, prospect: 2, none: 3, declined: 9 };
   const fs = new Map(fam.familySites.map((f) => [f.employerId, f]));
-  const employers = await prisma.employer.findMany({ where: { institutionId: fam.institutionId, status: "active" }, select: { id: true, name: true, agreementStatus: true, annualSurgicalCases: true, driveMinutes: true, ring: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true } } } });
-  const sites = employers.map((e) => { const f = fs.get(e.id); const seatsBySetting: Record<string, number> = {}; for (const a of e.assets) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift; return { employerId: e.id, name: e.name, agreementRank: RANK[f?.agreementStatus ?? e.agreementStatus ?? "none"] ?? 3, seatsBySetting, casesPerDay: f?.casesPerDay ?? (e.annualSurgicalCases != null ? e.annualSurgicalCases / Math.max(1, fam.caseDaysPerYear ?? 250) : null), driveMinutes: e.driveMinutes, ring: e.ring }; });
+  const employers = await prisma.employer.findMany({ where: { institutionId: fam.institutionId, status: "active" }, select: { id: true, name: true, facilityType: true, agreementStatus: true, annualSurgicalCases: true, driveMinutes: true, ring: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true } } } });
+  const sites = employers.map((e) => { const f = fs.get(e.id); const seatsBySetting: Record<string, number> = {}; for (const a of e.assets) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift; const agreementStatus = f?.agreementStatus ?? e.agreementStatus ?? "none"; return { employerId: e.id, name: e.name, facilityType: e.facilityType, agreementStatus, inFamily: !!f, agreementRank: RANK[agreementStatus] ?? 3, seatsBySetting, casesPerDay: f?.casesPerDay ?? (e.annualSurgicalCases != null ? e.annualSurgicalCases / Math.max(1, fam.caseDaysPerYear ?? 250) : null), driveMinutes: e.driveMinutes, ring: e.ring }; });
   const sets = fam.requirementSets.map((set) => {
     const items = set.items.map((i) => ({ id: i.id, category: i.category, name: i.name, mandatory: i.mandatory, electiveGroup: i.electiveGroup, minCount: i.minCount, role: i.role, settingCodes: i.settingCodes, notes: i.notes }));
-    const coverage = requirementCoverage(items, sites);
+    const provisions = set.items.flatMap((i) => i.provisions.map((p) => ({ employerId: p.employerId, itemId: p.itemId, status: p.status, annualVolume: p.annualVolume, studentRole: p.studentRole, source: p.source, notes: p.notes })));
+    const coverage = requirementCoverage(items, sites, provisions);
     let rules: { key: string; label: string; min?: number; of?: number; scope?: string; notes?: string }[] = [];
     try { rules = JSON.parse(set.rules); } catch { rules = []; }
-    return { id: set.id, name: set.name, authority: set.authority, edition: set.edition, kind: set.kind, summary: set.summary, sourceUrl: set.sourceUrl, verified: set.verified, notes: set.notes, rules, items, coverage, mandatory: items.filter((i) => i.mandatory).length, elective: items.filter((i) => !i.mandatory).length, categories: coverage.length, uncovered: coverage.filter((c) => c.verdict === "none" || c.verdict === "prospect-only").map((c) => c.category), askedOnly: coverage.filter((c) => c.verdict === "asked-only").map((c) => c.category) };
+    const graded = coverage.flatMap((c) => c.itemCoverage).filter((i) => i.verdict !== "n/a");
+    const required = graded.filter((i) => i.item.mandatory);
+    return {
+      id: set.id, name: set.name, authority: set.authority, edition: set.edition, kind: set.kind, summary: set.summary, sourceUrl: set.sourceUrl, verified: set.verified, notes: set.notes, rules, items, provisions, coverage,
+      mandatory: items.filter((i) => i.mandatory).length, elective: items.filter((i) => !i.mandatory).length, categories: coverage.length,
+      uncovered: coverage.filter((c) => c.verdict === "none" || c.verdict === "prospect-only").map((c) => c.category), askedOnly: coverage.filter((c) => c.verdict === "asked-only").map((c) => c.category),
+      /** Item-level scorecard: required experiences a secured site provides / gradable required items; how many of those rest on unconfirmed inference. */
+      score: { requiredCovered: required.filter((i) => i.verdict === "covered").length, required: required.length, electiveCovered: graded.filter((i) => !i.item.mandatory && i.verdict === "covered").length, elective: graded.filter((i) => !i.item.mandatory).length, unverified: graded.filter((i) => i.verdict === "covered" && i.unverifiedSecured === i.providers.secured.length).length, gaps: coverage.flatMap((c) => c.mandatoryGaps.map((g) => g.name)) },
+    };
   });
   return { family: { id: fam.id, name: fam.name, clinicalModel: fam.clinicalModel, capacityBasis: fam.capacityBasis }, sets, sites };
 }
@@ -418,26 +431,122 @@ export async function getProgramRequirementCoverage(programId: string) {
  *  under which agreement tier — so a site page says plainly which of a program's required
  *  experiences it can supply and which it cannot. */
 export async function getSiteRequirementFit(employerId: string) {
+  const { siteFit } = await import("./requirements");
   const e = await prisma.employer.findUnique({ where: { id: employerId }, select: { id: true, institutionId: true, agreementStatus: true, familySites: { select: { familyId: true, agreementStatus: true } } } });
   if (!e) return null;
   const families = await prisma.programFamily.findMany({ where: { institutionId: e.institutionId, requirementSets: { some: {} } }, orderBy: { name: "asc" }, select: { id: true } });
-  const out: { family: { id: string; name: string; capacityBasis: string }; agreement: string; sets: { id: string; name: string; authority: string; verified: boolean; categories: { category: string; mandatory: number; elective: number; settings: string[]; seats: number; supplies: boolean; roles: string[] }[]; suppliedMandatory: number; mandatoryCategories: number; missingMandatory: string[] }[] }[] = [];
+  const out: { family: { id: string; name: string; capacityBasis: string }; agreement: string; inFamily: boolean; sets: { id: string; name: string; authority: string; verified: boolean; categories: { category: string; mandatory: number; elective: number; settings: string[]; seats: number; supplies: boolean; providedRequired: number; requiredItems: number; roles: string[] }[]; suppliedMandatory: number; mandatoryCategories: number; missingMandatory: string[]; requiredProvided: number; requiredItems: number; unverified: number; declined: number }[] }[] = [];
   for (const f of families) {
     const req = await getFamilyRequirements(f.id);
     if (!req) continue;
     const me = req.sites.find((s) => s.employerId === employerId);
-    const agreement = e.familySites.find((x) => x.familyId === f.id)?.agreementStatus ?? e.agreementStatus ?? "none";
+    if (!me) continue;
+    const fsite = e.familySites.find((x) => x.familyId === f.id);
+    const agreement = fsite?.agreementStatus ?? e.agreementStatus ?? "none";
     const sets = req.sets.map((set) => {
+      const fit = siteFit(me, set.items, set.provisions);
+      const byCat = new Map<string, typeof fit>(); for (const x of fit) { const arr = byCat.get(x.item.category) ?? []; arr.push(x); byCat.set(x.item.category, arr); }
       const categories = set.coverage.filter((c) => c.settings.length > 0).map((c) => {
-        const seats = c.settings.reduce((n, code) => n + (me?.seatsBySetting[code] ?? 0), 0);
-        return { category: c.category, mandatory: c.mandatory, elective: c.elective, settings: c.settings, seats, supplies: seats > 0, roles: [...new Set(c.items.map((i) => i.role).filter((r): r is string => !!r))] };
+        const mine = byCat.get(c.category) ?? [];
+        const provided = mine.filter((x) => x.state === "provides" || x.state === "limited");
+        const reqItems = mine.filter((x) => x.item.mandatory && x.state !== "n/a");
+        return { category: c.category, mandatory: c.mandatory, elective: c.elective, settings: c.settings, seats: Math.max(0, ...mine.map((x) => x.seats)), supplies: provided.length > 0, providedRequired: reqItems.filter((x) => x.state === "provides" || x.state === "limited").length, requiredItems: reqItems.length, roles: [...new Set(c.items.map((i) => i.role).filter((r): r is string => !!r))] };
       });
       const mand = categories.filter((c) => c.mandatory > 0);
-      return { id: set.id, name: set.name, authority: set.authority, verified: set.verified, categories, suppliedMandatory: mand.filter((c) => c.supplies).length, mandatoryCategories: mand.length, missingMandatory: mand.filter((c) => !c.supplies).map((c) => c.category) };
+      const gradable = fit.filter((x) => x.state !== "n/a");
+      return { id: set.id, name: set.name, authority: set.authority, verified: set.verified, categories, suppliedMandatory: mand.filter((c) => c.supplies).length, mandatoryCategories: mand.length, missingMandatory: mand.filter((c) => !c.supplies).map((c) => c.category), requiredProvided: gradable.filter((x) => x.item.mandatory && (x.state === "provides" || x.state === "limited")).length, requiredItems: gradable.filter((x) => x.item.mandatory).length, unverified: gradable.filter((x) => x.basis === "inferred").length, declined: gradable.filter((x) => x.state === "none").length };
     });
-    out.push({ family: req.family, agreement, sets });
+    out.push({ family: req.family, agreement, inFamily: !!fsite, sets });
   }
   return out;
+}
+
+/** THE per-program clinical setup hub: what completion requires (scored item by item against the
+ *  network), how the family schedules, and every site serving it with its setup state — address
+ *  located, agreement, accreditor recognition, assets in the family's settings, qualified staff,
+ *  and how many of the required experiences it provides. */
+export async function getFamilyClinicalSetup(familyId: string) {
+  const { siteFit } = await import("./requirements");
+  const { disciplineOf } = await import("./discipline");
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, clinicalNotes: true, capacityBasis: true, accreditor: true, accreditorProgramNumber: true, accreditedCapacity: true, rotationPrimarySetting: true, studentsPerStaff: true, casesPerStudentDay: true, institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: true } });
+  if (!fam) return null;
+  const req = await getFamilyRequirements(familyId);
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  const disc = disciplineOf(fam.name);
+  const programIds = fam.programs.map((p) => p.id);
+  const fsByEmp = new Map(fam.familySites.map((f) => [f.employerId, f]));
+  const employers = await prisma.employer.findMany({ where: { institutionId: fam.institutionId }, orderBy: { name: "asc" }, select: { id: true, name: true, organization: true, facilityType: true, city: true, address: true, ring: true, driveMinutes: true, lat: true, status: true, agreementStatus: true, annualSurgicalCases: true, operatingRooms: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true, preceptorsPerShift: true, days: true, shiftBlocks: true, dataSource: true } }, people: { where: { active: true, role: "preceptor" }, select: { title: true } }, meetings: { where: { kind: "CLINICAL", cohort: { programId: { in: programIds } } }, select: { cohortId: true, courseId: true, sectionIndex: true, seats: true } } } });
+  const sites = employers.filter((e) => fsByEmp.has(e.id) || e.assets.some((a) => settingSet.has(a.settingCode))).map((e) => {
+    const f = fsByEmp.get(e.id) ?? null;
+    const mine = e.assets.filter((a) => settingSet.size === 0 || settingSet.has(a.settingCode));
+    const seatsBySetting: Record<string, number> = {}; for (const a of mine) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
+    const preceptors = e.people.filter((p) => disc.title.test(p.title ?? "")).length;
+    const sections = new Set(e.meetings.map((m) => `${m.cohortId}|${m.courseId}|${m.sectionIndex}`)).size;
+    const students = [...new Map(e.meetings.map((m) => [`${m.cohortId}|${m.courseId}|${m.sectionIndex}`, m.seats])).values()].reduce((n, v) => n + v, 0);
+    // Requirement fit for this site across the family's sets.
+    const siteLite = req?.sites.find((s) => s.employerId === e.id);
+    const fits = (req?.sets ?? []).map((set) => { const fit = siteLite ? siteFit(siteLite, set.items, set.provisions) : []; const g = fit.filter((x) => x.state !== "n/a"); const reqd = g.filter((x) => x.item.mandatory); return { setId: set.id, requiredProvided: reqd.filter((x) => x.state === "provides" || x.state === "limited").length, required: reqd.length, electiveProvided: g.filter((x) => !x.item.mandatory && (x.state === "provides" || x.state === "limited")).length, elective: g.filter((x) => !x.item.mandatory).length, unverified: g.filter((x) => x.basis === "inferred").length, declined: g.filter((x) => x.state === "none").length, unknown: g.filter((x) => x.state === "unknown").length }; });
+    const fit = fits.reduce((acc, x) => ({ requiredProvided: acc.requiredProvided + x.requiredProvided, required: acc.required + x.required, electiveProvided: acc.electiveProvided + x.electiveProvided, elective: acc.elective + x.elective, unverified: acc.unverified + x.unverified, declined: acc.declined + x.declined, unknown: acc.unknown + x.unknown }), { requiredProvided: 0, required: 0, electiveProvided: 0, elective: 0, unverified: 0, declined: 0, unknown: 0 });
+    const agreementStatus = f?.agreementStatus ?? "none";
+    const setup = {
+      located: e.lat != null, address: !!e.address, agreement: agreementStatus === "secured", assets: mine.length > 0, assetsVerified: mine.length > 0 && mine.every((a) => a.dataSource === "VERIFIED"),
+      staff: (f?.qualifiedStaffOnShift ?? 0) > 0 || preceptors > 0, preceptors: preceptors > 0, availability: !!(f?.studentsAtOnce || f?.casesPerDay || f?.daysAllowed || f?.blocksAllowed),
+      provisions: fit.required > 0 && fit.unverified === 0 && fit.unknown === 0, accreditor: !fam.accreditor || f?.accreditorStatus === "recognized",
+    };
+    const steps = [setup.address && setup.located, setup.agreement, setup.assets, setup.staff, setup.availability, setup.provisions, setup.accreditor];
+    return {
+      employerId: e.id, name: e.name, organization: e.organization, facilityType: e.facilityType, city: e.city, ring: e.ring, driveMinutes: e.driveMinutes, status: e.status,
+      inFamily: !!f, agreementStatus, accreditorStatus: f?.accreditorStatus ?? "none", approvedCapacity: f?.approvedCapacity ?? null, requestedCapacity: f?.requestedCapacity ?? null, qualifiedStaffOnShift: f?.qualifiedStaffOnShift ?? null, studentsAtOnce: f?.studentsAtOnce ?? null, casesPerDay: f?.casesPerDay ?? (e.annualSurgicalCases != null ? e.annualSurgicalCases / 250 : null), daysAllowed: f?.daysAllowed ?? null, blocksAllowed: f?.blocksAllowed ?? null,
+      assets: mine.length, seatsBySetting, seats: Object.values(seatsBySetting).reduce((n, v) => n + v, 0), assetsUnverified: mine.filter((a) => a.dataSource !== "VERIFIED").length, preceptors, sections, students, fit, setup, setupDone: steps.filter(Boolean).length, setupSteps: steps.length,
+    };
+  }).sort((a, b) => Number(b.inFamily) - Number(a.inFamily) || ["secured", "asked", "prospect", "none", "declined"].indexOf(a.agreementStatus) - ["secured", "asked", "prospect", "none", "declined"].indexOf(b.agreementStatus) || b.seats - a.seats || a.name.localeCompare(b.name));
+  const others = employers.filter((e) => !sites.some((s) => s.employerId === e.id)).map((e) => ({ id: e.id, name: e.name, facilityType: e.facilityType, city: e.city, ring: e.ring }));
+  return {
+    family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null, clinicalModel: fam.clinicalModel, clinicalNotes: fam.clinicalNotes, capacityBasis: fam.capacityBasis, accreditor: fam.accreditor, accreditorProgramNumber: fam.accreditorProgramNumber, accreditedCapacity: fam.accreditedCapacity, primarySetting: fam.rotationPrimarySetting, studentsPerStaff: fam.studentsPerStaff, casesPerStudentDay: fam.casesPerStudentDay, programs: fam.programs },
+    discipline: { label: disc.label, credential: disc.credential },
+    settings: [...settingSet], areas: fam.serviceAreas, req, sites, others,
+    totals: { sites: sites.filter((s) => s.inFamily).length, secured: sites.filter((s) => s.agreementStatus === "secured").length, asked: sites.filter((s) => s.agreementStatus === "asked").length, seatsSecured: sites.filter((s) => s.agreementStatus === "secured").reduce((n, s) => n + s.seats, 0), recognized: sites.filter((s) => s.accreditorStatus === "recognized").length, approvedTotal: sites.reduce((n, s) => n + (s.approvedCapacity ?? 0), 0) },
+  };
+}
+
+/** ONE site inside ONE program's clinical setup: its address and drive, the agreement and contacts for this
+ *  program, accreditor recognition, agreed availability, its assets in this program's settings, the qualified
+ *  staff who precept here, and — item by item — which of the program's required experiences it provides. */
+export async function getFamilySiteSetup(familyId: string, employerId: string) {
+  const { siteFit } = await import("./requirements");
+  const { disciplineOf } = await import("./discipline");
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, capacityBasis: true, accreditor: true, studentsPerStaff: true, casesPerStudentDay: true, caseDaysPerYear: true, institution: { select: { name: true, ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true, campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], take: 1, select: { name: true, city: true, lat: true } } } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: { where: { employerId } } } });
+  if (!fam) return null;
+  const e = await prisma.employer.findUnique({ where: { id: employerId }, include: { assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } }, people: { where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, title: true, employmentType: true, email: true, asset: { select: { setting: true, settingCode: true, assetNumber: true } } } }, meetings: { where: { kind: "CLINICAL", cohort: { programId: { in: fam.programs.map((p) => p.id) } } }, orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }], include: { cohort: { select: { id: true, name: true, programId: true } }, course: { select: { code: true, name: true } }, staff: { select: { name: true } } } } } });
+  if (!e || e.institutionId !== fam.institutionId) return null;
+  const fs = fam.familySites[0] ?? null;
+  const disc = disciplineOf(fam.name);
+  const settingSet = new Set(fam.serviceAreas.flatMap((a) => a.settingCodes.split(",").map((x) => x.trim()).filter(Boolean)));
+  const req = await getFamilyRequirements(familyId);
+  const siteLite = req?.sites.find((s) => s.employerId === employerId) ?? { employerId, name: e.name, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", inFamily: !!fs, agreementRank: 3, seatsBySetting: {}, casesPerDay: null, driveMinutes: e.driveMinutes, ring: e.ring };
+  const sets = (req?.sets ?? []).map((set) => {
+    const fit = siteFit(siteLite, set.items, set.provisions);
+    const cats: string[] = []; for (const x of fit) if (!cats.includes(x.item.category)) cats.push(x.item.category);
+    const g = fit.filter((x) => x.state !== "n/a"); const reqd = g.filter((x) => x.item.mandatory);
+    return { id: set.id, name: set.name, authority: set.authority, kind: set.kind, verified: set.verified, rules: set.rules, categories: cats.map((c) => ({ category: c, items: fit.filter((x) => x.item.category === c) })), score: { requiredProvided: reqd.filter((x) => x.state === "provides" || x.state === "limited").length, required: reqd.length, electiveProvided: g.filter((x) => !x.item.mandatory && (x.state === "provides" || x.state === "limited")).length, elective: g.filter((x) => !x.item.mandatory).length, unverified: g.filter((x) => x.basis === "inferred").length, declined: g.filter((x) => x.state === "none").length, unknown: g.filter((x) => x.state === "unknown").length } };
+  });
+  const accreditor = fam.accreditor ? await getAccreditorCapacity(familyId, employerId) : null;
+  const preceptors = e.people.filter((p) => p.role === "preceptor" || p.role === "supervisor");
+  const seen = new Set<string>();
+  const sections = e.meetings.filter((m) => { const k = `${m.cohortId}|${m.courseId}|${m.sectionIndex}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return {
+    family: { id: fam.id, name: fam.name, institution: fam.institution.name, capacityBasis: fam.capacityBasis, accreditor: fam.accreditor, studentsPerStaff: fam.studentsPerStaff, casesPerStudentDay: fam.casesPerStudentDay, caseDaysPerYear: fam.caseDaysPerYear, programs: fam.programs },
+    bands: { core: fam.institution.ringCoreMinutes, one: fam.institution.ringOneMinutes, two: fam.institution.ringTwoMinutes }, campus: fam.institution.campuses[0] ?? null,
+    settings: [...settingSet], areas: fam.serviceAreas, discipline: { label: disc.label, credential: disc.credential },
+    site: { id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, facilityType: e.facilityType, status: e.status, address: e.address, city: e.city, state: e.state, zip: e.zip, county: e.county, ring: e.ring, ringSource: e.ringSource, driveMinutes: e.driveMinutes, distanceMiles: e.distanceMiles, lat: e.lat, lng: e.lng, geoSource: e.geoSource, contactName: e.contactName, contactEmail: e.contactEmail, contactPhone: e.contactPhone, licensedBeds: e.licensedBeds, operatingRooms: e.operatingRooms, annualSurgicalCases: e.annualSurgicalCases, agreementStatus: e.agreementStatus },
+    familySite: fs, inFamily: !!fs,
+    assets: e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides, inFamily: settingSet.size === 0 || settingSet.has(a.settingCode) })),
+    overrides: e.assets.flatMap((a) => a.dayOverrides.map((o) => ({ assetId: a.id, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note }))),
+    people: e.people.map((p) => ({ ...p, precepts: (p.role === "preceptor" || p.role === "supervisor") && disc.title.test(p.title ?? ""), otherDiscipline: (p.role === "preceptor" || p.role === "supervisor") && !disc.title.test(p.title ?? "") })),
+    preceptorsInDiscipline: preceptors.filter((p) => disc.title.test(p.title ?? "")).length,
+    sets, accreditorSite: accreditor?.sites[0] ?? null, accreditorReport: accreditor,
+    sections: sections.map((m) => ({ id: m.id, cohort: m.cohort, course: m.course, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, dayOfWeek: m.dayOfWeek, startTime: m.startTime, lengthHours: m.lengthHours, seats: m.seats, staff: m.staff?.name ?? null })),
+  };
 }
 
 /** A family's clinical scheduling rules and each site's agreed availability — the directory set-up the rotation planner reads. */

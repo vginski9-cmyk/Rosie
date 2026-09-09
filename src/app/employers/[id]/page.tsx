@@ -7,15 +7,7 @@ import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalU
 import { dec } from "@/lib/format";
 import { AssetBuilder } from "@/components/AssetBuilder";
 
-const SETTING_PRESETS = [
-  ["GEN", "General diagnostic radiography", "Fixed radiographic room"], ["ED", "Emergency / trauma radiography", "ED radiographic room"], ["PORT", "Portable / inpatient radiography", "Mobile radiography unit"],
-  ["OR", "Operating room / C-arm", "Mobile C-arm"], ["FLUORO", "Diagnostic fluoroscopy", "R&F / fluoroscopy room"], ["CT", "Computed tomography", "CT scanner"], ["MRI", "Magnetic resonance", "MRI scanner"],
-  ["ORS", "Operating room suite", "OR suite"], ["BEDS", "Medical-surgical / telemetry unit", "Med-surg nursing unit"], ["ICU", "Intensive / critical care unit", "ICU nursing unit"], ["OB", "Labor & delivery / mother-baby", "L&D and postpartum unit"],
-  ["PEDS", "Pediatric inpatient unit", "Pediatric nursing unit"], ["BH", "Behavioral health unit", "Inpatient behavioral health unit"], ["LTC", "Long-term care nursing unit", "SNF nursing unit"], ["ALF", "Assisted living / adult care", "Assisted living unit"],
-  ["AMB", "Ambulatory clinic / physician office", "Clinic exam rooms"], ["US", "Diagnostic ultrasound", "Ultrasound room"], ["MAMMO", "Mammography", "Mammography suite"], ["LAB", "Clinical laboratory", "Core lab bench"],
-  ["PHARM", "Pharmacy", "Pharmacy"], ["DIAL", "Outpatient dialysis", "Dialysis stations"], ["HH", "Home health", "Home-visit team"], ["HOSP", "Hospice & palliative care", "Hospice care team"],
-  ["PH", "Public health clinic", "Public health clinic rooms"], ["EMS", "Emergency medical services", "ALS ambulance"], ["REHAB", "Rehabilitation (PT / OT)", "Rehab gym"], ["DENT", "Dental clinic", "Dental operatory"],
-];
+import { SETTING_PRESETS } from "@/lib/settingPresets";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +71,33 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           </div>
         </div>
       </div>
+
+      {/* ── Programs this site serves — every program sets this site up its own way ── */}
+      <section id="programs" className="scroll-mt-16 space-y-2">
+        <div>
+          <h2 className="text-lg font-semibold">Programs this site serves <span className="text-sm font-normal text-slate-400">— each program sets this site up its own way; open one to see it as that program does</span></h2>
+          <p className="text-sm text-slate-500">Agreement, accreditor recognition, availability, qualified staff and which required experiences the site provides are all per program. The organization record below holds what is shared: the address, the assets and their shift structures, the people.</p>
+        </div>
+        {fit.length === 0 ? <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">No program has requirements this site can be scored against yet. Add it to a program from <Link href="/clinical" className="text-rose-600 hover:underline">Clinical setup by program</Link>.</p> : (
+          <div className="grid gap-3 md:grid-cols-2">
+            {fit.map((f) => f.sets.map((set) => {
+              const pct = set.requiredItems ? set.requiredProvided / set.requiredItems : 0;
+              return (
+                <Link key={set.id} href={`/families/${f.family.id}/clinical/sites/${e.id}`} className="rounded-xl border border-slate-200 bg-white p-4 hover:border-rose-300 hover:bg-rose-50/30">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-base font-semibold text-slate-900">{f.family.name}</span>
+                    <span className="text-[11px] text-slate-500">agreement: <span className={`rounded-full px-1.5 py-0.5 font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.inFamily ? f.agreement : "not in this program"}</span></span>
+                  </div>
+                  <div className="mt-2 flex items-baseline justify-between text-xs"><span className="text-slate-600">Required experiences provided here</span><span className={`font-semibold tabular-nums ${pct >= 1 ? "text-emerald-700" : pct > 0 ? "text-amber-700" : "text-slate-500"}`}>{set.requiredProvided} of {set.requiredItems}</span></div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-400" : "bg-rose-400"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
+                  <div className="mt-1 text-[11px] text-slate-500">{set.suppliedMandatory} of {set.mandatoryCategories} required categories{set.missingMandatory.length ? ` · missing: ${set.missingMandatory.slice(0, 3).join(", ")}${set.missingMandatory.length > 3 ? ` +${set.missingMandatory.length - 3}` : ""}` : ""}{set.unverified ? ` · ${set.unverified} inferred, unconfirmed` : ""}{set.declined ? ` · ${set.declined} ruled out` : ""}</div>
+                  <div className="mt-2 text-[11px] font-medium text-rose-700">Open in {f.family.name}&apos;s clinical setup →</div>
+                </Link>
+              );
+            }))}
+          </div>
+        )}
+      </section>
 
       {/* WBL capacity — sourced from placement records, by year & semester */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -199,40 +218,6 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           </form>
         </div>
       </section>
-
-      {/* ── What this site can supply of each program's required clinical experiences ── */}
-      {fit.length > 0 && (
-        <section id="fit" className="scroll-mt-16 space-y-3">
-          <div>
-            <h2 className="text-lg font-semibold">What this site can supply, by program <span className="text-sm font-normal text-slate-400">— each program&apos;s required clinical experiences against the assets mapped below</span></h2>
-            <p className="text-sm text-slate-500">A category is supplied when this site has an active asset in one of the category&apos;s settings; the seats are the learners those assets take per shift. What is missing here must come from another site in the family&apos;s network — or from an asset added below.</p>
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {fit.map((f) => f.sets.map((set) => (
-              <div key={set.id} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <Link href={`/families/${f.family.id}/clinical`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.family.name} ↦</Link>
-                  <span className="text-[11px] text-slate-500">{set.authority} · agreement: <span className={`rounded-full px-1.5 py-0.5 font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.agreement}</span></span>
-                </div>
-                <div className="mt-1 text-xs"><span className={`rounded-full px-2 py-0.5 font-medium ${set.suppliedMandatory === set.mandatoryCategories ? "bg-emerald-100 text-emerald-700" : set.suppliedMandatory > 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{set.suppliedMandatory} of {set.mandatoryCategories} required categories supplied here</span>{set.missingMandatory.length > 0 && <span className="ml-2 text-slate-500">missing: {set.missingMandatory.join(", ")}</span>}</div>
-                <table className="mt-2 w-full text-xs">
-                  <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1 text-left">Category</th><th className="py-1 text-right">Items</th><th className="py-1 text-left">Settings</th><th className="py-1 text-right">Seats / shift here</th></tr></thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {set.categories.map((c) => (
-                      <tr key={c.category} className={c.supplies ? "" : "text-slate-400"}>
-                        <td className="py-1 font-medium">{c.supplies ? "✓ " : "· "}{c.category}{c.roles.length ? <span className="ml-1 font-normal text-slate-400">({c.roles.join(" / ")})</span> : null}</td>
-                        <td className="py-1 text-right tabular-nums">{c.mandatory ? <span className="font-semibold">{c.mandatory} req</span> : null}{c.mandatory && c.elective ? " · " : ""}{c.elective ? <span className="text-slate-500">{c.elective} elec</span> : null}</td>
-                        <td className="py-1">{c.settings.map((x) => <span key={x} className="mr-1 rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-600">{x}</span>)}</td>
-                        <td className="py-1 text-right tabular-nums">{c.supplies ? c.seats : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )))}
-          </div>
-        </section>
-      )}
 
       {/* ── Functional units — the asset map's master grain ── */}
       <section className="space-y-3">

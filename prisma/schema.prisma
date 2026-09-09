@@ -1221,6 +1221,7 @@ model Employer {
   assets ClinicalAsset[]
   familySites FamilySite[]
   allocations SettingAllocation[]
+  provisions SiteRequirementProvision[]
   people Person[]
   wblSnapshots WblSnapshot[]
   placements WblPlacement[]
@@ -1807,6 +1808,33 @@ model ClinicalRequirementItem {
   settingCodes  String   @default("") // csv of asset settings that can provide it
   notes         String?
   sortOrder     Int      @default(0)
+  provisions    SiteRequirementProvision[]
 
   @@index([setId])
+}
+
+/// Whether ONE clinical site actually provides ONE required experience — the asset map at the
+/// grain the credentialing body counts: "Moore Regional does Upper GI series (≈ 400 a year)",
+/// "Surgery Center of Pinehurst does orthopedic cases, students may First Scrub", "no
+/// myelography here". Absent a record, the site is INFERRED to provide an item when it has an
+/// active asset in one of the item's settings — shown as unverified until someone confirms it.
+model SiteRequirementProvision {
+  id           String @id @default(cuid())
+  employerId   String
+  employer     Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  itemId       String
+  item         ClinicalRequirementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// provides | limited (rare / seasonal / by arrangement) | none
+  status       String   @default("provides")
+  /// Procedures or cases of this kind the site does in a year (blank = not known).
+  annualVolume Int?
+  /// Case-based sets: the most a student may do on this item here — first scrub | second scrub | observe.
+  studentRole  String?
+  /// VERIFIED (confirmed with the site) | ESTIMATE
+  source       String   @default("VERIFIED")
+  notes        String?
+  updatedAt    DateTime @updatedAt
+
+  @@unique([employerId, itemId])
+  @@index([itemId])
 }

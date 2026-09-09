@@ -545,7 +545,8 @@ export async function upsertRotationSetting(institutionId: string, formData: For
 // CLINICAL MODEL BY PROGRAM FAMILY — service areas, requirement grid, sites, allocations
 // ---------------------------------------------------------------------------
 
-const revalidateFamilyClinical = (familyId: string) => { revalidatePath(`/families/${familyId}/clinical`); revalidatePath("/clinical"); revalidatePath("/insights/clinical-sites"); revalidatePath("/programs/[id]/structure", "page"); };
+const revalidateFamilyClinical = (familyId: string) => { revalidatePath(`/families/${familyId}/clinical`); revalidatePath(`/families/${familyId}/clinical/sites/[employerId]`, "page"); revalidatePath("/clinical"); revalidatePath("/insights/clinical-sites"); revalidatePath("/programs/[id]/structure", "page"); };
+const revalidateFamilySite = (familyId: string, employerId: string) => { revalidateFamilyClinical(familyId); revalidatePath(`/families/${familyId}/clinical/sites/${employerId}`); revalidatePath(`/employers/${employerId}`); };
 
 export async function updateFamilyClinicalModel(familyId: string, formData: FormData): Promise<void> {
   await prisma.programFamily.update({ where: { id: familyId }, data: { clinicalModel: str(formData.get("clinicalModel")) || "hours", clinicalNotes: str(formData.get("clinicalNotes")) || null } });
@@ -581,12 +582,46 @@ export async function saveCourseRequirements(courseId: string, familyId: string,
 export async function upsertFamilySite(familyId: string, employerId: string, formData: FormData): Promise<void> {
   const data = { agreementStatus: str(formData.get("agreementStatus")) || "none", contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, notes: str(formData.get("notes")) || null };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
-  revalidateFamilyClinical(familyId);
+  revalidateFamilySite(familyId, employerId);
+}
+
+/** Add a site to ONE program's clinical setup — an organization already in the directory, or a new one
+ *  (located from its address at once) — then open its setup page. */
+export async function addSiteToProgram(familyId: string, formData: FormData): Promise<void> {
+  const { employerId } = await addFamilySite(familyId, formData);
+  redirect(`/families/${familyId}/clinical/sites/${employerId}`);
+}
+
+/** What a site provides toward a program's requirement set, item by item. Form fields per item id:
+ *  `st_<id>` = assets (no record: inferred from the asset map) | provides | limited | none; `vol_<id>` procedures
+ *  or cases a year; `role_<id>` the most a student may do (case-based sets); `src_<id>` VERIFIED | ESTIMATE;
+ *  `note_<id>`. */
+export async function saveSiteProvisions(familyId: string, employerId: string, formData: FormData): Promise<void> {
+  const ids = [...formData.keys()].filter((k) => k.startsWith("st_")).map((k) => k.slice(3));
+  for (const itemId of ids) {
+    const st = str(formData.get(`st_${itemId}`));
+    if (st === "assets" || st === "") { await prisma.siteRequirementProvision.deleteMany({ where: { employerId, itemId } }); continue; }
+    if (!["provides", "limited", "none"].includes(st)) continue;
+    const vol = str(formData.get(`vol_${itemId}`));
+    const data = { status: st, annualVolume: vol === "" ? null : Math.max(0, Math.round(numOr(vol, 0))), studentRole: str(formData.get(`role_${itemId}`)) || null, source: str(formData.get(`src_${itemId}`)) === "ESTIMATE" ? "ESTIMATE" : "VERIFIED", notes: str(formData.get(`note_${itemId}`)) || null };
+    await prisma.siteRequirementProvision.upsert({ where: { employerId_itemId: { employerId, itemId } }, update: data, create: { employerId, itemId, ...data } });
+  }
+  revalidateFamilySite(familyId, employerId);
+}
+/** Confirm every experience the asset map only infers at this site as verified-provided (the site said yes to the list). */
+export async function confirmInferredProvisions(familyId: string, employerId: string, setId: string): Promise<void> {
+  const { siteFit } = await import("./requirements");
+  const { getFamilyRequirements } = await import("./queries");
+  const req = await getFamilyRequirements(familyId);
+  const set = req?.sets.find((x) => x.id === setId); const site = req?.sites.find((x) => x.employerId === employerId);
+  if (!set || !site) return;
+  for (const f of siteFit(site, set.items, set.provisions)) if (f.basis === "inferred") await prisma.siteRequirementProvision.upsert({ where: { employerId_itemId: { employerId, itemId: f.item.id } }, update: { status: "provides", source: "VERIFIED" }, create: { employerId, itemId: f.item.id, status: "provides", source: "VERIFIED" } });
+  revalidateFamilySite(familyId, employerId);
 }
 export async function removeFamilySite(familyId: string, employerId: string): Promise<void> {
   await prisma.familySite.deleteMany({ where: { familyId, employerId } });
   await prisma.settingAllocation.deleteMany({ where: { familyId, employerId } });
-  revalidateFamilyClinical(familyId);
+  revalidateFamilySite(familyId, employerId);
 }
 
 /** The shifts a site allocates to this family in one setting: Day / Evening / Night shifts per week (0 removes the block). */
@@ -836,9 +871,9 @@ export async function updateSiteAvailability(familyId: string, employerId: strin
   const num = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : numOr(v, 0); };
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => formData.get(`day_${d}`) != null);
   const blocks = ["Day", "Evening", "Night"].filter((b) => formData.get(`block_${b}`) != null);
-  const data = { studentsAtOnce: num("studentsAtOnce") == null ? null : Math.round(num("studentsAtOnce")!), casesPerDay: num("casesPerDay"), daysAllowed: days.length ? days.join(",") : null, blocksAllowed: blocks.length ? blocks.join(",") : null, availabilityNotes: str(formData.get("availabilityNotes")) || null };
+  const data = { studentsAtOnce: num("studentsAtOnce") == null ? null : Math.round(num("studentsAtOnce")!), casesPerDay: num("casesPerDay"), daysAllowed: days.length ? days.join(",") : null, blocksAllowed: blocks.length ? blocks.join(",") : null, availabilityNotes: str(formData.get("availabilityNotes")) || null, ...(formData.has("qualifiedStaffOnShift") ? { qualifiedStaffOnShift: num("qualifiedStaffOnShift") == null ? null : Math.max(0, Math.round(num("qualifiedStaffOnShift")!)), staffCountSource: str(formData.get("staffCountSource")) === "VERIFIED" ? "VERIFIED" : "ESTIMATE" } : {}) };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
-  revalidatePath(`/families/${familyId}/clinical`);
+  revalidateFamilySite(familyId, employerId);
 }
 
 /** One site's recognition for one family: status, approved / requested capacity, the human-resource count and the student hours it was counted for. */
@@ -852,7 +887,7 @@ export async function updateSiteAccreditation(familyId: string, employerId: stri
     studentHoursWindow: str(formData.get("studentHoursWindow")) || null, accreditorNotes: str(formData.get("accreditorNotes")) || null, capacityUpdatedAt: new Date(),
   };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
-  revalidatePath(`/families/${familyId}/clinical`); revalidatePath(`/employers/${employerId}`);
+  revalidateFamilySite(familyId, employerId);
 }
 /** How the accreditor counts one asset (override the derived class). */
 export async function setAssetAccreditorClass(assetId: string, employerId: string, formData: FormData): Promise<void> {

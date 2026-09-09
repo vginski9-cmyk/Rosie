@@ -1,11 +1,11 @@
-import { updateFamilyRotationPolicy, updateSiteAvailability } from "@/lib/actions";
+import { updateFamilyRotationPolicy } from "@/lib/actions";
 import type { getFamilyClinicalRules } from "@/lib/queries";
 import { dec } from "@/lib/format";
 
 // HOW THIS JOB SCHEDULES CLINICALS — the family's own way of counting availability
-// (seats, cases or staff), its placement rules, and what every site makes available
-// to it (students at once, daily cases, days, shift blocks). Set up once here; every
-// offering's clinical schedule is built from it and never configured on the offering.
+// (seats, cases or staff) and its placement rules. Each site's agreed limits live on
+// the site's own setup page. Set up once here; every offering's clinical schedule is
+// built from it and never configured on the offering.
 
 type Rules = NonNullable<Awaited<ReturnType<typeof getFamilyClinicalRules>>>;
 const inp = "rounded border border-slate-300 px-1.5 py-0.5 text-xs";
@@ -33,41 +33,10 @@ export function ClinicalRulesPanel({ rules }: { rules: Rules }) {
         </div>
         <label className="block sm:col-span-2 lg:col-span-3"><span className={lbl}>This program&apos;s clinical quirks (in words — shown to whoever builds a schedule)</span><input name="rotationNotes" defaultValue={f.rotationNotes ?? ""} placeholder="e.g. first-scrub case counts drive OR days; students rotate out in two-week blocks; no evenings in term 1" className={inp + " w-full"} /></label>
         <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700">Save rules</button></div>
-        <p className="text-[11px] text-slate-500 sm:col-span-2 lg:col-span-4">Every offering&apos;s clinical schedule is built from these rules and the availability below — the offering page only builds and pins, it never configures. Physical assets (rooms, units, machines and their shifts) live in the supply map further down; the requirement grid (hours per service area per course) is on the family&apos;s structure page.</p>
+        <p className="text-[11px] text-slate-500 sm:col-span-2 lg:col-span-4">Every offering&apos;s clinical schedule is built from these rules and the availability below — the offering page only builds and pins, it never configures. Physical assets, shift structures, staff and what each site provides are set up per site under Sites below; the requirement grid (hours per service area per course) is on each program template&apos;s design page.</p>
       </form>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="w-full text-xs">
-          <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-            <tr><th className="px-3 py-1.5 text-left">Site · agreement</th><th className="px-2 py-1.5 text-left">Seats by setting (from assets)</th><th className="px-2 py-1.5 text-right" title="The most students the site takes for this program at any one time (its agreement)">Students at once</th>{f.capacityBasis === "cases" && <th className="px-2 py-1.5 text-right" title="The site's daily case volume for this program's cases; blank = annual surgical cases ÷ case days">Cases / day</th>}{f.capacityBasis === "staff" && <th className="px-2 py-1.5 text-right">Staff on shift</th>}<th className="px-2 py-1.5 text-left">Days students may attend</th><th className="px-2 py-1.5 text-left">Shift blocks</th><th className="px-2 py-1.5 text-left">Notes</th><th></th></tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rules.sites.map((s) => {
-              const days = csv(s.daysAllowed), blocks = csv(s.blocksAllowed);
-              const impliedCases = s.casesPerDay ?? (s.annualSurgicalCases != null ? s.annualSurgicalCases / Math.max(1, f.caseDaysPerYear ?? 250) : null);
-              return (
-                <tr key={s.employerId}>
-                  <td className="px-3 py-1.5"><span className="font-medium text-slate-800">{s.name}</span><span className="block text-[10px] text-slate-400">{s.facilityType} · <span className={`rounded-full px-1.5 ${AGREEMENT_BADGE[s.agreementStatus] ?? ""}`}>{s.agreementStatus}</span>{s.accreditorStatus === "recognized" && s.approvedCapacity != null ? ` · ${f.accreditor ?? "accreditor"} approved ${s.approvedCapacity} at once` : ""}</span></td>
-                  <td className="px-2 py-1.5 text-slate-600">{Object.entries(s.seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ") || <span className="text-amber-600">no assets in this family&apos;s settings</span>}<span className="block text-[10px] text-slate-400">assets run {s.assetDays.join(", ") || "—"} · {s.assetBlocks.join(", ") || "—"}</span></td>
-                  <td colSpan={f.capacityBasis === "seats" ? 5 : 6} className="px-2 py-1.5">
-                    <form action={updateSiteAvailability.bind(null, f.id, s.employerId)} className="flex flex-wrap items-center gap-2">
-                      <input name="studentsAtOnce" type="number" min="0" step="1" defaultValue={s.studentsAtOnce ?? ""} placeholder={s.approvedCapacity != null ? String(s.approvedCapacity) : "no cap"} className={inp + " w-16"} title="students at any one time" />
-                      {f.capacityBasis === "cases" && <input name="casesPerDay" type="number" min="0" step="any" defaultValue={s.casesPerDay ?? ""} placeholder={impliedCases != null ? `~${dec(impliedCases)}` : "cases / day"} className={inp + " w-20"} title="daily case volume for this program" />}
-                      {f.capacityBasis === "staff" && <span className="tabular-nums text-slate-600" title="qualified staff on shift — set on the accreditor / capacity card">{s.qualifiedStaffOnShift ?? <span className="text-amber-600">staff count missing</span>}</span>}
-                      <span className="flex items-center gap-1">{DAYS.map((d) => <label key={d} className={`rounded px-1 ${days.includes(d) ? "bg-emerald-50 text-emerald-700" : "text-slate-500"}`} title={days.length === 0 ? "blank = every day the assets run" : ""}><input name={`day_${d}`} type="checkbox" defaultChecked={days.includes(d)} className="mr-0.5 align-middle" />{d}</label>)}</span>
-                      <span className="flex items-center gap-1">{BLOCKS.map((b) => <label key={b} className={`rounded px-1 ${blocks.includes(b) ? "bg-emerald-50 text-emerald-700" : "text-slate-500"}`}><input name={`block_${b}`} type="checkbox" defaultChecked={blocks.includes(b)} className="mr-0.5 align-middle" />{b}</label>)}</span>
-                      <input name="availabilityNotes" defaultValue={s.availabilityNotes ?? ""} placeholder="notes (orientation dates, badge lead time, no students on call …)" className={inp + " min-w-[14rem] flex-1"} />
-                      <button className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white">Save</button>
-                    </form>
-                  </td>
-                </tr>
-              );
-            })}
-            {rules.sites.length === 0 && <tr><td colSpan={7} className="px-3 py-4 text-center text-slate-400">No sites carry assets in this family&apos;s settings yet.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-[11px] text-slate-400">Blank days / blocks mean the site takes students whenever its assets run. Students-at-once is the agreement&apos;s own cap and stacks with any accreditor-approved capacity; the planner uses the lower.</p>
+      <p className="text-[11px] text-slate-400">Each site&apos;s agreed limits for {f.name} — students at once{f.capacityBasis === "cases" ? ", daily cases" : f.capacityBasis === "staff" ? ", qualified staff on shift" : ""}, days and shift blocks — are set on that site&apos;s setup page (Sites below → Set up). Blank days / blocks mean the site takes students whenever its assets run; students-at-once stacks with any accreditor-approved capacity and the planner uses the lower.</p>
     </div>
   );
 }
