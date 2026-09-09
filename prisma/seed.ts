@@ -16,7 +16,7 @@
 import { PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { computeCohortTiming, type TimingTerm } from "../src/lib/term";
+import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster, seedWorkloadPolicies, seedShiftAssignments } from "./seed-roster";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
@@ -237,7 +237,7 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
     },
   });
   for (const t of pack.terms) {
-    const termRow = await prisma.term.create({ data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek } });
+    const termRow = await prisma.term.create({ data: { programId: program.id, index: t.index, name: t.name, semester: t.semester ?? null, startWeek: t.startWeek, endWeek: t.endWeek } });
     let order = 0;
     for (const c of t.courses) {
       await prisma.course.create({
@@ -538,8 +538,11 @@ export async function createProgram(opts: {
 
   for (const t of opts.terms) {
     const startDate = t.startDate ?? TERM_START_DATES[t.index - 1] ?? null;
+    // Semester: named in the term ("First Fall"), else what its courses say, else the launch-slot sequence.
+    const courseSeasons = [...new Set(t.courses.map((c) => c.semester).filter((x): x is string => !!x && /^(Fall|Spring|Summer)$/.test(x)))];
+    const semester = seasonOfName(t.name) ?? (courseSeasons.length === 1 ? courseSeasons[0] : null);
     const term = await prisma.term.create({
-      data: { programId: program.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek, startDate: startDate ? new Date(startDate) : null },
+      data: { programId: program.id, index: t.index, name: t.name, semester, startWeek: t.startWeek, endWeek: t.endWeek, startDate: startDate ? new Date(startDate) : null },
     });
     const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
     let order = 0;

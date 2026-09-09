@@ -328,7 +328,7 @@ export function usHoliday(d: Date): string | null {
   return null;
 }
 
-const seasonOfMonth = (m: number) => (m >= 1 && m <= 5 ? "Spring" : m <= 7 ? "Summer" : "Fall");
+import { seasonOfMonth } from "./term";
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 const mondayOfWeek = (termStart: Date, week: number) => addDays(termStart, (week - 1) * 7);

@@ -158,7 +158,25 @@ export interface SemesterAnchors {
 }
 export const DEFAULT_ANCHORS: SemesterAnchors = { springStart: "01-08", summerStart: "05-28", fallStart: "08-15" };
 
-const seasonOfMonth = (m: number) => (m <= 4 ? "Spring" : m <= 7 ? "Summer" : "Fall");
+/** THE season rule, everywhere: a term that starts January–April is Spring,
+ *  May–July is Summer, August–December is Fall. (Sandhills' summer term starts
+ *  late May / early June — it is Summer, never a late Spring.) */
+export type Season = "Spring" | "Summer" | "Fall";
+export const SEASONS: Season[] = ["Spring", "Summer", "Fall"];
+export const SEASON_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
+export const seasonOfMonth = (m: number): Season => (m <= 4 ? "Spring" : m <= 7 ? "Summer" : "Fall");
+export const seasonOfDate = (d: Date): Season => seasonOfMonth(d.getUTCMonth() + 1);
+/** A season named in free text ("Summer 2027", "Term 3-Su1", "FALL"), else null. */
+export const seasonOfName = (name: string | null | undefined): Season | null => {
+  const n = (name ?? "").toLowerCase();
+  if (/\bfall\b|\bautumn\b|-f\d/.test(n)) return "Fall";
+  if (/\bspring\b|-sp\d/.test(n)) return "Spring";
+  if (/\bsummer\b|-su\d/.test(n)) return "Summer";
+  return null;
+};
+/** Best season for a term: the one stored on it, else named in it, else its start date, else null. */
+export const seasonOfTerm = (t: { semester?: string | null; name?: string | null }, start?: Date | null): Season | null =>
+  (t.semester && SEASONS.includes(t.semester as Season) ? (t.semester as Season) : null) ?? seasonOfName(t.name) ?? (start ? seasonOfDate(start) : null);
 
 /** The Monday on/after `year-MM-DD` (UTC). */
 function mondayOnOrAfter(year: number, mmdd: string): Date {

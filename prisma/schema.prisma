@@ -251,6 +251,9 @@ model Term {
   program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   index     Int // 1-based position in the sequence
   name      String
+  /// Fall | Spring | Summer — the semester this term is delivered in (from the
+  /// program workbook or the term's name); an offering's aligned semester wins.
+  semester  String?
   startWeek Int?
   endWeek   Int?
   /// Real-world first day of the term — anchors the day-by-day calendar.
@@ -519,6 +522,9 @@ model CohortTerm {
   /// Last instructional day of THIS offering's term — the coded "semester ends"
   /// when the academic calendar carries one, else the last template week.
   endDate   DateTime?
+  /// Fall | Spring | Summer — the semester this offering's term actually sits in
+  /// (from the coded calendar or the start date). Summer is Summer, not Spring.
+  semester  String?
   /// Where the dates came from: calendar (coded semester start/end) · pattern
   /// (the institution's Spring/Summer/Fall anchors) · template (start + weeks)
   /// · manual (typed on the offering page; re-alignment leaves it alone).

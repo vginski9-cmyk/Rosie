@@ -30,7 +30,7 @@ export interface DCourse {
   semesterOffered: string | null; courseType: string | null; description: string | null; requisites: string | null;
   sessions: DSession[];
 }
-export interface DTerm { id: string; name: string; index: number; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
+export interface DTerm { id: string; name: string; index: number; semester?: string | null; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
 
 const n0 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 const n1 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 3 });
@@ -221,7 +221,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
       <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Jump to</span>
         {terms.map((t) => (
-          <a key={t.id} href={`#term-${t.index}`} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">{t.name}</a>
+          <a key={t.id} href={`#term-${t.index}`} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">{t.name}{t.semester ? <span className="ml-1 text-slate-400">· {t.semester}</span> : null}</a>
         ))}
         <span className="flex-1" />
         <button onClick={() => setShowSeq((v) => !v)} className={`rounded-lg px-2.5 py-1 text-xs font-medium ${showSeq ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>⇄ Re-sequence</button>
@@ -248,6 +248,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                 <button onClick={() => toggleTerm(term.id)} className="pb-1 text-slate-400 hover:text-slate-700" title={isCollapsed ? "expand" : "collapse"}>{isCollapsed ? "▸" : "▾"}</button>
                 <form action={updateTerm.bind(null, term.id, pid)} className="flex flex-wrap items-end gap-2">
                   <Field label="Term name"><input name="name" defaultValue={term.name} className="inp w-48" /></Field>
+                  <Field label="Semester"><select name="semester" defaultValue={term.semester ?? ""} className="inp w-28"><option value="">—</option><option value="Fall">Fall</option><option value="Spring">Spring</option><option value="Summer">Summer</option></select></Field>
                   <Field label="Starts in program week"><input name="startWeek" type="number" min="1" defaultValue={term.startWeek ?? ""} className="inp w-20" /></Field>
                   <Field label="Ends in program week"><input name="endWeek" type="number" min="1" defaultValue={term.endWeek ?? ""} className="inp w-20" /></Field>
                   <button className="btn-ghost py-1 text-xs">Save term</button>

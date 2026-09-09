@@ -12,7 +12,7 @@ export default async function StructureEditor({ params }: { params: { id: string
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
 
   const terms: DTerm[] = program.terms.map((t) => ({
-    id: t.id, name: t.name, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek,
+    id: t.id, name: t.name, index: t.index, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek,
     courses: t.courses.map((c) => ({
       id: c.id, code: c.code, name: c.name, creditHours: c.creditHours,
       weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,

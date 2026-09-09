@@ -4,6 +4,7 @@ import { prisma } from "./db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { STAGES } from "./funnel";
+import { seasonOfDate, seasonOfName } from "./term";
 
 const str = (v: FormDataEntryValue | null) => (v == null ? "" : String(v).trim());
 const numOr = (v: FormDataEntryValue | null, d = 0) => {
@@ -122,6 +123,7 @@ export async function updateInstitutionCalendar(institutionId: string, familyId:
   });
   await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
+  revalidatePath(`/orgs/${institutionId}`);
   revalidatePath("/", "layout");
 }
 
@@ -157,13 +159,14 @@ export async function importAcademicCalendar(institutionId: string, familyId: st
   // Every offering at this institution now follows the coded dates — no retyping.
   const aligned = await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
+  revalidatePath(`/orgs/${institutionId}`);
   revalidatePath("/", "layout");
   return { saved: events.length, aligned };
 }
 
 export async function deleteAcademicEvent(id: string, familyId: string): Promise<void> {
   const ev = await prisma.academicEvent.delete({ where: { id } }).catch(() => null);
-  if (ev) await alignInstitutionOfferings(ev.institutionId);
+  if (ev) { await alignInstitutionOfferings(ev.institutionId); revalidatePath(`/orgs/${ev.institutionId}`); }
   revalidatePath(`/families/${familyId}`);
   revalidatePath("/", "layout");
 }
@@ -172,6 +175,8 @@ export async function clearAcademicCalendar(institutionId: string, familyId: str
   await prisma.academicEvent.deleteMany({ where: { institutionId } });
   await alignInstitutionOfferings(institutionId);
   revalidatePath(`/families/${familyId}`);
+  revalidatePath(`/orgs/${institutionId}`);
+  revalidatePath(`/orgs/${institutionId}`);
   revalidatePath("/", "layout");
 }
 
@@ -218,8 +223,8 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     if (fromStart !== t.startIso || fromEnd !== t.endIso) changed.push({ term: t.name, fromStart, toStart: t.startIso, fromEnd, toEnd: t.endIso, startSource: t.startSource, endSource: t.endSource });
     await prisma.cohortTerm.upsert({
       where: { cohortId_termId: { cohortId, termId: t.termId } },
-      update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource },
-      create: { cohortId, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource },
+      update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] },
+      create: { cohortId, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] },
     });
   }
   // Course windows: rewrite the auto ones, leave typed ones alone.
@@ -1280,7 +1285,7 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     for (const ct of cts) {
       const v = str(formData.get(`term_${ct.termId}`));
       const e = str(formData.get(`term_end_${ct.termId}`));
-      if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v), endDate: e ? new Date(e) : null, source: "manual" } });
+      if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v), endDate: e ? new Date(e) : null, source: "manual", semester: seasonOfDate(new Date(v)) } });
     }
     await alignOfferingToCalendar(cohortId);
   }
@@ -1324,11 +1329,13 @@ export async function updateTerm(termId: string, programId: string, formData: Fo
     where: { id: termId },
     data: {
       name: str(formData.get("name")) || "Term",
+      semester: str(formData.get("semester")) || null,
       startWeek: optNum(formData.get("startWeek")),
       endWeek: optNum(formData.get("endWeek")),
     },
   });
   revalidatePath(`/programs/${programId}`);
+  revalidatePath(`/programs/${programId}/structure`);
 }
 
 export async function addCourse(termId: string, programId: string, formData: FormData) {
@@ -2090,4 +2097,23 @@ export async function assignCourseStaffBulk(cohortId: string, courseId: string, 
     }
   }
   revalidateStaffing(programId, cohortId);
+}
+
+// ---------------------------------------------------------------------------
+// ORGANIZATIONS — basics
+// ---------------------------------------------------------------------------
+
+export async function updateInstitution(id: string, formData: FormData): Promise<void> {
+  await prisma.institution.update({
+    where: { id },
+    data: {
+      name: str(formData.get("name")) || undefined,
+      shortName: str(formData.get("shortName")) || null,
+      kind: str(formData.get("kind")) || null,
+      city: str(formData.get("city")) || null,
+      state: str(formData.get("state")) || null,
+      serviceArea: str(formData.get("serviceArea")) || null,
+    },
+  });
+  revalidatePath(`/orgs/${id}`); revalidatePath("/orgs"); revalidatePath("/", "layout");
 }

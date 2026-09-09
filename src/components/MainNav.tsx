@@ -21,6 +21,7 @@ const GROUPS: Group[] = [
     { label: "Shared course demand", href: "/courses" },
   ] },
   { label: "Directory", items: [
+    { label: "Organizations — set up & map", href: "/orgs" },
     { label: "Students", href: "/students" },
     { label: "People (faculty & staff)", href: "/people" },
     { label: "Clinical sites by program", href: "/clinical" },

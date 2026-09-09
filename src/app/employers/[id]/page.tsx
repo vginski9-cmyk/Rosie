@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { seasonOfDate } from "@/lib/term";
 import { getEmployer } from "@/lib/queries";
 import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit } from "@/lib/actions";
 import { AssetBuilder } from "@/components/AssetBuilder";
@@ -32,7 +33,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
 
   // WBL capacity is read from placement records, not a static slot count: "asked"
   // = every non-cancelled rotation directed here; "secured" = active + completed.
-  const seasonOf = (d: Date) => { const m = d.getUTCMonth(); return m >= 7 ? "Fall" : m >= 5 ? "Summer" : "Spring"; };
+  const seasonOf = seasonOfDate;
   const live = e.placements.filter((p) => p.status !== "cancelled");
   const asked = live.length;
   const secured = e.placements.filter((p) => p.status === "active" || p.status === "completed").length;

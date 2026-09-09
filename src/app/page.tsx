@@ -52,7 +52,7 @@ export default async function HomePage() {
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-br from-rose-50/60 to-white px-5 py-4">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">{inst.name}</h2>
-              <div className="text-xs text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")}</div>
+              <div className="text-xs text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} · <Link href={`/orgs/${inst.id}`} className="text-rose-600 hover:underline">set-up &amp; mapping →</Link></div>
             </div>
             <div className="flex flex-wrap gap-4 text-right text-xs text-slate-500">
               <div><div className="text-2xl font-bold tabular-nums text-slate-900">{fmt.num(inst.thisYearGoal)}</div>{thisYear} goal · productive</div>

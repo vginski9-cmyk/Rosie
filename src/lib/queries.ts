@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { seasonOfDate, seasonOfTerm, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 
 /** Load a program's full archetype mapped to the capacity-engine shape. */
@@ -122,15 +123,6 @@ export async function getInsightsFacts() {
   });
 
   const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
-  const seasonOf = (name: string, month?: number | null): string => {
-    const n = name.toLowerCase();
-    if (n.includes("fall")) return "Fall";
-    if (n.includes("spring")) return "Spring";
-    if (n.includes("summer")) return "Summer";
-    if (month != null) return month >= 8 ? "Fall" : month <= 5 ? "Spring" : "Summer";
-    return "Fall";
-  };
-
   type Fact = { institution: string; family: string; program: string; programType: string; cohort: string; metricGroup: string; metric: string; year: number | null; term: string | null; semester: string | null; value: number; target: number | null; actual: number | null };
   const facts: Fact[] = [];
 
@@ -141,7 +133,7 @@ export async function getInsightsFacts() {
       for (const co of p.cohorts) {
         const gradYear = gradYearOf(co.name) ?? co.entryYear ?? null;
         const entryYear = co.startDate ? co.startDate.getUTCFullYear() : (gradYear ? gradYear - 2 : null);
-        const entrySemester = co.startDate ? seasonOf("", co.startDate.getUTCMonth() + 1) : "Fall";
+        const entrySemester = co.startDate ? seasonOfDate(co.startDate) : "Fall";
         // --- Pipeline facts (target / actual per stage) ---
         for (const s of co.stages) {
           facts.push({ ...base, cohort: co.name, metricGroup: "Pipeline", metric: s.label, year: gradYear, term: null, semester: entrySemester, value: s.actualNumber ?? s.targetNumber ?? 0, target: s.targetNumber, actual: s.actualNumber });
@@ -149,12 +141,13 @@ export async function getInsightsFacts() {
         // --- Delivery / FTE facts (per term, scaled to cohort enrollment) ---
         const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
         const ctYear = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate ? ct.startDate.getUTCFullYear() : null]));
+        const ctSeason = new Map(co.cohortTerms.map((ct) => [ct.termId, seasonOfTerm({ semester: ct.semester, name: null }, ct.startDate) ]));
         for (const t of p.terms) {
           const sessions = t.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
           if (sessions.length === 0) continue;
           const r = courseService(sessions, enrollment, DEFAULT_SERVICE).totals;
           const termYear = ctYear.get(t.id) ?? (entryYear != null ? entryYear + Math.floor((t.index - 1) / 2) : gradYear);
-          const sem = seasonOf(t.name);
+          const sem = ctSeason.get(t.id) ?? seasonOfTerm(t) ?? "Fall";
           const dbase = { ...base, cohort: co.name, metricGroup: "Delivery", year: termYear, term: t.name, semester: sem };
           const add = (metric: string, value: number) => facts.push({ ...dbase, metric, value, target: null, actual: value });
           add("Faculty FTE", Math.round(r.facultyFte * 1000) / 1000);
@@ -784,7 +777,7 @@ export async function getEmployersDirectory() {
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
-  const seasonOf = (d: Date) => { const m = d.getUTCMonth(); return m >= 7 ? "Fall" : m >= 5 ? "Summer" : "Spring"; };
+  const seasonOf = seasonOfDate;
   // Roll each partner's placements into asked (all non-cancelled) vs secured
   // (active + completed) totals, plus a per-period (year + semester) breakdown.
   const withWbl = employers.map((e) => {
@@ -1044,14 +1037,6 @@ export interface SemesterView {
 /** Every offering-term active in a given semester+year, with its delivery footprint. */
 export async function getSemesterView(sem?: string, year?: number): Promise<SemesterView> {
   const { courseService, DEFAULT_SERVICE } = await import("./service");
-  const seasonOf = (name: string, month?: number | null): string => {
-    const n = name.toLowerCase();
-    if (n.includes("fall")) return "Fall";
-    if (n.includes("spring")) return "Spring";
-    if (n.includes("summer")) return "Summer";
-    if (month != null) return month >= 8 ? "Fall" : month <= 5 ? "Spring" : "Summer";
-    return "Fall";
-  };
 
   const cts = await prisma.cohortTerm.findMany({
     include: {
@@ -1073,7 +1058,8 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     const p = co.program;
     const yr = ct.startDate ? ct.startDate.getUTCFullYear() : (co.entryYear != null ? co.entryYear + Math.floor((ct.term.index - 1) / 2) : null);
     if (yr == null) continue;
-    const season = seasonOf(ct.term.name, ct.startDate ? ct.startDate.getUTCMonth() + 1 : null);
+    // The offering's own aligned semester first (Summer stays Summer), then the template term's, then the start date.
+    const season = seasonOfTerm({ semester: ct.semester, name: null }, null) ?? seasonOfTerm(ct.term, ct.startDate) ?? "Fall";
     const sessions = ct.term.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
     const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
     const t = sessions.length ? courseService(sessions, enrollment, DEFAULT_SERVICE).totals : null;
@@ -1097,7 +1083,7 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
 
   // Distinct semester options, chronological. Mark the one in session today.
   const optMap = new Map<string, { sem: string; year: number; count: number; current: boolean }>();
-  const SEASON_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
+  const SEASON_ORDER = SEASON_RANK;
   for (const r of rows) {
     const k = `${r.year}-${r.sem}`;
     const e = optMap.get(k) ?? { sem: r.sem, year: r.year, count: 0, current: false };
@@ -1884,7 +1870,6 @@ export async function getWorkloadPolicies() {
 }
 
 const DAY_OFF: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
-const seasonOfDate = (d: Date) => { const m = d.getUTCMonth() + 1; return m <= 4 ? "Spring" : m <= 7 ? "Summer" : "Fall"; };
 
 /** Every offering-level staffing assignment (optionally for one cohort or one
  *  person) with the shift's real date and term, ready for the workload engine. */
@@ -1898,7 +1883,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     include: {
       person: { select: { id: true, name: true } },
       session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } } } } } },
-      cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
+      cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true, semester: true } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
     },
   });
   return rows.map((r) => {
@@ -1910,7 +1895,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     let dateIso: string | null = null;
     if (anchor && week) { const off = day != null ? DAY_OFF[day] : undefined; if (off != null) dateIso = new Date(anchor.getTime() + ((week - 1) * 7 + off) * 86400000).toISOString().slice(0, 10); }
     const termStart = ct?.startDate ?? null;
-    const termKey = termStart ? `${seasonOfDate(termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
+    const termKey = termStart ? `${seasonOfTerm({ semester: ct?.semester, name: null }, termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
     const year = dateIso ? Number(dateIso.slice(0, 4)) : termStart ? termStart.getUTCFullYear() : null;
     return {
       id: r.id, personId: r.personId, personName: r.person.name, role: r.role, contactHours: r.contactHours, startOffsetMin: r.startOffsetMin, segment: r.segment, sectionIndex: r.sectionIndex,
@@ -1918,4 +1903,54 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
       termIndex: r.session.course.term.index,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// ORGANIZATIONS — set up & map each institution in one place
+// ---------------------------------------------------------------------------
+
+export async function getOrganizations() {
+  const insts = await prisma.institution.findMany({
+    orderBy: { name: "asc" },
+    include: {
+      _count: { select: { programs: true, programFamilies: true, employers: true, people: true, facilities: true, academicEvents: true, workloadPolicies: true } },
+      academicEvents: { where: { kind: "term_start" }, select: { date: true } },
+    },
+  });
+  const assets = await prisma.clinicalAsset.groupBy({ by: ["employerId"], _count: true });
+  const empInst = await prisma.employer.findMany({ select: { id: true, institutionId: true } });
+  const assetsByInst = new Map<string, number>();
+  for (const a of assets) { const e = empInst.find((x) => x.id === a.employerId); if (e) assetsByInst.set(e.institutionId, (assetsByInst.get(e.institutionId) ?? 0) + a._count); }
+  return insts.map((i) => ({
+    id: i.id, name: i.name, shortName: i.shortName, kind: i.kind, city: i.city, state: i.state, serviceArea: i.serviceArea,
+    counts: { ...i._count, assets: assetsByInst.get(i.id) ?? 0, codedSemesters: i.academicEvents.length },
+    setup: {
+      basics: !!(i.kind && i.city),
+      calendar: i.academicEvents.length > 0,
+      rooms: i._count.facilities > 0,
+      sites: i._count.employers > 0,
+      assets: (assetsByInst.get(i.id) ?? 0) > 0,
+      people: i._count.people > 0,
+      policies: i._count.workloadPolicies > 0,
+      programs: i._count.programs > 0,
+    },
+  }));
+}
+
+export async function getOrganization(id: string) {
+  const inst = await prisma.institution.findUnique({
+    where: { id },
+    include: {
+      academicEvents: { orderBy: { date: "asc" } },
+      facilities: { orderBy: [{ kind: "asc" }, { name: "asc" }] },
+      employers: { orderBy: { name: "asc" }, select: { id: true, name: true, facilityType: true, county: true, ring: true, agreementStatus: true, status: true, _count: { select: { assets: true, units: true, people: true } } } },
+      people: { select: { role: true, employmentType: true, active: true, employerId: true } },
+      programFamilies: { orderBy: { name: "asc" }, include: { occupation: { select: { title: true, socCode: true } }, programs: { orderBy: { name: "asc" }, select: { id: true, name: true, credential: true, programType: true, launchTerms: true, defaultCohortSeats: true, _count: { select: { terms: true, cohorts: true } } } } } },
+      workloadPolicies: { orderBy: [{ employerId: "asc" }, { role: "asc" }] },
+    },
+  });
+  if (!inst) return null;
+  const assets = await prisma.clinicalAsset.groupBy({ by: ["settingCode"], where: { employer: { institutionId: id } }, _count: true, _sum: { learnersPerShift: true } });
+  const employers = await prisma.employer.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, institutionId: true } });
+  return { inst, assets: assets.map((a) => ({ settingCode: a.settingCode, count: a._count, learners: a._sum.learnersPerShift ?? 0 })), employersLite: employers };
 }
