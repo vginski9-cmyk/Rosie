@@ -1161,11 +1161,21 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         facility: { select: { id: true, name: true, kind: true } },
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
-        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
-        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } },
+        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { id: true, kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
+        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } }, sessionStaff: { select: { sessionId: true, sectionIndex: true, person: { select: { name: true } } } } } },
       },
     }),
   ]);
+
+  // Who staffs a weekly booking: the shift assignments of its course × kind × section (the
+  // staffing table's truth), else the booking's own staff field.
+  const leadStaffOf = (m: (typeof raw)[number]) => {
+    const ids = new Set(m.course.sessions.filter((s) => s.kind === m.kind).map((s) => s.id));
+    const counts = new Map<string, number>();
+    for (const a of m.cohort.sessionStaff) if (a.sectionIndex === m.sectionIndex && ids.has(a.sessionId)) counts.set(a.person.name, (counts.get(a.person.name) ?? 0) + 1);
+    const top = [...counts.entries()].sort((x, y) => y[1] - x[1]);
+    return top.length ? (top.length > 1 ? `${top[0][0]} +${top.length - 1}` : top[0][0]) : null;
+  };
 
   const dlabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const meetings: MasterMeeting[] = raw.map((m) => {
@@ -1190,7 +1200,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
       dayOfWeek: m.dayOfWeek, startTime: m.startTime, endTime: toHHMM(Math.round(endMin)), lengthHours: m.lengthHours,
       facilityId: m.facilityId, facilityName: m.facility?.name ?? null, facilityKind: m.facility?.kind ?? null,
       employerId: m.employerId, employerName: m.employer?.name ?? null,
-      staffPersonId: m.staffPersonId, staffName: m.staff?.name ?? null,
+      staffPersonId: m.staffPersonId, staffName: leadStaffOf(m) ?? m.staff?.name ?? null,
       termIndex: liveIdx, weekStartMs, weekEndMs,
       startLabel: startMs ? dlabel(weekStartMs) : "—", endLabel: startMs ? dlabel(weekEndMs) : "—",
       // Session titles for this meeting's kind — what actually happens in the room/at the site, week by week.

@@ -95,7 +95,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
   const [pending, startTransition] = useTransition();
   const [view, setView] = useState<ViewMode>("month");
   const [anchor, setAnchor] = useState<string | null>(null); // a dateIso; each view derives its window
-  const [dragging, setDragging] = useState<Shift | null>(null);
+  const [dragging, setDragging] = useState<Occurrence | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   // Per-section bookings: cohort|course|kind → sections in order.
@@ -124,10 +124,16 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
       if (!r.monday) continue;
       const Y = Math.max(1, Math.round(nz(r.computed.Y)));
       const ms = r.courseId ? meetingsIdx.get(`${r.cohortId}|${r.courseId}|${r.session.kind}`) ?? [] : [];
-      const seatsDefault = Math.max(1, Math.min(r.session.maxStudents ?? 1, Math.ceil(r.computed.C / Y)));
+      // Seats dealt evenly across the sections of this session (41 in 4 = 11, 10, 10, 10).
+      const C = Math.max(0, Math.round(r.computed.C));
+      const seatsOf = (i: number) => Math.max(1, Math.floor(C / Y) + (i <= C % Y ? 1 : 0));
       for (let sIdx = 1; sIdx <= Y; sIdx++) {
         const m = ms.find((x) => x.sectionIndex === sIdx) ?? null;
-        const day = m?.dayOfWeek ?? r.session.dayOfWeek;
+        // The session's own day wins (a course with four clinical days a week has
+        // four sessions with four days); the weekly booking only fills a blank.
+        // An online / no-fixed-day session never borrows the booking's day — it stays off the day grid.
+        const online = r.session.deliveryMode === "Online" || r.session.location === "Internet";
+        const day = r.session.dayOfWeek ?? (online ? null : m?.dayOfWeek ?? null);
         const off = day != null ? DAY_KEY[day] : undefined;
         if (off == null) continue; // async / no-day sessions don't land on a date
         const date = new Date(r.monday.getTime() + off * 86400000);
@@ -138,12 +144,12 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
         out.push({
           key: `${r.session.id}|${r.weekOfTerm}|${sIdx}|${r.cohortId}`,
           dateIso: placedIso,
-          time: mv?.startTime ?? m?.startTime ?? r.session.startTime ?? null,
+          time: mv?.startTime ?? r.session.startTime ?? m?.startTime ?? null,
           kind: r.session.kind,
           courseCode: r.courseCode, courseTitle: r.courseTitle, sessionTitle: r.session.title,
           cohortId: r.cohortId, cohort: r.cohort, program: r.program,
           section: sIdx, of: Y,
-          seats: m && m.seats > 0 ? m.seats : seatsDefault,
+          seats: seatsOf(sIdx),
           lengthHours: r.session.lengthHours,
           setting: r.session.rotationType, loc: mv?.loc ?? m?.loc ?? r.session.location ?? null,
           staffName: mv?.staffName ?? m?.staffName ?? null,
@@ -181,15 +187,15 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
   const firstIso = shifts[0]?.dateIso ?? null;
   const cur = anchor ?? firstIso;
 
-  const onDragStart = (e: DragStartEvent) => setDragging((e.active.data.current as { shift: Shift } | undefined)?.shift ?? null);
+  const onDragStart = (e: DragStartEvent) => setDragging((e.active.data.current as { occ: Occurrence } | undefined)?.occ ?? null);
   const onDragEnd = (e: DragEndEvent) => {
-    const shift = (e.active.data.current as { shift: Shift } | undefined)?.shift;
+    const occ = (e.active.data.current as { occ: Occurrence } | undefined)?.occ;
     setDragging(null);
     const overIso = e.over?.id as string | undefined;
-    if (!shift || !overIso || overIso === shift.dateIso) return;
-    // Exactly this shift (this session, this section, this date) — nothing else moves.
+    if (!occ || !overIso || overIso === occ.dateIso) return;
+    // This session on this date — every section of it moves together; nothing else follows.
     startTransition(async () => {
-      await moveShiftOccurrence({ cohortId: shift.cohortId, sessionId: shift.sessionId, sectionIndex: shift.section, meetingId: shift.meeting?.id ?? null }, shift.originDate, { toDate: overIso });
+      for (const shift of occ.shifts) await moveShiftOccurrence({ cohortId: shift.cohortId, sessionId: shift.sessionId, sectionIndex: shift.section, meetingId: shift.meeting?.id ?? null }, shift.originDate, { toDate: overIso });
       router.refresh();
     });
   };
@@ -258,9 +264,10 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           </div>
           {(view === "month" || view === "week") && (
             <p className="border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
-              One chip per shift (§3 = section 3 of that session). <strong>Drag a chip onto another day</strong> and exactly that
-              one shift moves to exactly that date — nothing else follows it, and the page stays put while you drag. Open the
-              <strong> Day</strong> view to set a shift&apos;s date, time, location and staff precisely (or put it back on its weekly pattern).
+              One chip per session on a date — its students, sections and sites inside it (a precepted clinical is one student per
+              preceptor, so 18 students are 18 placements on one chip). <strong>Drag a chip onto another day</strong> and that
+              session, every section of it, moves to that date. Open the <strong>Day</strong> view for each section&apos;s date, time,
+              site or room and staff (or to put it back on its weekly pattern).
             </p>
           )}
 
@@ -279,8 +286,8 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
 
       <DragOverlay>
         {dragging && (
-          <div className={`rounded-r px-2 py-1 text-xs font-medium shadow-lg ${tone ? "" : KIND_CHIP[dragging.kind]}`} style={tone ? toneStyle(tone.get(locName(dragging))) : undefined}>
-            {fmtT(dragging.time)} · {dragging.courseCode ?? dragging.courseTitle}{dragging.of > 1 ? ` §${dragging.section}` : ""} · {n0(dragging.seats)} stu
+          <div className={`rounded-r px-2 py-1 text-xs font-medium shadow-lg ${tone ? "" : KIND_CHIP[dragging.first.kind]}`} style={tone ? toneStyle(tone.get(locName(dragging.first))) : undefined}>
+            {occLabel(dragging)} · {occDetail(dragging)}
           </div>
         )}
       </DragOverlay>
@@ -288,18 +295,41 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
   );
 }
 
-// ─────────────────────────────── Draggable chip ───────────────────────────────
-function ShiftChipEl({ shift, size, tone }: { shift: Shift; size: "sm" | "md"; tone?: LocTone | null }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: shift.key, data: { shift } });
+// ─────────────────────────────── Occurrences & chips ───────────────────────────
+/** One SESSION on one DATE — all of its sections together. This is what a
+ *  program director schedules and reads: "SUR 123 clinical · 18 students at 6
+ *  sites", not eighteen separate one-student chips. The sections (one student
+ *  per preceptor for precepted clinicals) are the rows inside the Day view. */
+export interface Occurrence { key: string; dateIso: string; time: string | null; shifts: Shift[]; first: Shift; students: number; sections: number; of: number; locs: string[]; staff: string[]; moved: number; holiday: string | null }
+export function occurrencesOf(list: Shift[]): Occurrence[] {
+  const m = new Map<string, Shift[]>();
+  for (const c of list) { const k = `${c.sessionKey}|${c.dateIso}`; const l = m.get(k) ?? []; l.push(c); m.set(k, l); }
+  return [...m.entries()].map(([key, shifts]) => {
+    const first = shifts[0];
+    return {
+      key, dateIso: first.dateIso, time: first.time, shifts, first,
+      students: shifts.reduce((n, c) => n + c.seats, 0), sections: shifts.length, of: first.of,
+      locs: [...new Set(shifts.map((c) => c.loc).filter((x): x is string => !!x))],
+      staff: [...new Set(shifts.map((c) => c.staffName).filter((x): x is string => !!x))],
+      moved: shifts.filter((c) => c.moved).length, holiday: shifts.find((c) => c.holiday)?.holiday ?? null,
+    };
+  }).sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99") || a.first.courseTitle.localeCompare(b.first.courseTitle));
+}
+const occLabel = (o: Occurrence) => `${fmtT(o.time)} ${o.first.courseCode ?? o.first.courseTitle}${o.sections === 1 && o.of > 1 ? ` §${o.first.section}` : ""}`;
+const occDetail = (o: Occurrence) => `${n0(o.students)} stu${o.of > 1 ? ` · ${n0(o.sections)}${o.sections < o.of ? ` of ${n0(o.of)}` : ""} ${o.first.kind === "CLINICAL" ? "placements" : "sections"}` : ""}${o.first.kind === "CLINICAL" ? (o.locs.length > 1 ? ` @ ${o.locs.length} sites` : o.locs[0] ? ` ${o.locs[0]}` : o.first.setting ? ` @ ${o.first.setting}` : "") : o.locs.length ? ` · ${o.locs.join(", ")}` : ""}`;
+
+function ShiftChipEl({ occ, size, tone }: { occ: Occurrence; size: "sm" | "md"; tone?: LocTone | null }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: occ.key, data: { occ } });
+  const f = occ.first;
   return (
     <div
       ref={setNodeRef} {...attributes} {...listeners}
-      style={tone ? toneStyle(tone.get(locName(shift))) : undefined}
-      className={`select-none rounded-r ${tone ? "" : KIND_CHIP[shift.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
-      title={`${fmtT(shift.time)} · ${shift.courseCode ?? shift.courseTitle}${shift.of > 1 ? ` — shift ${shift.section} of ${shift.of}` : ""}${shift.sessionTitle ? ` — ${shift.sessionTitle}` : ""} · ${n0(shift.seats)} students · ${shift.lengthHours}h${shift.setting ? ` @ ${shift.setting}` : ""}${shift.loc ? ` (${shift.loc})` : ""} · ${shift.staffName ?? (shift.kind === "CLINICAL" ? "no preceptor" : "no instructor")} · ${shift.cohort} — drag to another day, or open Day view to edit date/time/location/staff`}
+      style={tone ? toneStyle(tone.get(locName(f))) : undefined}
+      className={`select-none rounded-r ${tone ? "" : KIND_CHIP[f.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
+      title={`${occLabel(occ)}${f.sessionTitle ? ` — ${f.sessionTitle}` : ""} · ${occDetail(occ)} · ${f.lengthHours}h · ${occ.staff.length ? occ.staff.slice(0, 3).join(", ") + (occ.staff.length > 3 ? ` +${occ.staff.length - 3}` : "") : f.kind === "CLINICAL" ? "no preceptor yet" : "no instructor yet"} · ${f.cohort} — drag to move every section to another day; open Day view for each section's date, time, site and staff`}
     >
-      <span className="font-semibold">{fmtT(shift.time)} {shift.courseCode ?? shift.courseTitle}{shift.of > 1 ? ` §${shift.section}` : ""}{shift.moved ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`moved from ${shift.originDate}`}>moved</span> : null}</span>
-      <span className="block truncate opacity-80">{n0(shift.seats)} stu{shift.setting ? ` @ ${shift.setting}` : shift.loc ? ` · ${shift.loc}` : ""}</span>
+      <span className="font-semibold">{occLabel(occ)}{occ.moved > 0 ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`${occ.moved} section${occ.moved === 1 ? "" : "s"} moved off the weekly pattern`}>moved</span> : null}</span>
+      <span className="block truncate opacity-80">{occDetail(occ)}</span>
     </div>
   );
 }
@@ -317,8 +347,8 @@ function MonthDayCell({ dateIso, shifts, openDay, tone }: { dateIso: string; shi
         {holiday && <span className="truncate text-[9px] font-semibold text-rose-600" title={holiday}>⚠ {holiday}</span>}
       </div>
       <div className="space-y-1">
-        {/* every shift is its own chip — 16 shifts, 16 draggable instances */}
-        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="sm" tone={tone} />)}
+        {/* one chip per session on this date — its sections travel together */}
+        {occurrencesOf(shifts).map((o) => <ShiftChipEl key={o.key} occ={o} size="sm" tone={tone} />)}
         {shifts.length > 0 && (
           <button onClick={() => openDay(dateIso)} className="w-full rounded bg-slate-100 px-1 py-0.5 text-left text-[10px] font-medium text-slate-500 hover:bg-slate-200">
             open day — set exact date · time · place · staff ↦
@@ -362,10 +392,10 @@ function WeekDayCol({ dateIso, shifts, openDay, tone }: { dateIso: string; shift
     <div ref={setNodeRef} className={`flex min-h-[340px] flex-col border-r border-slate-100 ${isOver ? "bg-rose-50 ring-2 ring-inset ring-rose-400" : ""}`}>
       <button onClick={() => openDay(dateIso)} className="border-b border-slate-100 bg-slate-50 px-2 py-2 text-left hover:bg-slate-100" title="open the day view">
         <span className="block text-xs font-semibold text-slate-700">{new Date(dateIso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} {fmtMD(dateIso)}</span>
-        <span className="block text-[10px] text-slate-500">{shifts.length ? `${n0(shifts.length)} shifts · ${n0(students)} students` : "—"}{holiday ? ` · ⚠ ${holiday}` : ""}</span>
+        <span className="block text-[10px] text-slate-500">{shifts.length ? `${n0(occurrencesOf(shifts).length)} session${occurrencesOf(shifts).length === 1 ? "" : "s"} · ${n0(students)} students` : "—"}{holiday ? ` · ⚠ ${holiday}` : ""}</span>
       </button>
       <div className="flex-1 space-y-1 p-1.5">
-        {shifts.map((c) => <ShiftChipEl key={c.key} shift={c} size="md" tone={tone} />)}
+        {occurrencesOf(shifts).map((o) => <ShiftChipEl key={o.key} occ={o} size="md" tone={tone} />)}
       </div>
     </div>
   );
@@ -423,10 +453,10 @@ function SemesterView({ rows, byDate, openDay }: { rows: DatedInstance[]; byDate
                       const holiday = dayShifts.some((c) => c.holiday);
                       return (
                         <td key={iso} className="px-1 py-1 text-center">
-                          <button onClick={() => openDay(iso)} className={`w-full rounded-lg px-1.5 py-1 hover:ring-2 hover:ring-rose-300 ${holiday ? "bg-rose-100" : "bg-slate-100"}`} title={`${fmtDate(iso)} — ${dayShifts.length} shifts · open the day view`}>
+                          <button onClick={() => openDay(iso)} className={`w-full rounded-lg px-1.5 py-1 hover:ring-2 hover:ring-rose-300 ${holiday ? "bg-rose-100" : "bg-slate-100"}`} title={`${fmtDate(iso)} — ${occurrencesOf(dayShifts).length} sessions · ${n0(studentsOnDay(dayShifts))} students · open the day view`}>
                             <span className="flex items-center justify-center gap-1">
                               {kinds.map((k) => <span key={k} className={`h-2 w-2 rounded-full ${KIND_DOT[k]}`} />)}
-                              <span className="font-mono text-[11px] font-semibold tabular-nums text-slate-700">{dayShifts.length}</span>
+                              <span className="font-mono text-[11px] font-semibold tabular-nums text-slate-700">{occurrencesOf(dayShifts).length}</span>
                             </span>
                             <span className="block text-[9px] text-slate-500">{n0(studentsOnDay(dayShifts))} stu{holiday ? " ⚠" : ""}</span>
                           </button>
@@ -488,7 +518,7 @@ function DayView({ dateIso, shifts, rooms, people, sites, onSaved }: {
       {/* The day's numbers — with the math spelled out */}
       <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-          <Stat v={n0(shifts.length)} k="shifts" d={`${groups.length} session${groups.length === 1 ? "" : "s"} × their sections`} />
+          <Stat v={n0(groups.length)} k={groups.length === 1 ? "session" : "sessions"} d={`${n0(shifts.length)} section${shifts.length === 1 ? "" : "s"} across them (a precepted clinical = one student per section)`} />
           <Stat v={n0(students)} k="students" d="each counted once — the same students rotate through the day's sessions" />
           {instructorSections > 0 && <Stat v={n0(instructorSections)} k="instructor-led sections" d="one instructor per class/lab section-meeting" />}
           {preceptors > 0 && <Stat v={n0(preceptors)} k="preceptors on site" d="1 per precepted student group" />}

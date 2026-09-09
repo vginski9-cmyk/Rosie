@@ -63,6 +63,10 @@ export interface Conflict {
   detail: string;
 }
 
+/** Seat range a section covers when seats are dealt in order (section i of size n = seats (i-1)n+1 … i·n). */
+const seatRange = (b: { sectionIndex: number; seats: number }): [number, number] => { const n = Math.max(1, b.seats); return [(b.sectionIndex - 1) * n + 1, b.sectionIndex * n]; };
+export const seatsOverlap = (a: { sectionIndex: number; seats: number }, b: { sectionIndex: number; seats: number }) => { const [a1, a2] = seatRange(a), [b1, b2] = seatRange(b); return a1 <= b2 && b1 <= a2; };
+
 /** All hard conflicts across a set of bookings: a room double-booked, a person
  *  teaching two at once, or one cohort-section expected in two places at once —
  *  in each case only when the weekday, time-of-day AND calendar weeks all overlap. */
@@ -89,8 +93,11 @@ export function detectConflicts(bookings: Booking[]): Conflict[] {
         if (a.staffPersonId && b.staffPersonId && a.staffPersonId === b.staffPersonId) {
           out.push({ kind: "staff", aId: a.id, bId: b.id, dayOfWeek: day, key: a.staffPersonId, detail: `staff double-booked ${day} ${toHHMM(a.startMin)}` });
         }
-        if (a.cohortId === b.cohortId && a.sectionIndex === b.sectionIndex) {
-          out.push({ kind: "section", aId: a.id, bId: b.id, dayOfWeek: day, key: `${a.cohortId}#${a.sectionIndex}`, detail: `section overlap ${day} ${toHHMM(a.startMin)}` });
+        // The same STUDENTS in two places: sections are dealt by seat order, so
+        // a clinical section of one student (§7 = seat 7) collides with class
+        // §1 (seats 1–25), never with class §2 — compare seat ranges, not indices.
+        if (a.cohortId === b.cohortId && seatsOverlap(a, b)) {
+          out.push({ kind: "section", aId: a.id, bId: b.id, dayOfWeek: day, key: `${a.cohortId}#${a.sectionIndex}`, detail: `same students in two places ${day} ${toHHMM(a.startMin)}` });
         }
       }
     }
@@ -193,27 +200,36 @@ export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { daySt
       if (!weeksOverlap(cand.weekStartMs, cand.weekEndMs, p.weekStartMs, p.weekEndMs)) continue;
       if (cand.facilityId && p.facilityId === cand.facilityId) roomConflict = true;
       if (cand.staffPersonId && p.staffPersonId === cand.staffPersonId) otherConflict = true;
-      if (p.cohortId === cand.cohortId && p.sectionIndex === cand.sectionIndex) otherConflict = true;
+      if (p.cohortId === cand.cohortId && seatsOverlap(p, cand)) otherConflict = true;
     }
     return { roomConflict, otherConflict };
   };
 
   for (const r of order) {
     const seed = (r.sectionIndex - 1);
-    const days = rotate(WEEKDAYS, r.preferDay ? WEEKDAYS.indexOf(r.preferDay) : seed % WEEKDAYS.length);
-    const times: number[] = [];
-    for (let t = dayStart; t + r.lengthHours * 60 <= dayEnd; t += SLOT_MIN) times.push(t);
-    const startTimes = r.preferStartMin != null
-      ? [r.preferStartMin, ...times.filter((t) => t !== r.preferStartMin)]
-      : rotate(times, (seed * 3) % Math.max(1, times.length));
-    // Rooms that can host this kind, smallest adequate first (pack tight).
+    // A slot the sheet states (day AND time) is pinned: the program knows when
+    // it meets; only the room is negotiable. Slots the sheet leaves open are
+    // searched, days first then times, avoiding room, staff and same-student clashes.
+    const pinned = r.preferDay != null && r.preferStartMin != null;
+    const days = pinned ? [r.preferDay!] : rotate(WEEKDAYS, r.preferDay ? WEEKDAYS.indexOf(r.preferDay) : seed % WEEKDAYS.length);
     const kinds = ROOM_KINDS_FOR[r.kind] ?? [];
+    const offCampus = kinds.length === 0;
+    const times: number[] = [];
+    // Clinical shifts start early (07:00); campus rooms open at dayStart.
+    for (let t = offCampus ? Math.min(dayStart, 7 * 60) : dayStart; t + r.lengthHours * 60 <= dayEnd; t += SLOT_MIN) times.push(t);
+    // Sections with no stated slot are spread across start times only when they
+    // are campus sections with no stated day either (room packing). Sections of a
+    // clinical, or of a course that states its day, all start at the same time.
+    const spread = !offCampus && r.preferDay == null;
+    const startTimes = pinned ? [r.preferStartMin!] : r.preferStartMin != null
+      ? [r.preferStartMin, ...times.filter((t) => t !== r.preferStartMin)]
+      : spread ? rotate(times, (seed * 3) % Math.max(1, times.length)) : times;
+    // Rooms that can host this kind, smallest adequate first (pack tight).
     const preferred = r.preferFacilityId ? rooms.find((rm) => rm.id === r.preferFacilityId) ?? null : null;
     const pool = [
       ...(preferred ? [preferred] : []),
       ...rooms.filter((rm) => kinds.includes(rm.kind) && rm.id !== preferred?.id).sort((a, b) => (a.capacity ?? 1e9) - (b.capacity ?? 1e9) || a.name.localeCompare(b.name)),
     ];
-    const offCampus = kinds.length === 0;
 
     let chosen: Placement | null = null;
     let fallback: Placement | null = null; // a time that's section/staff-clear but unroomed
@@ -223,15 +239,15 @@ export function autoSchedule(reqs: PlaceReq[], rooms: RoomLite[], opts?: { daySt
         if (offCampus) {
           const cand: Booking = { ...mkBooking(r), dayOfWeek: day, startMin, facilityId: null };
           const f = feasible(cand);
-          if (!f.otherConflict) { chosen = { dayOfWeek: day, startMin, facilityId: null }; break outer; }
+          if (pinned || !f.otherConflict) { chosen = { dayOfWeek: day, startMin, facilityId: null }; break outer; }
           continue;
         }
         for (const rm of pool) {
-          if (rm.capacity != null && r.seats > rm.capacity) continue;
+          if (rm.capacity != null && r.seats > rm.capacity && rm.id !== preferred?.id) continue;
           const cand: Booking = { ...mkBooking(r), dayOfWeek: day, startMin, facilityId: rm.id };
           const f = feasible(cand);
-          if (!f.roomConflict && !f.otherConflict) { chosen = { dayOfWeek: day, startMin, facilityId: rm.id }; break outer; }
-          if (!f.otherConflict && !fallback) fallback = { dayOfWeek: day, startMin, facilityId: null };
+          if (!f.roomConflict && (pinned || !f.otherConflict)) { chosen = { dayOfWeek: day, startMin, facilityId: rm.id }; break outer; }
+          if ((pinned || !f.otherConflict) && !fallback) fallback = { dayOfWeek: day, startMin, facilityId: null };
         }
       }
     }

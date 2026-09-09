@@ -5,6 +5,8 @@
 
 import { autoSchedule, toHHMM, type PlaceReq, type RoomLite, type Weekday } from "./space";
 import { sectionSlot, toMinutes } from "./sessiontimes";
+import { hostSlots, type HostLite } from "./hosts";
+import type { RotationCode } from "./assetmap";
 
 const WK_MS = 7 * 24 * 3600 * 1000;
 
@@ -14,7 +16,7 @@ export interface CalendarizeTerm {
   startMs: number | null;
   /** Real last day of the term (ms) — weekly bookings recur until it, not past the semester. */
   endMs?: number | null;
-  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; sectionTimes?: string | null; location?: string | null }[] }[];
+  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; sectionTimes?: string | null; location?: string | null; rotationType?: string | null }[] }[];
 }
 export interface CalendarizeInput {
   cohortId: string;
@@ -24,8 +26,12 @@ export interface CalendarizeInput {
   cohortStartMs: number | null;
   terms: CalendarizeTerm[];
   rooms: RoomLite[];
-  /** Partner sites that can host clinical sections, secured first. */
+  /** Partner sites that can host clinical sections, secured first (fallback when no host matches a rotation's setting). */
   hostIds: string[];
+  /** Sites with their assets by setting and agreement rank — clinical sections go to sites that HAVE the setting the rotation needs. */
+  hosts?: HostLite[];
+  /** Rotation type → asset setting code (the institution's coded map). */
+  rotations?: RotationCode[];
 }
 export interface MeetingRow {
   cohortId: string; courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number;
@@ -39,6 +45,8 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
   const E = Math.max(1, Math.round(input.seats));
   const reqs: PlaceReq[] = [];
   const roomByName = new Map(input.rooms.map((r) => [normName(r.name), r]));
+  const codeOf = new Map((input.rotations ?? []).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
+  const siteSlots = new Map<string, string[]>();
   const meta = new Map<string, { courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number; lengthHours: number; termIndex: number; startWeek: number; endWeek: number }>();
   for (const t of input.terms) {
     const base = t.startMs ?? (input.cohortStartMs != null ? input.cohortStartMs + (t.index - 1) * 17 * WK_MS : null);
@@ -57,12 +65,25 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
         const cap = Math.max(1, info.maxStudents || (kind === "CLINICAL" ? 8 : 30));
         const sections = Math.max(1, Math.ceil(E / cap));
         const room = info.sample.location ? roomByName.get(normName(info.sample.location)) ?? null : null;
+        // Sites for this course's clinical: the settings its rotation types need, at sites that have them.
+        let slots: string[] = [];
+        if (kind === "CLINICAL" && input.hosts?.length) {
+          // Setting codes the course's clinical sessions need, most-used first (the primary setting).
+          const freq = new Map<string, number>();
+          for (const s of c.sessions) { if (s.kind !== "CLINICAL") continue; const code = codeOf.get((s.rotationType ?? "").trim().toLowerCase()); if (code) freq.set(code, (freq.get(code) ?? 0) + 1); }
+          const codes = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+          slots = codes.length ? hostSlots(input.hosts, codes) : [];
+          if (!slots.length) slots = [...input.hosts].sort((a, b) => a.rank - b.rank).map((h) => h.employerId);
+        }
+        siteSlots.set(`${c.id}|${kind}`, slots);
         for (let si = 1; si <= sections; si++) {
           const id = `${input.cohortId}:${c.id}:${kind}:${si}`;
           const slot = sectionSlot({ dayOfWeek: info.sample.dayOfWeek ?? null, startTime: info.sample.startTime ?? null, sectionTimes: info.sample.sectionTimes ?? null }, si);
           const preferDay = (slot?.dayOfWeek ?? info.sample.dayOfWeek ?? undefined) as Weekday | undefined;
-          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, weekStartMs: base, weekEndMs: endMs, preferDay, preferStartMin: slot ? toMinutes(slot.startTime) : undefined, preferFacilityId: room?.id ?? undefined });
-          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats: Math.ceil(E / sections), lengthHours: info.lengthHours || 2, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
+          // Seats dealt evenly: 41 students in 4 sections are 11, 10, 10, 10 — never 44.
+          const seats = Math.floor(E / sections) + (si <= E % sections ? 1 : 0);
+          reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats, lengthHours: info.lengthHours || 2, weekStartMs: base, weekEndMs: endMs, preferDay, preferStartMin: slot ? toMinutes(slot.startTime) : undefined, preferFacilityId: room?.id ?? undefined });
+          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats, lengthHours: info.lengthHours || 2, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
         }
       }
     }
@@ -76,7 +97,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
     return {
       cohortId: input.cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
       dayOfWeek: pl.dayOfWeek, startTime: toHHMM(pl.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek,
-      facilityId: pl.facilityId, employerId: m.kind === "CLINICAL" && input.hostIds.length ? input.hostIds[(ci++) % input.hostIds.length] : null, staffPersonId: null,
+      facilityId: pl.facilityId, employerId: m.kind === "CLINICAL" ? (siteSlots.get(`${m.courseId}|${m.kind}`)?.length ? siteSlots.get(`${m.courseId}|${m.kind}`)![(m.sectionIndex - 1) % siteSlots.get(`${m.courseId}|${m.kind}`)!.length] : input.hostIds.length ? input.hostIds[(ci++) % input.hostIds.length] : null) : null, staffPersonId: null,
     };
   });
 }

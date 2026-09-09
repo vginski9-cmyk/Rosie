@@ -28,6 +28,7 @@ import { demandUnits, recommendPlan, DEFAULT_POLICY, REASON_LABEL, type Policy, 
 import { resolvePolicy, familyOfRole, type PolicyLite, type PersonLite, type RoleFamily } from "./workload";
 import { getCapacityModel, getSchedulerData, getWorkloadPolicies, datedStaffAssignments } from "./queries";
 import { applySchedulerPlan } from "./actions";
+import { clinicalHostsFor } from "./hosts";
 
 export interface AutoAssignSummary {
   calendarized: boolean; meetings: number;
@@ -50,18 +51,19 @@ export async function calendarizeCore(cohortId: string): Promise<number> {
     where: { id: cohortId },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
-      program: { select: { institutionId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true } } } } } } } },
+      program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true, rotationType: true } } } } } } } },
     },
   });
   if (!co) return 0;
   const rooms = await prisma.facility.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
+  const { hosts: siteHosts, rotations } = await clinicalHostsFor(co.program.institutionId, co.program.familyId);
   const hosts = await prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active", OR: [{ agreementStatus: "secured" }, { setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] }, select: { id: true, agreementStatus: true } });
   hosts.sort((a, b) => Number(b.agreementStatus === "secured") - Number(a.agreementStatus === "secured"));
   const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
   const rows = planMeetings({
     cohortId, seats: Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30), cohortStartMs: co.startDate?.getTime() ?? null,
     terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctById.get(t.id)?.startDate?.getTime() ?? null, endMs: ctById.get(t.id)?.endDate?.getTime() ?? null, courses: t.courses })),
-    rooms, hostIds: hosts.map((h) => h.id),
+    rooms, hostIds: hosts.map((h) => h.id), hosts: siteHosts, rotations,
   });
   for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
   return rows.length;

@@ -106,17 +106,31 @@ export function MasterCalendar({
   // Per-day lane packing so overlapping blocks sit side by side. EVERYTHING is
   // on the one master calendar — campus classes/labs AND clinical rotations
   // (hosted at partner sites, or "site TBD" until one is assigned).
+  // One block per SESSION slot: the sections of a course × kind that meet at the
+  // same day and time travel together (a precepted clinical is one student per
+  // section, so 18 students at 6 sites is one block, not eighteen). Click a
+  // block with several sections to see and edit each one.
   const dayLayout = (day: string) => {
-    const items = filtered.filter((m) => m.dayOfWeek === day).sort((a, b) => toMin(a.startTime) - toMin(b.startTime));
+    const byKey = new Map<string, CalMeeting[]>();
+    for (const m of filtered.filter((x) => x.dayOfWeek === day)) { const k = `${m.courseId}|${m.kind}|${m.startTime}|${m.lengthHours}|${m.weekStartMs}|${m.cohortId}`; const l = byKey.get(k) ?? []; l.push(m); byKey.set(k, l); }
+    const items = [...byKey.values()].map((members) => ({ m: members.sort((a, b) => a.sectionIndex - b.sectionIndex)[0], members })).sort((a, b) => toMin(a.m.startTime) - toMin(b.m.startTime));
     const laneEnds: number[] = [];
-    const placed = items.map((m) => {
+    const placed = items.map(({ m, members }) => {
       const s = toMin(m.startTime), e = s + m.lengthHours * 60;
       let lane = laneEnds.findIndex((end) => end <= s);
       if (lane === -1) { lane = laneEnds.length; laneEnds.push(e); } else laneEnds[lane] = e;
-      return { m, s, e, lane };
+      return { m, members, s, e, lane };
     });
     return { placed, lanes: Math.max(1, laneEnds.length) };
   };
+  const [group, setGroup] = useState<CalMeeting[] | null>(null);
+  const groupWhere = (members: CalMeeting[]) => {
+    const m = members[0];
+    if (m.kind === "CLINICAL") { const sites = new Set(members.filter((x) => x.employerId).map((x) => x.employerName)); const tbd = members.filter((x) => !x.employerId).length; return sites.size === 0 ? "@ site TBD" : sites.size === 1 ? `@ ${[...sites][0]}${tbd ? ` · ${tbd} TBD` : ""}` : `@ ${sites.size} sites${tbd ? ` · ${tbd} TBD` : ""}`; }
+    const rooms = [...new Set(members.map((x) => x.facilityName).filter(Boolean))]; const none = members.filter((x) => !x.facilityId).length;
+    return rooms.length === 0 ? "⚠ no room" : rooms.length === 1 ? `${rooms[0]}${none ? ` · ${none} unroomed` : ""}` : `${rooms.slice(0, 2).join(", ")}${rooms.length > 2 ? ` +${rooms.length - 2}` : ""}`;
+  };
+  const groupStudents = (members: CalMeeting[]) => members.reduce((n, x) => n + x.seats, 0);
 
   const gridHeight = (END_HOUR - START_HOUR) * HOUR_PX;
   const conflictsForWeek = conflicts.filter((c) => { const a = meetings.find((m) => m.id === c.aId); return a && a.weekStartMs <= weekMs && weekMs < a.weekEndMs; });
@@ -185,8 +199,8 @@ export function MasterCalendar({
 
       {/* Summary */}
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5">{campus.length} campus meetings this week</span>
-        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{clinical.length} clinical rotations on the calendar{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}</span>
+        <span className="rounded-full bg-slate-100 px-2 py-0.5">{new Set(campus.map((m) => `${m.courseId}|${m.kind}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} campus sessions this week ({campus.length} sections)</span>
+        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{new Set(clinical.map((m) => `${m.courseId}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} clinical sessions · {clinical.reduce((n, m) => n + m.seats, 0)} student placements{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}</span>
         {summary.unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{summary.unroomed} unroomed — needs space</span>}
         {conflictsForWeek.length > 0
           ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictsForWeek.length} conflicts this week</span>
@@ -223,19 +237,21 @@ export function MasterCalendar({
                     {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
                       <div key={i} style={{ top: i * HOUR_PX, height: HOUR_PX }} className="absolute inset-x-0 border-t border-slate-50" />
                     ))}
-                    {placed.map(({ m, s, lane }) => {
+                    {placed.map(({ m, members, s, lane }) => {
                       const top = ((s - START_HOUR * 60) / 60) * HOUR_PX;
                       const height = Math.max(18, m.lengthHours * HOUR_PX - 2);
                       const bs = blockStyle(m);
-                      const conflict = conflictIds.has(m.id);
+                      const conflict = members.some((x) => conflictIds.has(x.id));
                       const w = 100 / lanes;
+                      const many = members.length > 1;
                       return (
-                        <button key={m.id} onClick={() => setEditing(m)}
+                        <button key={m.id} onClick={() => (many ? setGroup(members) : setEditing(m))}
                           style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)`, ...(bs.style ?? {}) }}
+                          title={`${m.courseCode ?? m.courseName} ${KIND_LABEL[m.kind] ?? m.kind} · ${fmtTime(m.startTime)}–${fmtTime(m.endTime)} · ${many ? `${members.length} sections · ${groupStudents(members)} students` : `${m.seats} students`} · ${groupWhere(members)} · ${m.cohortName}`}
                           className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${bs.className} ${m.kind === "CLINICAL" ? "border-2 border-dashed border-white/70" : ""} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
-                          <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}{m.kind === "CLINICAL" ? " ⚕" : ""}</span>
-                          <span className="block truncate text-[9px] leading-tight opacity-90">{m.kind === "CLINICAL" ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "⚠ no room")}</span>
-                          <span className="block truncate text-[9px] leading-tight opacity-75">{fmtTime(m.startTime)} · {m.cohortName}</span>
+                          <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{many ? ` · ${members.length} ${m.kind === "CLINICAL" ? "placements" : "sections"}` : m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}{m.kind === "CLINICAL" ? " ⚕" : ""}</span>
+                          <span className="block truncate text-[9px] leading-tight opacity-90">{groupWhere(members)}</span>
+                          <span className="block truncate text-[9px] leading-tight opacity-75">{fmtTime(m.startTime)} · {groupStudents(members)} stu · {m.cohortName}</span>
                         </button>
                       );
                     })}
@@ -293,6 +309,33 @@ export function MasterCalendar({
         </div>
       )}
 
+      {group && !editing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={() => setGroup(null)}>
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-800">{group[0].courseCode ? `${group[0].courseCode} · ` : ""}{group[0].courseName} <span className="font-normal text-slate-500">· {KIND_LABEL[group[0].kind] ?? group[0].kind}</span></h3>
+                <p className="text-xs text-slate-500">{DAY_FULL[group[0].dayOfWeek] ?? group[0].dayOfWeek} {fmtTime(group[0].startTime)}–{fmtTime(group[0].endTime)} · {group.length} {group[0].kind === "CLINICAL" ? "placements (one student per preceptor)" : "sections"} · {groupStudents(group)} students · {group[0].cohortName} · {group[0].startLabel} → {group[0].endLabel}</p>
+              </div>
+              <button onClick={() => setGroup(null)} className="text-xs text-slate-500 hover:text-rose-700">close</button>
+            </div>
+            <table className="mt-3 w-full text-xs">
+              <thead className="text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-1 text-left">Section</th><th className="px-2 py-1 text-left">{group[0].kind === "CLINICAL" ? "Clinical site" : "Room"}</th><th className="px-2 py-1 text-left">{group[0].kind === "CLINICAL" ? "Preceptor" : "Instructor"}</th><th className="px-2 py-1 text-right">Students</th><th className="px-2 py-1"></th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {group.map((x) => (
+                  <tr key={x.id} className={conflictIds.has(x.id) ? "bg-rose-50" : ""}>
+                    <td className="px-2 py-1 font-medium text-slate-800">§{x.sectionIndex}</td>
+                    <td className="px-2 py-1 text-slate-700">{x.kind === "CLINICAL" ? (x.employerName ?? <span className="text-amber-700">site TBD</span>) : (x.facilityName ?? <span className="text-amber-700">no room</span>)}</td>
+                    <td className="px-2 py-1 text-slate-700">{x.staffName ?? <span className="text-amber-700">unassigned</span>}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{x.seats}</td>
+                    <td className="px-2 py-1 text-right"><button onClick={() => { setEditing(x); }} className="text-rose-700 hover:underline">edit</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {editing && <MoveEditor meeting={editing} weekMs={weekMs} rooms={rooms} people={people} employers={employers} onClose={() => setEditing(null)} onSave={save} />}
     </div>
   );

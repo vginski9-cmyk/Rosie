@@ -12,6 +12,7 @@ import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
+import { clinicalHostsFor } from "../src/lib/hosts";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
 const LAST = ["Alvarez", "Bennett", "Chen", "Dawson", "Ellis", "Foster", "Garcia", "Hughes", "Ibrahim", "Jenkins", "Kim", "Lopez", "Mitchell", "Nguyen", "Owens", "Patel", "Quinn", "Reyes", "Sullivan", "Torres", "Underwood", "Vance", "Walker", "Xiong", "Young", "Zimmerman", "Abbott", "Brooks", "Castillo", "Duncan", "Espinoza", "Franklin", "Grant", "Holloway", "Ivey", "Jacobs", "Kessler", "Lawson", "Morales", "Norris"];
@@ -172,7 +173,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   ];
   let offerings = 0, meetings = 0;
   for (const o of OFFERINGS) {
-    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true } } } } } }, cohorts: { select: { name: true } } } });
+    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, sectionTimes: true, location: true, rotationType: true } } } } } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
@@ -190,10 +191,11 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
     for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
     for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
+    const { hosts: siteHosts, rotations } = await clinicalHostsFor(institutionId, program.familyId);
     const rows = planMeetings({
       cohortId: cohort.id, seats: Math.round(t.capacity), cohortStartMs: startD.getTime(),
-      terms: program.terms.map((term, i) => ({ id: term.id, index: term.index, startWeek: term.startWeek, endWeek: term.endWeek, startMs: termStarts[i].getTime(), courses: term.courses })),
-      rooms, hostIds,
+      terms: program.terms.map((term, i) => ({ id: term.id, index: term.index, startWeek: term.startWeek, endWeek: term.endWeek, startMs: termStarts[i].getTime(), endMs: aligned.terms.find((x) => x.termId === term.id)?.endIso ? new Date(aligned.terms.find((x) => x.termId === term.id)!.endIso + "T00:00:00Z").getTime() : null, courses: term.courses })),
+      rooms, hostIds, hosts: siteHosts, rotations,
     });
     for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
     offerings++; meetings += rows.length;

@@ -13,6 +13,11 @@ describe("session times read from the sheet's notes", () => {
     expect(startOfRange("10 to 1pm")).toBe("10:00");
     expect(startOfRange("Precepted 8am to 3:30pm + out rotations")).toBe("08:00");
     expect(startOfRange("12:30p - 4:10p + online")).toBe("12:30");
+    expect(startOfRange("Friday 6:30-12:30")).toBe("06:30");
+    expect(startOfRange("10-1")).toBe("10:00");
+    expect(startOfRange("1-3")).toBe("13:00");
+    expect(startTimeFromNotes("M, T, 8:30 am – 3:00 pm & Friday 6:30-12:30; 2.5 hrs online", "Fri")).toBe("06:30");
+    expect(startTimeFromNotes("M, T, 8:30 am – 3:00 pm & Friday 6:30-12:30; 2.5 hrs online", "Tue")).toBe("08:30");
   });
   it("does not mistake durations or counts for times", () => {
     expect(startOfRange("T & Th, 7.5 hrs /day, precepted")).toBeNull();

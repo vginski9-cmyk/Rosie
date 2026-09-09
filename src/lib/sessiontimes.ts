@@ -30,7 +30,7 @@ export function startOfRange(text: string | null | undefined): string | null {
   if (sAp) pm = sAp.startsWith("p");
   else if (eAp.startsWith("a")) pm = false;
   else if (eAp.startsWith("p")) pm = sh === 12 ? true : eh === 12 ? false : sh < eh ? true : false; // "10 to 1pm" is 10am; "1:40 to 4:30p" is pm; "12:30 to 1:30pm" is pm
-  else pm = !(sh >= 7 && sh <= 11); // no meridiem anywhere: mornings 7–11, else afternoon
+  else pm = sh < eh || eh === 12 ? !(sh >= 5 && sh <= 11) : false; // no meridiem anywhere: "6:30-12:30" is morning; "10-1" crosses noon so 10 is am; "1-3" is afternoon
   let h = sh % 12; if (pm) h += 12;
   return hhmm(h, sm);
 }
