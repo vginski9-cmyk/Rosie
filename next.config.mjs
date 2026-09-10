@@ -20,6 +20,9 @@ const nextConfig = {
   },
   experimental: {
     serverComponentsExternalPackages: ["xlsx"],
+    // Server actions default to a 1 MB body. Workbook imports can run past that;
+    // 4 MB stays under the hosting platform's request cap.
+    serverActions: { bodySizeLimit: "4mb" },
   },
   ...(demo
     ? {

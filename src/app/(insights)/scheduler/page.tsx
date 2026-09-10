@@ -1,4 +1,5 @@
 import { getCapacityModel, getSchedulerData } from "@/lib/queries";
+import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 
 export const dynamic = "force-dynamic";
@@ -9,11 +10,8 @@ export const dynamic = "force-dynamic";
 export default async function SchedulerPage() {
   const data = await getCapacityModel();
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
-  const starts = data.cohorts.flatMap((c) => Object.values(c.termStartByIndex).filter((v): v is string => !!v)).sort();
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const from = starts[0]?.slice(0, 10) ?? todayIso;
-  const last = starts[starts.length - 1]?.slice(0, 10) ?? todayIso;
-  const to = new Date(new Date(last + "T00:00:00Z").getTime() + 20 * 7 * 86400000).toISOString().slice(0, 10);
+  // The same window the apply action rebuilds the plan in — see lib/schedulerplan.
+  const { from, to } = schedulerWindow(data.cohorts);
   const sched = await getSchedulerData(data.institution.id, from, to);
   return (
     <div className="space-y-6">

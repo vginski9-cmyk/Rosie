@@ -8,12 +8,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { buildInstances, type CohortCalendarInput, type DatedInstance } from "@/lib/capacitymodel";
-import { demandUnits, recommendPlan, DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment } from "@/lib/scheduler";
+import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment } from "@/lib/scheduler";
+import { schedulerDemand, filterDemand, planFor } from "@/lib/schedulerplan";
 import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
-import { applySchedulerPlan, clearSchedulerPlan } from "@/lib/actions";
+import { applySchedulerLevers, clearSchedulerPlan } from "@/lib/actions";
 import { dec } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
@@ -36,21 +36,20 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
   const [planFilter, setPlanFilter] = useState<{ site: string; setting: string; cohort: string; q: string }>({ site: "", setting: "", cohort: "", q: "" });
-  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number } | null>(null);
+  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number } | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [showWhy, setShowWhy] = useState<string | null>(null);
 
-  // Demand: every dated clinical section of the selected offerings inside the window.
-  const rows: DatedInstance[] = useMemo(() => cohorts.flatMap((c) => buildInstances({
-    cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
-    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
-  } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null)), [cohorts]);
-  const familyByCohort = useMemo(() => Object.fromEntries(cohorts.map((c) => [c.cohortId, (c as unknown as { familyId?: string | null }).familyId ?? null])), [cohorts]);
-  const demandAll = useMemo(() => demandUnits(rows, rotations, cohorts.flatMap((c) => (c.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null }))), familyByCohort), [rows, rotations, cohorts, familyByCohort]);
-  const demand = useMemo(() => demandAll.filter((u) => (cohortFilter.size === 0 || cohortFilter.has(u.cohortId)) && u.date >= window.from && u.date <= window.to), [demandAll, cohortFilter, window]);
+  // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
+  // so what is on screen is what gets written.
+  const demandAll = useMemo(() => schedulerDemand(cohorts, rotations), [cohorts, rotations]);
+  const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: [...cohortFilter] }), [policy, window, cohortFilter]);
+  const demand = useMemo(() => filterDemand(demandAll, levers), [demandAll, levers]);
+  const supply = useMemo(() => ({ assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements }), [assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements]);
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
   const autoBookings = useMemo(() => bookings.filter((b) => b.note === AUTO_PLAN_NOTE), [bookings]);
 
-  const plan: Plan = useMemo(() => recommendPlan({ demand, assets, overrides, existingBookings: manualBookings, preceptors, instructors, students, familyAgreements, policy }), [demand, assets, overrides, manualBookings, preceptors, instructors, students, familyAgreements, policy]);
+  const plan: Plan = useMemo(() => planFor(demand, supply, policy), [demand, supply, policy]);
   const s = plan.summary;
   const settingName = (code: string) => plan.balance.find((b) => b.settingCode === code)?.setting ?? code;
   const weekMondays = useMemo(() => [...new Set(plan.weeks.map((w) => w.weekMonday))].sort(), [plan]);
@@ -60,11 +59,17 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const filteredPlan = useMemo(() => plan.assignments.filter((x) => (!planFilter.site || x.siteName === planFilter.site) && (!planFilter.setting || x.unit.settingCode === planFilter.setting) && (!planFilter.cohort || x.unit.cohortId === planFilter.cohort) && (!planFilter.q || `${x.unit.courseCode} ${x.unit.courseTitle} ${x.preceptorNames.join(" ")} ${x.instructorName ?? ""} ${x.asset.externalId ?? ""}`.toLowerCase().includes(planFilter.q.toLowerCase()))), [plan, planFilter]);
   const cohortIdsInPlan = useMemo(() => [...new Set(plan.assignments.map((x) => x.unit.cohortId))], [plan]);
 
+  // Apply sends the LEVERS, not the plan: the server rebuilds the same plan and writes it.
   const apply = () => startTransition(async () => {
-    const r = await applySchedulerPlan(institutionId, plan.assignments.map((x) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset })));
-    setApplied(r); router.refresh();
+    setApplyError(null);
+    try { const r = await applySchedulerLevers(institutionId, levers); setApplied(r); router.refresh(); }
+    catch (e) { setApplyError(e instanceof Error ? e.message : String(e)); }
   });
-  const clear = () => startTransition(async () => { await clearSchedulerPlan(cohortIdsInPlan.length ? cohortIdsInPlan : [...new Set(autoBookings.map((b) => b.cohortId))]); setApplied(null); router.refresh(); });
+  const clear = () => startTransition(async () => {
+    setApplyError(null);
+    try { await clearSchedulerPlan(cohortIdsInPlan.length ? cohortIdsInPlan : [...new Set(autoBookings.map((b) => b.cohortId))]); setApplied(null); router.refresh(); }
+    catch (e) { setApplyError(e instanceof Error ? e.message : String(e)); }
+  });
 
   const Lever = ({ label, children, hint }: { label: string; children: React.ReactNode; hint: string }) => (
     <label className="block rounded-lg border border-slate-200 bg-white px-2.5 py-1.5" title={hint}>
@@ -137,7 +142,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} sections`}</button>
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
           <span className="text-slate-500">
-            {applied ? <span className="text-emerald-700">Applied: {n0(applied.bookings)} bookings, {n0(applied.meetings)} sections pointed at their site, {n0(applied.placements)} student placements.</span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes bookings onto assets, points each section's calendar pattern at its site and lead preceptor, and gives every student a planned placement. Hand-made bookings are never touched."}
+            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings, {n0(applied.meetings)} sections pointed at their site, {n0(applied.placements)} student placements.</span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes bookings onto assets, points each section's calendar pattern at its site and lead preceptor, and gives every student a planned placement. Hand-made bookings are never touched."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
         </div>

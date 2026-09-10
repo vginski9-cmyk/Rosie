@@ -2177,6 +2177,23 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
   return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings };
 }
 
+/** Apply the scheduler's plan from its LEVERS. The browser sends only the policy,
+ *  the window and the chosen offerings; the plan itself is rebuilt here from the
+ *  same offerings and supply the board loaded, by the same pure steps, so it
+ *  matches what was on screen — and a 5,000-section plan never has to travel
+ *  as a request body (Next.js caps server-action bodies at 1 MB). */
+export async function applySchedulerLevers(institutionId: string, levers: import("./schedulerplan").SchedulerLevers): Promise<{ bookings: number; placements: number; meetings: number; sections: number }> {
+  const { getCapacityModel, getSchedulerData } = await import("./queries");
+  const { buildSchedulerPlan, planInputs, schedulerWindow } = await import("./schedulerplan");
+  const data = await getCapacityModel({ institutionId });
+  if (!data) return { bookings: 0, placements: 0, meetings: 0, sections: 0 };
+  const base = schedulerWindow(data.cohorts);
+  const supply = await getSchedulerData(data.institution.id, base.from, base.to);
+  const plan = buildSchedulerPlan(data.cohorts, supply, levers);
+  const r = await applySchedulerPlan(data.institution.id, planInputs(plan.assignments));
+  return { ...r, sections: plan.assignments.length };
+}
+
 /** AUTO-ASSIGN one offering end to end: calendarize, place every clinical
  *  section on partner assets, staff every shift under workload policies, and
  *  put every learner in sections and on their clinical shifts. Fills gaps only. */
