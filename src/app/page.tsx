@@ -15,6 +15,7 @@ const INSIGHTS: [string, string, string][] = [
   ["/insights/staffing-need", "Instructors & preceptors needed", "FTE by term and week, from every offering"],
   ["/insights/coverage", "Daily coverage", "who is where each day, and the gaps"],
   ["/scheduler", "Clinical scheduler", "clinical demand against site supply, week by week"],
+  ["/insights/site-load", "Clinical site load", "which sites carry the students, how full they run"],
   ["/insights/clinical-sites", "Clinical site capacity", "can the sites absorb the cohorts"],
   ["/utilization", "Room utilization", "campus rooms and labs by hour"],
   ["/semester", "Semester", "every offering running in one term"],

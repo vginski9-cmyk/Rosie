@@ -1,4 +1,4 @@
-import { getCapacityModel } from "@/lib/queries";
+import { getCapacityModel, datedStaffAssignments } from "@/lib/queries";
 import { CapacityBoard } from "@/components/CapacityBoard";
 
 export const dynamic = "force-dynamic";
@@ -6,13 +6,14 @@ export const dynamic = "force-dynamic";
 export default async function StaffingNeedPage() {
   const data = await getCapacityModel();
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
+  const assignments = await datedStaffAssignments({ institutionId: data.institution.id });
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Instructors &amp; preceptors needed</h1>
-        <p className="text-sm text-slate-500">Every bar is a real week; session hours become people through each program&apos;s workload assumptions, across every offering at {data.institution.name}.</p>
+        <p className="text-sm text-slate-500">Every bar is a real week; session hours become people through each program&apos;s workload assumptions, across every offering at {data.institution.name}. Click any bar to see which people fill it and what is still unfilled.</p>
       </div>
-      <CapacityBoard cohorts={data.cohorts} view="staffing" />
+      <CapacityBoard cohorts={data.cohorts} view="staffing" assignments={assignments} />
     </div>
   );
 }

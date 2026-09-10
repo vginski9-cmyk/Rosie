@@ -8,6 +8,8 @@ import {
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
 import { dec } from "@/lib/format";
+import { drillDown, type DrillAssignment, type DrillResult, type DrillScale } from "@/lib/staffingdrill";
+import type { ColLeaf } from "@/components/FteCharts";
 
 // The capacity workbook's three output tabs, on live data:
 //   staffing — "How many instructors and preceptors do we need, and when?"  (FTEs per Week)
@@ -107,7 +109,7 @@ function useSetFilter() {
   return useState<Set<string> | null>(null);
 }
 
-export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = [], collapsible = false }: { cohorts: CapacityCohort[]; view: CapacityView; sites?: ClinicalSite[]; rooms?: CalRoom[]; people?: CalPerson[]; collapsible?: boolean }) {
+export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = [], collapsible = false, assignments = [] }: { cohorts: CapacityCohort[]; view: CapacityView; sites?: ClinicalSite[]; rooms?: CalRoom[]; people?: CalPerson[]; collapsible?: boolean; /** Staff assignments (dated) — lets a staffing bar open to the people who fill it. */ assignments?: DrillAssignment[] }) {
   const [cohortsOn, setCohortsOn] = useState<Set<string>>(new Set(cohorts.map((c) => c.cohortId)));
   const [termsOn, setTermsOn] = useState<Set<number> | null>(null); // null = all
   // The sites view starts clinical-only (that's its subject); staffing and the
@@ -273,7 +275,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         </div>
       </div>
 
-      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} />}
+      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} assignments={assignments} assumptionsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.assumptions]))} />}
       {view === "sites" && <SitesView rows={instances} sites={sites} />}
       {view === "coverage" && <CoverageView rows={instances} cohorts={cohorts} rooms={rooms} people={people} sites={sites} />}
     </div>
@@ -285,8 +287,23 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
 // narrative with the conversion math, a what-to-do list with real deadlines,
 // then week-by-week (people OR contact hours, split class/lab/clinical) with a
 // day-by-day drill-down inside every week.
-function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null }) {
+function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null; assignments: DrillAssignment[]; assumptionsByCohort: Map<string, WorkloadAssumptions> }) {
   const weekly = useMemo(() => weeklyNeedByKind(rows), [rows]);
+  // Drill-down: the bar clicked (its rows), and who fills it.
+  const [drill, setDrill] = useState<{ key: string; label: string; scale: DrillScale } | null>(null);
+  const drillRows = useMemo(() => {
+    if (!drill) return [];
+    const [kind, ...parts] = drill.key.split("|");
+    if (kind === "sem") { const [year, sem, k] = parts; return rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem && r.session.kind === k); }
+    if (kind === "semall") { const [year, sem] = parts; return rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem); }
+    if (kind === "week") return rows.filter((r) => r.mondayIso === parts[0]);
+    if (kind === "rot") return rows.filter((r) => r.session.kind === "CLINICAL" && r.mondayIso === parts[0] && (r.session.rotationType ?? "(unspecified)") === parts[1]);
+    if (kind === "day") return rows.filter((r) => r.dateIso === parts[0]);
+    return [];
+  }, [drill, rows]);
+  const drillResult = useMemo(() => (drill ? drillDown(drillRows, assignments, assumptionsByCohort, drill.scale) : null), [drill, drillRows, assignments, assumptionsByCohort]);
+  const onLeaf = (scale: DrillScale) => (l: ColLeaf) => { if (!l.key) return; setDrill((d) => (d?.key === l.key ? null : { key: l.key!, label: l.title ?? l.label, scale })); };
+  const drillPanel = (prefix: string) => drill && drill.key.startsWith(prefix) && drillResult ? <StaffingDrill label={drill.label} r={drillResult} hasAssignments={assignments.length > 0} onClose={() => setDrill(null)} /> : null;
   const weeklyByIso = useMemo(() => new Map(weekly.map((w) => [w.mondayIso, w])), [weekly]);
   const [closedTerms, setClosedTerms] = useState<Set<number>>(new Set());
   // Same three altitudes as the calendar: semester (budget), week (shape of
@@ -382,7 +399,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, kinds]) => ({
         label: sem, sub: spanOf(year, sem),
         leaves: KIND_ORDER.filter((k) => kinds.has(k)).map((k) => ({
-          label: KIND_NAME[k], title: `${sem} ${year} (${spanOf(year, sem) ?? ""}) · ${KIND_NAME[k]}`, values: kinds.get(k)!,
+          label: KIND_NAME[k], title: `${sem} ${year} (${spanOf(year, sem) ?? ""}) · ${KIND_NAME[k]}`, values: kinds.get(k)!, key: `sem|${year}|${sem}|${k}`,
         })),
       })),
     }));
@@ -405,7 +422,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
       groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, wks]) => ({
         label: sem,
         leaves: [...wks.keys()].sort().map((w) => ({
-          label: fmtMD(w), title: `${sem} ${year} · week of ${fmtDateM(w)}`, values: wks.get(w)!,
+          label: fmtMD(w), title: `${sem} ${year} · week of ${fmtDateM(w)}`, values: wks.get(w)!, key: `week|${w}`,
         })),
       })),
     }));
@@ -438,7 +455,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
         leaves: [...weeks.get(w)!.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([rot, cell]) => ({
           label: `${rot}${cell.when.size ? ` — ${[...cell.when].sort().join(" · ")}` : ""}`,
           title: `Week of ${fmtDateM(w)} · ${rot}${cell.when.size ? ` (${[...cell.when].sort().join(", ")})` : ""}`,
-          values: cell.v,
+          values: cell.v, key: `rot|${w}|${rot}`,
         })),
       })),
     }));
@@ -495,7 +512,9 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
           <h2 className="text-sm font-semibold text-slate-700">Faculty &amp; preceptor FTEs per semester</h2>
           <p className="text-[11px] text-slate-400">The budgeting view: semesterly FTE (contact hours ÷ a full-timer&apos;s semester) by year, semester and session type. Tall clinical bars = where preceptor agreements and clinical faculty lines must be funded.</p>
         </div>
-        <ColumnChart bands={semBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="semesterly" leafMinWidth={46} />
+        <ColumnChart bands={semBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="semesterly" leafMinWidth={46} onLeafClick={onLeaf("semesterly")} activeKey={drill?.key} />
+        <p className="mt-1 text-[11px] text-slate-400">Click a column to see who fills it.</p>
+        {drillPanel("sem")}
       </section>
 
       </>)}
@@ -508,7 +527,9 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
           <h2 className="text-sm font-semibold text-slate-700">Faculty &amp; preceptor FTEs per week of term</h2>
           <p className="text-[11px] text-slate-400">The scheduling view: weekly FTE by week of term within each semester — the shape of the load. Where orange overtakes blue, clinicals start and preceptors become the constraint.</p>
         </div>
-        <ColumnChart bands={weekBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={34} />
+        <ColumnChart bands={weekBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={34} onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
+        <p className="mt-1 text-[11px] text-slate-400">Click a week to see who fills it.</p>
+        {drillPanel("week")}
       </section>
 
       {/* ── Clinical staffing by rotation type — where to shore up ── */}
@@ -518,7 +539,8 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
             <h2 className="text-sm font-semibold text-slate-700">Clinical staffing by rotation type — real weeks, days &amp; times</h2>
             <p className="text-[11px] text-slate-400">The clinical-coordinator view: which rotation settings need clinical faculty and preceptors in each real calendar week — each column names the setting and the days &amp; times its shifts run, grouped by week, semester and year. Take a column to that setting&apos;s partner sites.</p>
           </div>
-          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={40} vertLeafLabels />
+          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={40} vertLeafLabels onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
+          {drillPanel("rot")}
         </section>
       )}
 
@@ -566,6 +588,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
                       {/* Week header — the FTE math for this week, in numbers */}
                       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 bg-slate-50 px-4 py-1.5 text-[11px]">
                         <span className="font-semibold text-slate-700">Week of {fmtDateM(wk.mondayIso)}</span>
+                        <button onClick={() => setDrill((d) => (d?.key === `week|${wk.mondayIso}` ? null : { key: `week|${wk.mondayIso}`, label: `Week of ${fmtDateM(wk.mondayIso)}`, scale: "weekly" }))} className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${drill?.key === `week|${wk.mondayIso}` ? "bg-rose-600 text-white" : "bg-white text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50"}`}>who fills this week ▾</button>
                         {wfte && (
                           <span className="tabular-nums text-slate-500">
                             instructors <strong className="text-slate-800">{n1(wfte.totalFacFte)} FTE → {wfte.facultyHeads} {wfte.facultyHeads === 1 ? "person" : "people"}</strong>
@@ -574,6 +597,8 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
                           </span>
                         )}
                       </div>
+                      {drill?.key === `week|${wk.mondayIso}` && drillResult && <div className="px-4 pt-3"><StaffingDrill label={`Week of ${fmtDateM(wk.mondayIso)}`} r={drillResult} hasAssignments={assignments.length > 0} onClose={() => setDrill(null)} /></div>}
+                      {drill?.key.startsWith("day|") && wk.days.some((d) => drill.key === `day|${d.dateIso}`) && drillResult && <div className="px-4 pt-3"><StaffingDrill label={fmtDate(drill.key.slice(4))} r={drillResult} hasAssignments={assignments.length > 0} onClose={() => setDrill(null)} /></div>}
                       {/* Day columns: one vertical bar per instance — height = shift length */}
                       <div className="overflow-x-auto px-4 py-3">
                         <div className="flex items-end gap-5">
@@ -606,7 +631,7 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
                                   })}
                                 </div>
                                 <div className="mt-1 border-t-2 border-slate-300 pt-1 text-center text-[10px] font-semibold text-slate-700">
-                                  {fmtDay(dateIso)}
+                                  <button onClick={() => setDrill((d) => (d?.key === `day|${dateIso}` ? null : { key: `day|${dateIso}`, label: fmtDate(dateIso), scale: "weekly" }))} className={`rounded px-1 ${drill?.key === `day|${dateIso}` ? "bg-rose-600 text-white" : "hover:bg-rose-50 hover:text-rose-700"}`} title="who fills this day">{fmtDay(dateIso)} ▾</button>
                                   <span className="block text-[9px] font-normal text-slate-500">
                                     {n0(shifts)} shift{shifts === 1 ? "" : "s"} · {n1(inst)} inst{pre > 0 ? ` · ${n0(pre)} prec` : ""} · {n0(facH)}h fac{preH > 0 ? ` · ${n0(preH)}h prec` : ""}
                                   </span>
@@ -674,6 +699,63 @@ function StaffingView({ rows, assumptions }: { rows: DatedInstance[]; assumption
   );
 }
 
+
+// ───────────── Who fills a bar — the drill-down under every staffing chart ─────────────
+function StaffingDrill({ label, r, hasAssignments, onClose }: { label: string; r: DrillResult; hasAssignments: boolean; onClose: () => void }) {
+  const [side, setSide] = useState<"all" | "faculty" | "preceptor">("all");
+  const unit = r.scale === "weekly" ? "weekly FTE" : "semester FTE";
+  const people = r.people.filter((p) => side === "all" || p.side === side);
+  const pct = (v: number, of: number) => (of > 0 ? Math.min(100, Math.round((v / of) * 100)) : 0);
+  const Bar = ({ need, have, color, name }: { need: number; have: number; color: string; name: string }) => (
+    <div className="min-w-[14rem] flex-1 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-baseline justify-between text-xs"><span className="font-semibold text-slate-800">{name}</span><span className="tabular-nums text-slate-600"><strong className="text-slate-900">{n1(have)}</strong> of {n1(need)} {unit}</span></div>
+      <div className="mt-1 h-2 overflow-hidden rounded bg-slate-100"><div className="h-full" style={{ width: `${pct(have, need)}%`, background: color }} /></div>
+      <div className="mt-1 text-[11px] text-slate-500">{need <= 0 ? "nothing needed" : have >= need - 1e-9 ? "covered" : <><span className="font-medium text-rose-600">{n1(need - have)} {unit} unfilled</span> · {Math.ceil(need - 1e-9)} people needed, {r.scale === "weekly" ? "" : ""}{name === "Faculty" ? r.assigned.facultyPeople : r.assigned.preceptorPeople} assigned</>}</div>
+    </div>
+  );
+  return (
+    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-slate-800">{label} <span className="font-normal text-slate-500">— who fills it · {n0(r.need.shifts)} shift{r.need.shifts === 1 ? "" : "s"} across {r.need.instances} session{r.need.instances === 1 ? "" : "s"}</span></div>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-[11px]">{(["all", "faculty", "preceptor"] as const).map((v) => <button key={v} onClick={() => setSide(v)} className={`px-2 py-1 capitalize ${side === v ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{v === "all" ? "everyone" : v === "faculty" ? "faculty" : "preceptors"}</button>)}</div>
+          <button onClick={onClose} className="text-xs text-slate-400 hover:text-rose-600">close ✕</button>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-3">
+        {(side !== "preceptor") && <Bar need={r.need.faculty} have={r.assigned.faculty} color={FAC_COLOR} name="Faculty" />}
+        {(side !== "faculty") && <Bar need={r.need.preceptor} have={r.assigned.preceptor} color={PRE_COLOR} name="Preceptors" />}
+      </div>
+      {!hasAssignments ? <p className="mt-2 text-xs text-amber-700">No one is assigned yet — staff the sessions on the offering (Staffing) or run auto-assign, and this fills in.</p> : people.length === 0 ? <p className="mt-2 text-xs text-amber-700">Nobody is assigned to these sessions on these dates yet.</p> : (
+        <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">Person</th><th className="px-2 py-1.5 text-left">Role</th><th className="px-2 py-1.5 text-left">Where from</th><th className="px-2 py-1.5 text-right">{unit}</th><th className="px-2 py-1.5 text-right">Share</th><th className="px-2 py-1.5 text-right">Contact h</th><th className="px-2 py-1.5 text-right">Shifts</th><th className="px-2 py-1.5 text-left">Days</th><th className="px-2 py-1.5 text-left">Courses · cohorts</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {people.map((p) => { const total = p.side === "faculty" ? r.assigned.faculty : r.assigned.preceptor; return (
+                <tr key={p.personId}>
+                  <td className="px-3 py-1 font-medium text-slate-800">{p.name}</td>
+                  <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.side === "preceptor" ? "bg-orange-100 text-orange-700" : "bg-sky-100 text-sky-700"}`}>{p.role}</span>{p.employmentType ? <span className="ml-1 text-[10px] text-slate-400">{p.employmentType}</span> : null}</td>
+                  <td className="px-2 py-1 text-slate-600">{p.employer ?? "campus"}</td>
+                  <td className="px-2 py-1 text-right font-semibold tabular-nums text-slate-900">{n1(p.fte)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-slate-500">{total > 0 ? `${Math.round((p.fte / total) * 100)}%` : "—"}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-slate-600">{n1(p.contactHours)}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-slate-600">{p.shifts}</td>
+                  <td className="px-2 py-1 text-slate-500">{p.days.length <= 3 ? p.days.map(fmtMD).join(", ") : `${p.days.length} days`}</td>
+                  <td className="px-2 py-1 text-slate-500">{p.courses.join(", ")}{p.cohorts.length ? ` · ${p.cohorts.join(", ")}` : ""}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {hasAssignments && r.uncovered.length > 0 && (
+        <details className="mt-2 text-xs"><summary className="cursor-pointer font-medium text-rose-700">{r.uncovered.length} session{r.uncovered.length === 1 ? "" : "s"} with nobody assigned ▸</summary>
+          <ul className="mt-1 space-y-0.5 text-slate-600">{r.uncovered.slice(0, 30).map((u, i) => <li key={i}>{u.dateIso ? fmtDay(u.dateIso) : "undated"} · {u.courseCode ?? ""} {u.title ?? ""} · {u.kind.toLowerCase()} · {n0(u.sections)} section{u.sections === 1 ? "" : "s"} · {u.cohort}</li>)}{r.uncovered.length > 30 && <li className="text-slate-400">+{r.uncovered.length - 30} more</li>}</ul>
+        </details>
+      )}
+    </div>
+  );
+}
 
 // ───────────── Staffing orders — statement first: how many people, at which times ─────────────
 const ceilP = (v: number) => Math.max(0, Math.ceil(v - 1e-9));

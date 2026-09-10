@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getFamilySupply, getAccreditorCapacity, getFamilyClinicalRules, getFamilyClinicalSetup } from "@/lib/queries";
 import { RequirementsPanel } from "@/components/RequirementsPanel";
@@ -30,6 +31,7 @@ export async function FamilyClinicalHub({ familyId, base }: { familyId: string; 
         {score && score.required > 0 && <a href="#requirements" className={`rounded-full px-2.5 py-1 font-medium ${score.requiredCovered === score.required ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{score.requiredCovered} of {score.required} required experiences have a secured provider{score.unverified ? ` · ${score.unverified} unconfirmed` : ""}</a>}
         {fam.accreditor && <a href="#accreditor" className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 hover:bg-slate-200">{fam.accreditor}: {setup.totals.recognized} recognized · {setup.totals.approvedTotal} students approved at once{fam.accreditedCapacity != null ? ` of ${fam.accreditedCapacity}` : ""}</a>}
         <a href="#rules" className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 hover:bg-slate-200">availability counted by {fam.capacityBasis}</a>
+        <Link href="/insights/site-load" className="rounded-full bg-white px-2.5 py-1 text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50">which sites carry the load →</Link>
       </div>
 
       <section id="requirements" className="scroll-mt-16 space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

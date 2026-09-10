@@ -7,7 +7,7 @@ import { dec } from "@/lib/format";
 // validated faculty-blue / preceptor-orange pair.
 
 export interface ColSeries { name: string; color: string }
-export interface ColLeaf { label: string; values: number[]; title?: string }
+export interface ColLeaf { label: string; values: number[]; title?: string; /** Identifies the leaf to a click handler. */ key?: string }
 export interface ColGroup { label: string; sub?: string; leaves: ColLeaf[] }
 export interface ColBand { label: string; groups: ColGroup[] }
 
@@ -17,7 +17,7 @@ const fmtV = (v: number) => {
 };
 
 export function ColumnChart({
-  bands, series, height = 150, leafMinWidth = 40, vertLeafLabels = false, unit,
+  bands, series, height = 150, leafMinWidth = 40, vertLeafLabels = false, unit, onLeafClick, activeKey,
 }: {
   bands: ColBand[];
   series: ColSeries[];
@@ -26,6 +26,10 @@ export function ColumnChart({
   /** Rotate leaf labels 90° (long names, e.g. rotation types). */
   vertLeafLabels?: boolean;
   unit?: string;
+  /** Click a column to drill into it (who fills it). */
+  onLeafClick?: (leaf: ColLeaf) => void;
+  /** The leaf currently drilled into — drawn highlighted. */
+  activeKey?: string | null;
 }) {
   const leaves = bands.flatMap((b) => b.groups.flatMap((g) => g.leaves));
   const max = Math.max(0.001, ...leaves.flatMap((l) => l.values));
@@ -52,7 +56,7 @@ export function ColumnChart({
                 {b.groups.map((g, gi) => (
                   <div key={gi} className={`flex ${gi > 0 ? "border-l border-slate-100" : ""}`}>
                     {g.leaves.map((l, li) => (
-                      <div key={li} className="flex flex-col justify-end px-1" style={{ minWidth: leafMinWidth }}>
+                      <div key={li} role={onLeafClick ? "button" : undefined} tabIndex={onLeafClick ? 0 : undefined} onClick={onLeafClick ? () => onLeafClick(l) : undefined} onKeyDown={onLeafClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLeafClick(l); } } : undefined} className={`flex flex-col justify-end px-1 ${onLeafClick ? "cursor-pointer rounded-t hover:bg-rose-50/70" : ""} ${activeKey && l.key === activeKey ? "bg-rose-50 ring-2 ring-rose-400" : ""}`} style={{ minWidth: leafMinWidth }} title={onLeafClick ? `${l.title ?? l.label} — click to see who fills it` : undefined}>
                         <div className="flex items-end justify-center gap-[2px]" style={{ height }}>
                           {series.map((s, si) => {
                             const v = l.values[si] ?? 0;

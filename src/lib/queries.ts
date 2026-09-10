@@ -2298,7 +2298,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
       ...(where.institutionId ? { person: { institutionId: where.institutionId } } : {}),
     },
     include: {
-      person: { select: { id: true, name: true } },
+      person: { select: { id: true, name: true, employmentType: true, employer: { select: { name: true } } } },
       session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } } } } } },
       cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true, semester: true, term: { select: { startWeek: true, endWeek: true } } } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
     },
@@ -2315,7 +2315,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     const termKey = termStart ? `${seasonOfTerm({ semester: ct?.semester, name: null }, termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
     const year = dateIso ? Number(dateIso.slice(0, 4)) : termStart ? termStart.getUTCFullYear() : null;
     return {
-      id: r.id, personId: r.personId, personName: r.person.name, role: r.role, contactHours: r.contactHours, startOffsetMin: r.startOffsetMin, segment: r.segment, sectionIndex: r.sectionIndex,
+      id: r.id, personId: r.personId, personName: r.person.name, employerName: r.person.employer?.name ?? null, employmentType: r.person.employmentType, role: r.role, contactHours: r.contactHours, startOffsetMin: r.startOffsetMin, segment: r.segment, sectionIndex: r.sectionIndex,
       sessionId: r.sessionId, dateIso, termKey, year, cohortId: r.cohortId!, cohortName: r.cohort?.name ?? "", programName: r.cohort?.program.name ?? "", courseCode: r.session.course.code, courseName: r.session.course.name, kind: r.session.kind,
       termIndex: r.session.course.term.index,
     };
@@ -2751,4 +2751,50 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
     };
   });
   return { cohort: { id: co.id, name: co.name, program: co.program.name }, course: course ? { id: course.id, code: course.code, name: course.name } : null, rows };
+}
+
+/** Every clinical student-shift at the institution as a site-load row, plus each site's seats in the program's settings. */
+export async function getSiteLoad(institutionId?: string) {
+  const inst = institutionId
+    ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
+    : await prisma.institution.findFirst({ where: { programs: { some: { cohorts: { some: { status: { in: ["planned", "active"] } } } } } }, orderBy: { name: "asc" }, select: { id: true, name: true } }) ?? await prisma.institution.findFirst({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+  if (!inst) return null;
+  const cohorts = await prisma.cohort.findMany({
+    where: { program: { institutionId: inst.id }, status: { in: ["planned", "active", "completed"] } },
+    select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true, family: { select: { id: true, name: true, serviceAreas: { select: { settingCodes: true } }, requirementSets: { select: { items: { select: { settingCodes: true } } } }, familySites: { select: { employerId: true, agreementStatus: true } } } } } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, staffPersonId: true, staff: { select: { name: true } } } } },
+  });
+  const employers = await prisma.employer.findMany({ where: { institutionId: inst.id }, select: { id: true, name: true, organization: true, county: true, ring: true, facilityType: true, driveMinutes: true, agreementStatus: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true, shiftBlocks: true } }, people: { where: { active: true, role: "preceptor" }, select: { id: true } } } });
+  const empById = new Map(employers.map((e) => [e.id, e]));
+  const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
+  const rows: import("./siteload").LoadRow[] = [];
+  const seatsByFamilySite = new Map<string, import("./siteload").SiteSeats>();
+  for (const co of cohorts) {
+    const { dates } = await sessionDatesForCohort(co.id);
+    const fam = co.program.family;
+    const settingSet = fam ? familySettingSet(fam, { sets: fam.requirementSets }) : new Set<string>();
+    const agreementBy = new Map((fam?.familySites ?? []).map((f) => [f.employerId, f.agreementStatus]));
+    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
+    for (const s of shifts) {
+      const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
+      const employerId = s.asset?.employerId ?? m?.employerId ?? null;
+      const e = employerId ? empById.get(employerId) : undefined;
+      if (e && fam && !seatsByFamilySite.has(`${fam.id}|${e.id}`)) {
+        const seats = e.assets.filter((a) => (settingSet.size === 0 || settingSet.has(a.settingCode)) && a.shiftBlocks.split(",").map((x) => x.trim()).includes("Day")).reduce((n, a) => n + a.learnersPerShift, 0);
+        seatsByFamilySite.set(`${fam.id}|${e.id}`, { employerId: e.id, seatsPerDay: seats, preceptorsOnRecord: e.people.length });
+      }
+      rows.push({
+        studentId: s.studentId, student: s.student.name, cohortId: co.id, cohort: co.name, programId: co.program.id, program: co.program.name, familyId: fam?.id ?? null, family: fam?.name ?? null,
+        course: s.session.course.code ?? s.session.course.name, term: s.session.course.term.name,
+        date: dates.get(s.session.id) ?? null, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.session.lengthHours, status: s.status,
+        employerId, site: e?.name ?? "site TBD", system: e?.organization ?? null, county: e?.county ?? null, ring: e?.ring ?? null, facilityType: e?.facilityType ?? null, driveMinutes: e?.driveMinutes ?? null,
+        setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
+        preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,
+        agreement: employerId ? agreementBy.get(employerId) ?? e?.agreementStatus ?? "none" : "none",
+      });
+    }
+  }
+  // Seats per site: the largest program-specific figure (a site's OR suites serve surg tech, its rooms serve radiography).
+  const seats = new Map<string, import("./siteload").SiteSeats>();
+  for (const s of seatsByFamilySite.values()) { const cur = seats.get(s.employerId); if (!cur || s.seatsPerDay > cur.seatsPerDay) seats.set(s.employerId, s); }
+  return { institution: inst, rows, seats: [...seats.values()], programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
 }

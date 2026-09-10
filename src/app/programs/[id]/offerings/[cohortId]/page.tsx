@@ -320,7 +320,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
             {capCohort && (
               <div>
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">How many, and when</div>
-                <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} />
+                <CapacityBoard cohorts={[capCohort]} view="staffing" sites={sites} assignments={staffing?.assignments ?? []} />
               </div>
             )}
             {staffing && (

@@ -8,6 +8,7 @@ const TABS: { label: string; href: string }[] = [
   { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
   { label: "Daily coverage", href: "/insights/coverage" },
   { label: "Clinical scheduler", href: "/scheduler" },
+  { label: "Clinical site load", href: "/insights/site-load" },
   { label: "Clinical site capacity", href: "/insights/clinical-sites" },
   { label: "Room utilization", href: "/utilization" },
   { label: "Asset supply", href: "/supply" },
