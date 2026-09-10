@@ -41,6 +41,8 @@ export interface RotationSite {
   casesPerDay: number | null;
   /** Annual surgical case volume, the fallback for casesPerDay. */
   annualSurgicalCases: number | null;
+  /** The facility's own operating days a year (from the capacity tracker); blank = the family's case days. */
+  operatingDaysPerYear?: number | null;
   /** Qualified staff on shift during student hours (nurse aide / nursing: students per staff). */
   qualifiedStaffOnShift: number | null;
   /** Days and shift blocks students may attend here for this family; empty = whatever the assets run. */
@@ -123,7 +125,7 @@ function supply(input: RotationInput) {
   const basisCap = (site: RotationSite | undefined, settingCode: string): number => {
     if (!site) return Infinity;
     if (pol.basis === "cases" && pol.caseSettings.includes(settingCode)) {
-      const perDay = site.casesPerDay ?? (site.annualSurgicalCases != null ? site.annualSurgicalCases / Math.max(1, pol.caseDaysPerYear) : null);
+      const perDay = site.casesPerDay ?? (site.annualSurgicalCases != null ? site.annualSurgicalCases / Math.max(1, site.operatingDaysPerYear ?? pol.caseDaysPerYear) : null);
       if (perDay == null || pol.casesPerStudentDay <= 0) return Infinity;
       return Math.max(0, Math.floor(perDay / pol.casesPerStudentDay));
     }

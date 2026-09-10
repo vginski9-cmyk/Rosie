@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "./db";
+import { SCRUB_ROLES, joinScrubRoles } from "./surgvolume";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { STAGES } from "./funnel";
@@ -603,7 +604,7 @@ export async function saveSiteProvisions(familyId: string, employerId: string, f
     if (st === "assets" || st === "") { await prisma.siteRequirementProvision.deleteMany({ where: { employerId, itemId } }); continue; }
     if (!["provides", "limited", "none"].includes(st)) continue;
     const vol = str(formData.get(`vol_${itemId}`));
-    const data = { status: st, annualVolume: vol === "" ? null : Math.max(0, Math.round(numOr(vol, 0))), studentRole: str(formData.get(`role_${itemId}`)) || null, source: str(formData.get(`src_${itemId}`)) === "ESTIMATE" ? "ESTIMATE" : "VERIFIED", notes: str(formData.get(`note_${itemId}`)) || null };
+    const data = { status: st, annualVolume: vol === "" ? null : Math.max(0, Math.round(numOr(vol, 0))), studentRole: joinScrubRoles(SCRUB_ROLES.filter((r) => !!formData.get(`role_${itemId}_${r.replace(/ /g, "_")}`))), source: str(formData.get(`src_${itemId}`)) === "ESTIMATE" ? "ESTIMATE" : "VERIFIED", notes: str(formData.get(`note_${itemId}`)) || null };
     await prisma.siteRequirementProvision.upsert({ where: { employerId_itemId: { employerId, itemId } }, update: data, create: { employerId, itemId, ...data } });
   }
   revalidateFamilySite(familyId, employerId);
@@ -1060,6 +1061,8 @@ export async function updateEmployer(employerId: string, formData: FormData): Pr
       county: str(formData.get("county")) || null,
       licensedBeds: intOr("licensedBeds"), nursingHomeBeds: intOr("nursingHomeBeds"), adultCareBeds: intOr("adultCareBeds"),
       operatingRooms: intOr("operatingRooms"), annualSurgicalCases: intOr("annualSurgicalCases"),
+      inpatientSurgicalCases: intOr("inpatientSurgicalCases"), ambulatorySurgicalCases: intOr("ambulatorySurgicalCases"), operatingDaysPerYear: intOr("operatingDaysPerYear"),
+      surgicalCaseSource: str(formData.get("surgicalCaseSource")) || null,
       agreementStatus: str(formData.get("agreementStatus")) || "none",
       agreementNotes: str(formData.get("agreementNotes")) || null,
     },

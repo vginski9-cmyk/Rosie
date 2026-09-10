@@ -7,6 +7,7 @@ import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { SiteProvisionChecklist } from "@/components/SiteProvisionChecklist";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
 import { dec } from "@/lib/format";
+import { avgCasesPerDay, caseVolumeLine } from "@/lib/surgvolume";
 
 // ONE SITE, SET UP FOR ONE PROGRAM — in the order a coordinator fills it in: where it is,
 // the agreement, the accreditor's recognition, the availability agreed, its assets and shift
@@ -51,7 +52,8 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
     { key: "provides", label: "experiences confirmed", done: score.required > 0 && score.unverified === 0 && score.unknown === 0, href: "#provides" },
   ];
   const days = csv(fs?.daysAllowed), blocks = csv(fs?.blocksAllowed);
-  const impliedCases = fs?.casesPerDay ?? (site.annualSurgicalCases != null ? site.annualSurgicalCases / Math.max(1, fam.caseDaysPerYear ?? 250) : null);
+  const impliedCases = fs?.casesPerDay ?? avgCasesPerDay(site, fam.caseDaysPerYear ?? 250);
+  const volumeLine = caseVolumeLine(site, fam.caseDaysPerYear ?? 250);
   let n = 0; const next = () => ++n;
 
   return (
@@ -101,9 +103,10 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
       )}
 
       <Section id="availability" n={next()} title={`Availability agreed for ${fam.name}`} sub={fam.capacityBasis === "cases" ? `counted by cases: daily cases ÷ ${dec(fam.casesPerStudentDay ?? 2)} per student-day` : fam.capacityBasis === "staff" ? `counted by staff: qualified staff on shift × ${dec(fam.studentsPerStaff ?? 1)} students` : `counted by seats on the assets below, capped by students-at-once${fam.accreditor ? ` and the ${fam.accreditor} approval` : ""}`}>
+        {fam.capacityBasis === "cases" && (volumeLine ? <p className="mb-2 text-xs text-slate-600"><strong className="text-slate-800">Case volume on record:</strong> {volumeLine}{site.surgicalCaseSource ? <span className="text-slate-400"> · {site.surgicalCaseSource}</span> : null} · <Link href={`/employers/${site.id}`} className="text-rose-600 hover:underline">edit</Link></p> : <p className="mb-2 text-xs text-amber-700">No annual case volume on record for this site — enter it on the <Link href={`/employers/${site.id}`} className="text-rose-600 hover:underline">organization record</Link> so daily capacity can be estimated.</p>)}
         <form action={updateSiteAvailability.bind(null, fam.id, site.id)} className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-6">
           <label className="block"><span className={lbl}>Students at once</span><input name="studentsAtOnce" type="number" min="0" step="1" defaultValue={fs?.studentsAtOnce ?? ""} placeholder={fs?.approvedCapacity != null ? `${fs.approvedCapacity} (approved)` : "no cap"} className={inp + " w-full"} /></label>
-          {fam.capacityBasis === "cases" && <label className="block"><span className={lbl}>Cases per day here</span><input name="casesPerDay" type="number" min="0" step="any" defaultValue={fs?.casesPerDay ?? ""} placeholder={impliedCases != null ? `≈ ${dec(impliedCases, 1)} from annual volume` : "cases / day"} className={inp + " w-full"} /></label>}
+          {fam.capacityBasis === "cases" && <label className="block"><span className={lbl}>Cases per day here</span><input name="casesPerDay" type="number" min="0" step="any" defaultValue={fs?.casesPerDay ?? ""} placeholder={impliedCases != null ? `≈ ${dec(impliedCases, 1)} avg` : "cases / day"} className={inp + " w-full"} /></label>}
           {!fam.accreditor && <label className="block"><span className={lbl}>Qualified {d.discipline.label}s on shift</span><div className="flex gap-1"><input name="qualifiedStaffOnShift" type="number" min="0" step="1" defaultValue={fs?.qualifiedStaffOnShift ?? ""} className={inp + " w-full"} /><select name="staffCountSource" defaultValue={fs?.staffCountSource ?? "ESTIMATE"} className={inp}><option value="VERIFIED">verified</option><option value="ESTIMATE">estimate</option></select></div></label>}
           <div className="block lg:col-span-2"><span className={lbl}>Days <span className="font-normal normal-case text-slate-400">(blank = whenever the assets run)</span></span><div className="mt-1 flex flex-wrap gap-1">{DAYS.map((x) => <label key={x} className={`rounded px-1.5 py-0.5 ${days.includes(x) ? "bg-emerald-50 text-emerald-700" : "text-slate-500"}`}><input name={`day_${x}`} type="checkbox" defaultChecked={days.includes(x)} className="mr-0.5 align-middle" />{x}</label>)}</div></div>
           <div className="block"><span className={lbl}>Shifts</span><div className="mt-1 flex flex-wrap gap-1">{BLOCKS.map((x) => <label key={x} className={`rounded px-1.5 py-0.5 ${blocks.includes(x) ? "bg-emerald-50 text-emerald-700" : "text-slate-500"}`}><input name={`block_${x}`} type="checkbox" defaultChecked={blocks.includes(x)} className="mr-0.5 align-middle" />{x}</label>)}</div></div>

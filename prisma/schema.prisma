@@ -1218,6 +1218,12 @@ model Employer {
   adultCareBeds Int?
   operatingRooms Int?
   annualSurgicalCases Int?
+  /// Case volume detail from the facility capacity tracker (state-reported OR activity): the inpatient /
+  /// ambulatory split, the modeled operating days a year the average is taken over, and where it came from.
+  inpatientSurgicalCases  Int?
+  ambulatorySurgicalCases Int?
+  operatingDaysPerYear    Int?
+  surgicalCaseSource      String?
   /// Agreement lifecycle with THIS institution: none | prospect | asked | secured | declined
   agreementStatus String @default("none")
   agreementNotes  String?

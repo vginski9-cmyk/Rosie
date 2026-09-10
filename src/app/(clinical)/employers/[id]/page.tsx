@@ -8,6 +8,7 @@ import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
 import { Collapse } from "@/components/Collapse";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
+import { caseVolumeLine } from "@/lib/surgvolume";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
   const seatsBySetting: Record<string, number> = {}; for (const a of liveAssets) seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
   const rosterAssets = e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: e.agreementStatus, facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides }));
   const settings = SETTING_PRESETS.map(([code, name, assetType]) => ({ code, name, assetType }));
+  const volumeLine = caseVolumeLine(e);
 
   return (
     <div className="space-y-6">
@@ -51,6 +53,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             {e.ring ? <a href="#location" className={`rounded-full px-3 py-1 font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.driveMinutes != null ? ` · ${Math.round(e.driveMinutes)} min from campus` : ""}</a> : <a href="#location" className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">not located</a>}
             <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">{e.status}</span>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{liveAssets.length} assets · {e.people.length} people</span>
+            {volumeLine && <span className="rounded-full bg-violet-50 px-3 py-1 text-violet-800 ring-1 ring-violet-200" title={e.surgicalCaseSource ?? ""}>{volumeLine}</span>}
           </div>
         </div>
       </div>
@@ -98,7 +101,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       </section>
 
       {/* 3 · Details */}
-      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
+      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.annualSurgicalCases != null ? `${e.annualSurgicalCases.toLocaleString("en-US")} cases/yr` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
         <form action={updateEmployer.bind(null, e.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="name" label="Name" defaultValue={e.name} required />
           <Field name="organization" label="Organization / system" defaultValue={e.organization} />
@@ -114,6 +117,10 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           <Field name="licensedBeds" label="Licensed acute beds" type="number" defaultValue={e.licensedBeds != null ? String(e.licensedBeds) : ""} />
           <Field name="operatingRooms" label="Operating rooms" type="number" defaultValue={e.operatingRooms != null ? String(e.operatingRooms) : ""} />
           <Field name="annualSurgicalCases" label="Annual surgical cases" type="number" defaultValue={e.annualSurgicalCases != null ? String(e.annualSurgicalCases) : ""} />
+          <Field name="inpatientSurgicalCases" label="of which inpatient" type="number" defaultValue={e.inpatientSurgicalCases != null ? String(e.inpatientSurgicalCases) : ""} />
+          <Field name="ambulatorySurgicalCases" label="of which ambulatory" type="number" defaultValue={e.ambulatorySurgicalCases != null ? String(e.ambulatorySurgicalCases) : ""} />
+          <Field name="operatingDaysPerYear" label="Operating days a year" type="number" defaultValue={e.operatingDaysPerYear != null ? String(e.operatingDaysPerYear) : ""} />
+          <Field name="surgicalCaseSource" label="Case volume source / period" defaultValue={e.surgicalCaseSource} />
           <Field name="nursingHomeBeds" label="Nursing home beds" type="number" defaultValue={e.nursingHomeBeds != null ? String(e.nursingHomeBeds) : ""} />
           <Field name="adultCareBeds" label="Adult care beds" type="number" defaultValue={e.adultCareBeds != null ? String(e.adultCareBeds) : ""} />
           <label className="block"><span className={lbl}>Umbrella agreement</span><select name="agreementStatus" defaultValue={e.agreementStatus} className={inp}>{["none", "prospect", "asked", "secured", "declined"].map((a) => <option key={a} value={a}>{a}</option>)}</select></label>

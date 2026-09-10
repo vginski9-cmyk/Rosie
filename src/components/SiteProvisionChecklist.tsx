@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { saveSiteProvisions, confirmInferredProvisions } from "@/lib/actions";
 import type { getFamilySiteSetup } from "@/lib/queries";
+import { SCRUB_ROLES, parseScrubRoles } from "@/lib/surgvolume";
 
 // WHAT THIS SITE PROVIDES toward one program's completion requirements — item by item,
 // at the grain the credentialing body counts. Each row starts from what the asset map
@@ -40,7 +41,7 @@ export function SiteProvisionChecklist({ familyId, employerId, siteName, set, ki
         <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-              <tr><th className="min-w-[16rem] px-3 py-1.5 text-left">Experience</th><th className="px-2 py-1.5 text-left whitespace-nowrap">Settings · seats here</th><th className="px-2 py-1.5 text-left whitespace-nowrap">Now</th><th className="px-2 py-1.5 text-left">{siteName.length > 28 ? "This site" : siteName} …</th><th className="px-2 py-1.5 text-right">{cases ? "Cases / yr" : "Procedures / yr"}</th>{cases && <th className="px-2 py-1.5 text-left">Student may</th>}<th className="px-2 py-1.5 text-left">Basis</th><th className="px-2 py-1.5 text-left">Notes</th></tr>
+              <tr><th className="min-w-[16rem] px-3 py-1.5 text-left">Experience</th><th className="px-2 py-1.5 text-left whitespace-nowrap">Settings · seats here</th><th className="px-2 py-1.5 text-left whitespace-nowrap">Now</th><th className="px-2 py-1.5 text-left">{siteName.length > 28 ? "This site" : siteName} …</th><th className="px-2 py-1.5 text-right">{cases ? "Cases / yr" : "Procedures / yr"}</th>{cases && <th className="px-2 py-1.5 text-left">Student may (any that apply)</th>}<th className="px-2 py-1.5 text-left">Basis</th><th className="px-2 py-1.5 text-left">Notes</th></tr>
             </thead>
             <tbody>
               {set.categories.map((cat) => (
@@ -66,7 +67,7 @@ export function SiteProvisionChecklist({ familyId, employerId, siteName, set, ki
                             </select>
                           </td>
                           <td className="px-2 py-1 align-top text-right"><input name={`vol_${i.id}`} type="number" min="0" step="1" defaultValue={f.annualVolume ?? ""} placeholder="—" className={inp + " w-20 text-right"} /></td>
-                          {cases && <td className="px-2 py-1 align-top"><select name={`role_${i.id}`} defaultValue={f.studentRole ?? ""} className={inp}><option value="">—</option><option value="first scrub">first scrub</option><option value="second scrub">second scrub</option><option value="observe">observe only</option></select></td>}
+                          {cases && <td className="px-2 py-1 align-top whitespace-nowrap">{(() => { const on = parseScrubRoles(f.studentRole); return SCRUB_ROLES.map((r) => <label key={r} className="mr-2 inline-flex items-center gap-0.5 text-[11px] text-slate-700"><input type="checkbox" name={`role_${i.id}_${r.replace(/ /g, "_")}`} defaultChecked={on.includes(r)} />{r}</label>); })()}</td>}
                           <td className="px-2 py-1 align-top"><select name={`src_${i.id}`} defaultValue={f.basis === "estimate" ? "ESTIMATE" : "VERIFIED"} className={inp}><option value="VERIFIED">confirmed with site</option><option value="ESTIMATE">estimate</option></select></td>
                           <td className="px-2 py-1 align-top"><input name={`note_${i.id}`} defaultValue={f.notes ?? ""} placeholder={cases ? "e.g. Tue/Thu ortho block, students first-scrub after wk 6" : "e.g. 2 fluoro days a week; GI only"} className={inp + " w-52"} /></td>
                         </>}

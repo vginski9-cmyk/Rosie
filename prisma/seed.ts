@@ -21,6 +21,8 @@ import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src
 import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
+import { applySurgicalCaseVolumes } from "./seed-surg-cases";
+import { avgCasesPerDay } from "../src/lib/surgvolume";
 import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
 
 const prisma = new PrismaClient();
@@ -404,10 +406,13 @@ async function loadRadAssetMap(institutionId: string) {
   // (the partner workbook's total ORs). A radiography C-arm (setting OR) is a radiographer's asset and
   // never counts as an operating room for surgical technology; that is what setting ORS is for. Shift
   // structure is the usual weekday OR day (07:00 first case, 8 h), marked ESTIMATE until the site confirms.
-  const surgical = await prisma.employer.findMany({ where: { institutionId, operatingRooms: { gt: 0 } }, select: { id: true, externalId: true, name: true, operatingRooms: true, annualSurgicalCases: true, facilityType: true } });
+  // The facility capacity tracker's case volumes (OR inventory, inpatient / ambulatory / annual cases,
+  // operating days) go on first, so the suites below follow the tracker's OR counts.
+  console.log("surgical case volumes:", await applySurgicalCaseVolumes(prisma, institutionId));
+  const surgical = await prisma.employer.findMany({ where: { institutionId, operatingRooms: { gt: 0 } }, select: { id: true, externalId: true, name: true, operatingRooms: true, annualSurgicalCases: true, operatingDaysPerYear: true, facilityType: true } });
   for (const h of surgical) for (let n = 1; n <= (h.operatingRooms ?? 0); n++) {
     const asc = /surgery center|ambulatory/i.test(h.facilityType ?? "");
-    await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId ?? "S"}-ORS-${String(n).padStart(2, "0")}`, settingCode: "ORS", setting: "Operating room suite", assetType: asc ? "Ambulatory OR suite" : "OR suite", assetNumber: n, operatingRule: "Weekday Day", days: "Mon,Tue,Wed,Thu,Fri", shiftBlocks: "Day", hoursPerShift: 8, dayStart: "07:00", dayHours: 8, serves: h.annualSurgicalCases != null ? `Surgical cases — ${h.annualSurgicalCases} a year across ${h.operatingRooms} ORs` : "Surgical cases", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE", notes: "One suite per licensed OR on the facility record; confirm the OR day and which suites take students." } });
+    await prisma.clinicalAsset.create({ data: { employerId: h.id, externalId: `${h.externalId ?? "S"}-ORS-${String(n).padStart(2, "0")}`, settingCode: "ORS", setting: "Operating room suite", assetType: asc ? "Ambulatory OR suite" : "OR suite", assetNumber: n, operatingRule: "Weekday Day", days: "Mon,Tue,Wed,Thu,Fri", shiftBlocks: "Day", hoursPerShift: 8, dayStart: "07:00", dayHours: 8, serves: h.annualSurgicalCases != null ? `Surgical cases — ${h.annualSurgicalCases} a year, ≈ ${(avgCasesPerDay(h) ?? 0).toFixed(1)} a day across ${h.operatingRooms} ORs` : "Surgical cases", learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "ESTIMATE", notes: "One suite per licensed OR on the facility record; confirm the OR day and which suites take students." } });
     extra++;
   }
   const homes = await prisma.employer.findMany({ where: { institutionId, nursingHomeBeds: { gt: 0 } }, select: { id: true, externalId: true, nursingHomeBeds: true } });
