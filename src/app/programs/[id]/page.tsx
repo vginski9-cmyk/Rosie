@@ -35,19 +35,20 @@ export default async function ProgramPage({ params }: { params: { id: string } }
               const enrolled = o.stages.find((s) => s.stageKey === "enrolled");
               const productive = o.stages.find((s) => s.stageKey === "productive");
               return (
-                <Link key={o.id} href={`/programs/${program.id}/offerings/${o.id}`} className="rounded-xl border border-slate-200 p-4 hover:border-rose-300 hover:bg-rose-50/30">
+                <div key={o.id} className="rounded-xl border border-slate-200 p-4 hover:border-rose-300">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-semibold text-slate-800">{o.name}</div>
+                      <Link href={`/programs/${program.id}/offerings/${o.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{o.name} →</Link>
                       <div className="mt-0.5 text-xs text-slate-500">{o.startDate ? `starts ${o.startDate.toISOString().slice(0, 10)}` : "no start date"} · {o.cohortTerms.length} of {program.terms.length} terms dated · {o._count.students} students · {o._count.sessionStaff} staff assignments</div>
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{o.status}</span>
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">enrolled <strong>{Math.round(enrolled?.actualNumber ?? o._count.students)}</strong><span className="text-slate-400"> / {enrolled?.targetNumber != null ? Math.round(enrolled.targetNumber) : "—"} target</span></span>
                     <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">productive <strong>{productive?.actualNumber != null ? Math.round(productive.actualNumber) : "—"}</strong><span className="text-slate-400"> / {productive?.targetNumber != null ? Math.round(productive.targetNumber) : "—"} target</span></span>
+                    <a href={`/api/offerings/${o.id}/rotations`} className="ml-auto rounded-full border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50" title="every clinical course's rotation schedule as a workbook">clinical rotations ↓</a>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>

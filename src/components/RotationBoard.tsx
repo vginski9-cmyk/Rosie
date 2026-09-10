@@ -44,6 +44,11 @@ export function RotationBoard({ data, programId }: { data: RotationBoardData; pr
     <div className="space-y-4">
       {/* Course tabs */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="ml-auto order-last flex gap-1.5">
+          <a href={`/api/offerings/${data.cohort.id}/rotations?course=${course.id}`} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50" title="workbook: rotation log · week by week · site load">Export {course.code ?? course.name} ↓</a>
+          <a href={`/api/offerings/${data.cohort.id}/rotations?course=${course.id}&format=csv`} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50" title="the rotation log as CSV">CSV</a>
+          <a href={`/api/offerings/${data.cohort.id}/rotations`} className="rounded-lg bg-slate-800 px-2.5 py-1 font-medium text-white hover:bg-slate-700" title="every clinical course of this offering in one workbook">Export every course ↓</a>
+        </span>
         {courses.map((c) => <Link key={c.id} href={`${base}?course=${c.id}#rotations`} className={`rounded-full px-2.5 py-1 font-medium ${c.id === course.id ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}>{c.code ?? c.name} <span className={c.id === course.id ? "text-rose-100" : "text-slate-400"}>· {c.term} · {c.shifts} shifts</span></Link>)}
       </div>
 

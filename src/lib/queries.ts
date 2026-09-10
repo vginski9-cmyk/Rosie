@@ -2727,3 +2727,28 @@ export async function getProgramFamilyId(programId: string): Promise<string | nu
   const p = await prisma.program.findUnique({ where: { id: programId }, select: { familyId: true } });
   return p?.familyId ?? null;
 }
+
+/** Every clinical shift of an offering (or one of its courses) as export rows: who, when, where, with whom. */
+export async function getRotationExport(cohortId: string, courseId?: string | null) {
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { name: true } }, staff: { select: { name: true } } } } } });
+  if (!co) return null;
+  const { dates } = await sessionDatesForCohort(cohortId);
+  const shifts = await prisma.studentShift.findMany({
+    where: { cohortId, session: { kind: "CLINICAL", ...(courseId ? { courseId } : {}) } },
+    select: { sectionIndex: true, status: true, hoursLogged: true, note: true, pinnedArea: true, settingCode: true, student: { select: { name: true, sectionIndex: true } }, preceptor: { select: { name: true } }, asset: { select: { setting: true, settingCode: true, assetType: true, assetNumber: true, employer: { select: { name: true } } } }, session: { select: { id: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, rotationType: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } },
+  });
+  const course = courseId ? shifts[0]?.session.course ?? (await prisma.course.findUnique({ where: { id: courseId }, select: { id: true, code: true, name: true } })) : null;
+  const rows: import("./rotationexport").RotationRow[] = shifts.map((s) => {
+    const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
+    return {
+      student: s.student.name, seat: s.student.sectionIndex, cohort: co.name, program: co.program.name,
+      course: s.session.course.code ?? s.session.course.name, courseName: s.session.course.name, term: s.session.course.term.name,
+      week: s.session.week, date: dates.get(s.session.id) ?? null, weekday: s.session.dayOfWeek, start: s.session.startTime, hours: s.session.lengthHours,
+      session: `CLINICAL ${s.session.number}${s.session.title ? ` · ${s.session.title}` : ""}`,
+      setting: s.asset?.settingCode ?? s.settingCode ?? null, area: s.pinnedArea ?? s.session.rotationType ?? null,
+      site: s.asset?.employer.name ?? m?.employer?.name ?? null, asset: s.asset ? `${s.asset.setting} ${s.asset.assetNumber} (${s.asset.assetType})` : null,
+      preceptor: s.preceptor?.name ?? m?.staff?.name ?? null, status: s.status, hoursLogged: s.hoursLogged, pinned: !!s.pinnedArea, note: s.note,
+    };
+  });
+  return { cohort: { id: co.id, name: co.name, program: co.program.name }, course: course ? { id: course.id, code: course.code, name: course.name } : null, rows };
+}

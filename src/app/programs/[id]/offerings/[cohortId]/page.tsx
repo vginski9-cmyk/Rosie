@@ -129,6 +129,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${PHASE_BADGE[timing.phase]}`}>{PHASE_LABEL[timing.phase]}</span>
             <span className={`rounded-full px-3 py-1 text-xs font-medium ${STATUS[offering.status] ?? "bg-slate-100 text-slate-600"}`}>{offering.status}</span>
+            <a href={`/api/offerings/${offering.id}/rotations`} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50" title="every clinical course's rotation schedule: rotation log · week by week · site load">Export clinical rotations ↓</a>
             <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700">Design &amp; sequence — this offering →</Link>
           </div>
         </div>
