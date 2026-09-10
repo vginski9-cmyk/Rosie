@@ -12,7 +12,9 @@ import { addShiftAssignment, updateShiftAssignment, removeShiftAssignment, copyS
 import { coverageOf, familyOfRole, type AssignmentLite, type RoleFamily } from "@/lib/workload";
 import { dec } from "@/lib/format";
 
-export interface ShiftPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employerName?: string | null }
+export interface ShiftPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employerName?: string | null; employerId?: string | null }
+/** Where a clinical section is hosted — preceptors can only be picked from that site's own people. */
+export interface ShiftSite { sectionIndex: number; employerId: string | null; employerName: string | null }
 export interface ShiftAssignment extends AssignmentLite { sessionId: string; segment: string | null; personName: string; personRole: string }
 
 const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "Preceptor", support: "Support", supervisor: "Supervisor", coordinator: "Coordinator" };
@@ -25,7 +27,7 @@ const clock = (startTime: string | null, offsetMin: number | null) => {
   return `${H % 12 || 12}:${String(M).padStart(2, "0")}${H >= 12 ? "p" : "a"}`;
 };
 
-export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, need, startTime, assignments, people, roles = [] }: {
+export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, need, startTime, assignments, people, roles = [], sites = [] }: {
   cohortId: string; programId: string; sessionId: string; sectionCount: number;
   need: { lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number; kind: string };
   startTime: string | null;
@@ -33,6 +35,8 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
   people: ShiftPerson[];
   /** Custom roles (key → what they cover). */
   roles?: { key: string; label: string; family: RoleFamily }[];
+  /** The site each clinical section is booked at (its weekly pattern). */
+  sites?: ShiftSite[];
 }) {
   const roleFamilies = Object.fromEntries(roles.map((r) => [r.key, r.family])) as Record<string, RoleFamily>;
   const roleLabelOf = (k: string) => ROLE_LABEL[k] ?? roles.find((r) => r.key === k)?.label ?? k;
@@ -40,8 +44,10 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState<number | "all" | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const sections = Array.from({ length: Math.max(1, sectionCount) }, (_, i) => i + 1);
-  const run = (fn: () => Promise<void>) => startTransition(async () => { await fn(); router.refresh(); });
+  const run = (fn: () => Promise<void>) => startTransition(async () => { setError(null); try { await fn(); router.refresh(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } });
+  const siteOf = (sec: number) => sites.find((s) => s.sectionIndex === sec) ?? sites[0] ?? null;
   const defaultRole = need.kind === "CLINICAL" && need.preceptorsNeeded > 0 ? "preceptor" : "instructor";
   const total = assignments.reduce((n, a) => n + a.contactHours, 0);
 
@@ -51,6 +57,7 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
         <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Who covers this session — shift by shift <span className="font-normal normal-case text-slate-500">· needs {h(need.lengthHours * need.facultyNeeded)} faculty h{need.preceptorsNeeded > 0 ? ` · ${h(need.lengthHours * need.preceptorsNeeded)} preceptor h` : ""}{need.supportStaffNeeded > 0 ? ` · ${h(need.lengthHours * need.supportStaffNeeded)} support h` : ""} per shift · {sections.length} shift{sections.length === 1 ? "" : "s"}</span></div>
         <span className="text-[11px] text-slate-500">{h(total)} contact h assigned across all shifts</span>
       </div>
+      {error && <p className="mt-1 rounded bg-rose-50 px-2 py-1 text-[11px] text-rose-700">{error}</p>}
       <div className="mt-2 space-y-2">
         {sections.map((sec) => {
           const rows = assignments.filter((a) => a.sectionIndex === sec).sort((a, b) => (a.startOffsetMin ?? 1e9) - (b.startOffsetMin ?? 1e9) || a.personName.localeCompare(b.personName));
@@ -97,7 +104,7 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
                 {rows.length === 0 && adding !== sec && <div className="text-[11px] text-slate-400">nobody assigned yet</div>}
               </div>
               {adding === sec && (
-                <AssignmentForm people={people} roles={roles} lengthHours={need.lengthHours} defaultRole={defaultRole} defaultHours={remaining > 0 ? remaining : need.lengthHours} sectionIndex={sec} sectionCount={sections.length} onSubmit={(fd) => run(async () => { await addShiftAssignment(cohortId, programId, fd); setAdding(null); })} onCancel={() => setAdding(null)} sessionId={sessionId} />
+                <AssignmentForm people={people} roles={roles} site={need.kind === "CLINICAL" ? siteOf(sec) : null} lengthHours={need.lengthHours} defaultRole={defaultRole} defaultHours={remaining > 0 ? remaining : need.lengthHours} sectionIndex={sec} sectionCount={sections.length} onSubmit={(fd) => run(async () => { await addShiftAssignment(cohortId, programId, fd); setAdding(null); })} onCancel={() => setAdding(null)} sessionId={sessionId} />
               )}
             </div>
           );
@@ -107,15 +114,17 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
   );
 }
 
-function AssignmentForm({ people, roles = [], lengthHours, defaultRole, defaultHours, row, sectionIndex, sectionCount, sessionId, onSubmit, onCancel }: {
-  people: ShiftPerson[]; roles?: { key: string; label: string; family: RoleFamily }[]; lengthHours: number; defaultRole: string; defaultHours?: number; row?: ShiftAssignment; sectionIndex?: number; sectionCount?: number; sessionId?: string;
+function AssignmentForm({ people, roles = [], site = null, lengthHours, defaultRole, defaultHours, row, sectionIndex, sectionCount, sessionId, onSubmit, onCancel }: {
+  people: ShiftPerson[]; roles?: { key: string; label: string; family: RoleFamily }[]; site?: ShiftSite | null; lengthHours: number; defaultRole: string; defaultHours?: number; row?: ShiftAssignment; sectionIndex?: number; sectionCount?: number; sessionId?: string;
   onSubmit: (fd: FormData) => void; onCancel: () => void;
 }) {
   const [role, setRole] = useState(row?.role ?? defaultRole);
   const [allShifts, setAllShifts] = useState(false);
   const fams = Object.fromEntries(roles.map((r) => [r.key, r.family])) as Record<string, RoleFamily>;
   const fam = familyOfRole(role, fams);
-  const candidates = people.filter((p) => familyOfRole(p.role, fams) === fam || (fam === "other" && p.role === role));
+  // Preceptors stay with their employer: at a booked site, only that site's preceptors are offered.
+  const atSite = fam === "preceptor" && site?.employerId ? (p: ShiftPerson) => !p.employerId || p.employerId === site.employerId : () => true;
+  const candidates = people.filter((p) => (familyOfRole(p.role, fams) === fam || (fam === "other" && p.role === role)) && atSite(p));
   const inp = "rounded border border-blue-200 bg-blue-50/70 px-1.5 py-0.5 text-[11px] text-blue-900";
   return (
     <form action={onSubmit} className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
@@ -124,9 +133,9 @@ function AssignmentForm({ people, roles = [], lengthHours, defaultRole, defaultH
       {sectionCount != null && <input type="hidden" name="sectionCount" value={String(sectionCount)} />}
       <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Role</span>
         <select name="role" value={role} onChange={(e) => setRole(e.target.value)} className={inp}>{Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}{roles.map((r) => <option key={r.key} value={r.key}>{r.label} (covers {r.family})</option>)}</select></label>
-      <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Person</span>
+      <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Person{fam === "preceptor" && site?.employerId ? <span className="normal-case text-slate-400"> · at {site.employerName ?? "the booked site"}</span> : null}</span>
         <select name="personId" required defaultValue={row?.personId ?? ""} className={`${inp} max-w-[16rem]`}>
-          <option value="">choose…</option>
+          <option value="">{fam === "preceptor" && site?.employerId && candidates.length === 0 ? "no preceptors on record at this site" : "choose…"}</option>
           {candidates.map((p) => <option key={p.id} value={p.id}>{p.name}{p.employmentType ? ` · ${p.employmentType}` : ""}{p.employerName ? ` @ ${p.employerName}` : ""}{p.title ? ` — ${p.title}` : ""}</option>)}
         </select></label>
       <label className="block"><span className="block text-[9px] font-semibold uppercase text-slate-500">Contact hours</span>

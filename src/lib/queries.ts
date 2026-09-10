@@ -277,7 +277,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
       where: { employer: { institutionId } },
       orderBy: [{ employer: { name: "asc" } }, { settingCode: "asc" }, { assetNumber: "asc" }],
       include: {
-        employer: { select: { id: true, name: true, externalId: true, county: true, ring: true, facilityType: true, agreementStatus: true, status: true } },
+        employer: { select: { id: true, name: true, externalId: true, county: true, ring: true, facilityType: true, organization: true, agreementStatus: true, status: true } },
         dayOverrides: { where: { date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } }, select: { date: true, shiftBlocks: true, note: true } },
       },
     }),
@@ -290,7 +290,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   ]);
   const assets = assetsRaw.map((a) => ({
     id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: a.employer.name, facilityExternalId: a.employer.externalId,
-    county: a.employer.county, ring: a.employer.ring, facilityType: a.employer.facilityType, agreementStatus: a.employer.agreementStatus, facilityStatus: a.employer.status,
+    county: a.employer.county, ring: a.employer.ring, facilityType: a.employer.facilityType, organization: a.employer.organization, agreementStatus: a.employer.agreementStatus, facilityStatus: a.employer.status,
     settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
     hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,
     serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes,
@@ -1553,7 +1553,7 @@ export async function weekClinicalOccurrences(meetings: MasterMeeting[], mondayM
   const ids = [...sessionIds];
   const [sessions, shifts, staff] = await Promise.all([
     prisma.session.findMany({ where: { id: { in: ids }, kind: "CLINICAL" }, select: { id: true, courseId: true, title: true, startTime: true, lengthHours: true, course: { select: { code: true, name: true } } } }),
-    prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { in: ids } }, select: { studentId: true, sessionId: true, sectionIndex: true, cohortId: true, status: true, student: { select: { name: true } }, preceptor: { select: { name: true } } }, orderBy: { student: { name: "asc" } } }),
+    prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { in: ids } }, select: { studentId: true, sessionId: true, sectionIndex: true, cohortId: true, status: true, student: { select: { name: true } }, preceptor: { select: { name: true, employerId: true } } }, orderBy: { student: { name: "asc" } } }),
     prisma.sessionInstructor.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { in: ids } }, select: { cohortId: true, sessionId: true, sectionIndex: true, role: true, note: true, person: { select: { name: true, employerId: true } } } }),
   ]);
   const sessionById = new Map(sessions.map((s) => [s.id, s]));
@@ -1586,11 +1586,11 @@ export async function weekClinicalOccurrences(meetings: MasterMeeting[], mondayM
     const rows = staff.filter((x) => x.cohortId === k.cohortId && x.sessionId === k.sessionId && x.sectionIndex === k.sectionIndex);
     const myShifts = shifts.filter((x) => x.cohortId === k.cohortId && x.sessionId === k.sessionId && x.sectionIndex === k.sectionIndex);
     const employerId = lead?.employer.id ?? mv?.employer?.id ?? pattern?.employerId ?? null;
-    // Who precepts: the people assigned at the site the shift is at (by hand or by the plan); a hand
-    // assignment at some other site is not where this shift is, so it only shows when nothing else is known.
-    const pRows = rows.filter((x) => x.role === "preceptor");
-    const here = pRows.filter((x) => !employerId || x.person.employerId === employerId || x.note != null).map((x) => x.person.name);
-    const preceptors = [...new Set([...(here.length ? here : pRows.map((x) => x.person.name)), ...myShifts.map((x) => x.preceptor?.name).filter((n): n is string => !!n), ...(mv?.staff?.name ? [mv.staff.name] : [])])];
+    // Who precepts: only people OF the site the shift is at. A preceptor stays with their employer,
+    // so an assignment at some other site is not this shift's preceptor and is not shown as one.
+    const atSite = (empl: string | null | undefined) => !employerId || empl === employerId;
+    const pRows = rows.filter((x) => x.role === "preceptor" && atSite(x.person.employerId));
+    const preceptors = [...new Set([...pRows.map((x) => x.person.name), ...myShifts.filter((x) => atSite(x.preceptor?.employerId)).map((x) => x.preceptor?.name).filter((n): n is string => !!n), ...(mv?.staff?.name && (!mv.employer || mv.employer.id === employerId) ? [mv.staff.name] : [])])];
     occurrences.push({
       key: `${k.cohortId}|${k.sessionId}|${k.sectionIndex}`, meetingId: pattern?.id ?? null,
       cohortId: k.cohortId, cohortName: head.cohortName, programId: head.programId, programName: head.programName,
@@ -1600,7 +1600,7 @@ export async function weekClinicalOccurrences(meetings: MasterMeeting[], mondayM
       employerId, employerName: lead?.employer.name ?? mv?.employer?.name ?? pattern?.employerName ?? null,
       assets: [...new Set(mine.map((b) => b.asset.externalId ?? `${b.asset.settingCode}-${b.asset.assetNumber}`))],
       preceptors, instructor: rows.find((x) => x.role !== "preceptor")?.person.name ?? null,
-      students: myShifts.map((x) => ({ id: x.studentId, name: x.student.name, preceptor: x.preceptor?.name ?? null, status: x.status })),
+      students: myShifts.map((x) => ({ id: x.studentId, name: x.student.name, preceptor: atSite(x.preceptor?.employerId) ? x.preceptor?.name ?? null : null, status: x.status })),
       moved: date !== from, changedBlock: !!mv?.startTime, source: mine.length ? "plan" : mv ? "move" : "pattern", booked: mine.length > 0,
     });
   }
@@ -1649,7 +1649,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
 
   const [rooms, calPeople, calEmployers, raw] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
-    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
     prisma.employer.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, setting: true } }),
     prisma.meetingPattern.findMany({
       where: { cohort: { program: { institutionId } } },
@@ -1772,7 +1772,7 @@ export async function getCohortSchedule(cohortId: string) {
   const institutionId = cohort.program.institutionId;
   const [rooms, people, mine, instMeetings] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: { name: "asc" }, select: { id: true, name: true, kind: true, capacity: true } }),
-    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
+    prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
     prisma.meetingPattern.findMany({ where: { cohortId }, include: { facility: { select: { name: true, kind: true } }, employer: { select: { id: true, name: true } }, staff: { select: { id: true, name: true } }, course: { select: { id: true, code: true, name: true, term: { select: { index: true, name: true } } } } } }),
     prisma.meetingPattern.findMany({ where: { cohort: { program: { institutionId } } }, select: { id: true, cohortId: true, courseId: true, sectionIndex: true, kind: true, seats: true, lengthHours: true, dayOfWeek: true, startTime: true, termIndex: true, startWeek: true, endWeek: true, facilityId: true, staffPersonId: true, course: { select: { term: { select: { index: true, startWeek: true, endWeek: true } } } }, cohort: { select: { cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } }),
   ]);
@@ -2319,17 +2319,25 @@ export async function getOfferingDesign(cohortId: string) {
  *  map over the window, preceptors (with their site) and instructors, each
  *  offering's students by section, and every family's own site agreements. */
 export async function getSchedulerData(institutionId: string, from: string, to: string) {
-  const [map, people, students, familySites] = await Promise.all([
+  const { geocodeOffline, haversineMiles, driveMinutes } = await import("./geo");
+  const [map, people, students, familySites, located] = await Promise.all([
     getAssetMap(institutionId, from, to),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
-    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true } }),
+    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
     prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true } }),
+    prisma.employer.findMany({ where: { institutionId, lat: { not: null }, lng: { not: null } }, select: { id: true, lat: true, lng: true } }),
   ]);
+  // Each student's drive to each site, from the town they live in (the built-in gazetteer — no network needed).
+  const driveFrom = (city: string | null, state: string | null) => {
+    const home = city ? geocodeOffline({ city, state: state ?? "NC" }) : null;
+    if (!home) return undefined;
+    return Object.fromEntries(located.map((e) => [e.id, driveMinutes(haversineMiles(home, { lat: e.lat!, lng: e.lng! }))]));
+  };
   return {
     ...map,
     preceptors: people.filter((p) => p.role === "preceptor").map((p) => ({ id: p.id, name: p.name, employerId: p.employerId, role: p.role })),
     instructors: people.filter((p) => p.role === "instructor").map((p) => ({ id: p.id, name: p.name, role: p.role })),
-    students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex })),
+    students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex, homeLabel: s.city, driveTo: driveFrom(s.city, s.state) })),
     familyAgreements: familySites,
   };
 }

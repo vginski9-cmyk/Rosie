@@ -45,10 +45,38 @@ export interface Policy {
   skipHolidays: boolean;
   /** When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 anyway); an instructor-led group travels together. */
   split: "none" | "preceptor-led" | "any";
+
+  // ── Students: where each student can go, and the breadth of what they see ──
+  /** Farthest a site may be from a student's home, in drive minutes (null = no cap; students with no known home are unaffected). */
+  maxStudentDriveMin: number | null;
+  /** Prefer sites nearer each student's home over sites nearer campus. */
+  preferCloserToStudent: boolean;
+  /** With continuity on: stay at one site this many weeks, then prefer a different site (null = the whole course at one site). */
+  rotateSitesEveryWeeks: number | null;
+  /** Prefer a site the student has not been to in this plan. */
+  varietySites: boolean;
+  /** Prefer a facility type (acute-care hospital, imaging center, clinic …) the student has not seen. */
+  varietyFacilityTypes: boolean;
+  /** Prefer a health system the student has not been in. */
+  varietySystems: boolean;
+
+  // ── Preceptors: always at their own employer; how long they keep a student, how much they carry ──
+  /** Shifts in a row a student keeps the same preceptor before rotating to another at the site (null = as long as possible — evaluations need a stretch). */
+  preceptorStint: number | null;
+  /** When choosing between free preceptors, prefer one the student has not had. */
+  varietyPreceptors: boolean;
+  /** A preceptor's ceiling of student shifts in one week (null = no ceiling). */
+  maxPreceptorShiftsPerWeek: number | null;
+  /** Students one preceptor may take on a shift; null = whatever the session says it needs. */
+  studentsPerPreceptor: number | null;
 }
 /** Bookings and placements written by an applied plan carry this note, so they can be replaced without touching hand-made ones. */
 export const AUTO_PLAN_NOTE = "auto-plan";
-export const DEFAULT_POLICY: Policy = { agreements: "secured", flexibleShift: false, flexibleDays: 0, maxRing: "any", continuity: true, spread: false, requirePreceptor: false, skipHolidays: true, split: "preceptor-led" };
+export const DEFAULT_POLICY: Policy = {
+  agreements: "secured", flexibleShift: false, flexibleDays: 0, maxRing: "any", continuity: true, spread: false, requirePreceptor: false, skipHolidays: true, split: "preceptor-led",
+  maxStudentDriveMin: null, preferCloserToStudent: true, rotateSitesEveryWeeks: null, varietySites: false, varietyFacilityTypes: false, varietySystems: false,
+  preceptorStint: null, varietyPreceptors: false, maxPreceptorShiftsPerWeek: null, studentsPerPreceptor: null,
+};
 
 export interface DemandUnit {
   id: string;              // `${sessionId}|${sectionIndex}|${date}`
@@ -67,7 +95,13 @@ export interface DemandUnit {
 
 export interface Preceptor { id: string; name: string; employerId: string | null; role: string }
 export interface Instructor { id: string; name: string; role: string }
-export interface StudentLite { id: string; name: string; cohortId: string; sectionIndex: number }
+export interface StudentLite {
+  id: string; name: string; cohortId: string; sectionIndex: number;
+  /** Where the student lives (a town), when known. */
+  homeLabel?: string | null;
+  /** Estimated drive minutes from the student's home to each site (employerId → minutes); absent when the home is unknown. */
+  driveTo?: Record<string, number>;
+}
 export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string }
 /** One campus class or lab occurrence: the cohort's students are on campus then, so no clinical can land on them. */
 export interface CampusBlock { cohortId: string; date: string; startMin: number; endMin: number; label: string }
@@ -87,11 +121,12 @@ export interface SchedulerInput {
   policy: Policy;
 }
 
-export type UnmetReason = "holiday" | "class-day" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
+export type UnmetReason = "holiday" | "class-day" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
 export const REASON_LABEL: Record<UnmetReason, string> = {
   "too-big": "no single site has enough seats of this setting on one shift for a section this size",
   holiday: "lands on an observed holiday — needs moving",
   "class-day": "overlaps a class or lab the cohort is in that day — students can't be in two places",
+  drive: "every allowed site is farther than the students' drive cap from home",
   "unmapped-setting": "rotation type isn't mapped to an asset setting",
   "no-asset-for-setting": "no partner reports an asset of this setting",
   "no-agreement": "the only sites with this setting aren't under an allowed agreement",
@@ -131,6 +166,13 @@ export interface SiteLoad {
 export interface WeekCell { weekMonday: string; settingCode: string; demand: number; placed: number; unmet: number; supply: number }
 export interface Bottleneck { key: string; settingCode: string; weekMonday: string; block: ShiftBlock | "any"; reason: UnmetReason; shifts: number; seats: number; cohorts: string[]; fixes: string[] }
 export interface StudentRoster { student: StudentLite; cohort: string; stops: { siteName: string; from: string; to: string; shifts: number; hours: number; settings: string[] }[] }
+/** What the plan gives one student: how many places, kinds of place, systems and preceptors they see, and how far they drive. */
+export interface StudentStat {
+  student: StudentLite; cohort: string; shifts: number; sites: number; facilityTypes: string[]; systems: number; settings: string[];
+  preceptors: number; longestPreceptorRun: number; avgDriveMin: number | null; maxDriveMin: number | null; shiftsOverCap: number;
+}
+/** What the plan asks of one preceptor: always at their own employer, how many shifts, the busiest week, how many students. */
+export interface PreceptorStat { id: string; name: string; employerId: string | null; siteName: string | null; shifts: number; peakWeek: number; students: number; sites: number; overCapWeeks: number }
 
 export interface Plan {
   policy: Policy;
@@ -141,6 +183,8 @@ export interface Plan {
   weeks: WeekCell[];
   bottlenecks: Bottleneck[];
   rosters: StudentRoster[];
+  studentStats: StudentStat[];
+  preceptorStats: PreceptorStat[];
   summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string };
 }
 
@@ -242,9 +286,25 @@ export function recommendPlan(input: SchedulerInput): Plan {
     return blocks.some((c) => start < c.endMin && c.startMin < end);
   };
 
-  // Continuity memory: section (cohort|course|section) → employerId of its previous placements.
+  // Continuity memory: section (cohort|course|section) → employerId of its previous placements, and the weeks spent there.
   const home = new Map<string, Map<string, number>>();
+  const homeWeeks = new Map<string, Map<string, Set<string>>>();
   const sectionKey = (u: DemandUnit) => `${u.cohortId}|${u.courseId ?? u.courseCode}|${u.sectionIndex}`;
+
+  // The students in a section (seat numbers map to sections), and what each has seen so far in this plan:
+  // sites, facility types, health systems and preceptors — the student-side levers score against these.
+  const studentsCache = new Map<string, StudentLite[]>();
+  const studentsOf = (u: DemandUnit): StudentLite[] => {
+    const k = `${u.cohortId}|${u.seatsPerSection}|${u.sectionIndex}`;
+    let l = studentsCache.get(k);
+    if (!l) { l = input.students.filter((s) => s.cohortId === u.cohortId && sectionOfSeat(s.sectionIndex, u.seatsPerSection) === u.sectionIndex); studentsCache.set(k, l); }
+    return l;
+  };
+  const seen = { sites: new Map<string, Set<string>>(), types: new Map<string, Set<string>>(), systems: new Map<string, Set<string>>(), preceptors: new Map<string, Map<string, number>>() };
+  const seenSet = (m: Map<string, Set<string>>, id: string) => { let s = m.get(id); if (!s) { s = new Set(); m.set(id, s); } return s; };
+  const lastPreceptor = new Map<string, { id: string; run: number }>(); // student → the preceptor they had last, and for how many shifts in a row
+  const preceptorWeek = new Map<string, number>(); // `${preceptorId}|${weekMonday}` → shifts that week
+  const driveOf = (stu: StudentLite[], employerId: string) => stu.map((s) => s.driveTo?.[employerId]).filter((n): n is number => n != null);
 
   /** A site's open assets of the unit's setting on one date × block, and the seats still free across them. */
   interface Pool { employerId: string; siteName: string; date: string; block: ShiftBlock; movedDays: number; assets: { a: AssetLite; slot: Slot }[]; free: number; used: number }
@@ -260,6 +320,12 @@ export function recommendPlan(input: SchedulerInput): Plan {
     if (!pool.length) return { cands: [], partial: [], reason: "no-agreement", biggest: null };
     pool = pool.filter((a) => ringOk(a.ring, pol.maxRing));
     if (!pool.length) return { cands: [], partial: [], reason: "ring", biggest: null };
+    const stu = studentsOf(u);
+    if (pol.maxStudentDriveMin != null && stu.length) {
+      const cap = pol.maxStudentDriveMin;
+      pool = pool.filter((a) => driveOf(stu, a.employerId).every((m) => m <= cap));
+      if (!pool.length) return { cands: [], partial: [], reason: "drive", biggest: null };
+    }
     const dates: { date: string; movedDays: number }[] = [{ date: u.date, movedDays: 0 }];
     for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday) dates.push({ date, movedDays: sign * d }); }
     const blocks = pol.flexibleShift ? [u.block, ...BLOCKS.filter((b) => b !== u.block)] : [u.block];
@@ -283,15 +349,28 @@ export function recommendPlan(input: SchedulerInput): Plan {
     const withRoom = [...pools.values()].filter((P) => P.free >= u.seats);
     const partialPools = [...pools.values()].filter((P) => P.free > 0 && P.free < u.seats && staffedOk(P));
     const prev = home.get(sectionKey(u));
+    const prevWeeks = homeWeeks.get(sectionKey(u));
     const scoreOf = (P: Pool): Cand => {
       const lead = P.assets[0].a;
       const agreement = agreementFor(lead, u.familyId);
       const why: string[] = [];
       let score = 0;
       const cont = prev?.get(P.employerId) ?? 0;
-      if (pol.continuity && cont > 0) { score += 100; why.push("same site as this section's earlier shifts"); }
+      // Continuity keeps a section at its site — until the rotation cadence says it has had its stint there.
+      const weeksHere = prevWeeks?.get(P.employerId);
+      const stintDone = pol.rotateSitesEveryWeeks != null && !!weeksHere && !weeksHere.has(u.weekMonday) && weeksHere.size >= pol.rotateSitesEveryWeeks;
+      if (pol.continuity && cont > 0 && !stintDone) { score += 100; why.push("same site as this section's earlier shifts"); }
+      if (stintDone) { score -= 60; why.push(`${weeksHere!.size} weeks here already — rotation due`); }
       score += AGREEMENT_SCORE[agreement] ?? 0; why.push(`${agreement} agreement`);
       const ringPts = [30, 15, 5, 0, 0][RING_ORDER[lead.ring ?? "Outside"] ?? 4]; score += ringPts; if (lead.ring) why.push(lead.ring);
+      if (stu.length) {
+        // The students' own drive, and the breadth of what they have seen so far in this plan.
+        const mins = driveOf(stu, P.employerId);
+        if (pol.preferCloserToStudent && mins.length) { const avg = mins.reduce((n, m) => n + m, 0) / mins.length; score += Math.max(0, 30 - avg / 2); why.push(`${Math.round(avg)} min from home`); }
+        if (pol.varietySites && stu.every((s) => !seen.sites.get(s.id)?.has(P.employerId))) { score += 25; why.push("a site the student has not been to"); }
+        if (pol.varietyFacilityTypes && lead.facilityType && stu.every((s) => !seen.types.get(s.id)?.has(lead.facilityType!))) { score += 20; why.push(`first ${lead.facilityType.toLowerCase()}`); }
+        if (pol.varietySystems && lead.organization && stu.every((s) => !seen.systems.get(s.id)?.has(lead.organization!))) { score += 15; why.push(`first time in ${lead.organization}`); }
+      }
       if (P.movedDays === 0) score += 40; else why.push(`moved ${P.movedDays > 0 ? "+" : ""}${P.movedDays} day${Math.abs(P.movedDays) === 1 ? "" : "s"}`);
       if (P.block === u.block) score += 40; else why.push(`${P.block} shift instead of ${u.block}`);
       const load = (siteUsed.get(P.employerId) ?? 0) / Math.max(1, siteCap.get(P.employerId) ?? 1);
@@ -337,10 +416,34 @@ export function recommendPlan(input: SchedulerInput): Plan {
     }
     siteUsed.set(P.employerId, (siteUsed.get(P.employerId) ?? 0) + seats);
     const hm = home.get(sectionKey(u)) ?? new Map<string, number>(); hm.set(P.employerId, (hm.get(P.employerId) ?? 0) + 1); home.set(sectionKey(u), hm);
-    // Preceptors: least-loaded free people at the site, one per preceptor needed.
-    const need = Math.ceil(u.preceptorsNeeded);
-    const picks = freePreceptors(P.employerId, P.date, P.block).sort((a, b) => (preceptorLoad.get(a.id) ?? 0) - (preceptorLoad.get(b.id) ?? 0) || a.name.localeCompare(b.name)).slice(0, need);
-    for (const p of picks) { busyAt(P.date, P.block).add(p.id); preceptorLoad.set(p.id, (preceptorLoad.get(p.id) ?? 0) + 1); }
+    const hw = homeWeeks.get(sectionKey(u)) ?? new Map<string, Set<string>>(); seenSet(hw, P.employerId).add(u.weekMonday); homeWeeks.set(sectionKey(u), hw);
+    const stu = studentsOf(u).filter((s) => { const ord = s.sectionIndex - (u.sectionIndex - 1) * u.seatsPerSection; return ord > seatOffset && ord <= seatOffset + seats; });
+    const lead0 = P.assets[0].a;
+    for (const s of stu) { seenSet(seen.sites, s.id).add(P.employerId); if (lead0.facilityType) seenSet(seen.types, s.id).add(lead0.facilityType); if (lead0.organization) seenSet(seen.systems, s.id).add(lead0.organization); }
+    // Preceptors — always people OF this site, never from another employer. One per preceptor needed
+    // (or per N students under the ratio lever), under the weekly ceiling; the student keeps the same
+    // preceptor through a stint, then rotates; least-loaded first; a new face if the lever says so.
+    const need = u.preceptorsNeeded > 0 ? Math.max(Math.ceil(u.preceptorsNeeded), policy.studentsPerPreceptor ? Math.ceil(seats / policy.studentsPerPreceptor) : 0) : 0;
+    const underWeekCap = (p: Preceptor) => policy.maxPreceptorShiftsPerWeek == null || (preceptorWeek.get(`${p.id}|${u.weekMonday}`) ?? 0) < policy.maxPreceptorShiftsPerWeek;
+    const affinity = (p: Preceptor) => {
+      let pts = 0;
+      for (const s of stu) {
+        const last = lastPreceptor.get(s.id);
+        if (last?.id === p.id) pts += policy.preceptorStint != null && last.run >= policy.preceptorStint ? -3 : 3; // keep through the stint, then rotate
+        else if (policy.varietyPreceptors && (seen.preceptors.get(s.id)?.get(p.id) ?? 0) > 0) pts -= 1;
+      }
+      return pts;
+    };
+    const picks = freePreceptors(P.employerId, P.date, P.block).filter(underWeekCap).sort((a, b) => affinity(b) - affinity(a) || (preceptorLoad.get(a.id) ?? 0) - (preceptorLoad.get(b.id) ?? 0) || a.name.localeCompare(b.name)).slice(0, need);
+    for (const p of picks) {
+      busyAt(P.date, P.block).add(p.id); preceptorLoad.set(p.id, (preceptorLoad.get(p.id) ?? 0) + 1);
+      preceptorWeek.set(`${p.id}|${u.weekMonday}`, (preceptorWeek.get(`${p.id}|${u.weekMonday}`) ?? 0) + 1);
+    }
+    const leadP = picks[0];
+    for (const s of stu) {
+      for (const p of picks) { let m = seen.preceptors.get(s.id); if (!m) { m = new Map(); seen.preceptors.set(s.id, m); } m.set(p.id, (m.get(p.id) ?? 0) + 1); }
+      if (leadP) { const last = lastPreceptor.get(s.id); lastPreceptor.set(s.id, last?.id === leadP.id ? { id: leadP.id, run: last.run + 1 } : { id: leadP.id, run: 1 }); }
+    }
     // Instructor: a whole person only when the session needs at least one (fractional oversight is counted, not assigned).
     let instructor: Instructor | null = null;
     if (u.facultyNeeded >= 1) {
@@ -392,6 +495,7 @@ function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit
   }
   if (reason === "unmapped-setting") return [`map rotation type "${u.rotationType}" to an asset setting (Insights → Clinical sites → Rotation → setting)`];
   if (reason === "no-asset-for-setting") return [`ask a partner to add an asset of setting ${u.settingCode} on the supply map`];
+  if (reason === "drive") return ["raise the students' drive cap, or drop it", "secure a site of this setting nearer these students' homes"];
   const base: Policy = { ...DEFAULT_POLICY };
   const tries: { label: string; pol: Partial<Policy> }[] = [
     { label: "count sites that have been asked (not only secured)", pol: { agreements: "secured+asked" } },
@@ -503,6 +607,39 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   }
   rosters.sort((a, b) => a.cohort.localeCompare(b.cohort) || a.student.sectionIndex - b.student.sectionIndex || a.student.name.localeCompare(b.student.name));
 
+  // Per student: breadth (sites, facility types, systems, preceptors), preceptor continuity, and drive.
+  const assetById = new Map(live.map((a) => [a.id, a]));
+  const preceptorById = new Map(input.preceptors.map((p) => [p.id, p]));
+  const studentStats: StudentStat[] = [];
+  for (const st of input.students) {
+    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (sectionOfSeat(st.sectionIndex, x.unit.seatsPerSection) !== x.unit.sectionIndex) return false; const ord = st.sectionIndex - (x.unit.sectionIndex - 1) * x.unit.seatsPerSection; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
+    if (!xs.length) continue;
+    const sites = new Set(xs.map((x) => x.employerId)); const types = new Set<string>(); const systems = new Set<string>(); const settings = new Set<string>(); const precs = new Set<string>();
+    let run = 0, longest = 0, last: string | null = null;
+    for (const x of xs) {
+      const a = assetById.get(x.assetId); if (a?.facilityType) types.add(a.facilityType); if (a?.organization) systems.add(a.organization); settings.add(x.unit.settingCode ?? "?");
+      for (const p of x.preceptorIds) precs.add(p);
+      const lead = x.preceptorIds[0] ?? null; run = lead && lead === last ? run + 1 : lead ? 1 : 0; last = lead; longest = Math.max(longest, run);
+    }
+    const drives = xs.map((x) => st.driveTo?.[x.employerId]).filter((n): n is number => n != null);
+    studentStats.push({
+      student: st, cohort: xs[0].unit.cohort, shifts: xs.length, sites: sites.size, facilityTypes: [...types].sort(), systems: systems.size, settings: [...settings].sort(), preceptors: precs.size, longestPreceptorRun: longest,
+      avgDriveMin: drives.length ? drives.reduce((n, m) => n + m, 0) / drives.length : null, maxDriveMin: drives.length ? Math.max(...drives) : null,
+      shiftsOverCap: policy.maxStudentDriveMin != null ? drives.filter((m) => m > policy.maxStudentDriveMin!).length : 0,
+    });
+  }
+  studentStats.sort((a, b) => a.cohort.localeCompare(b.cohort) || a.student.name.localeCompare(b.student.name));
+  // Per preceptor: how much the plan asks of them, and that it never sends them anywhere but their own employer.
+  const pMap = new Map<string, PreceptorStat & { weeks: Map<string, number>; studentIds: Set<string>; siteIds: Set<string> }>();
+  for (const x of assignments) for (const pid of x.preceptorIds) {
+    const p = preceptorById.get(pid);
+    const s = pMap.get(pid) ?? { id: pid, name: p?.name ?? pid, employerId: p?.employerId ?? null, siteName: live.find((a) => a.employerId === p?.employerId)?.facilityName ?? null, shifts: 0, peakWeek: 0, students: 0, sites: 0, overCapWeeks: 0, weeks: new Map(), studentIds: new Set(), siteIds: new Set() };
+    s.shifts++; s.weeks.set(x.unit.weekMonday, (s.weeks.get(x.unit.weekMonday) ?? 0) + 1); s.siteIds.add(x.employerId);
+    for (const st of input.students) if (st.cohortId === x.unit.cohortId && sectionOfSeat(st.sectionIndex, x.unit.seatsPerSection) === x.unit.sectionIndex) s.studentIds.add(st.id);
+    pMap.set(pid, s);
+  }
+  const preceptorStats: PreceptorStat[] = [...pMap.values()].map(({ weeks, studentIds, siteIds, ...s }) => ({ ...s, peakWeek: Math.max(0, ...weeks.values()), students: studentIds.size, sites: siteIds.size, overCapWeeks: policy.maxPreceptorShiftsPerWeek != null ? [...weeks.values()].filter((n) => n > policy.maxPreceptorShiftsPerWeek!).length : 0 })).sort((a, b) => b.shifts - a.shifts || a.name.localeCompare(b.name));
+
   const demandShifts = input.demand.length, demandSeats = input.demand.reduce((n, u) => n + u.seats, 0), demandHours = input.demand.reduce((n, u) => n + u.hours * u.seats, 0);
   const placedShifts = new Set(assignments.map((x) => x.unit.id)).size, placedSeats = assignments.reduce((n, x) => n + x.seats, 0), placedHours = assignments.reduce((n, x) => n + x.hours * x.seats, 0);
   const preceptorShifts = assignments.reduce((n, x) => n + Math.ceil(x.unit.preceptorsNeeded), 0);
@@ -522,5 +659,5 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
       (unmet.length ? `, and ${num(unmet.length)} sections (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} because ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
       (shortSettings.length ? ` Short settings: ${shortSettings.join(", ")}.` : "");
 
-  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement } };
+  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement } };
 }

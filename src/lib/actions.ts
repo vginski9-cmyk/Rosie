@@ -1995,6 +1995,7 @@ export async function moveShiftOccurrence(
     employerId: patch.employerId === undefined ? existing?.employerId ?? null : patch.employerId,
     staffPersonId: patch.staffPersonId === undefined ? existing?.staffPersonId ?? null : patch.staffPersonId,
   };
+  await assertPreceptorAtSite(data.staffPersonId, data.employerId);
   const m = await prisma.shiftMove.upsert({
     where, update: data,
     create: { cohortId, sessionId, sectionIndex, fromDate, ...data },
@@ -2028,6 +2029,7 @@ export async function moveMeeting(
   if (patch.facilityId !== undefined) data.facilityId = patch.facilityId || null;
   if (patch.staffPersonId !== undefined) data.staffPersonId = patch.staffPersonId || null;
   if (patch.employerId !== undefined) data.employerId = patch.employerId || null;
+  if (patch.staffPersonId) { const cur = patch.employerId === undefined ? (await prisma.meetingPattern.findUnique({ where: { id: meetingId }, select: { employerId: true } }))?.employerId : patch.employerId; await assertPreceptorAtSite(patch.staffPersonId, cur); }
   const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data, include: { cohort: { select: { id: true, programId: true } } } });
   revalidatePath("/calendar");
   revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
@@ -2132,7 +2134,7 @@ export interface PlanAssignmentInput {
 }
 /** A student shift that existed before the plan (seeded or hand-made, not pinned to a site) and that the plan pinned; cleared back to unpinned. */
 const PLAN_PIN_NOTE = "auto-plan:pinned";
-export interface AppliedPlan { bookings: number; placements: number; meetings: number; moves: number; staffed: number; shifts: number }
+export interface AppliedPlan { bookings: number; placements: number; meetings: number; moves: number; staffed: number; shifts: number; offSite: number }
 const chunks = <T,>(xs: T[], n = 400): T[][] => { const out: T[][] = []; for (let i = 0; i < xs.length; i += n) out.push(xs.slice(i, i + n)); return out; };
 
 /** Write a recommended plan to the database so every calendar shows it:
@@ -2146,7 +2148,7 @@ const chunks = <T,>(xs: T[], n = 400): T[][] => { const out: T[][] = []; for (le
  *  Earlier auto-plan rows for the same offerings are replaced; anything made by hand is left alone. */
 export async function applySchedulerPlan(institutionId: string, assignments: PlanAssignmentInput[]): Promise<AppliedPlan> {
   const cohortIds = [...new Set(assignments.map((a) => a.cohortId))];
-  if (cohortIds.length === 0) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0 };
+  if (cohortIds.length === 0) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0 };
   await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
   await prisma.shiftMove.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
@@ -2180,11 +2182,16 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
   // had it on. A move someone made by hand on that same shift is respected, not overwritten.
   const handMoves = new Set((await prisma.shiftMove.findMany({ where: { cohortId: { in: cohortIds } }, select: { cohortId: true, sessionId: true, sectionIndex: true, fromDate: true } })).map((m) => `${m.cohortId}|${m.sessionId}|${m.sectionIndex}|${m.fromDate.toISOString().slice(0, 10)}`));
   // A preceptor someone assigned by hand at the site the plan booked leads that shift; the plan's own pick fills in only where nobody is.
-  const handRows = await prisma.sessionInstructor.findMany({ where: { cohortId: { in: cohortIds }, role: "preceptor", note: null }, select: { cohortId: true, sessionId: true, sectionIndex: true, personId: true, person: { select: { employerId: true } } } });
-  const handBySection = new Map<string, { personId: string; employerId: string | null }[]>();
-  for (const r of handRows) { const k = `${r.cohortId}|${r.sessionId}|${r.sectionIndex}`; const l = handBySection.get(k) ?? []; l.push({ personId: r.personId, employerId: r.person.employerId }); handBySection.set(k, l); }
+  const handRows = await prisma.sessionInstructor.findMany({ where: { cohortId: { in: cohortIds }, role: "preceptor", note: null }, select: { id: true, cohortId: true, sessionId: true, sectionIndex: true, personId: true, person: { select: { employerId: true } } } });
+  const handBySection = new Map<string, { id: string; personId: string; employerId: string | null }[]>();
+  for (const r of handRows) { const k = `${r.cohortId}|${r.sessionId}|${r.sectionIndex}`; const l = handBySection.get(k) ?? []; l.push({ id: r.id, personId: r.personId, employerId: r.person.employerId }); handBySection.set(k, l); }
   const handAt = (a: PlanAssignmentInput) => (handBySection.get(`${a.cohortId}|${a.sessionId}|${a.sectionIndex}`) ?? []).filter((h) => h.employerId === a.employerId).map((h) => h.personId);
   const leadPreceptor = (a: PlanAssignmentInput) => handAt(a)[0] ?? a.preceptorIds[0] ?? null;
+  // A preceptor stays with their employer. Once the plan books a shift at a site, a preceptor from some
+  // OTHER site cannot be on it — those assignments come off (the plan puts the site's own people on).
+  const offSite = new Set<string>();
+  for (const a of assignments) for (const h of handBySection.get(`${a.cohortId}|${a.sessionId}|${a.sectionIndex}`) ?? []) if (h.employerId && h.employerId !== a.employerId) offSite.add(h.id);
+  for (const ids of chunks([...offSite])) await prisma.sessionInstructor.deleteMany({ where: { id: { in: ids } } });
   const moveRows = new Map<string, { cohortId: string; sessionId: string; sectionIndex: number; fromDate: Date; toDate: Date; startTime: string | null; employerId: string; staffPersonId: string | null; note: string }>();
   for (const a of assignments) {
     const from = a.originalDate ?? a.date;
@@ -2254,7 +2261,7 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
   revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/students"); revalidatePath("/people");
   revalidatePath("/insights/clinical-sites"); revalidatePath("/insights/coverage"); revalidatePath("/insights/site-load"); revalidatePath("/insights/staffing-need");
   for (const c of cohortIds) revalidatePath(`/programs/[id]/offerings/${c}`, "page");
-  return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings, moves: moveRows.size, staffed: staffRows.length, shifts: creates.length + [...updates.values()].reduce((n, u) => n + u.ids.length, 0) };
+  return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings, moves: moveRows.size, staffed: staffRows.length, shifts: creates.length + [...updates.values()].reduce((n, u) => n + u.ids.length, 0), offSite: offSite.size };
 }
 
 /** Apply the scheduler's plan from its LEVERS. The browser sends only the policy,
@@ -2266,7 +2273,7 @@ export async function applySchedulerLevers(institutionId: string, levers: import
   const { getCapacityModel, getSchedulerData } = await import("./queries");
   const { buildSchedulerPlan, planInputs, schedulerWindow } = await import("./schedulerplan");
   const data = await getCapacityModel({ institutionId });
-  if (!data) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, sections: 0 };
+  if (!data) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0, sections: 0 };
   const base = schedulerWindow(data.cohorts);
   const supply = await getSchedulerData(data.institution.id, base.from, base.to);
   const plan = buildSchedulerPlan(data.cohorts, supply, levers);
@@ -2341,6 +2348,31 @@ export async function deleteWorkloadPolicy(id: string): Promise<void> {
 // SHIFT ASSIGNMENTS — who covers which part of which shift, for THIS offering
 // ---------------------------------------------------------------------------
 
+/** Where a shift (session × section of an offering) is: the plan's booking, else a hand move, else the weekly pattern's site. */
+async function shiftSiteOf(key: { cohortId: string; sessionId: string; courseId: string; sectionIndex: number | null }): Promise<{ id: string; name: string } | null> {
+  const sec = key.sectionIndex == null ? {} : { sectionIndex: key.sectionIndex };
+  const booking = await prisma.assetBooking.findFirst({ where: { cohortId: key.cohortId, sessionId: key.sessionId, ...sec }, select: { asset: { select: { employer: { select: { id: true, name: true } } } } } });
+  if (booking) return booking.asset.employer;
+  const move = await prisma.shiftMove.findFirst({ where: { cohortId: key.cohortId, sessionId: key.sessionId, ...sec, employerId: { not: null } }, select: { employer: { select: { id: true, name: true } } } });
+  if (move?.employer) return move.employer;
+  const pattern = await prisma.meetingPattern.findFirst({ where: { cohortId: key.cohortId, courseId: key.courseId, kind: "CLINICAL", ...sec, employerId: { not: null } }, select: { employer: { select: { id: true, name: true } } } });
+  return pattern?.employer ?? null;
+}
+/** Preceptors stay with their employer: refuse to put one on a shift at another site. */
+async function assertPreceptorAtShiftSite(personId: string, key: { cohortId: string; sessionId: string; courseId: string; sectionIndex: number | null }): Promise<void> {
+  const person = await prisma.person.findUnique({ where: { id: personId }, select: { name: true, role: true, employerId: true, employer: { select: { name: true } } } });
+  if (!person?.employerId) return;
+  const site = await shiftSiteOf(key);
+  if (site && site.id !== person.employerId) throw new Error(`${person.name} precepts at ${person.employer?.name ?? "another site"}, but this shift is at ${site.name}. Preceptors stay with their employer — pick someone at ${site.name}, or move the shift there.`);
+}
+async function assertPreceptorAtSite(personId: string | null | undefined, employerId: string | null | undefined): Promise<void> {
+  if (!personId || !employerId) return;
+  const person = await prisma.person.findUnique({ where: { id: personId }, select: { name: true, role: true, employerId: true, employer: { select: { name: true } } } });
+  if (!person || person.role !== "preceptor" || !person.employerId || person.employerId === employerId) return;
+  const site = await prisma.employer.findUnique({ where: { id: employerId }, select: { name: true } });
+  throw new Error(`${person.name} precepts at ${person.employer?.name ?? "another site"}, not ${site?.name ?? "this site"}. Preceptors stay with their employer.`);
+}
+
 function revalidateStaffing(programId: string, cohortId: string) {
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
@@ -2355,9 +2387,11 @@ function revalidateStaffing(programId: string, cohortId: string) {
 export async function addShiftAssignment(cohortId: string, programId: string, formData: FormData): Promise<void> {
   const sessionId = str(formData.get("sessionId")); const personId = str(formData.get("personId"));
   if (!sessionId || !personId) return;
-  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { lengthHours: true } });
+  const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { lengthHours: true, courseId: true } });
   if (!session) return;
   const role = str(formData.get("role")) || "instructor";
+  // A preceptor stays with their employer: they can only be put on a shift at their own site.
+  if (role === "preceptor") await assertPreceptorAtShiftSite(personId, { cohortId, sessionId, courseId: session.courseId, sectionIndex: str(formData.get("sectionIndex")) === "all" ? null : Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1))) });
   const hoursRaw = str(formData.get("contactHours"));
   const contactHours = hoursRaw ? Math.max(0, numOr(formData.get("contactHours"), session.lengthHours)) : session.lengthHours;
   const startOffsetMin = optNum(formData.get("startOffsetMin"));

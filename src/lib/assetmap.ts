@@ -17,6 +17,8 @@ const ALL_DAYS = "Mon,Tue,Wed,Thu,Fri,Sat,Sun";
 export interface AssetLite {
   id: string; externalId: string | null; employerId: string;
   facilityName: string; facilityExternalId?: string | null; county?: string | null; ring?: string | null; facilityType?: string | null;
+  /** The licensee / health system the site belongs to. */
+  organization?: string | null;
   agreementStatus?: string; facilityStatus?: string;
   settingCode: string; setting: string; assetType: string; assetNumber: number;
   /** How the accreditor counts it (JRCERT class override); blank = derived from setting / type. */

@@ -54,7 +54,7 @@ export interface DsMeeting {
 export interface DsCourse { id: string; code: string | null; name: string; startDate: string | null; endDate: string | null; sessions: DsSession[] }
 export interface DsTerm { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; startDate: string | null; endDate?: string | null; courses: DsCourse[] }
 export interface DsRoom { id: string; name: string; kind: string; capacity: number | null }
-export interface DsPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employer?: { name: string } | null }
+export interface DsPerson { id: string; name: string; role: string; employmentType?: string | null; title?: string | null; employerId?: string | null; employer?: { name: string } | null }
 export interface DsEmployer { id: string; name: string; setting: string | null }
 
 const DAY_OFFSET: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
@@ -521,7 +521,8 @@ export function OfferingDesign({
                             <ShiftStaffing roles={roles} cohortId={cohortId} programId={programId} sessionId={r.id} sectionCount={Math.max(1, comp.Y ?? 1)}
                               need={{ lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded, kind: r.kind }}
                               startTime={r.startTime} assignments={assignments.filter((a) => a.sessionId === r.id)}
-                              people={people.map((p): ShiftPerson => ({ id: p.id, name: p.name, role: p.role, employmentType: p.employmentType ?? null, title: p.title ?? null, employerName: p.employer?.name ?? null }))} />
+                              sites={offCampus ? meetingsFor(c.id, r.kind).map((x) => ({ sectionIndex: x.sectionIndex, employerId: x.employerId ?? null, employerName: x.employerName ?? null })) : []}
+                              people={people.map((p): ShiftPerson => ({ id: p.id, name: p.name, role: p.role, employmentType: p.employmentType ?? null, title: p.title ?? null, employerName: p.employer?.name ?? null, employerId: p.employerId ?? null }))} />
                             <div className="mt-3 flex items-center gap-3">
                               <form action={async (fd) => { await saveSessionOverride(cohortId, r.id, programId, fd); setDirty((dd) => { const n = new Set(dd); n.delete(r.id); return n; }); router.refresh(); }}>
                                 {OVERRIDE_FIELDS.map((f) => <input key={String(f)} type="hidden" name={String(f)} value={r[f] == null ? "" : String(r[f])} readOnly />)}

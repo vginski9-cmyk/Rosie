@@ -23,7 +23,17 @@ const fmtW = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("e
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 const VERDICT: Record<string, string> = { fits: "bg-emerald-100 text-emerald-800", tight: "bg-amber-100 text-amber-800", short: "bg-rose-100 text-rose-800", none: "bg-slate-100 text-slate-500" };
 const VERDICT_LABEL: Record<string, string> = { fits: "fits", tight: "tight", short: "short", none: "no demand" };
-type Tab = "overview" | "bottlenecks" | "sites" | "plan" | "students";
+type Tab = "overview" | "bottlenecks" | "sites" | "plan" | "students" | "preceptors";
+const numOrNull = (v: string) => (v === "" ? null : Number(v));
+/** The variety levers as one choice: how much breadth the plan works for per student. */
+const VARIETY: { key: string; label: string; set: Pick<Policy, "varietySites" | "varietyFacilityTypes" | "varietySystems"> }[] = [
+  { key: "none", label: "no preference", set: { varietySites: false, varietyFacilityTypes: false, varietySystems: false } },
+  { key: "sites", label: "new sites", set: { varietySites: true, varietyFacilityTypes: false, varietySystems: false } },
+  { key: "types", label: "new sites + facility types", set: { varietySites: true, varietyFacilityTypes: true, varietySystems: false } },
+  { key: "all", label: "new sites + types + health systems", set: { varietySites: true, varietyFacilityTypes: true, varietySystems: true } },
+];
+const varietyKey = (p: Policy) => (p.varietySystems ? "all" : p.varietyFacilityTypes ? "types" : p.varietySites ? "sites" : "none");
+const min = (v: number | null) => (v == null ? "—" : `${Math.round(v)} min`);
 
 export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, from, to }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
@@ -36,7 +46,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
   const [planFilter, setPlanFilter] = useState<{ site: string; setting: string; cohort: string; q: string }>({ site: "", setting: "", cohort: "", q: "" });
-  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number } | null>(null);
+  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number; offSite: number } | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [showWhy, setShowWhy] = useState<string | null>(null);
 
@@ -117,6 +127,37 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
           </Lever>
         </div>
+        {/* Students and preceptors: where each student can go, the breadth of what they see, and how preceptors are kept and loaded. */}
+        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Students <span className="font-normal normal-case text-slate-400">— each student's own drive from home, and the breadth of what they see</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
+            <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
+          </Lever>
+          <Lever label="Nearer home" hint="Prefer sites nearer each student's home over sites nearer campus.">
+            <select value={String(policy.preferCloserToStudent)} onChange={(e) => setPolicy({ ...policy, preferCloserToStudent: e.target.value === "true" })} className={sel}><option value="true">prefer sites near the student</option><option value="false">campus distance only</option></select>
+          </Lever>
+          <Lever label="Rotate sites" hint="With continuity on: how long a student stays at one site before the plan looks for a different one.">
+            <select value={policy.rotateSitesEveryWeeks ?? ""} onChange={(e) => setPolicy({ ...policy, rotateSitesEveryWeeks: numOrNull(e.target.value) })} className={sel}><option value="">whole course at one site</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>every {n} weeks</option>)}</select>
+          </Lever>
+          <Lever label="Variety" hint="What the plan works to give every student over the course: sites they haven't been to, kinds of facility they haven't seen (hospital, imaging center, clinic), health systems they haven't been in.">
+            <select value={varietyKey(policy)} onChange={(e) => setPolicy({ ...policy, ...VARIETY.find((v) => v.key === e.target.value)!.set })} className={sel}>{VARIETY.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}</select>
+          </Lever>
+        </div>
+        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preceptors <span className="font-normal normal-case text-slate-400">— always at their own employer; how long they keep a student and how much they carry</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <Lever label="Keep the same preceptor" hint="Shifts in a row a student keeps the same preceptor before rotating to another at the site. Evaluations need a stretch; variety needs a change.">
+            <select value={policy.preceptorStint ?? ""} onChange={(e) => setPolicy({ ...policy, preceptorStint: numOrNull(e.target.value) })} className={sel}><option value="">as long as possible</option><option value="1">rotate every shift</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>for {n} shifts, then rotate</option>)}</select>
+          </Lever>
+          <Lever label="New preceptors" hint="When several preceptors are free, prefer one the student has not had yet.">
+            <select value={String(policy.varietyPreceptors)} onChange={(e) => setPolicy({ ...policy, varietyPreceptors: e.target.value === "true" })} className={sel}><option value="false">least-loaded first</option><option value="true">prefer one the student hasn't had</option></select>
+          </Lever>
+          <Lever label="Weekly ceiling" hint="The most student shifts one preceptor takes in a week.">
+            <select value={policy.maxPreceptorShiftsPerWeek ?? ""} onChange={(e) => setPolicy({ ...policy, maxPreceptorShiftsPerWeek: numOrNull(e.target.value) })} className={sel}><option value="">no ceiling</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} shift{n === 1 ? "" : "s"} a week</option>)}</select>
+          </Lever>
+          <Lever label="Students per preceptor" hint="How many students one preceptor may take on a shift. Default: whatever the session says it needs.">
+            <select value={policy.studentsPerPreceptor ?? ""} onChange={(e) => setPolicy({ ...policy, studentsPerPreceptor: numOrNull(e.target.value) })} className={sel}><option value="">as the session says</option>{[1, 2, 3].map((n) => <option key={n} value={n}>{n === 1 ? "one to one" : `up to ${n} students`}</option>)}</select>
+          </Lever>
+        </div>
         <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
           <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
           <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
@@ -143,7 +184,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} sections`}</button>
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
           <span className="text-slate-500">
-            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
+            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
         </div>
@@ -151,7 +192,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div className="inline-flex flex-wrap overflow-hidden rounded-lg border border-slate-300 text-sm">
-        {([["overview", "Balance by setting & week"], ["bottlenecks", `Bottlenecks (${plan.bottlenecks.length})`], ["sites", `Sites (${plan.sites.filter((x) => x.sections > 0).length})`], ["plan", `The plan — by shift (${plan.assignments.length})`], ["students", `By student (${plan.rosters.length})`]] as [Tab, string][]).map(([k, l]) => (
+        {([["overview", "Balance by setting & week"], ["bottlenecks", `Bottlenecks (${plan.bottlenecks.length})`], ["sites", `Sites (${plan.sites.filter((x) => x.sections > 0).length})`], ["plan", `The plan — by shift (${plan.assignments.length})`], ["students", `By student (${plan.rosters.length})`], ["preceptors", `By preceptor (${plan.preceptorStats.length})`]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 ${tab === k ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{l}</button>
         ))}
       </div>
@@ -304,18 +345,55 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {tab === "students" && (
         <div className="space-y-2">
           {plan.rosters.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">No enrolled students on these offerings yet — the plan is placed by section (seats); students inherit their section&apos;s sites once they are on the roster with a section number.</p>}
-          {plan.rosters.length > 0 && (
+          {plan.rosters.length > 0 && (() => {
+            const statOf = new Map(plan.studentStats.map((s) => [s.student.id, s]));
+            return (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Student</th><th className="px-3 py-2 font-semibold">Offering · section · home</th><th className="px-3 py-2 font-semibold">Where they go, in order</th><th className="px-3 py-2 text-right font-semibold">Shifts</th><th className="px-3 py-2 text-right font-semibold">Hours</th><th className="px-3 py-2 text-right font-semibold" title="distinct sites">Sites</th><th className="px-3 py-2 font-semibold" title="kinds of facility seen">Facility types</th><th className="px-3 py-2 text-right font-semibold" title="distinct health systems">Systems</th><th className="px-3 py-2 text-right font-semibold" title="distinct preceptors">Preceptors</th><th className="px-3 py-2 text-right font-semibold" title="longest run of shifts with the same preceptor">Longest with one</th><th className="px-3 py-2 text-right font-semibold" title="average / farthest drive from home">Drive avg · max</th></tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {plan.rosters.map((r) => {
+                      const s = statOf.get(r.student.id);
+                      return (
+                        <tr key={r.student.id}>
+                          <td className="px-3 py-1.5 font-medium text-slate-800">{r.student.name}</td>
+                          <td className="px-3 py-1.5 text-slate-500">{r.cohort} · section {r.student.sectionIndex}{r.student.homeLabel ? ` · ${r.student.homeLabel}` : ""}</td>
+                          <td className="px-3 py-1.5"><div className="flex flex-wrap gap-1">{r.stops.map((st, i) => <span key={i} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5" title={`${st.settings.join(", ")} · ${n0(st.hours)} h`}>{st.siteName} <span className="text-slate-400">{fmtW(st.from)}{st.to !== st.from ? `–${fmtW(st.to)}` : ""} · {st.shifts}</span></span>)}</div></td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{n0(r.stops.reduce((n, st) => n + st.shifts, 0))}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{n0(r.stops.reduce((n, st) => n + st.hours, 0))}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{s?.sites ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-slate-600">{s?.facilityTypes.join(", ") || "—"}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{s?.systems ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{s?.preceptors ?? "—"}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums">{s ? `${s.longestPreceptorRun} shifts` : "—"}</td>
+                          <td className={`px-3 py-1.5 text-right tabular-nums ${s?.shiftsOverCap ? "font-semibold text-rose-700" : ""}`}>{s ? `${min(s.avgDriveMin)} · ${min(s.maxDriveMin)}${s.shiftsOverCap ? ` · ${s.shiftsOverCap} over cap` : ""}` : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {tab === "preceptors" && (
+        <div className="space-y-2">
+          {plan.preceptorStats.length === 0 && <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">No preceptors named in the plan — sites need preceptors on record for the plan to staff shifts by name.</p>}
+          {plan.preceptorStats.length > 0 && (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <table className="min-w-full text-xs">
-                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Student</th><th className="px-3 py-2 font-semibold">Offering · section</th><th className="px-3 py-2 font-semibold">Where they go, in order</th><th className="px-3 py-2 text-right font-semibold">Shifts</th><th className="px-3 py-2 text-right font-semibold">Hours</th></tr></thead>
+                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Preceptor</th><th className="px-3 py-2 font-semibold">Their site</th><th className="px-3 py-2 text-right font-semibold">Shifts</th><th className="px-3 py-2 text-right font-semibold" title="student shifts in the busiest week">Busiest week</th><th className="px-3 py-2 text-right font-semibold">Students</th><th className="px-3 py-2 font-semibold">Check</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {plan.rosters.map((r) => (
-                    <tr key={r.student.id}>
-                      <td className="px-3 py-1.5 font-medium text-slate-800">{r.student.name}</td>
-                      <td className="px-3 py-1.5 text-slate-500">{r.cohort} · section {r.student.sectionIndex}</td>
-                      <td className="px-3 py-1.5"><div className="flex flex-wrap gap-1">{r.stops.map((st, i) => <span key={i} className="rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5" title={`${st.settings.join(", ")} · ${n0(st.hours)} h`}>{st.siteName} <span className="text-slate-400">{fmtW(st.from)}{st.to !== st.from ? `–${fmtW(st.to)}` : ""} · {st.shifts}</span></span>)}</div></td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{n0(r.stops.reduce((n, st) => n + st.shifts, 0))}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{n0(r.stops.reduce((n, st) => n + st.hours, 0))}</td>
+                  {plan.preceptorStats.map((p) => (
+                    <tr key={p.id}>
+                      <td className="px-3 py-1.5 font-medium text-slate-800">{p.name}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{p.siteName ?? <span className="text-amber-700">no employer on record</span>}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{n0(p.shifts)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${p.overCapWeeks ? "font-semibold text-amber-700" : ""}`}>{p.peakWeek}{p.overCapWeeks ? ` · over the ceiling ${p.overCapWeeks} week${p.overCapWeeks === 1 ? "" : "s"}` : ""}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{p.students}</td>
+                      <td className="px-3 py-1.5">{p.sites > 1 ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-800">at {p.sites} sites — should never happen</span> : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">only at their own site</span>}</td>
                     </tr>
                   ))}
                 </tbody>

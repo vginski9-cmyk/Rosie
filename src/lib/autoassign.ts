@@ -215,7 +215,8 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
             const planned = planPreceptorBySection.get(k) ?? [];
             const siteId = m?.employerId ?? null;
             const pool = preceptorPool.filter((p) => !taken.has(p.id) && (planned.includes(p.id) || (siteId ? p.employerId === siteId : false)));
-            who = pick(pool.length ? pool : preceptorPool.filter((p) => !taken.has(p.id) && !siteId), dateIso, start, s.lengthHours, (p) => (planned.includes(p.id) ? 3 : 0) + (m?.staffPersonId === p.id ? 2 : 0));
+            // Only the site's own preceptors — a preceptor stays with their employer; no site yet means nobody to pick.
+            who = pick(pool.filter((p) => !siteId || p.employerId === siteId), dateIso, start, s.lengthHours, (p) => (planned.includes(p.id) ? 3 : 0) + (m?.staffPersonId === p.id ? 2 : 0));
             if (!who) { const u = uncovered.get("preceptor") ?? { shifts: 0, why: siteId ? "no free preceptor at the section's site that shift" : "section has no clinical site yet — place it first" }; u.shifts++; uncovered.set("preceptor", u); break; }
           } else if (nd.fam === "faculty") {
             const pool = facultyPool.filter((p) => !taken.has(p.id));

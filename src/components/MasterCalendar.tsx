@@ -26,7 +26,7 @@ export interface CalEmployer { id: string; name: string; setting: string | null 
 export interface CalRoom { facilityId: string; name: string; kind: string; capacity: number | null; building: string | null; utilization: number; bookedHoursPeakWeek: number; openHoursPerWeek: number; meetingCount: number; distinctDays: number }
 export interface CalConflict { kind: string; aId: string; bId: string; dayOfWeek: string; key: string; detail: string }
 export interface RoomOpt { id: string; name: string; kind: string; capacity: number | null }
-export interface CalPerson { id: string; name: string; role: string }
+export interface CalPerson { id: string; name: string; role: string; employerId?: string | null }
 
 const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const KIND_COLOR: Record<string, string> = { CLASS: "#0284c7", LAB: "#7c3aed", CLINICAL: "#e11d48" };
@@ -173,8 +173,9 @@ export function MasterCalendar({
     startMove(id, patch);
   };
   const [pending, startTransition] = useTransition();
+  const [moveError, setMoveError] = useState<string | null>(null);
   const startMove = (id: string, patch: Parameters<typeof moveMeeting>[1]) => {
-    startTransition(async () => { await moveMeeting(id, patch); router.refresh(); });
+    startTransition(async () => { setMoveError(null); try { await moveMeeting(id, patch); router.refresh(); } catch (e) { setMoveError(e instanceof Error ? e.message : String(e)); } });
   };
 
   return (
@@ -239,6 +240,7 @@ export function MasterCalendar({
           ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictsForWeek.length} conflicts this week</span>
           : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">no conflicts this week</span>}
         {pending && <span className="text-slate-400">saving…</span>}
+        {moveError && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700">{moveError}</span>}
       </div>
       {/* Legend — what the colors mean this week */}
       {(legend.length > 0 || colorBy === "program") && (
@@ -412,7 +414,9 @@ function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave
   const [site, setSite] = useState(meeting.employerId ?? "");
   const [staff, setStaff] = useState(meeting.staffPersonId ?? "");
   const offCampus = meeting.kind === "CLINICAL";
-  const staffPool = offCampus ? people.filter((p) => p.role === "preceptor") : people.filter((p) => p.role !== "preceptor");
+  // Preceptors stay with their employer: once a site is chosen, only its own preceptors can be picked.
+  const staffPool = offCampus ? people.filter((p) => p.role === "preceptor" && (!site || !p.employerId || p.employerId === site)) : people.filter((p) => p.role !== "preceptor");
+  const pickSite = (id: string) => { setSite(id); if (id && staff) { const s = people.find((p) => p.id === staff); if (s?.employerId && s.employerId !== id) setStaff(""); } };
   const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
   const location = offCampus ? (meeting.employerName ?? "site TBD") : (meeting.facilityName ?? "unroomed");
   // What happens on THIS day: the selected calendar week → the week-of-term →
@@ -483,18 +487,19 @@ function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave
           ) : (
             <label className="col-span-2 block">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Clinical site (partner)</span>
-              <select value={site} onChange={(e) => setSite(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <select value={site} onChange={(e) => pickSite(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
                 <option value="">— site TBD —</option>
                 {employers.map((emp) => <option key={emp.id} value={emp.id}>{emp.name}{emp.setting ? ` (${emp.setting})` : ""}</option>)}
               </select>
             </label>
           )}
           <label className="col-span-2 block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{offCampus ? "Preceptor" : "Instructor"}</span>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{offCampus ? `Preceptor${site ? " — at this site" : ""}` : "Instructor"}</span>
             <select value={staff} onChange={(e) => setStaff(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
               <option value="">— unstaffed —</option>
               {staffPool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
+            {offCampus && site && staffPool.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">No preceptors on record at this site — add them to the site&apos;s people first.</span>}
           </label>
         </div>
         <div className="mt-4 flex items-center gap-2">

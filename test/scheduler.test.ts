@@ -189,3 +189,71 @@ describe("campus days — students can't be in class and on clinical at once", (
     expect(other.assignments).toHaveLength(1);
   });
 });
+
+describe("student levers — drive from home, rotation, variety", () => {
+  // Two secured sites: Moore (Core, near campus) and Hoke (Ring 1). The student lives near Hoke.
+  const near = asset({ id: "m1", employerId: "e1", facilityName: "Moore Regional", ring: "Core", facilityType: "Acute care hospital", organization: "FirstHealth" });
+  const far = asset({ id: "h1", employerId: "e2", facilityName: "Hoke Campus", ring: "Ring 1", facilityType: "Imaging center", organization: "Cape Fear Valley" });
+  const student = { id: "s1", name: "Ada", cohortId: "co1", sectionIndex: 1, homeLabel: "Raeford", driveTo: { e1: 70, e2: 15 } };
+  const one = unit({ id: "u1", seats: 1, seatsPerSection: 1 });
+  it("prefers the site nearer the student's home, unless told to go by campus distance", () => {
+    const home = recommendPlan(base({ demand: [one], assets: [near, far], students: [student] }));
+    expect(home.assignments[0].siteName).toBe("Hoke Campus");
+    expect(home.assignments[0].reason).toContain("15 min from home");
+    const campus = recommendPlan(base({ demand: [one], assets: [near, far], students: [student] }, { preferCloserToStudent: false }));
+    expect(campus.assignments[0].siteName).toBe("Moore Regional");
+    expect(home.studentStats[0]).toMatchObject({ sites: 1, avgDriveMin: 15, maxDriveMin: 15, shiftsOverCap: 0 });
+  });
+  it("caps the drive from home, and says so when nothing is within reach", () => {
+    const capped = recommendPlan(base({ demand: [one], assets: [near, far], students: [student] }, { maxStudentDriveMin: 30, preferCloserToStudent: false }));
+    expect(capped.assignments[0].siteName).toBe("Hoke Campus");
+    const none = recommendPlan(base({ demand: [one], assets: [near, far], students: [student] }, { maxStudentDriveMin: 10 }));
+    expect(none.assignments).toHaveLength(0);
+    expect(none.unmet[0].reason).toBe("drive");
+    // a student with no known home is never capped
+    expect(recommendPlan(base({ demand: [one], assets: [near], students: [{ ...student, driveTo: undefined }] }, { maxStudentDriveMin: 10 })).assignments).toHaveLength(1);
+  });
+  it("keeps a section at one site for the stint, then rotates it and counts the breadth", () => {
+    const weeks = ["2027-08-23", "2027-08-30", "2027-09-06", "2027-09-13"].map((d, i) => unit({ id: `w${i}`, sessionId: `s${i}`, date: d, weekMonday: d, seats: 1, seatsPerSection: 1 }));
+    const stay = recommendPlan(base({ demand: weeks, assets: [near, far], students: [{ ...student, driveTo: undefined }] }));
+    expect(new Set(stay.assignments.map((x) => x.siteName)).size).toBe(1);
+    const rotate = recommendPlan(base({ demand: weeks, assets: [near, far], students: [{ ...student, driveTo: undefined }] }, { rotateSitesEveryWeeks: 2, varietySites: true, varietyFacilityTypes: true, varietySystems: true }));
+    expect(rotate.assignments.map((x) => x.siteName)).toEqual(["Moore Regional", "Moore Regional", "Hoke Campus", "Hoke Campus"]);
+    expect(rotate.assignments[2].reason).toContain("a site the student has not been to");
+    expect(rotate.studentStats[0]).toMatchObject({ sites: 2, systems: 2, facilityTypes: ["Acute care hospital", "Imaging center"] });
+  });
+});
+
+describe("preceptor levers — their own site only, stints, ceilings", () => {
+  const room = asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 1, days: "Mon,Tue,Wed,Thu,Fri" });
+  const pat = { id: "p1", name: "Pat", employerId: "e1", role: "preceptor" };
+  const quinn = { id: "p2", name: "Quinn", employerId: "e1", role: "preceptor" };
+  const other = { id: "p3", name: "Elsewhere", employerId: "e2", role: "preceptor" };
+  const student = { id: "s1", name: "Ada", cohortId: "co1", sectionIndex: 1 };
+  const shifts = ["2027-08-23", "2027-08-24", "2027-08-25"].map((d, i) => unit({ id: `d${i}`, sessionId: `s${i}`, date: d, weekMonday: "2027-08-23", seats: 1, seatsPerSection: 1 }));
+  it("never puts a preceptor on a shift at another employer", () => {
+    const plan = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [other], students: [student] }));
+    expect(plan.assignments.every((x) => x.preceptorIds.length === 0)).toBe(true);
+    expect(recommendPlan(base({ demand: shifts, assets: [room], preceptors: [other] }, { requirePreceptor: true })).unmet[0].reason).toBe("no-preceptor");
+    const own = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [pat, other], students: [student] }));
+    expect(own.preceptorStats).toEqual([expect.objectContaining({ id: "p1", siteName: "Moore Regional", shifts: 3, sites: 1, students: 1 })]);
+  });
+  it("keeps the same preceptor through a stint, then rotates; or prefers a new face", () => {
+    const keep = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [pat, quinn], students: [student] }));
+    expect(keep.assignments.map((x) => x.preceptorNames[0])).toEqual(["Pat", "Pat", "Pat"]);
+    expect(keep.studentStats[0].longestPreceptorRun).toBe(3);
+    const stint = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [pat, quinn], students: [student] }, { preceptorStint: 2 }));
+    expect(stint.assignments.map((x) => x.preceptorNames[0])).toEqual(["Pat", "Pat", "Quinn"]);
+    const fresh = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [pat, quinn], students: [student] }, { preceptorStint: 1, varietyPreceptors: true }));
+    expect(fresh.assignments.map((x) => x.preceptorNames[0])).toEqual(["Pat", "Quinn", "Pat"]);
+  });
+  it("holds a preceptor to the weekly ceiling and the students-per-preceptor ratio", () => {
+    const capped = recommendPlan(base({ demand: shifts, assets: [room], preceptors: [pat], students: [student] }, { maxPreceptorShiftsPerWeek: 2 }));
+    expect(capped.assignments.map((x) => x.preceptorNames.length)).toEqual([1, 1, 0]);
+    expect(capped.preceptorStats[0]).toMatchObject({ peakWeek: 2, overCapWeeks: 0 });
+    const pair = unit({ id: "pair", seats: 2, seatsPerSection: 2, preceptorsNeeded: 1 });
+    const big = asset({ id: "b1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 2 });
+    expect(recommendPlan(base({ demand: [pair], assets: [big], preceptors: [pat, quinn] })).assignments[0].preceptorIds).toHaveLength(1);
+    expect(recommendPlan(base({ demand: [pair], assets: [big], preceptors: [pat, quinn] }, { studentsPerPreceptor: 1 })).assignments[0].preceptorIds).toHaveLength(2);
+  });
+});
