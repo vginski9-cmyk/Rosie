@@ -56,6 +56,8 @@ export interface DemandUnit {
   courseId: string | null; courseCode: string | null; courseTitle: string; termIndex: number; termName: string; weekOfTerm: number;
   sessionId: string; sessionTitle: string | null; sectionIndex: number; sectionCount: number;
   date: string; weekMonday: string; block: ShiftBlock; startTime: string | null; hours: number;
+  /** The date the weekly pattern puts this shift on — the key a per-occurrence move is filed under (date differs once a hand-made move applies). */
+  originalDate: string;
   rotationType: string; settingCode: string | null;
   seats: number; preceptorsNeeded: number; facultyNeeded: number; clinicalMode: string | null;
   /** The session's students-per-section ceiling — seat numbers map to sections with it: section = ceil(seat ÷ seatsPerSection). */
@@ -67,9 +69,13 @@ export interface Preceptor { id: string; name: string; employerId: string | null
 export interface Instructor { id: string; name: string; role: string }
 export interface StudentLite { id: string; name: string; cohortId: string; sectionIndex: number }
 export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string }
+/** One campus class or lab occurrence: the cohort's students are on campus then, so no clinical can land on them. */
+export interface CampusBlock { cohortId: string; date: string; startMin: number; endMin: number; label: string }
 
 export interface SchedulerInput {
   demand: DemandUnit[];
+  /** Campus classes and labs, dated — a clinical never moves onto a day the cohort is in class, and never overlaps one on its own day. */
+  campus?: CampusBlock[];
   assets: AssetLite[];
   overrides: AssetDayOverride[];
   /** Bookings already on the books that are NOT part of this plan (they consume seats). */
@@ -81,10 +87,11 @@ export interface SchedulerInput {
   policy: Policy;
 }
 
-export type UnmetReason = "holiday" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
+export type UnmetReason = "holiday" | "class-day" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
 export const REASON_LABEL: Record<UnmetReason, string> = {
   "too-big": "no single site has enough seats of this setting on one shift for a section this size",
   holiday: "lands on an observed holiday — needs moving",
+  "class-day": "overlaps a class or lab the cohort is in that day — students can't be in two places",
   "unmapped-setting": "rotation type isn't mapped to an asset setting",
   "no-asset-for-setting": "no partner reports an asset of this setting",
   "no-agreement": "the only sites with this setting aren't under an allowed agreement",
@@ -171,7 +178,7 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
         cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, program: r.program, familyId: familyByCohort[r.cohortId] ?? null,
         courseId: r.courseId, courseCode: r.courseCode, courseTitle: r.courseTitle, termIndex: r.termIndex, termName: r.termName, weekOfTerm: r.weekOfTerm,
         sessionId: r.session.id, sessionTitle: r.session.title ?? null, sectionIndex: sec, sectionCount: Y,
-        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0,
+        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: r.dateIso,
         rotationType: rt, settingCode: codeOf.get(rt.toLowerCase()) ?? null,
         seats, preceptorsNeeded: Math.max(0, r.session.preceptorsNeeded ?? 0), facultyNeeded: Math.max(0, r.session.facultyNeeded ?? 0), clinicalMode: r.session.clinicalMode ?? null,
         seatsPerSection: per,
@@ -219,6 +226,22 @@ export function recommendPlan(input: SchedulerInput): Plan {
   const siteCap = new Map<string, number>();
   for (const a of live) siteCap.set(a.employerId, (siteCap.get(a.employerId) ?? 0) + a.learnersPerShift);
 
+  // Campus days: when the cohort is in class or lab. A clinical never MOVES onto such a day, and on
+  // its own day it may only run if its hours don't overlap the class (a morning lab and an
+  // evening shift can share a date; a day shift and a lab cannot).
+  const campusByDay = new Map<string, CampusBlock[]>();
+  for (const c of input.campus ?? []) { const k = `${c.cohortId}|${c.date}`; const l = campusByDay.get(k) ?? []; l.push(c); campusByDay.set(k, l); }
+  const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  const campusClash = (u: DemandUnit, date: string, block: ShiftBlock, moved: boolean): boolean => {
+    const blocks = campusByDay.get(`${u.cohortId}|${date}`);
+    if (!blocks?.length) return false;
+    if (moved) return true;
+    const start = block === u.block ? toMin(u.startTime) : block === "Day" ? 7 * 60 : block === "Evening" ? 15 * 60 : 23 * 60;
+    if (start == null) return true;
+    const end = start + Math.max(1, u.hours) * 60;
+    return blocks.some((c) => start < c.endMin && c.startMin < end);
+  };
+
   // Continuity memory: section (cohort|course|section) → employerId of its previous placements.
   const home = new Map<string, Map<string, number>>();
   const sectionKey = (u: DemandUnit) => `${u.cohortId}|${u.courseId ?? u.courseCode}|${u.sectionIndex}`;
@@ -240,8 +263,12 @@ export function recommendPlan(input: SchedulerInput): Plan {
     const dates: { date: string; movedDays: number }[] = [{ date: u.date, movedDays: 0 }];
     for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday) dates.push({ date, movedDays: sign * d }); }
     const blocks = pol.flexibleShift ? [u.block, ...BLOCKS.filter((b) => b !== u.block)] : [u.block];
+    // Every date × block the cohort is free for: never a moved date the cohort is on campus, never an overlap on its own day.
+    const free = dates.flatMap((d) => blocks.filter((b) => !campusClash(u, d.date, b, d.movedDays !== 0)).map((b) => ({ ...d, block: b })));
+    if (!free.length) return { cands: [], partial: [], reason: "class-day", biggest: null };
     const pools = new Map<string, Pool>();
-    for (const a of pool) for (const d of dates) for (const b of blocks) {
+    for (const a of pool) for (const { date, movedDays, block: b } of free) {
+      const d = { date, movedDays };
       if (!opens(a, d.date, b)) continue;
       const k = `${a.employerId}|${d.date}|${b}`;
       const P = pools.get(k) ?? { employerId: a.employerId, siteName: a.facilityName, date: d.date, block: b, movedDays: d.movedDays, assets: [], free: 0, used: 0 };
@@ -358,6 +385,11 @@ function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit
     fixes.push(`a ${u.seats}-student section needs ${u.seats} ${u.settingCode} seats at one site on one shift; the largest site has ${b?.seats ?? 0}${b ? ` (${b.site})` : ""} — lower students per section on this session, raise learners per shift on the rooms, or let preceptor-led sections split across sites`);
   }
   if (reason === "holiday") return ["move this shift off the holiday (design & sequence — this offering)"];
+  if (reason === "class-day") {
+    for (const t of [{ label: "allow ± 1 day inside the week", pol: { flexibleDays: 1 as const } }, { label: "allow ± 2 days inside the week", pol: { flexibleDays: 2 as const } }, { label: "allow a different shift block", pol: { flexibleShift: true } }]) if (candidates(u, { ...DEFAULT_POLICY, ...t.pol }).cands.length > 0) fixes.push(t.label);
+    fixes.push("move the class or lab off this shift's hours, or put the clinical on a day the cohort is not on campus (design & sequence — this offering)");
+    return fixes;
+  }
   if (reason === "unmapped-setting") return [`map rotation type "${u.rotationType}" to an asset setting (Insights → Clinical sites → Rotation → setting)`];
   if (reason === "no-asset-for-setting") return [`ask a partner to add an asset of setting ${u.settingCode} on the supply map`];
   const base: Policy = { ...DEFAULT_POLICY };

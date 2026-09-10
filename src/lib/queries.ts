@@ -1506,6 +1506,126 @@ export interface MasterMeeting {
   sessionTitles: { week: number | null; title: string | null }[];
 }
 
+/** One clinical shift as it ACTUALLY happens in the displayed week: the date it landed on (after
+ *  the scheduler's plan or a hand move), the site and rooms booked, who precepts, and which
+ *  students are there. Stands in for the weekly pattern's block on the calendar. */
+export interface CalOccurrence {
+  key: string; meetingId: string | null;
+  cohortId: string; cohortName: string; programId: string; programName: string;
+  courseId: string; courseCode: string | null; courseName: string; sessionTitle: string | null;
+  sectionIndex: number; sectionCount: number;
+  date: string; dayOfWeek: string; originalDate: string; originalDay: string; startTime: string; endTime: string; lengthHours: number; block: string | null;
+  employerId: string | null; employerName: string | null; assets: string[];
+  preceptors: string[]; instructor: string | null;
+  students: { id: string; name: string; preceptor: string | null; status: string }[];
+  moved: boolean; changedBlock: boolean; source: "plan" | "move" | "pattern";
+  /** A booking on a site's asset exists for this shift; without one the site shown is only the section's weekly site. */
+  booked: boolean;
+}
+export interface CalRosterDay { date: string; dayOfWeek: string; sites: { employerId: string | null; name: string; students: { name: string; cohort: string; course: string; preceptor: string | null }[]; preceptors: string[] }[] }
+
+const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const isoOf = (d: Date) => d.toISOString().slice(0, 10);
+const dowOf = (iso: string) => DOW_SHORT[new Date(iso + "T00:00:00Z").getUTCDay()];
+
+/** The clinical shifts of one calendar week, as they actually happen — from the applied plan's
+ *  bookings, per-occurrence moves, shift staffing and every student's pinned shift. */
+export async function weekClinicalOccurrences(meetings: MasterMeeting[], mondayMs: number): Promise<{ occurrences: CalOccurrence[]; roster: CalRosterDay[] }> {
+  const { toMin, toHHMM } = await import("./space");
+  const empty = { occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
+  const cohortIds = [...new Set(meetings.map((m) => m.cohortId))];
+  if (!cohortIds.length) return empty;
+  const monday = isoOf(new Date(mondayMs)); const sunday = isoOf(new Date(mondayMs + 6 * 86400000));
+  const inWin = (iso: string) => iso >= monday && iso <= sunday;
+  const win = { gte: new Date(monday + "T00:00:00Z"), lte: new Date(sunday + "T00:00:00Z") };
+  const [bookings, moves, dated] = await Promise.all([
+    prisma.assetBooking.findMany({ where: { cohortId: { in: cohortIds }, date: win, sessionId: { not: null } }, select: { cohortId: true, sessionId: true, sectionIndex: true, date: true, block: true, students: true, asset: { select: { externalId: true, settingCode: true, assetNumber: true, dayStart: true, eveningStart: true, nightStart: true, employer: { select: { id: true, name: true } } } } } }),
+    prisma.shiftMove.findMany({ where: { cohortId: { in: cohortIds }, OR: [{ fromDate: win }, { toDate: win }] }, select: { cohortId: true, sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, note: true, employer: { select: { id: true, name: true } }, staff: { select: { name: true } } } }),
+    Promise.all(cohortIds.map(async (id) => [id, (await sessionDatesForCohort(id)).dates] as const)),
+  ]);
+  const dateOf = new Map(dated.map(([id, d]) => [id, d]));
+  // Sessions that happen this week: on their own date, or moved into it (moved out = gone from this week).
+  const moveByKey = new Map(moves.map((m) => [`${m.cohortId}|${m.sessionId}|${m.sectionIndex}`, m]));
+  const sessionIds = new Set<string>();
+  for (const [cid, d] of dateOf) for (const [sid, iso] of d) if (iso && inWin(iso)) sessionIds.add(sid);
+  for (const m of moves) if (inWin(isoOf(m.toDate))) sessionIds.add(m.sessionId);
+  if (!sessionIds.size) return empty;
+  const ids = [...sessionIds];
+  const [sessions, shifts, staff] = await Promise.all([
+    prisma.session.findMany({ where: { id: { in: ids }, kind: "CLINICAL" }, select: { id: true, courseId: true, title: true, startTime: true, lengthHours: true, course: { select: { code: true, name: true } } } }),
+    prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { in: ids } }, select: { studentId: true, sessionId: true, sectionIndex: true, cohortId: true, status: true, student: { select: { name: true } }, preceptor: { select: { name: true } } }, orderBy: { student: { name: "asc" } } }),
+    prisma.sessionInstructor.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { in: ids } }, select: { cohortId: true, sessionId: true, sectionIndex: true, role: true, note: true, person: { select: { name: true, employerId: true } } } }),
+  ]);
+  const sessionById = new Map(sessions.map((s) => [s.id, s]));
+  const cohortOf = new Map(meetings.map((m) => [m.cohortId, m]));
+  const patterns = meetings.filter((m) => m.kind === "CLINICAL");
+  // Every (cohort, session, section) anything is known about this week.
+  const keys = new Map<string, { cohortId: string; sessionId: string; sectionIndex: number }>();
+  const add = (cohortId: string, sessionId: string, sectionIndex: number) => { if (sessionById.has(sessionId)) keys.set(`${cohortId}|${sessionId}|${sectionIndex}`, { cohortId, sessionId, sectionIndex }); };
+  for (const b of bookings) add(b.cohortId, b.sessionId!, b.sectionIndex);
+  for (const m of moves) add(m.cohortId, m.sessionId, m.sectionIndex);
+  for (const s of shifts) add(s.cohortId, s.sessionId, s.sectionIndex);
+  for (const s of staff) if (s.cohortId) add(s.cohortId, s.sessionId, s.sectionIndex);
+  const blockStart = (a: (typeof bookings)[number]["asset"], block: string) => (block === "Evening" ? a.eveningStart : block === "Night" ? a.nightStart : a.dayStart) ?? (block === "Evening" ? "15:00" : block === "Night" ? "23:00" : "07:00");
+  const occurrences: CalOccurrence[] = [];
+  for (const k of keys.values()) {
+    const s = sessionById.get(k.sessionId)!;
+    const originalDate = dateOf.get(k.cohortId)?.get(k.sessionId) ?? null;
+    const mv = moveByKey.get(`${k.cohortId}|${k.sessionId}|${k.sectionIndex}`);
+    const date = mv ? isoOf(mv.toDate) : originalDate;
+    if (!date || !inWin(date)) continue;
+    const from = originalDate ?? (mv ? isoOf(mv.fromDate) : date);
+    const mine = bookings.filter((b) => b.cohortId === k.cohortId && b.sessionId === k.sessionId && b.sectionIndex === k.sectionIndex);
+    const forSection = patterns.filter((m) => m.cohortId === k.cohortId && m.courseId === s.courseId && m.sectionIndex === k.sectionIndex);
+    const pattern = forSection.find((m) => m.dayOfWeek === dowOf(from)) ?? forSection[0] ?? null;
+    const head = cohortOf.get(k.cohortId)!;
+    const lead = mine[0]?.asset ?? null;
+    // The session's own hours, unless the plan or a move put it on another shift block.
+    const startTime = mv?.startTime ?? pattern?.startTime ?? s.startTime ?? (mine[0] ? blockStart(mine[0].asset, mine[0].block) : "07:00");
+    const lengthHours = pattern?.lengthHours ?? s.lengthHours ?? 8;
+    const rows = staff.filter((x) => x.cohortId === k.cohortId && x.sessionId === k.sessionId && x.sectionIndex === k.sectionIndex);
+    const myShifts = shifts.filter((x) => x.cohortId === k.cohortId && x.sessionId === k.sessionId && x.sectionIndex === k.sectionIndex);
+    const employerId = lead?.employer.id ?? mv?.employer?.id ?? pattern?.employerId ?? null;
+    // Who precepts: the people assigned at the site the shift is at (by hand or by the plan); a hand
+    // assignment at some other site is not where this shift is, so it only shows when nothing else is known.
+    const pRows = rows.filter((x) => x.role === "preceptor");
+    const here = pRows.filter((x) => !employerId || x.person.employerId === employerId || x.note != null).map((x) => x.person.name);
+    const preceptors = [...new Set([...(here.length ? here : pRows.map((x) => x.person.name)), ...myShifts.map((x) => x.preceptor?.name).filter((n): n is string => !!n), ...(mv?.staff?.name ? [mv.staff.name] : [])])];
+    occurrences.push({
+      key: `${k.cohortId}|${k.sessionId}|${k.sectionIndex}`, meetingId: pattern?.id ?? null,
+      cohortId: k.cohortId, cohortName: head.cohortName, programId: head.programId, programName: head.programName,
+      courseId: s.courseId, courseCode: s.course.code, courseName: s.course.name, sessionTitle: s.title,
+      sectionIndex: k.sectionIndex, sectionCount: Math.max(pattern?.sectionCount ?? 1, k.sectionIndex),
+      date, dayOfWeek: dowOf(date), originalDate: from, originalDay: dowOf(from), startTime, endTime: toHHMM(Math.round(toMin(startTime) + lengthHours * 60)), lengthHours, block: mine[0]?.block ?? null,
+      employerId, employerName: lead?.employer.name ?? mv?.employer?.name ?? pattern?.employerName ?? null,
+      assets: [...new Set(mine.map((b) => b.asset.externalId ?? `${b.asset.settingCode}-${b.asset.assetNumber}`))],
+      preceptors, instructor: rows.find((x) => x.role !== "preceptor")?.person.name ?? null,
+      students: myShifts.map((x) => ({ id: x.studentId, name: x.student.name, preceptor: x.preceptor?.name ?? null, status: x.status })),
+      moved: date !== from, changedBlock: !!mv?.startTime, source: mine.length ? "plan" : mv ? "move" : "pattern", booked: mine.length > 0,
+    });
+  }
+  occurrences.sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime) || a.courseCode?.localeCompare(b.courseCode ?? "") || a.sectionIndex - b.sectionIndex);
+  // Who is where, day by day: every site with the students and preceptors on it.
+  const roster: CalRosterDay[] = [];
+  for (let i = 0; i < 7; i++) {
+    const date = isoOf(new Date(mondayMs + i * 86400000));
+    const todays = occurrences.filter((o) => o.date === date && (o.students.length || o.preceptors.length));
+    if (!todays.length) continue;
+    const sites = new Map<string, CalRosterDay["sites"][number]>();
+    for (const o of todays) {
+      // Only a booked (or hand-moved) shift is really AT its site; the rest are waiting for a booking.
+      const placed = o.booked || o.source === "move";
+      const id = placed ? o.employerId ?? "tbd" : "unbooked";
+      const site = sites.get(id) ?? { employerId: placed ? o.employerId : null, name: placed ? o.employerName ?? "site TBD" : "not booked yet — apply a plan or book by hand", students: [], preceptors: [] };
+      for (const st of o.students) site.students.push({ name: st.name, cohort: o.cohortName, course: o.courseCode ?? o.courseName, preceptor: st.preceptor ?? o.preceptors[0] ?? null });
+      if (placed) for (const p of o.preceptors) if (!site.preceptors.includes(p)) site.preceptors.push(p);
+      sites.set(id, site);
+    }
+    roster.push({ date, dayOfWeek: dowOf(date), sites: [...sites.values()].sort((a, b) => b.students.length - a.students.length || a.name.localeCompare(b.name)) });
+  }
+  return { occurrences, roster };
+}
+
 export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?: number }) {
   const { detectConflicts, roomUtilization, seatStartsByGroup, toMin, toHHMM } = await import("./space");
   const WEEK_MS = 7 * 24 * 3600 * 1000;
@@ -1525,7 +1645,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     }
     institutionId = institutionId ?? institutions[0]?.id;
   }
-  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], employers: [] as { id: string; name: string; setting: string | null }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 } };
+  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], employers: [] as { id: string; name: string; setting: string | null }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 }, occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
 
   const [rooms, calPeople, calEmployers, raw] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
@@ -1538,17 +1658,21 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
         course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { id: true, kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
-        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } }, sessionStaff: { select: { sessionId: true, sectionIndex: true, person: { select: { name: true } } } } } },
+        cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } },
       },
     }),
   ]);
 
   // Who staffs a weekly booking: the shift assignments of its course × kind × section (the
-  // staffing table's truth), else the booking's own staff field.
+  // staffing table's truth), else the booking's own staff field. Loaded once per cohort — an
+  // offering can carry thousands of shift assignments, far too many to ship with every pattern.
+  const staffRows = await prisma.sessionInstructor.findMany({ where: { cohortId: { in: [...new Set(raw.map((m) => m.cohortId))] } }, select: { cohortId: true, sessionId: true, sectionIndex: true, person: { select: { name: true } } } });
+  const staffByCohort = new Map<string, typeof staffRows>();
+  for (const a of staffRows) { const l = staffByCohort.get(a.cohortId!) ?? []; l.push(a); staffByCohort.set(a.cohortId!, l); }
   const leadStaffOf = (m: (typeof raw)[number]) => {
     const ids = new Set(m.course.sessions.filter((s) => s.kind === m.kind).map((s) => s.id));
     const counts = new Map<string, number>();
-    for (const a of m.cohort.sessionStaff) if (a.sectionIndex === m.sectionIndex && ids.has(a.sessionId)) counts.set(a.person.name, (counts.get(a.person.name) ?? 0) + 1);
+    for (const a of staffByCohort.get(m.cohortId) ?? []) if (a.sectionIndex === m.sectionIndex && ids.has(a.sessionId)) counts.set(a.person.name, (counts.get(a.person.name) ?? 0) + 1);
     const top = [...counts.entries()].sort((x, y) => y[1] - x[1]);
     return top.length ? (top.length > 1 ? `${top[0][0]} +${top.length - 1}` : top[0][0]) : null;
   };
@@ -1617,7 +1741,9 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     peakUtil: roomsOut.reduce((n, r) => Math.max(n, r.utilization), 0),
   };
 
-  return { institutions, institutionId, rooms: roomsOut, people: calPeople, employers: calEmployers, meetings, conflicts, weeks, currentWeekMs, programs, summary };
+  // The displayed week's clinical shifts as they actually happen (the plan, moves, staffing, students).
+  const week = currentWeekMs != null ? await weekClinicalOccurrences(meetings, currentWeekMs) : { occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
+  return { institutions, institutionId, rooms: roomsOut, people: calPeople, employers: calEmployers, meetings, conflicts, weeks, currentWeekMs, programs, summary, occurrences: week.occurrences, roster: week.roster };
 }
 
 /** One meeting's full editing context (for the move/reassign editor). */

@@ -9,7 +9,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment } from "@/lib/scheduler";
-import { schedulerDemand, filterDemand, planFor } from "@/lib/schedulerplan";
+import { schedulerModel, filterDemand, planFor } from "@/lib/schedulerplan";
 import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
@@ -36,20 +36,21 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
   const [planFilter, setPlanFilter] = useState<{ site: string; setting: string; cohort: string; q: string }>({ site: "", setting: "", cohort: "", q: "" });
-  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number } | null>(null);
+  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number } | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [showWhy, setShowWhy] = useState<string | null>(null);
 
   // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
   // so what is on screen is what gets written.
-  const demandAll = useMemo(() => schedulerDemand(cohorts, rotations), [cohorts, rotations]);
+  const model = useMemo(() => schedulerModel(cohorts, rotations), [cohorts, rotations]);
+  const demandAll = model.demand;
   const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: [...cohortFilter] }), [policy, window, cohortFilter]);
   const demand = useMemo(() => filterDemand(demandAll, levers), [demandAll, levers]);
   const supply = useMemo(() => ({ assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements }), [assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements]);
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
   const autoBookings = useMemo(() => bookings.filter((b) => b.note === AUTO_PLAN_NOTE), [bookings]);
 
-  const plan: Plan = useMemo(() => planFor(demand, supply, policy), [demand, supply, policy]);
+  const plan: Plan = useMemo(() => planFor(demand, supply, policy, model.campus), [demand, supply, policy, model.campus]);
   const s = plan.summary;
   const settingName = (code: string) => plan.balance.find((b) => b.settingCode === code)?.setting ?? code;
   const weekMondays = useMemo(() => [...new Set(plan.weeks.map((w) => w.weekMonday))].sort(), [plan]);
@@ -142,7 +143,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} sections`}</button>
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
           <span className="text-slate-500">
-            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings, {n0(applied.meetings)} sections pointed at their site, {n0(applied.placements)} student placements.</span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes bookings onto assets, points each section's calendar pattern at its site and lead preceptor, and gives every student a planned placement. Hand-made bookings are never touched."}
+            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
         </div>

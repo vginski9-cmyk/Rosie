@@ -16,7 +16,10 @@ describe("scheduler plan, shared between the board and the apply action", () => 
     expect(filterDemand(d, { from: "2026-08-01", to: "2026-12-31", cohortIds: ["c1"] }).map((u) => u.id)).toEqual(["s1|1|2026-08-18", "c"]);
   });
   it("turns a placed section into exactly what the apply action writes", () => {
-    const a = { assetId: "a1", employerId: "e1", unit: unit({}), date: "2026-08-19", block: "day", seats: 3, preceptorIds: ["q1"], instructorId: null, parts: [{ assetId: "a1", seats: 2, asset: {} }, { assetId: "a2", seats: 1, asset: {} }], seatOffset: 1 } as unknown as Assignment;
-    expect(planInputs([a])).toEqual([{ assetId: "a1", employerId: "e1", cohortId: "c1", sessionId: "s1", sectionIndex: 1, courseId: "k1", date: "2026-08-19", block: "day", seats: 3, seatsPerSection: 4, preceptorIds: ["q1"], instructorId: null, parts: [{ assetId: "a1", seats: 2 }, { assetId: "a2", seats: 1 }], seatOffset: 1 }]);
+    const a = { assetId: "a1", employerId: "e1", asset: { eveningStart: "14:30" }, unit: unit({ originalDate: "2026-08-18", startTime: "07:00" }), date: "2026-08-19", block: "Evening", seats: 3, hours: 8, movedDays: 1, changedBlock: true, preceptorIds: ["q1"], instructorId: null, parts: [{ assetId: "a1", seats: 2, asset: {} }, { assetId: "a2", seats: 1, asset: {} }], seatOffset: 1 } as unknown as Assignment;
+    expect(planInputs([a])).toEqual([{ assetId: "a1", employerId: "e1", cohortId: "c1", sessionId: "s1", sectionIndex: 1, courseId: "k1", date: "2026-08-19", block: "Evening", seats: 3, seatsPerSection: 4, preceptorIds: ["q1"], instructorId: null, parts: [{ assetId: "a1", seats: 2 }, { assetId: "a2", seats: 1 }], seatOffset: 1, originalDate: "2026-08-18", movedDays: 1, changedBlock: true, startTime: "14:30", hours: 8 }]);
+    // an unchanged shift block keeps the session's own start time
+    const same = { ...a, block: "Day", changedBlock: false } as unknown as Assignment;
+    expect(planInputs([same])[0].startTime).toBe("07:00");
   });
 });

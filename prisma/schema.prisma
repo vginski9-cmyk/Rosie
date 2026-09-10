@@ -600,6 +600,8 @@ model SessionInstructor {
   /// two rows whose spans overlap are co-teaching.
   startOffsetMin Float?
   segment      String? // what they cover, e.g. "Lecture" | "Lab supervision"
+  /// "auto-plan" when the clinical scheduler's applied plan wrote the row (replaced on re-apply, removed on clear); null = hand-made.
+  note         String?
 
   @@index([sessionId])
   @@index([personId])
@@ -1137,6 +1139,8 @@ model ShiftMove {
   unit          ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
   staffPersonId String?
   staff         Person?   @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
+  /// "auto-plan" when the clinical scheduler's applied plan moved this occurrence (a ± day or shift-block change); null = moved by hand.
+  note          String?
   createdAt     DateTime @default(now())
 
   @@unique([cohortId, sessionId, sectionIndex, fromDate])

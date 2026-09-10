@@ -11,7 +11,7 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   cohortId: "co1", cohort: "Class of 2028", programId: "p1", program: "Radiography", familyId: "fam1",
   courseId: "c1", courseCode: "RAD-151", courseTitle: "Clinical Ed I", termIndex: 1, termName: "First Fall", weekOfTerm: 1,
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
-  date: "2027-08-23", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8,
+  date: "2027-08-23", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-23",
   rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
@@ -156,5 +156,36 @@ describe("recommendPlan", () => {
     expect(plan.rosters.map((r) => r.student.name)).toEqual(["Ana"]); // seat 1 → section 1 (placed); seat 3 → section 2 (unplaced)
     expect(plan.rosters[0].stops[0].siteName).toBe("Moore Regional");
     expect(plan.bottlenecks[0].reason).toBe("no-asset-for-setting");
+  });
+});
+
+describe("campus days — students can't be in class and on clinical at once", () => {
+  // Mon 23 Aug 2027: the cohort has a lab 08:00–10:50. Tue and Wed are free.
+  const lab = { cohortId: "co1", date: "2027-08-23", startMin: 8 * 60, endMin: 10 * 60 + 50, label: "RAD-110 lab" };
+  const room = asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 4 });
+  it("leaves a day shift that overlaps the lab unplaced, and says why", () => {
+    const plan = recommendPlan(base({ demand: [unit({ id: "u1" })], assets: [room], campus: [lab] }));
+    expect(plan.assignments).toHaveLength(0);
+    expect(plan.unmet[0]?.reason).toBe("class-day");
+    expect(plan.unmet[0]?.fixes[0]).toBe("allow ± 1 day inside the week");
+  });
+  it("lets an evening shift share the lab's date — the hours don't overlap", () => {
+    const plan = recommendPlan(base({ demand: [unit({ id: "u1", block: "Evening", startTime: "15:00" })], assets: [asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional", shiftBlocks: "Day,Evening", learnersPerShift: 4 })], campus: [lab] }));
+    expect(plan.assignments).toHaveLength(1);
+  });
+  it("moves ± 1 day only onto a day the cohort is not on campus", () => {
+    // Tue 24 Aug is a class day too, so ± 1 must skip it — the only free day inside ± 1 is... none: Mon is the shift's own day.
+    const classTue = { cohortId: "co1", date: "2027-08-24", startMin: 11 * 60, endMin: 13 * 60 + 30, label: "RAD-111 class" };
+    const stuck = recommendPlan(base({ demand: [unit({ id: "u1" })], assets: [room], campus: [lab, classTue] }, { flexibleDays: 1 }));
+    expect(stuck.assignments).toHaveLength(0);
+    expect(stuck.unmet[0]?.reason).toBe("class-day");
+    // ± 2 reaches Wednesday, which is free.
+    const moved = recommendPlan(base({ demand: [unit({ id: "u1" })], assets: [room], campus: [lab, classTue] }, { flexibleDays: 2 }));
+    expect(moved.assignments).toHaveLength(1);
+    expect(moved.assignments[0].date).toBe("2027-08-25");
+    expect(moved.assignments[0].movedDays).toBe(2);
+    // Another cohort's class does not block this one.
+    const other = recommendPlan(base({ demand: [unit({ id: "u1" })], assets: [room], campus: [{ ...lab, cohortId: "co2" }] }));
+    expect(other.assignments).toHaveLength(1);
   });
 });
