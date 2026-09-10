@@ -2786,6 +2786,7 @@ export async function getSiteLoad(institutionId?: string) {
         studentId: s.studentId, student: s.student.name, cohortId: co.id, cohort: co.name, programId: co.program.id, program: co.program.name, familyId: fam?.id ?? null, family: fam?.name ?? null,
         course: s.session.course.code ?? s.session.course.name, term: s.session.course.term.name,
         date: dates.get(s.session.id) ?? null, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.session.lengthHours, status: s.status,
+        ...(() => { const iso = dates.get(s.session.id) ?? null; if (!iso) return { year: null, semester: null, dayOfWeek: null }; const d = new Date(iso + "T00:00:00Z"); return { year: d.getUTCFullYear(), semester: seasonOfDate(d), dayOfWeek: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] }; })(),
         employerId, site: e?.name ?? "site TBD", system: e?.organization ?? null, county: e?.county ?? null, ring: e?.ring ?? null, facilityType: e?.facilityType ?? null, driveMinutes: e?.driveMinutes ?? null,
         setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
         preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,

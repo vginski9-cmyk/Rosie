@@ -16,9 +16,9 @@ export default async function SiteLoadPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Clinical site load</h1>
-        <p className="text-sm text-slate-500">Which sites carry the students, how full they run against the seats they offer, and who precepts — every clinical shift on the calendar at {data.institution.name}, in student-days.</p>
+        <p className="text-sm text-slate-500">Every clinical shift on the calendar at {data.institution.name}, queried any way: by date, year, semester, term, day of week, cohort, class, student, site, system, county, ring, setting, agreement or status — then who carries the load, any pivot, and CSV out.</p>
       </div>
-      <SiteLoadExplorer rows={data.rows} seats={data.seats} programs={data.programs} cohorts={data.cohorts} terms={data.terms} settings={data.settings} programIds={programIds} />
+      <SiteLoadExplorer rows={data.rows} seats={data.seats} programIds={programIds} />
     </div>
   );
 }

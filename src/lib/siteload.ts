@@ -9,6 +9,8 @@ export interface LoadRow {
   cohortId: string; cohort: string; programId: string; program: string; familyId: string | null; family: string | null;
   course: string; term: string;
   date: string | null; hours: number; status: string;
+  /** Derived from the date: calendar year, semester (Fall / Spring / Summer) and weekday. */
+  year: number | null; semester: string | null; dayOfWeek: string | null;
   employerId: string | null; site: string; system: string | null; county: string | null; ring: string | null; facilityType: string | null; driveMinutes: number | null;
   setting: string | null; preceptorId: string | null; preceptor: string | null;
   /** The program's agreement with the site (none | prospect | asked | secured | declined). */
@@ -29,8 +31,12 @@ export interface SiteStat {
   preceptorsUsed: number; preceptorsOnRecord: number | null; studentDaysPerPreceptor: number | null;
   completedDays: number; absentDays: number;
 }
-export type LoadDim = "site" | "system" | "county" | "ring" | "facilityType" | "setting" | "program" | "cohort" | "term" | "month" | "week";
-export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive ring", facilityType: "Facility type", setting: "Setting", program: "Program", cohort: "Cohort", term: "Term", month: "Month", week: "Week" };
+export type LoadDim = "site" | "system" | "county" | "ring" | "facilityType" | "setting" | "program" | "cohort" | "course" | "term" | "semester" | "year" | "month" | "week" | "day" | "dayOfWeek" | "student" | "preceptor" | "status" | "agreement";
+export type LoadMeasure = "studentDays" | "students" | "hours" | "sites" | "preceptors";
+export const MEASURE_LABEL: Record<LoadMeasure, string> = { studentDays: "Student-days", students: "Students", hours: "Student-hours", sites: "Sites", preceptors: "Preceptors" };
+export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive ring", facilityType: "Facility type", setting: "Setting", program: "Program", cohort: "Cohort", course: "Class", term: "Term", semester: "Semester", year: "Year", month: "Month", week: "Week", day: "Date", dayOfWeek: "Day of week", student: "Student", preceptor: "Preceptor", status: "Status", agreement: "Agreement" };
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SEM = ["Spring", "Summer", "Fall"];
 
 export const mondayOf = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); const back = (d.getUTCDay() + 6) % 7; return new Date(d.getTime() - back * 86400000).toISOString().slice(0, 10); };
 const keyOf = (r: LoadRow, dim: LoadDim): string => {
@@ -42,13 +48,91 @@ const keyOf = (r: LoadRow, dim: LoadDim): string => {
     case "facilityType": return r.facilityType ?? "unknown";
     case "setting": return r.setting ?? "(no setting)";
     case "program": return r.program;
-    case "cohort": return r.cohort;
+    case "cohort": return r.cohortId;
     case "term": return r.term;
+    case "course": return r.course;
     case "month": return r.date ? r.date.slice(0, 7) : "undated";
     case "week": return r.date ? mondayOf(r.date) : "undated";
+    case "day": return r.date ?? "undated";
+    case "year": return r.year != null ? String(r.year) : "undated";
+    case "semester": return r.semester && r.year != null ? `${r.year} ${String(SEM.indexOf(r.semester)).padStart(1, "0")} ${r.semester}` : "undated";
+    case "dayOfWeek": return r.dayOfWeek ? `${DOW.indexOf(r.dayOfWeek)} ${r.dayOfWeek}` : "undated";
+    case "student": return r.studentId;
+    case "preceptor": return r.preceptorId ?? "(none named)";
+    case "status": return r.status;
+    case "agreement": return r.agreement;
   }
 };
-const labelOf = (r: LoadRow, dim: LoadDim): string => (dim === "site" ? r.site : keyOf(r, dim));
+const TIME_DIMS: LoadDim[] = ["term", "semester", "year", "month", "week", "day", "dayOfWeek"];
+export const isTimeDim = (d: LoadDim) => TIME_DIMS.includes(d);
+const labelOf = (r: LoadRow, dim: LoadDim): string => {
+  if (dim === "site") return r.site;
+  if (dim === "student") return r.student;
+  // Two programs can both run a "Class of 2028": the label carries the program so they stay apart.
+  if (dim === "cohort") return `${r.program} · ${r.cohort}`;
+  if (dim === "preceptor") return r.preceptor ?? "(none named)";
+  if (dim === "semester") return r.semester && r.year != null ? `${r.semester} ${r.year}` : "undated";
+  if (dim === "dayOfWeek") return r.dayOfWeek ?? "undated";
+  return keyOf(r, dim);
+};
+export const valueOf = (r: LoadRow, m: LoadMeasure, acc: { students: Set<string>; sites: Set<string>; preceptors: Set<string>; days: number; hours: number }): number => m === "studentDays" ? acc.days : m === "students" ? acc.students.size : m === "hours" ? acc.hours : m === "sites" ? acc.sites.size : acc.preceptors.size;
+
+/** The filter a query bar produces: every field is a set of allowed values (empty = any), plus a date window. */
+export interface LoadFilter {
+  program?: Set<string>; cohort?: Set<string>; course?: Set<string>; term?: Set<string>; semester?: Set<string>; year?: Set<string>; dayOfWeek?: Set<string>;
+  site?: Set<string>; system?: Set<string>; county?: Set<string>; ring?: Set<string>; facilityType?: Set<string>; setting?: Set<string>; agreement?: Set<string>; status?: Set<string>; student?: Set<string>; preceptor?: Set<string>;
+  from?: string | null; to?: string | null;
+}
+const FILTER_DIMS: (keyof LoadFilter & LoadDim)[] = ["program", "cohort", "course", "term", "semester", "year", "dayOfWeek", "site", "system", "county", "ring", "facilityType", "setting", "agreement", "status", "student", "preceptor"];
+export function applyFilter(rows: LoadRow[], f: LoadFilter): LoadRow[] {
+  return rows.filter((r) => {
+    if (f.from && (!r.date || r.date < f.from)) return false;
+    if (f.to && (!r.date || r.date > f.to)) return false;
+    for (const d of FILTER_DIMS) { const set = f[d]; if (set && set.size && !set.has(labelOf(r, d))) return false; }
+    return true;
+  });
+}
+/** Every distinct value of a dimension in the rows, in display order — the options a query bar offers. */
+export function optionsOf(rows: LoadRow[], dim: LoadDim): string[] {
+  const m = new Map<string, string>();
+  for (const r of rows) m.set(keyOf(r, dim), labelOf(r, dim));
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([, l]) => l).filter((v, i, a) => a.indexOf(v) === i);
+}
+
+/** Any rows × any columns, any measure — the pivot behind the "query" view. */
+export function pivot(rows: LoadRow[], rowDim: LoadDim, colDim: LoadDim | null, measure: LoadMeasure): { cols: { key: string; label: string }[]; rows: { key: string; label: string; cells: Record<string, number>; total: number }[]; colTotals: Record<string, number>; grand: number } {
+  type Acc = { students: Set<string>; sites: Set<string>; preceptors: Set<string>; days: number; hours: number };
+  const mk = (): Acc => ({ students: new Set(), sites: new Set(), preceptors: new Set(), days: 0, hours: 0 });
+  const add = (a: Acc, r: LoadRow) => { a.days++; a.hours += r.hours; a.students.add(r.studentId); a.sites.add(r.employerId ?? r.site); if (r.preceptorId) a.preceptors.add(r.preceptorId); };
+  const cols = new Map<string, string>(); const rowsM = new Map<string, { label: string; cells: Map<string, Acc>; all: Acc }>(); const colAcc = new Map<string, Acc>(); const grand = mk();
+  for (const r of rows) {
+    const rk = keyOf(r, rowDim); const ck = colDim ? keyOf(r, colDim) : "all";
+    if (colDim) cols.set(ck, labelOf(r, colDim));
+    const row = rowsM.get(rk) ?? { label: labelOf(r, rowDim), cells: new Map(), all: mk() };
+    const cell = row.cells.get(ck) ?? mk(); add(cell, r); row.cells.set(ck, cell); add(row.all, r); rowsM.set(rk, row);
+    const ca = colAcc.get(ck) ?? mk(); add(ca, r); colAcc.set(ck, ca); add(grand, r);
+  }
+  const colList = [...cols.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([key, label]) => ({ key, label }));
+  const out = [...rowsM.entries()].map(([key, v]) => { const cells: Record<string, number> = {}; for (const [ck, a] of v.cells) cells[ck] = valueOf(null as unknown as LoadRow, measure, a); return { key, label: v.label, cells, total: valueOf(null as unknown as LoadRow, measure, v.all) }; });
+  const sorted = isTimeDim(rowDim) ? out.sort((a, b) => a.key.localeCompare(b.key)) : out.sort((a, b) => b.total - a.total || a.label.localeCompare(b.label));
+  const colTotals: Record<string, number> = {}; for (const [ck, a] of colAcc) colTotals[ck] = valueOf(null as unknown as LoadRow, measure, a);
+  return { cols: colList, rows: sorted, colTotals, grand: valueOf(null as unknown as LoadRow, measure, grand) };
+}
+
+/** The filtered rows as CSV (RFC 4180). */
+export function rowsToCsv(rows: LoadRow[]): string {
+  const head = ["Date", "Day", "Year", "Semester", "Week of", "Term", "Program", "Cohort", "Class", "Student", "Site", "Health system", "County", "Ring", "Facility type", "Drive min", "Setting", "Hours", "Status", "Preceptor", "Agreement"];
+  const cell = (v: string | number | null | undefined) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const lines = rows.map((r) => [r.date, r.dayOfWeek, r.year, r.semester, r.date ? mondayOf(r.date) : null, r.term, r.program, r.cohort, r.course, r.student, r.site, r.system, r.county, r.ring, r.facilityType, r.driveMinutes != null ? Math.round(r.driveMinutes) : null, r.setting, r.hours, r.status, r.preceptor, r.agreement].map(cell).join(","));
+  return [head.join(","), ...lines].join("\r\n") + "\r\n";
+}
+export function pivotToCsv(p: ReturnType<typeof pivot>, rowLabel: string): string {
+  const cell = (v: string | number | null | undefined) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const head = [rowLabel, ...p.cols.map((c) => c.label), "Total"];
+  const lines = p.rows.map((r) => [r.label, ...p.cols.map((c) => r.cells[c.key] ?? 0), r.total].map(cell).join(","));
+  lines.push(["Total", ...p.cols.map((c) => p.colTotals[c.key] ?? 0), p.grand].map(cell).join(","));
+  return [head.join(","), ...lines].join("\r\n") + "\r\n";
+}
 
 /** The load grouped one way. */
 export function sliceBy(rows: LoadRow[], dim: LoadDim): Slice[] {
@@ -61,7 +145,7 @@ export function sliceBy(rows: LoadRow[], dim: LoadDim): Slice[] {
   }
   const total = rows.length || 1;
   const out = [...m.entries()].map(([key, e]) => ({ key, label: e.label, studentDays: e.days, students: e.students.size, hours: e.hours, sites: e.sites.size, share: e.days / total, programs: [...e.programs].sort() }));
-  return dim === "month" || dim === "week" || dim === "term" ? out.sort((a, b) => a.key.localeCompare(b.key)) : out.sort((a, b) => b.studentDays - a.studentDays || a.label.localeCompare(b.label));
+  return isTimeDim(dim) ? out.sort((a, b) => a.key.localeCompare(b.key)) : out.sort((a, b) => b.studentDays - a.studentDays || a.label.localeCompare(b.label));
 }
 
 /** The leaderboard: every site with what it carries and how full it runs. */
