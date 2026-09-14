@@ -422,7 +422,7 @@ export function OfferingDesign({
                       ) : (
                         <div key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${KIND_BADGE[m.kind]}`}>{KIND_LABEL[m.kind]}{m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}</span>
-                          <span className="tabular-nums font-medium text-slate-700">{m.dayOfWeek} {fmtTime(m.startTime)} · {m.lengthHours}h</span>
+                          <span className="tabular-nums font-medium text-slate-700">{m.dayOfWeek} {fmtTime(m.startTime)} · {dec(m.lengthHours)}h</span>
                           <span className={locWarn ? "font-medium text-amber-600" : "text-slate-600"}>{offCampus ? "@ " : ""}{locName}</span>
                           <span className={m.staffName ? "text-slate-600" : "font-medium text-amber-600"}>{m.staffName ?? (offCampus ? "no preceptor" : "no instructor")}</span>
                           <span className="text-slate-400">{m.seats} seats</span>
@@ -468,7 +468,7 @@ export function OfferingDesign({
                           <span className="w-14 font-mono text-slate-500">{fmtTime(r.startTime)}</span>
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABEL[r.kind]} #{r.number}</span>
                           <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>
-                          <span className="tabular-nums text-slate-500">{r.lengthHours}h · cap {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{offCampus && r.rotationType ? ` · @ ${r.rotationType}` : ""}</span>
+                          <span className="tabular-nums text-slate-500">{dec(r.lengthHours)}h · cap {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{offCampus && r.rotationType ? ` · @ ${r.rotationType}` : ""}</span>
                           <span className="tabular-nums text-emerald-800">{calcVal.Y} sec · {num(comp.Z, 1)} fac h{offCampus ? ` · ${num(comp.AC, 0)} prec h` : ""}</span>
                           {(() => {
                             const mine = assignments.filter((a) => a.sessionId === r.id);

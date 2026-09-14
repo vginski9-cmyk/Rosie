@@ -1,14 +1,16 @@
-// Number formatting. Every figure the app shows or writes keeps at least seven
-// decimal places of precision: nothing is rounded to one or two places on its way
-// to the screen, a file or the database — a value is shown with as many decimals
-// as it has (up to PRECISION), and integers stay integers.
+// Number formatting. Figures are STORED and ENTERED at up to six decimal places
+// (PRECISION) — nothing is rounded on its way into a form value, a file or the
+// database. On SCREEN a figure reads with at most two decimals (DISPLAY): the
+// calculation keeps its precision, the page does not show it.
 
-/** Decimal places carried on every input and output. */
-export const PRECISION = 7;
+/** Decimal places carried on every input, file and stored value. */
+export const PRECISION = 6;
+/** Decimal places a figure shows on screen. */
+export const DISPLAY = 2;
 
-/** A number for display: up to PRECISION decimals, trailing zeros dropped, thousands separated. */
+/** A number for display: at most DISPLAY decimals, trailing zeros dropped, thousands separated. */
 export const dec = (n: number | null | undefined, minDigits = 0): string =>
-  n == null || Number.isNaN(n) ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: PRECISION, minimumFractionDigits: minDigits });
+  n == null || Number.isNaN(n) ? "—" : n.toLocaleString(undefined, { maximumFractionDigits: DISPLAY, minimumFractionDigits: Math.min(minDigits, DISPLAY) });
 
 /** A number for a form value or a file: plain digits (no separators), PRECISION decimals at most. */
 export const numInput = (n: number | null | undefined): number | "" => (n == null || Number.isNaN(n) ? "" : Number(n.toFixed(PRECISION)));

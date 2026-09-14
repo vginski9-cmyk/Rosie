@@ -208,7 +208,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
                     <tr key={m.id}>
                       <td className="px-3 py-1.5"><Link href={`/programs/${m.cohort.programId}/offerings/${m.cohort.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{m.cohort.name}</Link><span className="block text-slate-400">{m.cohort.program.name}</span></td>
                       <td className="px-3 py-1.5">{m.course.code ?? m.course.name} §{m.sectionIndex}/{m.sectionCount}</td>
-                      <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {m.lengthHours}h</td>
+                      <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {dec(m.lengthHours)}h</td>
                       <td className="px-3 py-1.5">{m.unit?.unitType ?? <span className="text-slate-400">—</span>}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td>
                       <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}</td>

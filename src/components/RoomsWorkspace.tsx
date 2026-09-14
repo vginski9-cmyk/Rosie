@@ -91,7 +91,7 @@ function RoomsTab({ rooms, buildings, campuses, institutions, defaultInstitution
                   <td className="px-3 py-2 text-right tabular-nums">{r.capacity ?? "—"}</td>
                   <td className="px-3 py-2 text-xs text-slate-600">{r.hours.length ? r.hoursLabel : <span className="text-amber-700">not set</span>}{r.closures.length ? <div className="text-[10px] text-slate-400">{r.closures.length} dated exception{r.closures.length === 1 ? "" : "s"}</div> : null}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{h1(r.weeklyOpen)} h</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{h1(r.weeklyBooked)} h{r.outsideHours > 0 && <div className="text-[10px] text-amber-700">⚠ {r.outsideHours} outside hours</div>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{h1(r.weeklyBooked)} h{r.outsideHours > 0 && <div className="text-[10px] text-amber-700">⚠ {h1(r.outsideHours)} outside hours</div>}</td>
                   <td className="px-3 py-2 text-right tabular-nums"><span className={r.utilization > 0.85 ? "font-semibold text-rose-700" : r.utilization > 0.6 ? "text-amber-700" : "text-slate-700"}>{r.weeklyOpen ? pct(r.utilization) : "—"}</span></td>
                   <td className="px-3 py-2 text-right tabular-nums">{r.equipment.reduce((n, e) => n + e.quantity, 0) || "—"}</td>
                   <td className="px-3 py-2 text-right"><button onClick={() => setEditing(r.id)} className="text-xs text-rose-600 hover:underline">edit</button></td>

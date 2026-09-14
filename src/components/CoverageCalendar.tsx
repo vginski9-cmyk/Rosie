@@ -328,7 +328,7 @@ function ShiftChipEl({ occ, size, tone }: { occ: Occurrence; size: "sm" | "md"; 
       ref={setNodeRef} {...attributes} {...listeners}
       style={tone ? toneStyle(tone.get(locName(f))) : undefined}
       className={`select-none rounded-r ${tone ? "" : KIND_CHIP[f.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
-      title={`${occLabel(occ)}${f.sessionTitle ? ` — ${f.sessionTitle}` : ""} · ${occDetail(occ)} · ${f.lengthHours}h · ${occ.staff.length ? occ.staff.slice(0, 3).join(", ") + (occ.staff.length > 3 ? ` +${occ.staff.length - 3}` : "") : f.kind === "CLINICAL" ? "no preceptor yet" : "no instructor yet"} · ${f.cohort} — drag to move every section to another day; open Day view for each section's date, time, site and staff`}
+      title={`${occLabel(occ)}${f.sessionTitle ? ` — ${f.sessionTitle}` : ""} · ${occDetail(occ)} · ${dec(f.lengthHours)}h ·${occ.staff.length ? occ.staff.slice(0, 3).join(", ") + (occ.staff.length > 3 ? ` +${occ.staff.length - 3}` : "") : f.kind === "CLINICAL" ? "no preceptor yet" : "no instructor yet"} · ${f.cohort} — drag to move every section to another day; open Day view for each section's date, time, site and staff`}
     >
       <span className="font-semibold">{occLabel(occ)}{occ.moved > 0 ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`${occ.moved} section${occ.moved === 1 ? "" : "s"} moved off the weekly pattern`}>moved</span> : null}</span>
       <span className="block truncate opacity-80">{occDetail(occ)}</span>

@@ -893,7 +893,7 @@ function DayOrders({ rows }: { rows: DatedInstance[] }) {
                   {r.session.title && <span className="block text-xs text-slate-400">“{r.session.title}”</span>}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{n0(Math.min(r.computed.C, Y * (r.session.maxStudents ?? 0)))}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.session.lengthHours}h</td>
+                <td className="px-3 py-2 text-right tabular-nums">{n0(r.session.lengthHours)}h</td>
                 <td className="px-3 py-2 font-semibold">{clin ? <span className="text-amber-700">{n0(people)} preceptor{people === 1 ? "" : "s"}</span> : <span className="text-emerald-700">{n1(people)} instructor{people === 1 ? "" : "s"}</span>}</td>
                 <td className="px-3 py-2 text-slate-600">{clin ? (r.session.rotationType ? `@ ${r.session.rotationType}` : "setting not set") : (r.session.location ?? "no room")}</td>
                 <td className={`px-3 py-2 ${r.session.staffName ? "text-slate-700" : "font-medium text-amber-700"}`}>{r.session.staffName ?? "unassigned"}</td>

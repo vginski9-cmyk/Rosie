@@ -160,7 +160,7 @@ export function StudentAssignments({ studentId, cohort, courses, sections, staff
                 const past = !!s.dateIso && s.dateIso <= today;
                 return (
                   <tr key={s.id} className={s.status === "scheduled" && past ? "bg-amber-50/40" : ""}>
-                    <td className="px-3 py-1 tabular-nums text-slate-700">{fmtDate(s.dateIso)}{s.session.startTime ? ` ${s.session.startTime}` : ""} · {s.session.lengthHours} h</td>
+                    <td className="px-3 py-1 tabular-nums text-slate-700">{fmtDate(s.dateIso)}{s.session.startTime ? ` ${s.session.startTime}` : ""} · {dec(s.session.lengthHours)} h</td>
                     <td className="px-2 py-1 text-slate-800">{s.course.code ?? s.course.name} #{s.session.number}{s.session.title ? <span className="text-slate-400"> · {s.session.title}</span> : null}<span className="block text-[10px] text-slate-400">section {s.sectionIndex}</span></td>
                     <td className="px-2 py-1 text-slate-600">{s.settingCode ?? "—"}<span className="block text-[10px] text-slate-400">{s.session.rotationType ?? ""}</span></td>
                     <td className="px-2 py-1 text-slate-600">{s.asset ?? s.site ?? <span className="text-amber-600">site TBD</span>}</td>

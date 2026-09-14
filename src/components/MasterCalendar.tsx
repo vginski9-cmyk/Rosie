@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { moveMeeting } from "@/lib/actions";
+import { dec } from "@/lib/format";
 import type { CalOccurrence, CalRosterDay } from "@/lib/queries";
 
 /** A block on the week grid: a weekly pattern, or — for clinicals the plan or a move has dated — the shift as it actually happens. */
@@ -316,7 +317,7 @@ export function MasterCalendar({
                       <span className="tabular-nums text-slate-400">{pct}%</span>
                     </span>
                     <span className="mt-0.5 block h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><span className={`block h-full ${bar}`} style={{ width: `${pct}%` }} /></span>
-                    <span className="block text-[9px] text-slate-400">{r.kind.toLowerCase()} · cap {r.capacity ?? "—"} · {r.bookedHoursPeakWeek}/{r.openHoursPerWeek}h · {r.meetingCount} mtgs</span>
+                    <span className="block text-[9px] text-slate-400">{r.kind.toLowerCase()} · cap {r.capacity ?? "—"} · {dec(r.bookedHoursPeakWeek)}/{dec(r.openHoursPerWeek)}h · {r.meetingCount} mtgs</span>
                   </button>
                 );
               })}
@@ -442,7 +443,7 @@ function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs">
           <div><dt className="text-slate-400">Location</dt><dd className="font-medium text-slate-700">{location}</dd></div>
           <div><dt className="text-slate-400">{offCampus ? "Preceptor" : "Instructor"}</dt><dd className={`font-medium ${meeting.staffName ? "text-slate-700" : "text-amber-600"}`}>{meeting.staffName ?? "unstaffed"}</dd></div>
-          <div><dt className="text-slate-400">When</dt><dd className="font-medium text-slate-700">{DAY_FULL[meeting.dayOfWeek] ?? meeting.dayOfWeek} {fmtTime(meeting.startTime)}–{fmtTime(meeting.endTime)} ({meeting.lengthHours}h)</dd></div>
+          <div><dt className="text-slate-400">When</dt><dd className="font-medium text-slate-700">{DAY_FULL[meeting.dayOfWeek] ?? meeting.dayOfWeek} {fmtTime(meeting.startTime)}–{fmtTime(meeting.endTime)} ({dec(meeting.lengthHours)}h)</dd></div>
           <div><dt className="text-slate-400">Runs</dt><dd className="font-medium text-slate-700">{meeting.startLabel} → {meeting.endLabel}</dd></div>
           <div><dt className="text-slate-400">Students</dt><dd className="font-medium text-slate-700">{meeting.seats}</dd></div>
           <div><dt className="text-slate-400">Term</dt><dd className="font-medium text-slate-700">Term {meeting.termIndex}</dd></div>

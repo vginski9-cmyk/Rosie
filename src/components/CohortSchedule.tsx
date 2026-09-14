@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveMeeting } from "@/lib/actions";
+import { dec } from "@/lib/format";
 
 export interface CohortMeeting {
   id: string; courseId: string; courseCode: string | null; courseName: string;
@@ -130,7 +131,7 @@ function Editor({ meeting, rooms, people, onClose, onSave }: { meeting: CohortMe
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-semibold text-slate-800">{meeting.courseCode ?? meeting.courseName} · {KIND_LABEL[meeting.kind] ?? meeting.kind}{meeting.sectionCount > 1 ? ` ${meeting.sectionIndex}/${meeting.sectionCount}` : ""}</h3>
-        <p className="text-xs text-slate-500">{meeting.seats} students · {meeting.lengthHours}h{meeting.staffName ? ` · ${meeting.staffName}` : ""}</p>
+        <p className="text-xs text-slate-500">{meeting.seats} students · {dec(meeting.lengthHours)}h{meeting.staffName ? ` · ${meeting.staffName}` : ""}</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Day</span>

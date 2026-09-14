@@ -281,7 +281,7 @@ export function ScheduleBoard({ programId, terms, roster, students, sectionOverr
                           <div className="text-[11px] text-slate-400">{dec(l.weeklyAvgHours)}/wk · {l.shifts} shifts</div>
                         </div>
                       </div>
-                      <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-slate-100" title={`class ${l.classHours} · lab ${l.labHours} · clinical ${l.clinicalHours} hrs`}>
+                      <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-slate-100" title={`class ${dec(l.classHours)} · lab ${dec(l.labHours)} · clinical ${dec(l.clinicalHours)} hrs`}>
                         <div className="bg-sky-500" style={{ width: `${(l.classHours / max) * 100}%` }} />
                         <div className="bg-violet-500" style={{ width: `${(l.labHours / max) * 100}%` }} />
                         <div className="bg-rose-500" style={{ width: `${(l.clinicalHours / max) * 100}%` }} />
@@ -363,7 +363,7 @@ function ShiftDetail({ shift: s, students, assignments, assign, unassign, instru
         <div><span className="text-slate-400">When </span>{s.dateLabel ?? `Week ${s.week}, ${s.day}`}</div>
         <div><span className="text-slate-400">Time </span>{s.startTime ? `${formatTime12(s.startTime)}–${formatTime12(s.endTime)}` : "—"}</div>
         <div><span className="text-slate-400">Where </span>{s.location ?? "—"}</div>
-        <div><span className="text-slate-400">Length </span>{s.lengthHours}h</div>
+        <div><span className="text-slate-400">Length </span>{dec(s.lengthHours)}h</div>
         {s.rotationType && <div className="col-span-2"><span className="text-slate-400">Rotation </span>{s.rotationType}{s.clinicalMode ? ` · ${s.clinicalMode}` : ""}</div>}
       </div>
 
@@ -535,7 +535,7 @@ function StaffingBoard({ weeks, week, setWeek, grid, assignments, assign, unassi
                           {s.sections > 1 && <span className="text-[11px] text-slate-400">sec {s.sectionIndex}/{s.sections}</span>}
                         </span>
                         <span className="mt-1 block text-sm font-medium leading-snug text-slate-800 hover:text-rose-700">{s.title}</span>
-                        <span className="block text-[11px] text-slate-500">{s.lengthHours}h{s.location ? ` · ${s.location}` : ""}{s.rotationType ? ` · ${s.rotationType}` : ""}{s.homework ? " · has homework" : ""}</span>
+                        <span className="block text-[11px] text-slate-500">{dec(s.lengthHours)}h{s.location ? ` · ${s.location}` : ""}{s.rotationType ? ` · ${s.rotationType}` : ""}{s.homework ? " · has homework" : ""}</span>
                       </button>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${full ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{assigned.length}/{s.staffPerShift}</span>
                     </div>

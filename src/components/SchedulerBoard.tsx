@@ -418,7 +418,7 @@ function PlanRow({ x }: { x: Assignment }) {
       <td className="px-2 py-1"><span className="font-medium text-slate-800">{x.siteName}</span> <span className="text-slate-400">{x.parts.map((p) => `${p.asset.externalId ?? `${p.asset.settingCode}-${p.asset.assetNumber}`}${x.parts.length > 1 ? `×${p.seats}` : ""}`).join(", ")}</span></td>
       <td className="px-2 py-1">{x.preceptorNames.length ? x.preceptorNames.join(", ") : x.unit.preceptorsNeeded > 0 ? <span className="text-amber-700">none free</span> : <span className="text-slate-300">—</span>}</td>
       <td className="px-2 py-1">{x.instructorName ?? (x.unit.facultyNeeded >= 1 ? <span className="text-amber-700">none free</span> : <span className="text-slate-300" title={`${x.unit.facultyNeeded} FTE oversight, not a whole person`}>oversight</span>)}</td>
-      <td className="px-2 py-1 text-right tabular-nums">{x.hours}</td>
+      <td className="px-2 py-1 text-right tabular-nums">{n0(x.hours)}</td>
       <td className="px-2 py-1 text-[10px] text-slate-500">{x.reason}</td>
     </tr>
   );

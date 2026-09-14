@@ -72,7 +72,7 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
       <td className="px-2 py-1.5 text-right tabular-nums">{r.utilization == null ? <span className="text-slate-300">—</span> : <span className="inline-flex items-center justify-end gap-1"><span className="inline-block h-1.5 w-16 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full ${utilBar(r.utilization)}`} style={{ width: `${Math.min(100, r.utilization * 100)}%` }} /></span><span className="w-9 text-right">{pct(r.utilization)}</span></span>}</td>
       <td className="px-2 py-1.5 text-right tabular-nums">{n(r.seatHours)}</td>
       <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.fill)}</td>
-      <td className="px-2 py-1.5 text-right tabular-nums">{r.outsideHours ? <span className="rounded bg-amber-100 px-1 text-amber-800">{r.outsideHours}</span> : <span className="text-slate-300">·</span>}</td>
+      <td className="px-2 py-1.5 text-right tabular-nums">{r.outsideHours ? <span className="rounded bg-amber-100 px-1 text-amber-800">{dec(r.outsideHours)}</span> : <span className="text-slate-300">·</span>}</td>
     </tr>
   );
   const Head = ({ first }: { first: string }) => (

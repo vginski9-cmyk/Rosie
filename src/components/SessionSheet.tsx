@@ -77,7 +77,7 @@ export function SessionSheet({
                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KIND_BADGE[r.kind]}`}>{KIND_LABELS[r.kind]} #{r.number}</span>
                 <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>
                 <span className="tabular-nums text-slate-500">{r.week != null ? `wk ${r.week}` : "no week"}{r.dayOfWeek ? ` · ${r.dayOfWeek}` : ""}{r.startTime ? ` · ${fmtT(r.startTime)}` : ""}</span>
-                <span className="tabular-nums text-slate-500">{r.lengthHours}h · max {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{r.location ? ` · ${r.location}` : ""}{r.kind === "CLINICAL" && r.rotationType ? ` · ${r.rotationType}` : ""}</span>
+                <span className="tabular-nums text-slate-500">{dec(r.lengthHours)}h · max {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{r.location ? ` · ${r.location}` : ""}{r.kind === "CLINICAL" && r.rotationType ? ` · ${r.rotationType}` : ""}</span>
                 <span className="tabular-nums text-emerald-800">{comp.divByZero ? "#DIV/0!" : `${num(comp.Y, 0)} sections`} · {num(comp.Z, 1)} faculty h{r.kind === "CLINICAL" ? ` · ${num(comp.AC, 0)} preceptor h` : ""}</span>
                 {isDirty && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">unsaved</span>}
               </button>
