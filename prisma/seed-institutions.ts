@@ -165,7 +165,8 @@ export const PAUSED_INSTITUTIONS = new Set([
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College", "Roanoke-Chowan Community College",
   "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
-  "Carteret Community College", "College of The Albemarle", "Craven Community College", "Lenoir Community College",
+  // Carteret and Lenoir are back in with their Nurse Aide I programs and offerings (see seed.ts).
+  "College of The Albemarle", "Craven Community College",
 ]);
 
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {

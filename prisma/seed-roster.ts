@@ -162,37 +162,14 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   await prisma.person.createMany({ data: people });
 
   // ── Locked-in, calendarized offerings — sections waiting to be staffed ────
-  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true } });
-  const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
   // Each offering carries the family's whole-year North-Star goal (the
   // Radiography and Surgical Technology launches are the partner's 29 and 14)
   // and, exactly like lock-in, inherits the family's talent-pipeline rates —
   // so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
-  const OFFERINGS: { program: string; start: string; goal: number }[] = [
+  const offerings = await seedOfferings(prisma, institutionId, [
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
     { program: "Radiography", start: "2026-08-17", goal: 29 },
-  ];
-  let offerings = 0;
-  for (const o of OFFERINGS) {
-    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } }, cohorts: { select: { name: true } } } });
-    if (!program) continue;
-    let rates = { ...BENCHMARK_RATES };
-    if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
-    const t = deriveCohortTargets(o.goal, rates, Math.max(1, program.terms.length));
-    // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
-    const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
-    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
-    const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
-    let name = `Class of ${endYear}`;
-    if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }
-    const startD = new Date(o.start + "T00:00:00Z");
-    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status: "planned", startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(t.capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }) } });
-    const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: t.capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
-    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
-    for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
-    for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
-    offerings++;
-  }
+  ]);
 
   return {
     rooms: rooms.length,
@@ -203,6 +180,40 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
     asked: plan.filter((p) => p.agreementStatus === "asked").length,
     offerings,
   };
+}
+
+/** Lock in offerings of an institution's programs, exactly like the lock-in action: a planned
+ *  cohort per entry, dated on the institution's calendar (term starts and ends, course windows),
+ *  with its funnel stage targets derived from the goal through the family's pipeline rates.
+ *  `seats` pins the planned seats (a Nurse Aide I class is capped by its template) — otherwise
+ *  the capacity the goal works back to. Named "Class of <end year>" (numbered when repeated). */
+export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number }[]): Promise<number> {
+  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true } });
+  const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
+  let made = 0;
+  for (const o of offerings) {
+    const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" } }, cohorts: { select: { name: true } } } });
+    if (!program) continue;
+    let rates = { ...BENCHMARK_RATES };
+    if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
+    const t = deriveCohortTargets(o.goal, rates, Math.max(1, program.terms.length));
+    const capacity = o.seats ?? t.capacity;
+    // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
+    const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
+    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
+    const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
+    let name = `Class of ${endYear}`;
+    if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }
+    const startD = new Date(o.start + "T00:00:00Z");
+    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status: "planned", startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }) } });
+    const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
+    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
+    for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
+    for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
+    program.cohorts.push({ name });
+    made++;
+  }
+  return made;
 }
 
 /** Calendarize every planned / active offering of the institution: one weekly booking

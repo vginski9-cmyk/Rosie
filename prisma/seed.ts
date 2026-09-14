@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
+import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
@@ -432,14 +432,19 @@ async function seedOfferingStudents() {
   const LAST = ["Abbott", "Baker", "Cole", "Dawson", "Ellis", "Foster", "Gibson", "Hale", "Ingram", "Jarvis", "Keller", "Lowe", "Mercer", "Nolan", "Osei", "Pratt", "Quinn", "Reyes", "Sutton", "Tate", "Underwood", "Vance", "Whitfield", "Xiong", "Yates", "Zimmer", "Bynum", "Clark", "Dunn", "Everett"];
   // Coded demographics (dummy, deterministic per seat) so the learner analytics
   // have something to aggregate and disaggregate on day one.
-  const COUNTIES = ["Moore", "Hoke", "Richmond", "Montgomery", "Lee", "Cumberland", "Scotland", "Harnett"];
-  const CITIES: Record<string, string> = { Moore: "Pinehurst", Hoke: "Raeford", Richmond: "Rockingham", Montgomery: "Troy", Lee: "Sanford", Cumberland: "Fayetteville", Scotland: "Laurinburg", Harnett: "Lillington" };
+  // Home counties and towns by college — each college draws from its own service area.
+  const HOME: Record<string, { counties: string[]; cities: Record<string, string> }> = {
+    default: { counties: ["Moore", "Hoke", "Richmond", "Montgomery", "Lee", "Cumberland", "Scotland", "Harnett"], cities: { Moore: "Pinehurst", Hoke: "Raeford", Richmond: "Rockingham", Montgomery: "Troy", Lee: "Sanford", Cumberland: "Fayetteville", Scotland: "Laurinburg", Harnett: "Lillington" } },
+    "Carteret Community College": { counties: ["Carteret", "Carteret", "Carteret", "Craven", "Onslow"], cities: { Carteret: "Morehead City", Craven: "Havelock", Onslow: "Jacksonville" } },
+    "Lenoir Community College": { counties: ["Lenoir", "Lenoir", "Greene", "Jones", "Wayne"], cities: { Lenoir: "Kinston", Greene: "Snow Hill", Jones: "Trenton", Wayne: "Goldsboro" } },
+  };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   let made = 0, sections = 0, shifts = 0;
-  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true, terms: { select: { courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, _count: { select: { students: true } } } });
+  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, _count: { select: { students: true } } } });
   const today = new Date();
   for (const co of cohorts) {
     if (co._count.students > 0) continue;
+    const { counties: COUNTIES, cities: CITIES } = HOME[co.program.institution.name] ?? HOME.default;
     const seats = Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
     const started = co.startDate ? co.startDate <= today : false;
@@ -1361,6 +1366,22 @@ async function main() {
   console.log("requirement sets:", await seedRequirementSets(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
+  // Carteret and Lenoir run Nurse Aide I: a planned offering per delivery model at Carteret (each
+  // capped at its template's class size), and two runs of the standard term at Lenoir. Offerings
+  // only — rooms, people and sites for these colleges are theirs to enter.
+  const carteret = await prisma.institution.findFirst({ where: { name: "Carteret Community College" }, select: { id: true } });
+  if (carteret) console.log("Carteret offerings:", await seedOfferings(prisma, carteret.id, [
+    { program: "Nurse Aide I — 6-Week Term", start: "2026-08-17", goal: 10, seats: 10 },
+    { program: "Nurse Aide I — 5-Week Day Intensive", start: "2026-10-05", goal: 10, seats: 10 },
+    { program: "Nurse Aide I — 12-Week Day Term", start: "2026-08-17", goal: 10, seats: 10 },
+    { program: "Nurse Aide I — 12-Week Evening Term", start: "2027-01-11", goal: 10, seats: 10 },
+    { program: "Nurse Aide I — 8-Week Summer Evening", start: "2027-06-01", goal: 10, seats: 10 },
+  ]));
+  const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
+  if (lenoir) console.log("Lenoir offerings:", await seedOfferings(prisma, lenoir.id, [
+    { program: "Nurse Aide I", start: "2026-08-17", goal: 10, seats: 10 },
+    { program: "Nurse Aide I", start: "2027-01-11", goal: 10, seats: 10 },
+  ]));
   const clinical = await loadClinicalModels(sandhills.id);
   console.log("clinical models by family:", clinical);
   // Calendarize the offerings only now — against the families' final site agreements.

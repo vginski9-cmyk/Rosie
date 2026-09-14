@@ -248,10 +248,20 @@ export async function getNorthStarHome(currentYear?: number): Promise<JobNorthSt
 /** The clinical SUPPLY side: every site with its functional units (the asset
  *  map), the rotation-type → unit-category join, and each site's agreement
  *  status — what the day-grid supply vs demand comparison runs on. */
+/** The institution a page opens on when none is asked for: the one carrying the most students in
+ *  planned or active offerings, then the most such offerings — the workspace's working college,
+ *  not the alphabetically first one. */
+export async function defaultInstitution(): Promise<{ id: string; name: string } | null> {
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, programs: { select: { cohorts: { where: { status: { in: ["planned", "active"] } }, select: { _count: { select: { students: true } } } } } } } });
+  const weight = (i: (typeof institutions)[number]) => { let students = 0, offerings = 0; for (const p of i.programs) for (const c of p.cohorts) { students += c._count.students; offerings++; } return [students, offerings] as const; };
+  const best = [...institutions].sort((a, b) => { const [sa, oa] = weight(a), [sb, ob] = weight(b); return sb - sa || ob - oa || a.name.localeCompare(b.name); })[0];
+  return best ? { id: best.id, name: best.name } : null;
+}
+
 export async function getClinicalSupply(institutionId?: string) {
   const inst = institutionId
     ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
-    : await prisma.institution.findFirst({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+    : await defaultInstitution();
   if (!inst) return null;
   const [sites, rotations] = await Promise.all([
     prisma.employer.findMany({
@@ -1831,12 +1841,8 @@ export async function getCourseDemand(opts?: { institutionId?: string }) {
   const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
   let institutionId = opts?.institutionId;
   if (!institutionId) {
-    // Default to the tenant with the most shared-code courses (the rich one).
-    institutionId = institutions[0]?.id;
-    const counts = await prisma.course.groupBy({ by: ["termId"], _count: true });
-    void counts; // (kept simple — default below handles it)
-    const withCohorts = await prisma.institution.findMany({ select: { id: true, _count: { select: { programs: true } } }, orderBy: { name: "asc" } });
-    institutionId = withCohorts.sort((a, b) => b._count.programs - a._count.programs)[0]?.id ?? institutionId;
+    // Default to the workspace's working college (the one carrying the students).
+    institutionId = (await defaultInstitution())?.id ?? institutions[0]?.id;
   }
   if (!institutionId) return { institutions, institutionId: null, rows: [] as CourseDemandRow[] };
 
@@ -2094,12 +2100,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
   let wantedId = opts?.institutionId ?? null;
   if (!wantedId && opts?.cohortId) wantedId = (await prisma.cohort.findUnique({ where: { id: opts.cohortId }, select: { program: { select: { institutionId: true } } } }))?.program.institutionId ?? null;
   let institution = institutions.find((i) => i.id === wantedId);
-  if (!institution) {
-    const live = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, select: { program: { select: { institutionId: true } } } });
-    const tally = new Map<string, number>();
-    for (const c of live) tally.set(c.program.institutionId, (tally.get(c.program.institutionId) ?? 0) + 1);
-    institution = [...institutions].sort((a, b) => (tally.get(b.id) ?? 0) - (tally.get(a.id) ?? 0))[0];
-  }
+  if (!institution) institution = (await defaultInstitution()) ?? institutions[0];
   if (!institution) return null;
 
   // The institution's coded holidays & breaks (imported academic calendar) —
@@ -2891,7 +2892,7 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
 export async function getSiteLoad(institutionId?: string) {
   const inst = institutionId
     ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
-    : await prisma.institution.findFirst({ where: { programs: { some: { cohorts: { some: { status: { in: ["planned", "active"] } } } } } }, orderBy: { name: "asc" }, select: { id: true, name: true } }) ?? await prisma.institution.findFirst({ orderBy: { name: "asc" }, select: { id: true, name: true } });
+    : await defaultInstitution();
   if (!inst) return null;
   const cohorts = await prisma.cohort.findMany({
     where: { program: { institutionId: inst.id }, status: { in: ["planned", "active", "completed"] } },

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getOrganizations, getInstitutionsHome, getFamiliesClinical, getFamilyProgramId } from "@/lib/queries";
+import { getOrganizations, getInstitutionsHome, getFamiliesClinical, getFamilyProgramId, defaultInstitution } from "@/lib/queries";
 import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,9 @@ const INSIGHTS: [string, string, string][] = [
 ];
 
 export default async function HomePage() {
-  const [orgs, institutions, clinical] = await Promise.all([getOrganizations(), getInstitutionsHome(), getFamiliesClinical()]);
+  const [orgs, institutions, clinical, working] = await Promise.all([getOrganizations(), getInstitutionsHome(), getFamiliesClinical(), defaultInstitution()]);
+  // The working college (the one carrying the students) reads first; the others follow by name.
+  institutions.sort((a, b) => (a.id === working?.id ? -1 : b.id === working?.id ? 1 : a.name.localeCompare(b.name)));
   const thisYear = new Date().getUTCFullYear();
   return (
     <div className="space-y-8">
