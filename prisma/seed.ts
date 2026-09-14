@@ -1368,14 +1368,16 @@ async function main() {
   console.log("roster:", roster);
   // Carteret and Lenoir run Nurse Aide I: a planned offering per delivery model at Carteret (each
   // capped at its template's class size), and two runs of the standard term at Lenoir. Offerings
-  // only — rooms, people and sites for these colleges are theirs to enter.
+  // only — rooms, people and sites for these colleges are theirs to enter. Each offering's goal is
+  // its share of the college's annual North-Star goal (Carteret 55 across five models, Lenoir 80
+  // across the classes it runs in a year).
   const carteret = await prisma.institution.findFirst({ where: { name: "Carteret Community College" }, select: { id: true } });
   if (carteret) console.log("Carteret offerings:", await seedOfferings(prisma, carteret.id, [
-    { program: "Nurse Aide I — 6-Week Term", start: "2026-08-17", goal: 10, seats: 10 },
-    { program: "Nurse Aide I — 5-Week Day Intensive", start: "2026-10-05", goal: 10, seats: 10 },
-    { program: "Nurse Aide I — 12-Week Day Term", start: "2026-08-17", goal: 10, seats: 10 },
-    { program: "Nurse Aide I — 12-Week Evening Term", start: "2027-01-11", goal: 10, seats: 10 },
-    { program: "Nurse Aide I — 8-Week Summer Evening", start: "2027-06-01", goal: 10, seats: 10 },
+    { program: "Nurse Aide I — 6-Week Term", start: "2026-08-17", goal: 11, seats: 10 },
+    { program: "Nurse Aide I — 5-Week Day Intensive", start: "2026-10-05", goal: 11, seats: 10 },
+    { program: "Nurse Aide I — 12-Week Day Term", start: "2026-08-17", goal: 11, seats: 10 },
+    { program: "Nurse Aide I — 12-Week Evening Term", start: "2027-01-11", goal: 11, seats: 10 },
+    { program: "Nurse Aide I — 8-Week Summer Evening", start: "2027-06-01", goal: 11, seats: 10 },
   ]));
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
   if (lenoir) console.log("Lenoir offerings:", await seedOfferings(prisma, lenoir.id, [

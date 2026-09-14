@@ -94,6 +94,8 @@ const NA = { soc: "31-1131", occupation: "Nursing Assistants" };
 const THIS_YEAR = new Date().getUTCFullYear();
 /** A flat-then-stairstep North-Star goal starting this year: base, base, +10%, +20%, +20%. */
 export const goals = (base: number) => ({ [THIS_YEAR]: base, [THIS_YEAR + 1]: base, [THIS_YEAR + 2]: Math.round(base * 1.1), [THIS_YEAR + 3]: Math.round(base * 1.2), [THIS_YEAR + 4]: Math.round(base * 1.2) });
+/** A stated annual goal held flat across the planning horizon (the partner's own number, not a stairstep). */
+export const flatGoal = (base: number) => ({ [THIS_YEAR]: base, [THIS_YEAR + 1]: base, [THIS_YEAR + 2]: base, [THIS_YEAR + 3]: base, [THIS_YEAR + 4]: base });
 /** Serialize a goal set the way the goal planner stores it. `goal` is the
  *  family's default talent-pipeline health rates (the ladder every new
  *  launching cohort inherits at lock-in); omit it to use the benchmarks. */
@@ -149,12 +151,16 @@ export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Roanoke-Chowan Community College", short: "Roanoke-Chowan CC", kind: "Community college", city: "Ahoskie", serviceArea: "Hertford, Bertie, Gates & Northampton Counties, NC", families: [
     { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(16), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 20, months: 3 }] },
   ] },
-  ...[["Lenoir Community College", "Lenoir CC", "Kinston", "Lenoir, Greene & Jones Counties, NC"], ["Craven Community College", "Craven CC", "New Bern", "Craven County, NC"]].map(([name, short, city, area]): InstitutionDef => ({
-    name, short, kind: "Community college", city, serviceArea: area, families: [{ name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true }],
-  })),
-  // Carteret owns the CNA workbook pack: all five Nurse Aide I delivery models.
+  { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven County, NC", families: [
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true },
+  ] },
+  // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity.
+  { name: "Lenoir Community College", short: "Lenoir CC", kind: "Community college", city: "Kinston", serviceArea: "Lenoir, Greene & Jones Counties, NC", families: [
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: flatGoal(80), programs: [], cna: true },
+  ] },
+  // Carteret owns the CNA workbook pack: all five Nurse Aide I delivery models. Stated goal: 55 a year fully productive.
   { name: "Carteret Community College", short: "Carteret CC", kind: "Community college", city: "Morehead City", serviceArea: "Carteret County, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the Carteret CNA workbooks (day intensive, standard term, summer evening, and extended day/evening tracks).", goals: goals(50), programs: [], cna: true, cnaAll: true },
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the Carteret CNA workbooks (day intensive, standard term, summer evening, and extended day/evening tracks).", goals: flatGoal(55), programs: [], cna: true, cnaAll: true },
   ] },
 ];
 
