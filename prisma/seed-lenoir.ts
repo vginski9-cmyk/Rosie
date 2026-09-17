@@ -159,7 +159,7 @@ export function projectLenoirCohorts(rows: Row[], opts: { from: string; through:
     const basis = runs.length >= 2 && gap <= BACK_TO_BACK_DAYS
       ? `${runs.length} runs back to back, about ${Math.round(gap / 7)} week${Math.round(gap / 7) === 1 ? "" : "s"} apart`
       : runs.length >= 2 ? `${runs.length} runs about a year apart` : `one run (${last.cohort})`;
-    const make = (start: string): ProjectedRow => ({ cohort: `Planned ${monthYear(start)} · ${slot}`, start, end: addDaysIso(start, length), days: last.days, time: last.time, location: last.location, slot, basis });
+    const make = (start: string): ProjectedRow => ({ cohort: "", start, end: addDaysIso(start, length), days: last.days, time: last.time, location: last.location, slot, basis });
     if (runs.length >= 2 && gap <= BACK_TO_BACK_DAYS) {
       let cursor = last.end;
       for (let n = 0; n < 12; n++) {
@@ -176,7 +176,11 @@ export function projectLenoirCohorts(rows: Row[], opts: { from: string; through:
       }
     }
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start) || a.slot.localeCompare(b.slot));
+  // Numbered on from the college's own cohorts, in start order: "Cohort 39 · Bullock 175 · Mon & Wed · daytime · Jan 2027".
+  out.sort((a, b) => a.start.localeCompare(b.start) || a.slot.localeCompare(b.slot));
+  const next = 1 + Math.max(0, ...rows.map((r) => Number(/^Cohort (\d+)/.exec(r.cohort)?.[1] ?? 0)));
+  out.forEach((r, i) => { r.cohort = `Cohort ${next + i} · ${r.slot} · ${monthYear(r.start)}`; });
+  return out;
 }
 
 /** Seed the cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and weekly class patterns. */

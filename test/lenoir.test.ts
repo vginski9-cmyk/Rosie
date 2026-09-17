@@ -16,7 +16,11 @@ describe("scheduling Lenoir's cohorts ahead", () => {
     const b175 = rows.filter((r) => r.slot === "Bullock 175 · Mon & Wed · daytime");
     expect(b175.map((r) => r.start)).toEqual(["2027-01-25", "2027-06-21", "2027-11-15"]);
     expect(b175[0].basis).toBe("5 runs back to back, about 1 week apart");
-    expect(b175[0]).toMatchObject({ days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175", cohort: "Planned Jan 2027 · Bullock 175 · Mon & Wed · daytime" });
+    expect(b175[0]).toMatchObject({ days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" });
+    // Numbered on from Cohort 38 in start order.
+    expect(rows[0].cohort).toMatch(/^Cohort 39 · /);
+    expect(rows.map((r) => Number(/^Cohort (\d+)/.exec(r.cohort)![1]))).toEqual(rows.map((_, i) => 39 + i));
+    expect(b175[0].cohort).toMatch(/^Cohort \d+ · Bullock 175 · Mon & Wed · daytime · Jan 2027$/);
     // Lancer Academy runs each fall: the next is a year after Aug 24, 2026, on a Tuesday.
     const lancer = rows.filter((r) => r.slot.startsWith("Lancer Academy"));
     expect(lancer.map((r) => [r.start, r.basis])).toEqual([["2027-08-24", "2 runs about a year apart"]]);

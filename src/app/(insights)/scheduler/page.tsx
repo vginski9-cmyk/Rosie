@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 // The clinical scheduler: every offering's dated clinical sections (demand)
 // against every partner's physical assets, day by day (supply) — placed by
 // the recommendation engine under levers the room can turn together.
-export default async function SchedulerPage() {
-  const data = await getCapacityModel();
+export default async function SchedulerPage({ searchParams }: { searchParams: { inst?: string } }) {
+  const data = await getCapacityModel({ institutionId: searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   // The same window the apply action rebuilds the plan in — see lib/schedulerplan.
   const { from, to } = schedulerWindow(data.cohorts);

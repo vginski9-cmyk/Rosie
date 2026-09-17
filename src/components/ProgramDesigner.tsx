@@ -118,7 +118,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         <span className="text-xs text-slate-500">At {n0(enrollment)}: <strong className="text-slate-800">{n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} sections</strong> · {n0(shTotal)} space h · faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong></span>
       </div>
 
-      <details className="rounded-xl border border-slate-200 bg-white">
+      <details open={allSessions.some((s) => s.kind === "CLINICAL")} className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Clinical analytics <span className="font-normal text-slate-400">— settings, modes, shifts and days across the sequence</span></summary>
         <div className="border-t border-slate-100 p-3"><ClinicalAnalytics subject={programName ? `${programName} (template)` : "this template"} courses={analyticsCourses} enrollment={enrollment} /></div>
       </details>

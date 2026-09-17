@@ -27,6 +27,20 @@ const num = (v) => (v === "" || v == null ? null : Number(v));
 const DAY = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
 const dayOf = (v) => DAY[String(v).trim().toLowerCase()] ?? null; // "Online" → null: no fixed weekday
 const KIND = { class: "CLASS", lab: "LAB", clinical: "CLINICAL" };
+/** The time of day a session starts, as the workbook's notes give it ("5:30p-9:30p", "8am - 2:30pm",
+ *  "8a-2:30p or 8:30a-3p" → the first), as "HH:MM"; null when the notes name no time. */
+export function startTimeOf(notes) {
+  const text = notes ?? "";
+  const hhmm = (h, m) => `${String(h).padStart(2, "0")}:${m ?? "00"}`;
+  // A range whose start carries no am/pm ("12:00-2:30pm", "12p-2:30p" handled below): noon is
+  // noon, 1–6 is afternoon, 7–11 is morning.
+  const range = /(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*[-–]\s*\d{1,2}(?::\d{2})?\s*[ap]/i.exec(text);
+  const m = /(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m?\b/i.exec(text);
+  if (range && (!m || range.index <= m.index)) { const h = Number(range[1]); return hhmm(h === 12 ? 12 : h <= 6 ? h + 12 : h, range[2]); }
+  if (!m) return null;
+  let h = Number(m[1]) % 12; if (m[3].toLowerCase() === "p") h += 12;
+  return hhmm(h, m[2]);
+}
 
 // The header row names every column; find each by a phrase from its header.
 const header = rows[0].map((h) => String(h).toLowerCase());
@@ -94,7 +108,7 @@ for (const g of groups.values()) {
     lengthHours: num(r[C.length]) ?? 0, maxStudents: num(r[C.max]) ?? 1,
     facultyNeeded: num(r[C.faculty]) ?? 0, facultyContactPolicy: num(r[C.facultyPolicy]),
     supportStaffNeeded: num(r[C.support]) ?? 0, supportContactPolicy: num(r[C.supportPolicy]),
-    week: num(r[C.week]), dayOfWeek: dayOf(r[C.day]), notes: str(r[C.notes]),
+    week: num(r[C.week]), dayOfWeek: dayOf(r[C.day]), startTime: startTimeOf(str(r[C.notes])), notes: str(r[C.notes]),
     preceptorsNeeded: num(r[C.preceptors]) ?? 0, preceptorContactPolicy: num(r[C.preceptorPolicy]),
     rotationType: str(r[C.rotation]), clinicalMode: str(r[C.clinicalMode]),
   }));

@@ -3,8 +3,8 @@ import { CapacityBoard } from "@/components/CapacityBoard";
 
 export const dynamic = "force-dynamic";
 
-export default async function CoveragePage() {
-  const data = await getCapacityModel();
+export default async function CoveragePage({ searchParams }: { searchParams: { inst?: string } }) {
+  const data = await getCapacityModel({ institutionId: searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   return (
     <div className="space-y-6">

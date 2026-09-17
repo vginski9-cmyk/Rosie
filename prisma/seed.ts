@@ -548,7 +548,7 @@ async function seedOfferingStudents() {
 async function loadClinicalModels(institutionId: string) {
   type RadMap = { clinicalModel: { model: string; notes: string }; serviceAreas: { code: string; name: string; settingCodes: string }[]; courseAllocation: { courseCode: string; courseName: string; courseWeeks: number; students: number; area: string; hoursPerStudent: number }[] };
   const map = JSON.parse(readFileSync(join(__dirname, "templates", "rad-asset-map.json"), "utf8")) as RadMap;
-  const families = await prisma.programFamily.findMany({ where: { institutionId }, include: { programs: { include: { terms: { orderBy: { index: "asc" }, include: { courses: true } } } } } });
+  const families = await prisma.programFamily.findMany({ where: { institutionId }, include: { programs: { include: { terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, lengthHours: true, rotationType: true } } } } } } } } } });
   const employers = await prisma.employer.findMany({ where: { institutionId }, include: { assets: { select: { settingCode: true, shiftBlocks: true, operatingRule: true, assetType: true, preceptorsPerShift: true, accreditorClass: true, status: true } }, units: { select: { unitCategory: true } } } });
   let areas = 0, reqs = 0, sites = 0, allocations = 0;
 
@@ -590,12 +590,36 @@ async function loadClinicalModels(institutionId: string) {
         }
       }
     } else {
+      // Where the course's clinical sessions name their rotation (the Nurse Aide workbook packs:
+      // Medical-Surgical, Long-Term Care), each rotation's hours go to its own setting; otherwise
+      // the course's catalog clinical hours go to the family's primary setting.
+      const AREA_OF: Record<string, string> = { "medical-surgical": "MS", "med-surg": "MS", "long-term care": "LTC", "skilled nursing": "LTC", "adult care": "ACH", "adult care home": "ACH" };
       const primary = areaByCode.get(areaDefs[0].code)!;
       for (const p of fam.programs) for (const t of p.terms) for (const c of t.courses) {
+        const byArea = new Map<string, number>();
+        for (const s of c.sessions) {
+          if (s.kind !== "CLINICAL" || !s.rotationType) continue;
+          const areaId = areaByCode.get(AREA_OF[s.rotationType.trim().toLowerCase()] ?? "") ?? primary;
+          byArea.set(areaId, (byArea.get(areaId) ?? 0) + s.lengthHours);
+        }
+        if (byArea.size) {
+          for (const [serviceAreaId, hours] of byArea) { await prisma.courseClinicalRequirement.create({ data: { courseId: c.id, serviceAreaId, hoursPerStudent: Math.round(hours * 100) / 100 } }); reqs++; }
+          continue;
+        }
         if (c.weeklyClinicalHours <= 0) continue;
         const weeks = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
         await prisma.courseClinicalRequirement.create({ data: { courseId: c.id, serviceAreaId: primary, hoursPerStudent: c.weeklyClinicalHours * weeks, casesPerStudent: isSurg ? 30 : null } });
         reqs++;
+      }
+    }
+    // The rotation types this family's sessions name, joined to the settings and unit categories that serve them.
+    if (isCna) {
+      const CNA_ROT: [string, string, string | null, string][] = [
+        ["Medical-Surgical", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"], ["Med-Surg", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"],
+        ["Long-Term Care", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Skilled Nursing", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Adult Care", "Adult care beds", "Adult Care Unit", "LTC"],
+      ];
+      for (const [rotationType, unitCategory, unitType, settingCode] of CNA_ROT) {
+        await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
       }
     }
 
@@ -1184,6 +1208,8 @@ export type CnaSession = {
   kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
   lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
   supportStaffNeeded: number; supportContactPolicy: number | null; week: number | null; dayOfWeek: string | null;
+  /** "HH:MM", read from the workbook's own notes ("5:30p-9:30p") when they name a time. */
+  startTime?: string | null;
   notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
   rotationType: string | null; clinicalMode: string | null;
 };
@@ -1221,7 +1247,7 @@ export async function createCnaProgram(institutionId: string, occupationId: stri
           lengthHours: x.lengthHours, maxStudents: x.maxStudents,
           facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
           facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-          week: x.week, dayOfWeek: x.dayOfWeek, notes: x.notes,
+          week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, notes: x.notes,
           rotationType: x.rotationType, clinicalMode: x.clinicalMode,
         })),
       },
@@ -1396,6 +1422,11 @@ async function main() {
   if (lenoir) console.log("Lenoir cohorts:", await seedLenoirCohorts(prisma, lenoir.id));
   const clinical = await loadClinicalModels(sandhills.id);
   console.log("clinical models by family:", clinical);
+  // The other colleges' families too: their settings, each course's clinical hours by setting
+  // (from the workbook sessions' own rotation types) and the rotation → setting join, so the
+  // design page, the requirement roll-up and the scheduler read the same way everywhere. Sites
+  // are theirs to enter.
+  for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) console.log(`clinical models — ${inst.name}:`, await loadClinicalModels(inst.id));
   // Calendarize the offerings only now — against the families' final site agreements.
   console.log("offering meetings:", await seedOfferingMeetings(prisma, sandhills.id));
   console.log("workload policies:", await seedWorkloadPolicies(prisma));

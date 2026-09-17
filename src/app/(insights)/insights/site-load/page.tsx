@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 
 // CLINICAL SITE LOAD — which employers and facilities carry the students, how full they run,
 // who precepts, and the same load by health system, county, ring, setting, program and time.
-export default async function SiteLoadPage() {
-  const data = await getSiteLoad();
+export default async function SiteLoadPage({ searchParams }: { searchParams: { inst?: string } }) {
+  const data = await getSiteLoad(searchParams.inst);
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   const programs = await prisma.program.findMany({ where: { institutionId: data.institution.id }, select: { id: true, name: true, familyId: true } });
   const programIds: Record<string, string> = {};

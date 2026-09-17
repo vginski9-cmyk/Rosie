@@ -6,8 +6,8 @@ import { Collapse } from "@/components/Collapse";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClinicalSitesPage() {
-  const data = await getCapacityModel();
+export default async function ClinicalSitesPage({ searchParams }: { searchParams: { inst?: string } }) {
+  const data = await getCapacityModel({ institutionId: searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   const supply = await getClinicalSupply(data.institution.id);
   // The window the asset map is matched over: from the earliest dated term to
