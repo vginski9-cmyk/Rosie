@@ -1,0 +1,131 @@
+// Lenoir Community College's Nurse Aide I cohort schedule, as the college keeps it: every cohort
+// with its dates, the days it meets, the time of day and where — on the Kinston campus (Bullock
+// Building) or at the La Grange, Jones County and Greene County centers and Kinston High School's
+// Lancer Academy. Each row becomes an offering of the Nurse Aide I program with its own term dates
+// and weekly class pattern in its room. The sheet carries no enrollment, so past cohorts have no
+// students here; future and running ones get the dummy roster like every other planned offering.
+
+import type { PrismaClient } from "@prisma/client";
+import { deriveCohortTargets } from "../src/lib/pipeline";
+import { BENCHMARK_RATES } from "../src/lib/northstar";
+import { STAGES } from "../src/lib/funnel";
+import { seasonOfDate } from "../src/lib/term";
+
+interface Row { cohort: string; start: string; end: string; days: string; time: string; location: string; given?: string }
+
+/** The sheet, row for row (M/D/YYYY dates as ISO). Two rows' dates as given cannot be right and are
+ *  corrected to the day of week the cohort meets — `given` keeps what the sheet says. */
+export const LENOIR_COHORTS: Row[] = [
+  { cohort: "Cohort 1 - 78572", start: "2025-10-27", end: "2026-03-18", days: "Mon, Wed", time: "5:30pm-9:30pm", location: "Lagrange Center" },
+  { cohort: "Cohort 2 - 79375", start: "2025-10-20", end: "2026-03-14", days: "Mon, Sat", time: "6:00pm-10:00pm", location: "Jones County Center" },
+  { cohort: "Cohort 3 - 79771", start: "2026-01-05", end: "2026-06-08", days: "Mon, Tue", time: "6:00pm-10:00pm", location: "Greene County Center" },
+  { cohort: "Cohort 4 - 79410", start: "2026-01-12", end: "2026-06-24", days: "Mon, Wed", time: "5:30pm-9:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 5 - 79974", start: "2026-03-03", end: "2026-06-25", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Greene County Center" },
+  // Sheet: 10/7/2026 – 2/27/2026 (ends before it starts). 10/7/2025 is a Tuesday, the cohort's first day.
+  { cohort: "Cohort 6 - 78901", start: "2025-10-07", end: "2026-02-27", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Greene County Center", given: "10/7/2026 – 2/27/2026" },
+  { cohort: "Cohort 7 - 78496", start: "2025-08-26", end: "2026-02-07", days: "Tue, Thur", time: "5:30pm-9:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 8 - 79816", start: "2026-04-13", end: "2026-08-19", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" },
+  { cohort: "Cohort 9 - 80907", start: "2026-08-03", end: "2026-12-09", days: "Mon, Wed", time: "5:30pm-9:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 10 - 80918", start: "2026-06-02", end: "2026-10-01", days: "Tue, Thur", time: "08:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 11 - 81127", start: "2026-08-24", end: "2026-12-17", days: "Tue, Wed, Thur", time: "12:05pm-2:50pm", location: "Kinston High School, Lancer Academy" },
+  { cohort: "Cohort 12 - 78629", start: "2026-01-14", end: "2026-05-27", days: "Mon, Wed", time: "08:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 13 - 79671", start: "2026-02-17", end: "2026-07-07", days: "Tue, Thur, Fri", time: "08:30am-12:30pm", location: "Main Campus, Bullock Bldg, Rm 175" },
+  { cohort: "Cohort 14 - 79938", start: "2026-04-13", end: "2026-09-30", days: "Mon, Wed", time: "08:30am-12:30pm", location: "Main Campus, Bullock Bldg, Rm 177" },
+  { cohort: "Cohort 15 - 79875", start: "2026-03-03", end: "2026-08-13", days: "Tue, Thur", time: "5:30pm-9:30pm", location: "Main Campus, Bullock Bldg, Rm 173" },
+  { cohort: "Cohort 16 - 78498", start: "2025-09-09", end: "2026-01-30", days: "Tue, Thur, Fri", time: "08:30am-12:30pm", location: "Main Campus, Bullock Bldg, Rm 177" },
+  { cohort: "Cohort 17 - 78750", start: "2025-11-05", end: "2026-03-30", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" },
+  { cohort: "Cohort 18 - 76997", start: "2025-03-25", end: "2025-07-24", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Lagrange Center" },
+  { cohort: "Cohort 19 - 77882", start: "2025-03-24", end: "2025-08-20", days: "Mon, Wed", time: "6:00pm-10:00pm", location: "Jones County Center" },
+  { cohort: "Cohort 20 - 77230", start: "2025-08-04", end: "2025-12-01", days: "Mon, Tue", time: "6:00pm-10:00pm", location: "Greene County Center" },
+  { cohort: "Cohort 21 - 79934", start: "2026-03-30", end: "2026-08-15", days: "Mon, Wed", time: "6:00pm-10:00pm", location: "Jones County Center" },
+  { cohort: "Cohort 22 - 76099", start: "2025-03-25", end: "2025-07-24", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Lagrange Center" },
+  { cohort: "Cohort 23 - 76840", start: "2025-01-16", end: "2025-05-08", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Jones County Center" },
+  { cohort: "Cohort 24 - 75933", start: "2024-09-16", end: "2025-02-24", days: "Mon, Sat", time: "6:00pm-10:00pm", location: "Jones County Center" },
+  { cohort: "Cohort 25 - 77599", start: "2025-04-08", end: "2025-07-24", days: "Tue, Thur", time: "6:00pm-10:00pm", location: "Greene County Center" },
+  // Sheet: 7/27/2025 – 6/9/2025 (ends before it starts; 7/27 is a Sunday). 1/27/2025 is a Monday, the cohort's first day.
+  { cohort: "Cohort 26 - 76811", start: "2025-01-27", end: "2025-06-09", days: "Mon, Wed", time: "9:00am-3:00pm", location: "Greene County Center", given: "7/27/2025 – 6/9/2025" },
+  { cohort: "Cohort 27 - 77142", start: "2025-03-03", end: "2025-07-02", days: "Mon, Tue", time: "6:00pm-10:00pm", location: "Greene County Center" },
+  { cohort: "Cohort 28 - 77956", start: "2025-06-23", end: "2025-11-03", days: "Mon, Wed", time: "9:00am-3:00pm", location: "Greene County Center" },
+  { cohort: "Cohort 29 - 78671", start: "2025-08-25", end: "2025-12-12", days: "Tue, Wed, Thur", time: "12:05pm-2:50pm", location: "Kinston High School, Lancer Academy" },
+  { cohort: "Cohort 30 - 78217", start: "2025-06-18", end: "2025-10-27", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" },
+  { cohort: "Cohort 31 - 78195", start: "2025-05-20", end: "2025-09-25", days: "Tue, Thur", time: "8:30am-3:00pm", location: "Main Campus, Bullock, Rm 177" },
+  { cohort: "Cohort 32 - 77998", start: "2025-05-05", end: "2025-10-22", days: "Mon, Thur, Sat", time: "5:30pm-9:30pm", location: "Main Campus, Bullock, Rm 173" },
+  { cohort: "Cohort 33 - 76070", start: "2025-01-16", end: "2025-05-20", days: "Tue, Thur", time: "8:30am-3:00pm", location: "Main Campus, Bullock, Rm 173" },
+  { cohort: "Cohort 34 - 76069", start: "2025-02-25", end: "2025-07-31", days: "Tue, Thur", time: "5:30pm-9:30pm", location: "Main Campus, Bullock, Rm 173" },
+  { cohort: "Cohort 35 - 76068", start: "2025-01-07", end: "2025-05-08", days: "Tue, Thur", time: "8:30am-3:00pm", location: "Main Campus, Bullokck, Rm 177" },
+  { cohort: "Cohort 36 - 76067", start: "2025-01-27", end: "2025-06-09", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock, Rm 175" },
+  { cohort: "Cohort 37 - 76982", start: "2024-12-02", end: "2025-04-23", days: "Mon, Wed", time: "8:30am-3:00pm", location: "Main Campus, Bullock, Rm 173" },
+  { cohort: "Cohort 38 - 75998", start: "2024-10-21", end: "2025-03-12", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock, Rm 175" },
+];
+
+const DAY: Record<string, string> = { mon: "Mon", tue: "Tue", tues: "Tue", wed: "Wed", thu: "Thu", thur: "Thu", thurs: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+/** "Mon, Wed" / "Tue, Thur, Fri" → ["Mon", "Wed"] / ["Tue", "Thu", "Fri"]. */
+export const parseDays = (s: string): string[] => s.split(/[,/&]+/).map((d) => DAY[d.trim().toLowerCase()]).filter((d): d is string => !!d);
+/** "5:30pm-9:30pm" / "08:00am-2:30pm" → { start: "17:30", hours: 4 }. */
+export function parseTime(s: string): { start: string; end: string; hours: number } {
+  const to24 = (t: string) => { const m = /^(\d{1,2})(?::(\d{2}))?\s*([ap])m?$/i.exec(t.trim()); if (!m) throw new Error(`time: ${t}`); let h = Number(m[1]) % 12; if (m[3].toLowerCase() === "p") h += 12; return h * 60 + Number(m[2] ?? 0); };
+  const [a, b] = s.split(/[-–]/); const st = to24(a), en = to24(b);
+  const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+  return { start: hhmm(st), end: hhmm(en), hours: (en - st) / 60 };
+}
+/** Where a cohort meets, as a room in a building on a campus. Spelling variants in the sheet fold together. */
+export function parseLocation(s: string): { campus: string; city: string; building: string; room: string; roomNumber: string | null } {
+  const rm = /rm\s*(\d+)/i.exec(s)?.[1] ?? null;
+  if (/main campus/i.test(s)) return { campus: "Main Campus", city: "Kinston", building: "Bullock Building", room: `Bullock ${rm ?? "classroom"}`, roomNumber: rm };
+  if (/lagrange|la grange/i.test(s)) return { campus: "La Grange Center", city: "La Grange", building: "La Grange Center", room: "La Grange Center classroom", roomNumber: null };
+  if (/jones county/i.test(s)) return { campus: "Jones County Center", city: "Trenton", building: "Jones County Center", room: "Jones County Center classroom", roomNumber: null };
+  if (/greene county/i.test(s)) return { campus: "Greene County Center", city: "Snow Hill", building: "Greene County Center", room: "Greene County Center classroom", roomNumber: null };
+  if (/kinston high/i.test(s)) return { campus: "Kinston High School", city: "Kinston", building: "Kinston High School — Lancer Academy", room: "Lancer Academy classroom", roomNumber: null };
+  return { campus: "Main Campus", city: "Kinston", building: s, room: s, roomNumber: rm };
+}
+
+const iso = (d: string) => new Date(d + "T00:00:00Z");
+const weeksBetween = (a: string, b: string) => Math.max(1, Math.round((iso(b).getTime() - iso(a).getTime()) / (7 * 86400000)));
+
+/** Seed the cohorts as offerings of Lenoir's Nurse Aide I, with their rooms and weekly class patterns. */
+export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number> }> {
+  const program = await prisma.program.findFirst({ where: { institutionId, name: "Nurse Aide I" }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
+  if (!program) throw new Error("Lenoir's Nurse Aide I program is not seeded");
+  const term = program.terms[0]; const courseId = term.courses[0]?.id;
+  if (!term || !courseId) throw new Error("Lenoir's Nurse Aide I has no term or course");
+  let rates = { ...BENCHMARK_RATES };
+  if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES>; goalsByYear?: Record<string, number> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
+  const annualGoal = (year: number) => { try { const gp = JSON.parse(program.family?.goalPlan ?? "{}") as { goalsByYear?: Record<string, number> }; return gp.goalsByYear?.[String(year)] ?? 80; } catch { return 80; } };
+  const seats = program.defaultCohortSeats ?? 10;
+
+  // Campuses, buildings and rooms — one room per distinct place in the sheet.
+  const campusId = new Map<string, string>(); const buildingId = new Map<string, string>(); const roomId = new Map<string, string>();
+  const main = await prisma.campus.findFirst({ where: { institutionId }, orderBy: { createdAt: "asc" } });
+  if (main) campusId.set("Main Campus", main.id);
+  for (const r of LENOIR_COHORTS) {
+    const loc = parseLocation(r.location);
+    if (!campusId.has(loc.campus)) campusId.set(loc.campus, (await prisma.campus.create({ data: { institutionId, name: loc.campus, city: loc.city, state: "NC" } })).id);
+    if (!buildingId.has(loc.building)) buildingId.set(loc.building, (await prisma.building.create({ data: { institutionId, campusId: campusId.get(loc.campus)!, name: loc.building } })).id);
+    if (!roomId.has(loc.room)) roomId.set(loc.room, (await prisma.facility.create({ data: { institutionId, name: loc.room, kind: "CLASSROOM", buildingId: buildingId.get(loc.building)!, building: loc.building, roomNumber: loc.roomNumber, availability: "Nurse Aide I cohorts", status: "active" } })).id);
+  }
+
+  const startsInYear = new Map<number, number>();
+  for (const r of LENOIR_COHORTS) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
+  const byStatus: Record<string, number> = {}; let patterns = 0;
+  for (const r of LENOIR_COHORTS) {
+    const start = iso(r.start), end = iso(r.end);
+    const status = end < today ? "completed" : start <= today ? "active" : "planned";
+    byStatus[status] = (byStatus[status] ?? 0) + 1;
+    const year = start.getUTCFullYear();
+    // Each cohort carries its share of the year's North-Star goal across the cohorts starting that year.
+    const goal = Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
+    const t = deriveCohortTargets(goal, rates, 1);
+    const cohort = await prisma.cohort.create({ data: { programId: program.id, name: r.cohort, status, startDate: start, entryYear: year, isExplicit: true, plannedSeats: seats, pipelineRates: JSON.stringify({ goal, rates, termOverrides: [] }) } });
+    const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: seats, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
+    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
+    await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: start, endDate: end, source: "chosen", semester: seasonOfDate(start) } });
+    await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId, startDate: start, endDate: end, auto: false } });
+    // The weekly class pattern: the days and hours the sheet gives, in the room it names.
+    const time = parseTime(r.time); const loc = parseLocation(r.location); const weeks = weeksBetween(r.start, r.end);
+    for (const day of parseDays(r.days)) {
+      await prisma.meetingPattern.create({ data: { cohortId: cohort.id, courseId, kind: "CLASS", sectionIndex: 1, sectionCount: 1, seats, dayOfWeek: day, startTime: time.start, lengthHours: time.hours, termIndex: 1, startWeek: 1, endWeek: weeks, facilityId: roomId.get(loc.room) ?? null } });
+      patterns++;
+    }
+  }
+  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus };
+}

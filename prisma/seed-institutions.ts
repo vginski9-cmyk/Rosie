@@ -154,9 +154,14 @@ export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven County, NC", families: [
     { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true },
   ] },
-  // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity.
+  // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity. Its Nurse Aide I
+  // is the NCCCS common-library NAS 101 (3 class · 4 lab · 3 clinical hours a week, 6 credits) run as
+  // 16–22-week part-time cohorts on campus and at the county centers — see seed-lenoir.ts for the real
+  // cohort schedule. NC NATCEP caps clinical groups at ten students per instructor.
   { name: "Lenoir Community College", short: "Lenoir CC", kind: "Community college", city: "Kinston", serviceArea: "Lenoir, Greene & Jones Counties, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: flatGoal(80), programs: [], cna: true },
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I (NAS 101) — part-time day and evening cohorts on the Kinston campus and at the La Grange, Jones County and Greene County centers.", goals: flatGoal(80), programs: [
+      { name: "Nurse Aide I", type: "Part-time (day / evening)", credential: "Certificate", terms: () => [T(1, "Term 1", 16, [cc("NAS 101", "Nurse Aide I", 3, 4, 3, 6, "CORE", { description: "Basic nursing skills for the nurse aide role under RN supervision in long-term care; prepares for the NC Nurse Aide I registry exam.", rotations: ["Long-Term Care"], clinical: { mode: "Instructor-led", maxStudents: 10, faculty: 1, preceptors: 0 } })])], launch: "FALL,SPRING,SUMMER", seats: 10, months: 1 },
+    ] },
   ] },
   // Carteret owns the CNA workbook pack: all five Nurse Aide I delivery models. Stated goal: 55 a year fully productive.
   { name: "Carteret Community College", short: "Carteret CC", kind: "Community college", city: "Morehead City", serviceArea: "Carteret County, NC", families: [

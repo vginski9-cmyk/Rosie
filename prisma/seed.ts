@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
+import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
@@ -1379,11 +1380,9 @@ async function main() {
     { program: "Nurse Aide I — 12-Week Evening Term", start: "2027-01-11", goal: 11, seats: 10 },
     { program: "Nurse Aide I — 8-Week Summer Evening", start: "2027-06-01", goal: 11, seats: 10 },
   ]));
+  // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms) — see seed-lenoir.ts.
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
-  if (lenoir) console.log("Lenoir offerings:", await seedOfferings(prisma, lenoir.id, [
-    { program: "Nurse Aide I", start: "2026-08-17", goal: 10, seats: 10 },
-    { program: "Nurse Aide I", start: "2027-01-11", goal: 10, seats: 10 },
-  ]));
+  if (lenoir) console.log("Lenoir cohorts:", await seedLenoirCohorts(prisma, lenoir.id));
   const clinical = await loadClinicalModels(sandhills.id);
   console.log("clinical models by family:", clinical);
   // Calendarize the offerings only now — against the families' final site agreements.
