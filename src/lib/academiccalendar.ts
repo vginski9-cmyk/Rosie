@@ -111,21 +111,28 @@ function findDate(line: string, ctx: Ctx, fallbackYear: number): Found | null {
   return null;
 }
 
-const HOLIDAY_WORDS = /\b(holiday|no classes?|classes? not in session|college closed|campus closed|closed|break|recess|thanksgiving|labor day|memorial day|martin luther king|mlk|independence day|juneteenth|veterans|christmas|new year|good friday|easter|reading day|snow day)\b/i;
-const START_WORDS = /\b(classes? (?:begin|start)s?|first day of (?:the )?(?:class|classes|term|semester|instruction)|instruction begins|(?:semester|term) (?:begins|starts)|start of (?:classes|the semester|the term)|begins?|starts?)\b/i;
-const END_WORDS = /\b(last day of (?:the )?(?:class|classes|term|semester|instruction)|classes? ends?|(?:semester|term) ends?|end of (?:the )?(?:semester|term|classes)|final exams? end|exams end|ends?)\b/i;
-const SESSION_WORDS = /\b(session|mini-?mester|late[- ]start|second|2nd|8[- ]week|12[- ]week|4[- ]week|5[- ]week|6[- ]week|10[- ]week|a term|b term|term a|term b|part of term|pot|summer i|summer ii|maymester)\b/i;
-const OTHER_WORDS = /\b(registration|register|drop|withdraw|tuition|payment|deadline|grades? due|priority|application|advising|orientation|fafsa|census|refund|commencement|graduation|convocation|professional development|faculty|staff|workday|work day|in-?service|planning day|interim|apply|due)\b/i;
+const HOLIDAY_WORDS = /\b(holiday|no classes?|no class day|classes? not in session|college closed|campus closed|closed|break|recess|thanksgiving|labor day|memorial day|martin luther king|mlk|independence day|juneteenth|veterans|christmas|new year|good friday|easter|reading day|snow day)\b/i;
+const START_WORDS = /\b(classes? (?:begin|start)s?|first day (?:of|for)\b|beginning of\b|instruction begins|(?:semester|term|session) (?:begins|starts)|start of (?:classes|the semester|the term)|(?<!late[- ])begins?\b|(?<!late[- ])starts?\b)/i;
+const END_WORDS = /\b(last day (?:of|for)\b|classes? ends?|(?:semester|term|session) ends?|end of\b|final exams? end|exams end|ends?\b)/i;
+const SESSION_WORDS = /\b(session|mini-?mester|late[- ]start|second|2nd|8[- ]weeks?|12[- ]weeks?|4[- ]weeks?|5[- ]weeks?|6[- ]weeks?|10[- ]weeks?|14[- ]weeks?|15[- ]weeks?|a[- ]term|b[- ]term|flex[- ]term|term a|term b|part of term|pot|summer i|summer ii|maymester|winter)\b/i;
+/** Words that name the whole semester: a start or end that mentions these is the semester's, even if later sessions are listed with it. */
+const FULL_TERM = /\b(16[- ]weeks?|regular[- ]term|traditional|full[- ]term|full\b|semester)\b/i;
+const OTHER_WORDS = /\b(registration|register|drop|withdraw\w*|tuition|payment|deadline|grades? due|grades? posted|priority|application|advising|orientation|fafsa|census|10% date|refund|commencement|graduation|convocation|professional development|faculty|staff|workday|work day|in-?service|planning day|interim|apply|due|schedule changes?|bookstore|charge|add period|attendance|verification|disbursement|appeals?|incomplete|transcripts?|diplomas?|awards?|pinning|honors|midterm|mid-term)\b/i;
+/** "Holiday classes" (a winter session) are classes, not a holiday. */
+const HOLIDAY_SESSION = /\bholiday (classes|session|term)\b/i;
+const isSession = (l: string) => SESSION_WORDS.test(l) && !FULL_TERM.test(l);
 
 /** Code a label into an event kind. Holidays win (a "Fall Break — no classes" is a
- *  break), then plain deadlines are ignored, then semester start / end. */
+ *  break), then plain deadlines are ignored, then semester start / end. A start or
+ *  end that names a later session (12-week, 2nd 8-week …) is a session, not the semester. */
 export function classify(label: string): EventKind {
   const l = label.toLowerCase();
-  if (HOLIDAY_WORDS.test(l) && !/\bends?\b|\bbegins?\b/.test(l.replace(/(break|holiday)s?\s+(begins?|ends?)/, "$1"))) return "holiday";
+  if (HOLIDAY_SESSION.test(l)) { const k = classify(l.replace(HOLIDAY_SESSION, "winter session")); return k === "holiday" ? "other" : k; }
+  if (/\bon (mon|tues|wednes|thurs|fri|satur|sun)days\b/.test(l)) return "other"; // "college closed on Fridays" is a schedule note
   if (HOLIDAY_WORDS.test(l)) return "holiday";
   if (OTHER_WORDS.test(l)) return "other";
-  if (START_WORDS.test(l)) return SESSION_WORDS.test(l) ? "session_start" : "term_start";
-  if (END_WORDS.test(l)) return SESSION_WORDS.test(l) ? "other" : "term_end";
+  if (START_WORDS.test(l)) return isSession(l) ? "session_start" : "term_start";
+  if (END_WORDS.test(l)) return isSession(l) ? "other" : "term_end";
   return "other";
 }
 
@@ -156,28 +163,28 @@ export function parseAcademicCalendar(text: string, opts: { today?: Date } = {})
       pendingLabel = raw; // a label whose date is on the next line (PDF / column paste)
       continue;
     }
-    // Clean separators but keep in-word hyphens ("12-Week", "Late-start").
-    let label = found.rest.replace(/\s*[|•·:–—]+\s*/g, " ").replace(/(^|\s)[-,]+(?=\s|$)/g, " ").replace(/\s+/g, " ").replace(/^[\s\-,:]+|[\s\-,:]+$/g, "");
-    if (label.length < 3 && pendingLabel) label = pendingLabel;
-    if (label.length < 3) { warnings.push(`No event name found for ${found.iso}: "${raw}"`); continue; }
-    const kind = classify(label);
-    const sw = SEASON_RE.exec(label);
-    const season: Season = sw && (kind === "term_start" || kind === "term_end" || kind === "session_start") ? seasonWord(sw[1]) : ctx.season ?? seasonOfIso(found.iso);
-    events.push({ iso: found.iso, endIso: found.endIso && found.endIso > found.iso ? found.endIso : null, label, kind, season, source: raw });
+    // Clean separators but keep in-word hyphens ("12-Week", "Late-start"); a weekday in
+    // parentheses leaves "( )" behind. One line can carry several events joined by " / "
+    // ("Registration Day / Classes Begin / 75% Refund Period Begins") — each is coded on its own.
+    const clean = (s: string) => s.replace(/\(\s*\)/g, " ").replace(/\s*[|•·:–—]+\s*/g, " ").replace(/(^|\s)[-,]+(?=\s|$)/g, " ").replace(/\s+/g, " ").replace(/^[\s\-,:]+|[\s\-,:]+$/g, "");
+    let labels = found.rest.split(/\s+\/\s+/).map(clean).filter((l) => l.length >= 3);
+    if (!labels.length && pendingLabel) labels = [pendingLabel];
+    if (!labels.length) { warnings.push(`No event name found for ${found.iso}: "${raw}"`); continue; }
+    for (const label of labels) {
+      const kind = classify(label);
+      const sw = SEASON_RE.exec(label);
+      const season: Season = sw && (kind === "term_start" || kind === "term_end" || kind === "session_start") ? seasonWord(sw[1]) : ctx.season ?? seasonOfIso(found.iso);
+      events.push({ iso: found.iso, endIso: found.endIso && found.endIso > found.iso ? found.endIso : null, label, kind, season, source: raw });
+    }
     pendingLabel = null;
   }
 
-  // Within one season-year, only the EARLIEST "starts" is the semester start; the
-  // rest are later sessions (12-week, 2nd 8-week …).
+  // Within one season-year, the EARLIEST "begins" of any kind is the semester start; every
+  // other start is a later session (15-week, 12-week, late-start, 2nd 8-week …).
   const firstStart = new Map<string, CalendarEvent>();
-  for (const e of events) if (e.kind === "term_start") { const k = `${e.season}|${e.iso.slice(0, 4)}`; if (!firstStart.has(k) || e.iso < firstStart.get(k)!.iso) firstStart.set(k, e); }
-  for (const e of events) if (e.kind === "term_start" && firstStart.get(`${e.season}|${e.iso.slice(0, 4)}`) !== e) e.kind = "session_start";
-  // A semester listed only as sessions ("Summer I classes begin") starts with its earliest session.
-  for (const e of events) {
-    if (e.kind !== "session_start") continue;
-    const k = `${e.season}|${e.iso.slice(0, 4)}`;
-    if (!firstStart.has(k)) { e.kind = "term_start"; firstStart.set(k, e); }
-  }
+  const starts = events.filter((e) => e.kind === "term_start" || e.kind === "session_start");
+  for (const e of starts) { const k = `${e.season}|${e.iso.slice(0, 4)}`; if (!firstStart.has(k) || e.iso < firstStart.get(k)!.iso) firstStart.set(k, e); }
+  for (const e of starts) e.kind = firstStart.get(`${e.season}|${e.iso.slice(0, 4)}`) === e ? "term_start" : "session_start";
   const lastEnd = new Map<string, CalendarEvent>();
   for (const e of events) if (e.kind === "term_end") { const k = `${e.season}|${e.iso.slice(0, 4)}`; if (!lastEnd.has(k) || e.iso > lastEnd.get(k)!.iso) lastEnd.set(k, e); }
   for (const e of events) if (e.kind === "term_end" && lastEnd.get(`${e.season}|${e.iso.slice(0, 4)}`) !== e) e.kind = "other";

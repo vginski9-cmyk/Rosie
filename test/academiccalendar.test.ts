@@ -100,3 +100,55 @@ describe("parseAcademicCalendar", () => {
     expect(m["2027-03-10"]).toMatch(/Spring Break/);
   });
 });
+
+describe("parseAcademicCalendar on the colleges' own calendars", () => {
+  it("splits Lenoir-style lines joined by ' / ' and reads 'Holiday Classes' as a session, not a holiday", () => {
+    const text = [
+      "Fall Semester 2026",
+      "August 14\tRegistration Day (8:00 a.m. – 1:00 p.m.) / Last Day for 100% Refund / No Class Day",
+      "August 17\t16-week & 1st 8-week Classes Begin (8:00 a.m.) / 75% Refund Period Begins (16-week classes)",
+      "August 24\tLate-Start Classes Begin",
+      "October 12\tMidterm / 1st 8-week Classes End (11:00 p.m.)",
+      "October 19\t2nd 8-week Classes Begin",
+      "November 30\tHoliday Classes Begin",
+      "December 1\t10% Date for Holiday Classes / Last Day for 75% Refund for Holiday Classes",
+      "December 14\tSemester Ends (11:00 p.m.)",
+      "December 18\tLast Day to Process Withdrawals – Holiday Classes (2:00 p.m.)",
+      "December 31\tHoliday Classes End",
+    ].join("\n");
+    const { events } = parseAcademicCalendar(text);
+    const of = (iso: string) => events.filter((e) => e.iso === iso).map((e) => e.kind);
+    expect(of("2026-08-14")).toEqual(["other", "other", "holiday"]);
+    expect(of("2026-08-17")).toEqual(["term_start", "other"]);
+    expect(of("2026-08-24")).toEqual(["session_start"]);
+    expect(of("2026-10-12")).toEqual(["other", "other"]);
+    expect(of("2026-10-19")).toEqual(["session_start"]);
+    expect(of("2026-11-30")).toEqual(["session_start"]);
+    expect(of("2026-12-01")).toEqual(["other", "other"]);
+    expect(of("2026-12-14")).toEqual(["term_end"]);
+    expect(of("2026-12-18")).toEqual(["other"]);
+    expect(of("2026-12-31")).toEqual(["other"]);
+  });
+  it("makes the earliest 'begins' the semester start even when it lists later sessions too (Carteret)", () => {
+    const text = "2026 Fall Semester\n15-week Classes Begin\tAugust 24\nClasses Begin | 16-week, 1st 10-week, & 1st 8-week courses\tAugust 17\nLast Day for Schedule Changes | Late Start 10-week courses\tSeptember 29 - October 2\nWithdrawal without Academic Penalty | Late Start 10-week courses\tNovember 13\nSemester Ends | Fall 2026\tDecember 15\n";
+    const { events } = parseAcademicCalendar(text, { today: new Date("2026-09-17T00:00:00Z") });
+    expect(events.map((e) => [e.iso, e.kind])).toEqual([["2026-08-17", "term_start"], ["2026-08-24", "session_start"], ["2026-09-29", "other"], ["2026-11-13", "other"], ["2026-12-15", "term_end"]]);
+  });
+  it("reads 'First Day of …', 'Last Day for …', 'Beginning of …' and 'End of …' (Albemarle, Roanoke-Chowan, Sandhills)", () => {
+    expect(classify("First Day of 16-Week and 1st 8-Week Sessions")).toBe("term_start");
+    expect(classify("First Day of 14-Week Session")).toBe("session_start");
+    expect(classify("First Day for 16-week and 1st 8-week classes")).toBe("term_start");
+    expect(classify("First day of the 12-week classes")).toBe("session_start");
+    expect(classify("First Day to Charge in Bookstore")).toBe("other");
+    expect(classify("Last Day for 16-week, 12-week, 2nd 8-week classes")).toBe("term_end");
+    expect(classify("Last Day of 1st 8-week classes")).toBe("other");
+    expect(classify("Beginning of Second 8 weeks")).toBe("session_start");
+    expect(classify("End of First 8 weeks")).toBe("other");
+    expect(classify("End of Full & Second Half Session")).toBe("term_end");
+    expect(classify("Begin Summer Schedule - College Closed on Fridays")).toBe("other");
+    expect(classify("Faculty Work Days (No Classes)")).toBe("holiday");
+    const { events } = parseAcademicCalendar("Fall Semester 2026\nAugust 17 (Monday)\tFirst Day of Classes - Traditional & First 8 weeks\nOctober 14 (Wednesday)\tBeginning of Second 8 weeks\n");
+    expect(events[0]).toMatchObject({ iso: "2026-08-17", kind: "term_start", label: "First Day of Classes Traditional & First 8 weeks" });
+    expect(events[1]).toMatchObject({ iso: "2026-10-14", kind: "session_start", label: "Beginning of Second 8 weeks" });
+  });
+});

@@ -20,6 +20,7 @@ import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/t
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
 import { seedLenoirCohorts } from "./seed-lenoir";
+import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
@@ -1364,6 +1365,9 @@ async function main() {
   // Where every site is and how far from the campus that delivers the programs — rings are coded from drive time, not typed.
   console.log("geography:", await seedGeography(prisma, sandhills.id, { address: "3395 Airport Rd", city: "Pinehurst", state: "NC", zip: "28374" }));
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true } })) await seedGeography(prisma, inst.id);
+  // Each college's published academic calendar — semester dates, later sessions, holidays — before
+  // any offering is dated, so every term lands on the college's own calendar.
+  console.log("academic calendars:", await seedAcademicCalendars(prisma, join(__dirname, "seed-data", "calendars")));
   console.log("requirement sets:", await seedRequirementSets(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);

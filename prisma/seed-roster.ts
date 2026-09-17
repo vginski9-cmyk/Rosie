@@ -188,8 +188,10 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
  *  `seats` pins the planned seats (a Nurse Aide I class is capped by its template) — otherwise
  *  the capacity the goal works back to. Named "Class of <end year>" (numbered when repeated). */
 export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number }[]): Promise<number> {
-  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true } });
+  const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
+  // The college's coded calendar dates the terms (semester ends, session starts, holidays), exactly as lock-in does.
+  const events = (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season }));
   let made = 0;
   for (const o of offerings) {
     const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" } }, cohorts: { select: { name: true } } } });
@@ -200,7 +202,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const capacity = o.seats ?? t.capacity;
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
     const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
-    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events: [] });
+    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events });
     const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
     let name = `Class of ${endYear}`;
     if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }

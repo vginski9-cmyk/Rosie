@@ -109,12 +109,13 @@ export function alignOffering(input: {
       startIso = next; startSource = hit ? "calendar" : "pattern"; startLabel = hit?.label ?? null;
     }
 
-    // End: the coded "semester ends" for this semester (the first one after the
-    // start within a plausible span), else the last template week's Friday.
+    // End: the coded "semester ends" for this semester (the first one after the start, no more
+    // than three weeks past the template's own end — a 6-week class in a 16-week semester ends
+    // when its six weeks are up, not in December), else the last template week's Friday.
     const templateEnd = addDays(startIso, templateWeeks * 7 - 3);
     let endIso = manual?.endIso ?? templateEnd; let endSource: DateSource = manual?.endIso ? "manual" : "template"; let endLabel: string | null = null;
     if (!manual?.endIso) {
-      const ends = input.events.filter((e) => e.kind === "term_end" && e.iso > startIso && daysBetween(startIso, e.iso) <= (templateWeeks + 6) * 7).sort((a, b) => a.iso.localeCompare(b.iso));
+      const ends = input.events.filter((e) => e.kind === "term_end" && e.iso > startIso && daysBetween(startIso, e.iso) <= (templateWeeks + 3) * 7).sort((a, b) => a.iso.localeCompare(b.iso));
       const startEvent = starts.find((e) => e.iso === startIso);
       const sameSemester = startEvent ? ends.filter((e) => e.season === startEvent.season && e.iso.slice(0, 4) === startEvent.iso.slice(0, 4)) : [];
       const pick = sameSemester[0] ?? ends[0] ?? null;
