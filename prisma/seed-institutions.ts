@@ -163,9 +163,10 @@ export const INSTITUTIONS: InstitutionDef[] = [
       { name: "Nurse Aide I", type: "Part-time (day / evening)", credential: "Certificate", terms: () => [T(1, "Term 1", 16, [cc("NAS 101", "Nurse Aide I", 3, 4, 3, 6, "CORE", { description: "Basic nursing skills for the nurse aide role under RN supervision in long-term care; prepares for the NC Nurse Aide I registry exam.", rotations: ["Long-Term Care"], clinical: { mode: "Instructor-led", maxStudents: 10, faculty: 1, preceptors: 0 } })])], launch: "FALL,SPRING,SUMMER", seats: 10, months: 1 },
     ] },
   ] },
-  // Carteret owns the CNA workbook pack: all five Nurse Aide I delivery models. Stated goal: 55 a year fully productive.
+  // Carteret owns the CNA workbook pack: all six Nurse Aide Level I delivery models from the college's
+  // program-structure workbook (NAS 111 curriculum / NAS 3240 continuing ed). Stated goal: 55 a year fully productive.
   { name: "Carteret Community College", short: "Carteret CC", kind: "Community college", city: "Morehead City", serviceArea: "Carteret County, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I templates producing state-exam-eligible CNAs — five delivery models imported from the Carteret CNA workbooks (day intensive, standard term, summer evening, and extended day/evening tracks).", goals: flatGoal(55), programs: [], cna: true, cnaAll: true },
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide Level I (NAS 111 curriculum / NAS 3240 continuing education) in six delivery models from the college's program-structure workbook: 5-week and 6-week daytime, 8-week summer evening, 11-week daytime (Fri/Sat) and nighttime, and the 14-week high-school pre-apprenticeship.", goals: flatGoal(55), programs: [], cna: true, cnaAll: true },
   ] },
 ];
 

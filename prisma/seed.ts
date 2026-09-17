@@ -1336,12 +1336,12 @@ async function main() {
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
   void surg;
 
-  // ----- CNA template pack — imported straight from the demo workbooks -------
-  // Five Nurse Aide I delivery models (5-wk day intensive, 6-wk term, 8-wk
-  // summer evening, 12-wk day, 12-wk evening), each an exact copy of its
-  // workbook's Raw Data & Calculations session table. These are Carteret
-  // Community College's templates (seeded under Carteret below); the other
-  // Nurse Aide colleges get the standard 6-week term.
+  // ----- CNA template pack — Carteret's program-structure workbook -----------
+  // Six Nurse Aide Level I delivery models (5-week, 6-week, 8-week summer
+  // evening, 11-week daytime and nighttime, 14-week high-school
+  // pre-apprenticeship), each an exact copy of the workbook's Raw Data &
+  // Calculations session table — rebuilt with scripts/import-cna-pack.mjs.
+  // Seeded under Carteret below; other Nurse Aide colleges get the 6-week model.
   const cnaPack = JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[];
 
 
@@ -1367,18 +1367,19 @@ async function main() {
   console.log("requirement sets:", await seedRequirementSets(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
   console.log("roster:", roster);
-  // Carteret and Lenoir run Nurse Aide I: a planned offering per delivery model at Carteret (each
-  // capped at its template's class size), and two runs of the standard term at Lenoir. Offerings
-  // only — rooms, people and sites for these colleges are theirs to enter. Each offering's goal is
-  // its share of the college's annual North-Star goal (Carteret 55 across five models, Lenoir 80
-  // across the classes it runs in a year).
+  // Carteret runs Nurse Aide Level I in six delivery models (prisma/templates/cna.json, imported from
+  // the college's program-structure workbook): one planned offering per model, each capped at the
+  // workbook's class size of ten. Rooms, people and sites for the college are theirs to enter. Each
+  // offering carries its share of the college's 55-a-year North-Star goal. The high-school
+  // pre-apprenticeship runs Spring 2027, as the workbook says.
   const carteret = await prisma.institution.findFirst({ where: { name: "Carteret Community College" }, select: { id: true } });
   if (carteret) console.log("Carteret offerings:", await seedOfferings(prisma, carteret.id, [
-    { program: "Nurse Aide I — 6-Week Term", start: "2026-08-17", goal: 11, seats: 10 },
-    { program: "Nurse Aide I — 5-Week Day Intensive", start: "2026-10-05", goal: 11, seats: 10 },
-    { program: "Nurse Aide I — 12-Week Day Term", start: "2026-08-17", goal: 11, seats: 10 },
-    { program: "Nurse Aide I — 12-Week Evening Term", start: "2027-01-11", goal: 11, seats: 10 },
-    { program: "Nurse Aide I — 8-Week Summer Evening", start: "2027-06-01", goal: 11, seats: 10 },
+    { program: "Nurse Aide Level I — 6-week offering", start: "2026-08-17", goal: 9, seats: 10 },
+    { program: "Nurse Aide Level I — 5-week offering", start: "2026-10-05", goal: 9, seats: 10 },
+    { program: "Nurse Aide Level I — 11-week daytime offering", start: "2026-08-21", goal: 9, seats: 10 },
+    { program: "Nurse Aide Level I — 11-week nighttime offering", start: "2027-01-11", goal: 9, seats: 10 },
+    { program: "Nurse Aide Level I — 14-week high school offering", start: "2027-01-11", goal: 9, seats: 10 },
+    { program: "Nurse Aide Level I — 8-week summer offering", start: "2027-06-01", goal: 9, seats: 10 },
   ]));
   // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms) — see seed-lenoir.ts.
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
