@@ -98,12 +98,13 @@ for (const g of groups.values()) {
     preceptorsNeeded: num(r[C.preceptors]) ?? 0, preceptorContactPolicy: num(r[C.preceptorPolicy]),
     rotationType: str(r[C.rotation]), clinicalMode: str(r[C.clinicalMode]),
   }));
-  // The term runs as far as the workbook's sessions reach, so every session row stays dated even
-  // where the sheet's week numbers outrun the offering's name (Carteret's 5-week rows reach week 6;
-  // Lenoir's 18-week rows keep the 20-week model's clinical weeks 11–20).
+  // The term is as long as the offering's name says ("18-week"), and at least as far as the
+  // workbook's sessions reach, so every session row stays dated even where the sheet's week
+  // numbers outrun the name (Carteret's 5-week rows reach week 6).
   const named = /(\d+)-week/i.exec(label);
-  const termWeeks = Math.max(...sessions.map((s) => s.week ?? 1));
-  if (named && Number(named[1]) !== termWeeks) console.warn(`${label}: sessions run to week ${termWeeks} though the offering is named ${named[1]}-week — kept as the workbook has them`);
+  const lastWeek = Math.max(...sessions.map((s) => s.week ?? 1));
+  const termWeeks = Math.max(lastWeek, named ? Number(named[1]) : 0);
+  if (named && Number(named[1]) !== lastWeek) console.warn(`${label}: sessions run to week ${lastWeek} though the offering is named ${named[1]}-week — term kept at ${termWeeks} weeks`);
   const hours = (kind) => sessions.filter((s) => s.kind === kind).reduce((n, s) => n + s.lengthHours, 0);
   const weekly = (kind) => Math.round((hours(kind) / termWeeks) * 100) / 100;
   const title = g.title.replace(/\s*\([^()]*\)\s*$/, "").trim(); // "Nurse Aide Level I (5-week offering)" → "Nurse Aide Level I"

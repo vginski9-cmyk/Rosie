@@ -3935,7 +3935,7 @@
     "programType": "High school pre-apprenticeship",
     "credential": "Certificate",
     "sourceWorkbook": "Carteret_Community_College_for_Claude.xlsx",
-    "termWeeks": 13,
+    "termWeeks": 14,
     "maxCohort": 10,
     "assumptions": {
       "facContactHours": 40,
@@ -3948,9 +3948,9 @@
     "course": {
       "code": "NAS 111 (curriculum); Pre-Apprenticeship",
       "title": "Nurse Aide Level I",
-      "weeklyClassHours": 4.08,
-      "weeklyLabHours": 4.86,
-      "weeklyClinicalHours": 4.6
+      "weeklyClassHours": 3.79,
+      "weeklyLabHours": 4.51,
+      "weeklyClinicalHours": 4.27
     },
     "sessions": [
       {

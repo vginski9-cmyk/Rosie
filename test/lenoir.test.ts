@@ -28,10 +28,10 @@ describe("Lenoir's Nurse Aide Level I workbook pack", () => {
     expect(by("Wednesday 20-week").programType).toBe("Evening");
     expect(by("Wednesday 20-week").sessions.filter((s) => s.kind === "CLINICAL").map((s) => [s.week, s.lengthHours])).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((w) => [w, 4]));
     expect(by("Wednesday 20-week").sessions.filter((s) => s.kind === "CLASS")).toHaveLength(24);
-    // 18-week daytime: the sheet keeps the clinical rows in weeks 11–20, so the term reaches week 20.
+    // 18-week daytime: seven 6-hour clinicals in weeks 11–17; the term keeps the offering's 18 weeks.
     expect(by("Thursday 18-week").programType).toBe("Daytime");
-    expect(by("Thursday 18-week").termWeeks).toBe(20);
-    expect(by("Thursday 18-week").sessions.filter((s) => s.kind === "CLINICAL").reduce((n, s) => n + s.lengthHours, 0)).toBeCloseTo(42, 6);
+    expect(by("Thursday 18-week").termWeeks).toBe(18);
+    expect(by("Thursday 18-week").sessions.filter((s) => s.kind === "CLINICAL").map((s) => [s.week, s.lengthHours])).toEqual([11, 12, 13, 14, 15, 16, 17].map((w) => [w, 6]));
     // 16-week daytime: seven 6-hour clinicals in weeks 10–16.
     expect(by("Thursday 16-week").termWeeks).toBe(16);
     expect(by("Thursday 16-week").sessions.filter((s) => s.kind === "CLINICAL").map((s) => s.week)).toEqual([10, 11, 12, 13, 14, 15, 16]);
