@@ -21,7 +21,9 @@
 import type { PrismaClient } from "@prisma/client";
 import type { createProgram, createCnaProgram, genTerms, CnaTemplate, CourseSeed, TermSeed } from "./seed";
 
-type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; genTerms: typeof genTerms; cnaPack: CnaTemplate[] };
+/** The Nurse Aide I template packs, one per college workbook (prisma/templates/cna*.json). */
+export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[] };
+type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; genTerms: typeof genTerms; cnaPacks: CnaPacks };
 
 // ── Curricula ───────────────────────────────────────────────────────────────
 const NURSING_ROTATIONS = ["Med-Surg", "ICU / Critical Care", "OB / Maternity", "Pediatrics", "Behavioral Health", "Long-Term Care", "Emergency", "Community / Public Health"];
@@ -83,7 +85,7 @@ function medicalOfficeTerms(): TermSeed[] {
 
 // ── The institutions ────────────────────────────────────────────────────────
 interface ProgramDef { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string }
-interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean; cnaAll?: boolean }
+interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean; /** Seed every delivery model in this college's own workbook pack. */ cnaAll?: keyof CnaPacks }
 interface InstitutionDef { name: string; short: string; kind: string; city: string; serviceArea: string; families: FamilyDef[] }
 
 const RN = { soc: "29-1141", occupation: "Registered Nurses" };
@@ -154,19 +156,20 @@ export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven County, NC", families: [
     { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true },
   ] },
-  // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity. Its Nurse Aide I
-  // is the NCCCS common-library NAS 101 (3 class · 4 lab · 3 clinical hours a week, 6 credits) run as
-  // 16–22-week part-time cohorts on campus and at the county centers — see seed-lenoir.ts for the real
-  // cohort schedule. NC NATCEP caps clinical groups at ten students per instructor.
+  // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity. Its Nurse Aide
+  // Level I (NAS 3240 continuing ed) runs in the six delivery models of the college's program-structure
+  // workbook (prisma/templates/cna-lenoir.json): Monday & Wednesday or Tuesday & Thursday, as a 20-week
+  // evening class (5:30–9:30p), an 18-week or a 16-week daytime class (8a–2:30p / 8:30a–3p), each
+  // class and lab up to 14 students and clinical groups of ten with an instructor. The college's real
+  // cohort schedule — dates, days, times and rooms on campus and at the county centers — is in
+  // seed-lenoir.ts, each cohort on the model it matches.
   { name: "Lenoir Community College", short: "Lenoir CC", kind: "Community college", city: "Kinston", serviceArea: "Lenoir, Greene & Jones Counties, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I (NAS 101) — part-time day and evening cohorts on the Kinston campus and at the La Grange, Jones County and Greene County centers.", goals: flatGoal(80), programs: [
-      { name: "Nurse Aide I", type: "Part-time (day / evening)", credential: "Certificate", terms: () => [T(1, "Term 1", 16, [cc("NAS 101", "Nurse Aide I", 3, 4, 3, 6, "CORE", { description: "Basic nursing skills for the nurse aide role under RN supervision in long-term care; prepares for the NC Nurse Aide I registry exam.", rotations: ["Long-Term Care"], clinical: { mode: "Instructor-led", maxStudents: 10, faculty: 1, preceptors: 0 } })])], launch: "FALL,SPRING,SUMMER", seats: 10, months: 1 },
-    ] },
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide Level I (NAS 3240 continuing education) in six delivery models from the college's program-structure workbook: Monday & Wednesday and Tuesday & Thursday classes run as 20-week evening, 18-week daytime and 16-week daytime offerings — on the Kinston campus and at the La Grange, Jones County and Greene County centers.", goals: flatGoal(80), programs: [], cna: true, cnaAll: "lenoir" },
   ] },
-  // Carteret owns the CNA workbook pack: all six Nurse Aide Level I delivery models from the college's
+  // Carteret's workbook pack: all six Nurse Aide Level I delivery models from the college's
   // program-structure workbook (NAS 111 curriculum / NAS 3240 continuing ed). Stated goal: 55 a year fully productive.
   { name: "Carteret Community College", short: "Carteret CC", kind: "Community college", city: "Morehead City", serviceArea: "Carteret County, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide Level I (NAS 111 curriculum / NAS 3240 continuing education) in six delivery models from the college's program-structure workbook: 5-week and 6-week daytime, 8-week summer evening, 11-week daytime (Fri/Sat) and nighttime, and the 14-week high-school pre-apprenticeship.", goals: flatGoal(55), programs: [], cna: true, cnaAll: true },
+    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide Level I (NAS 111 curriculum / NAS 3240 continuing education) in six delivery models from the college's program-structure workbook: 5-week and 6-week daytime, 8-week summer evening, 11-week daytime (Fri/Sat) and nighttime, and the 14-week high-school pre-apprenticeship.", goals: flatGoal(55), programs: [], cna: true, cnaAll: "carteret" },
   ] },
 ];
 
@@ -192,11 +195,11 @@ export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
       const fam = await prisma.programFamily.create({ data: { institutionId: inst.id, occupationId: occ.id, name: f.name, description: f.description, goalPlan, clinicalModel: /Nurs/.test(f.name) ? "hours" : "hours" } });
       families++;
       if (f.cnaAll) {
-        // Every delivery model in the CNA workbook pack, name for name.
-        for (const tpl of h.cnaPack) { await h.createCnaProgram(inst.id, occ.id, fam.id, tpl); programs++; }
+        // Every delivery model in the college's own workbook pack, name for name.
+        for (const tpl of h.cnaPacks[f.cnaAll]) { await h.createCnaProgram(inst.id, occ.id, fam.id, tpl); programs++; }
       } else if (f.cna) {
-        // The standard Nurse Aide I term (the 6-week day model from the CNA workbook pack).
-        const tpl = h.cnaPack.find((t) => /6-Week/i.test(t.name)) ?? h.cnaPack[0];
+        // The standard Nurse Aide I term (the 6-week day model from Carteret's workbook pack).
+        const tpl = h.cnaPacks.carteret.find((t) => /6-Week/i.test(t.name)) ?? h.cnaPacks.carteret[0];
         await h.createCnaProgram(inst.id, occ.id, fam.id, { ...tpl, name: "Nurse Aide I" });
         programs++;
       }

@@ -1,9 +1,11 @@
 // Lenoir Community College's Nurse Aide I cohort schedule, as the college keeps it: every cohort
 // with its dates, the days it meets, the time of day and where — on the Kinston campus (Bullock
 // Building) or at the La Grange, Jones County and Greene County centers and Kinston High School's
-// Lancer Academy. Each row becomes an offering of the Nurse Aide I program with its own term dates
-// and weekly class pattern in its room. The sheet carries no enrollment, so past cohorts have no
-// students here; future and running ones get the dummy roster like every other planned offering.
+// Lancer Academy. Each row becomes an offering of the workbook delivery model it matches (Monday &
+// Wednesday or Tuesday & Thursday; 20-, 18- or 16-week — prisma/templates/cna-lenoir.json) with its
+// own term dates and weekly class pattern in its room. The sheet carries no enrollment, so past
+// cohorts have no students here; future and running ones get the dummy roster like every other
+// planned offering.
 
 import type { PrismaClient } from "@prisma/client";
 import { deriveCohortTargets } from "../src/lib/pipeline";
@@ -58,9 +60,9 @@ export const LENOIR_COHORTS: Row[] = [
   { cohort: "Cohort 38 - 75998", start: "2024-10-21", end: "2025-03-12", days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock, Rm 175" },
 ];
 
-const DAY: Record<string, string> = { mon: "Mon", tue: "Tue", tues: "Tue", wed: "Wed", thu: "Thu", thur: "Thu", thurs: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
-/** "Mon, Wed" / "Tue, Thur, Fri" → ["Mon", "Wed"] / ["Tue", "Thu", "Fri"]. */
-export const parseDays = (s: string): string[] => s.split(/[,/&]+/).map((d) => DAY[d.trim().toLowerCase()]).filter((d): d is string => !!d);
+const DAY: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+/** "Mon, Wed" / "Tue, Thur, Fri" / "Monday & Wednesday" → ["Mon", "Wed"] / ["Tue", "Thu", "Fri"] / ["Mon", "Wed"]. */
+export const parseDays = (s: string): string[] => s.split(/[,/&]+/).map((d) => DAY[d.trim().toLowerCase().slice(0, 3)]).filter((d): d is string => !!d);
 /** "5:30pm-9:30pm" / "08:00am-2:30pm" → { start: "17:30", hours: 4 }. */
 export function parseTime(s: string): { start: string; end: string; hours: number } {
   const to24 = (t: string) => { const m = /^(\d{1,2})(?::(\d{2}))?\s*([ap])m?$/i.exec(t.trim()); if (!m) throw new Error(`time: ${t}`); let h = Number(m[1]) % 12; if (m[3].toLowerCase() === "p") h += 12; return h * 60 + Number(m[2] ?? 0); };
@@ -81,17 +83,45 @@ export function parseLocation(s: string): { campus: string; city: string; buildi
 
 const iso = (d: string) => new Date(d + "T00:00:00Z");
 const weeksBetween = (a: string, b: string) => Math.max(1, Math.round((iso(b).getTime() - iso(a).getTime()) / (7 * 86400000)));
+/** Weeks a cohort runs, first day to last day inclusive (Oct 27 → Mar 18 is 20.4 weeks). */
+export const cohortWeeks = (r: Pick<Row, "start" | "end">) => Math.max(1, ((iso(r.end).getTime() - iso(r.start).getTime()) / 86400000 + 1) / 7);
+/** A cohort meeting from 5:00 p.m. on is an evening class. */
+export const isEvening = (time: string) => parseTime(time).start >= "17:00";
 
-/** Seed the cohorts as offerings of Lenoir's Nurse Aide I, with their rooms and weekly class patterns. */
-export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number> }> {
-  const program = await prisma.program.findFirst({ where: { institutionId, name: "Nurse Aide I" }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
-  if (!program) throw new Error("Lenoir's Nurse Aide I program is not seeded");
-  const term = program.terms[0]; const courseId = term.courses[0]?.id;
-  if (!term || !courseId) throw new Error("Lenoir's Nurse Aide I has no term or course");
+/** A workbook delivery model as it reads from its program: "Nurse Aide Level I — Monday & Wednesday
+ *  20-week Offering", evening or daytime by its program type. */
+export interface LenoirModel { name: string; days: string[]; weeks: number; evening: boolean }
+const MODEL_NAME = /^Nurse Aide Level I — (.+?) (\d+)-week Offering$/i;
+export function parseModel(name: string, programType: string | null): LenoirModel | null {
+  const m = MODEL_NAME.exec(name); if (!m) return null;
+  return { name, days: parseDays(m[1].replace(/\s*&\s*/g, ",")), weeks: Number(m[2]), evening: /evening|night/i.test(programType ?? "") };
+}
+
+/** The workbook model a cohort runs on. First the class days: the model it shares most days with
+ *  (Monday & Wednesday vs Tuesday & Thursday — a Mon/Sat or Tue/Wed/Thu cohort goes by the days it
+ *  does share, a tie by its first class day). Then, among those, the closest fit on length and time
+ *  of day: the workbook's 20-week model is the 5:30–9:30p evening class and its 18- and 16-week
+ *  models are daytime, so a model on the wrong side of 5 p.m. counts as two weeks off. */
+export function modelFor(r: Pick<Row, "days" | "time" | "start" | "end">, models: LenoirModel[]): LenoirModel {
+  if (!models.length) throw new Error("no Lenoir delivery models to choose from");
+  const days = parseDays(r.days); const weeks = cohortWeeks(r); const evening = isEvening(r.time);
+  const shared = (m: LenoirModel) => m.days.filter((d) => days.includes(d)).length;
+  const best = Math.max(...models.map(shared));
+  let pool = models.filter((m) => shared(m) === best);
+  if (pool.length > 1 && best > 0) { const first = pool.filter((m) => m.days.includes(days[0])); if (first.length) pool = first; }
+  const miss = (m: LenoirModel) => Math.abs(m.weeks - weeks) + (m.evening === evening ? 0 : 2);
+  return [...pool].sort((a, b) => miss(a) - miss(b) || b.weeks - a.weeks)[0];
+}
+
+/** Seed the cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and weekly class patterns. */
+export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number> }> {
+  const programs = await prisma.program.findMany({ where: { institutionId, name: { startsWith: "Nurse Aide Level I" } }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
+  const models = programs.map((p) => ({ program: p, model: parseModel(p.name, p.programType) })).filter((x): x is { program: (typeof programs)[number]; model: LenoirModel } => !!x.model && x.program.terms.length > 0 && x.program.terms[0].courses.length > 0);
+  if (!models.length) throw new Error("Lenoir's Nurse Aide Level I delivery models are not seeded");
+  const family = models[0].program.family;
   let rates = { ...BENCHMARK_RATES };
-  if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES>; goalsByYear?: Record<string, number> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
-  const annualGoal = (year: number) => { try { const gp = JSON.parse(program.family?.goalPlan ?? "{}") as { goalsByYear?: Record<string, number> }; return gp.goalsByYear?.[String(year)] ?? 80; } catch { return 80; } };
-  const seats = program.defaultCohortSeats ?? 10;
+  if (family?.goalPlan) { try { const saved = JSON.parse(family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES>; goalsByYear?: Record<string, number> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
+  const annualGoal = (year: number) => { try { const gp = JSON.parse(family?.goalPlan ?? "{}") as { goalsByYear?: Record<string, number> }; return gp.goalsByYear?.[String(year)] ?? 80; } catch { return 80; } };
 
   // Campuses, buildings and rooms — one room per distinct place in the sheet.
   const campusId = new Map<string, string>(); const buildingId = new Map<string, string>(); const roomId = new Map<string, string>();
@@ -106,11 +136,16 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
 
   const startsInYear = new Map<number, number>();
   for (const r of LENOIR_COHORTS) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
-  const byStatus: Record<string, number> = {}; let patterns = 0;
+  const byStatus: Record<string, number> = {}; const byModel: Record<string, number> = {}; let patterns = 0;
   for (const r of LENOIR_COHORTS) {
     const start = iso(r.start), end = iso(r.end);
     const status = end < today ? "completed" : start <= today ? "active" : "planned";
     byStatus[status] = (byStatus[status] ?? 0) + 1;
+    const pick = modelFor(r, models.map((m) => m.model));
+    const { program } = models.find((m) => m.model === pick)!;
+    const term = program.terms[0]; const courseId = term.courses[0].id;
+    const seats = program.defaultCohortSeats ?? 10;
+    byModel[pick.name.replace(/^Nurse Aide Level I — /, "")] = (byModel[pick.name.replace(/^Nurse Aide Level I — /, "")] ?? 0) + 1;
     const year = start.getUTCFullYear();
     // Each cohort carries its share of the year's North-Star goal across the cohorts starting that year.
     const goal = Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
@@ -127,5 +162,5 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
       patterns++;
     }
   }
-  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus };
+  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus, byModel };
 }

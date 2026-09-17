@@ -25,7 +25,7 @@ import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
 import { avgCasesPerDay } from "../src/lib/surgvolume";
-import { seedInstitutions, goals, goalPlanJson } from "./seed-institutions";
+import { seedInstitutions, goals, goalPlanJson, type CnaPacks } from "./seed-institutions";
 
 const prisma = new PrismaClient();
 
@@ -1337,13 +1337,18 @@ async function main() {
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
   void surg;
 
-  // ----- CNA template pack — Carteret's program-structure workbook -----------
-  // Six Nurse Aide Level I delivery models (5-week, 6-week, 8-week summer
-  // evening, 11-week daytime and nighttime, 14-week high-school
-  // pre-apprenticeship), each an exact copy of the workbook's Raw Data &
-  // Calculations session table — rebuilt with scripts/import-cna-pack.mjs.
-  // Seeded under Carteret below; other Nurse Aide colleges get the 6-week model.
-  const cnaPack = JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[];
+  // ----- CNA template packs — the colleges' program-structure workbooks ------
+  // Each an exact copy of a workbook's Raw Data & Calculations session table,
+  // rebuilt with scripts/import-cna-pack.mjs:
+  //  · cna.json (Carteret): 5-week, 6-week, 8-week summer evening, 11-week
+  //    daytime and nighttime, 14-week high-school pre-apprenticeship.
+  //  · cna-lenoir.json (Lenoir): Monday & Wednesday and Tuesday & Thursday
+  //    classes as 20-week evening, 18-week daytime and 16-week daytime models.
+  // Other Nurse Aide colleges get Carteret's 6-week model.
+  const cnaPacks: CnaPacks = {
+    carteret: JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[],
+    lenoir: JSON.parse(readFileSync(join(__dirname, "templates", "cna-lenoir.json"), "utf8")) as CnaTemplate[],
+  };
 
 
   // North-Star goals for Sandhills' own jobs. Radiography (29/yr) and Surgical
@@ -1358,7 +1363,7 @@ async function main() {
   await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(flat(14), SURG_PIPELINE_RATES) } });
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----
-  console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPack }));
+  console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPacks }));
 
   // ----- Dummy roster: rooms, faculty, preceptors, site agreements, and a few
   //       locked-in offerings with sections waiting for assignments ----------
@@ -1385,7 +1390,8 @@ async function main() {
     { program: "Nurse Aide Level I — 14-week high school offering", start: "2027-01-11", goal: 9, seats: 10 },
     { program: "Nurse Aide Level I — 8-week summer offering", start: "2027-06-01", goal: 9, seats: 10 },
   ]));
-  // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms) — see seed-lenoir.ts.
+  // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms), each cohort on the
+  // workbook delivery model its days and length match — see seed-lenoir.ts.
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
   if (lenoir) console.log("Lenoir cohorts:", await seedLenoirCohorts(prisma, lenoir.id));
   const clinical = await loadClinicalModels(sandhills.id);
