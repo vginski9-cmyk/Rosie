@@ -39,3 +39,6 @@ yarn-error.log*
 .vscode/
 .idea/
 /prisma/schema.postgres.prisma
+
+# browser-check screenshots (local working files)
+/audit/
