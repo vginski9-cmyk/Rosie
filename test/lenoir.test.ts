@@ -1,6 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { LENOIR_COHORTS, parseDays, parseTime, parseLocation, parseModel, modelFor, cohortWeeks, isEvening } from "../prisma/seed-lenoir";
+import { LENOIR_COHORTS, parseDays, parseTime, parseLocation, parseModel, modelFor, cohortWeeks, isEvening, slotOf, projectLenoirCohorts } from "../prisma/seed-lenoir";
+
+describe("scheduling Lenoir's cohorts ahead", () => {
+  it("names a slot by room, class days and time of day", () => {
+    expect(slotOf({ days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" })).toBe("Bullock 175 · Mon & Wed · daytime");
+    expect(slotOf({ days: "Mon, Sat", time: "6:00pm-10:00pm", location: "Jones County Center" })).toBe("Jones County Center classroom · Mon & Wed · evening");
+    expect(slotOf({ days: "Tue, Wed, Thur", time: "12:05pm-2:50pm", location: "Kinston High School, Lancer Academy" })).toBe("Lancer Academy classroom · Tue & Thu · daytime");
+  });
+  it("carries back-to-back slots on from their last run and yearly slots a year on, only after today", () => {
+    const rows = projectLenoirCohorts(LENOIR_COHORTS, { from: "2026-09-17", through: "2027-12-31", holidays: { "2027-01-18": "MLK Day" } });
+    for (const r of rows) { expect(r.start > "2026-09-17").toBe(true); expect(r.start <= "2027-12-31").toBe(true); expect(r.end > r.start).toBe(true); }
+    // Bullock 175 mornings ran five times back to back, a week or two apart, last ending Aug 19, 2026:
+    // the run that would have started right after is under way by now, the next begins Jan 2027, on a Monday.
+    const b175 = rows.filter((r) => r.slot === "Bullock 175 · Mon & Wed · daytime");
+    expect(b175.map((r) => r.start)).toEqual(["2027-01-25", "2027-06-21", "2027-11-15"]);
+    expect(b175[0].basis).toBe("5 runs back to back, about 1 week apart");
+    expect(b175[0]).toMatchObject({ days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175", cohort: "Planned Jan 2027 · Bullock 175 · Mon & Wed · daytime" });
+    // Lancer Academy runs each fall: the next is a year after Aug 24, 2026, on a Tuesday.
+    const lancer = rows.filter((r) => r.slot.startsWith("Lancer Academy"));
+    expect(lancer.map((r) => [r.start, r.basis])).toEqual([["2027-08-24", "2 runs about a year apart"]]);
+    // No projected run overlaps a real one in its slot, and none starts on a holiday.
+    for (const r of rows) {
+      const real = LENOIR_COHORTS.filter((x) => slotOf(x) === r.slot);
+      expect(real.some((x) => r.start <= x.end && r.end >= x.start), `${r.cohort} overlaps a real run`).toBe(false);
+      expect(r.start).not.toBe("2027-01-18");
+      expect(parseDays(r.days)[0]).toBe(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(r.start + "T00:00:00Z").getUTCDay()]);
+    }
+    // About as many runs a year as the college has been running (24–25).
+    expect(rows.filter((r) => r.start.startsWith("2027")).length).toBeGreaterThanOrEqual(22);
+    expect(rows.filter((r) => r.start.startsWith("2027")).length).toBeLessThanOrEqual(28);
+  });
+});
 
 type Pack = { name: string; programType: string; termWeeks: number; maxCohort: number; course: { code: string; title: string }; sessions: { kind: string; week: number | null; dayOfWeek: string | null; lengthHours: number; maxStudents: number; rotationType: string | null; clinicalMode: string | null }[] }[];
 const pack = JSON.parse(readFileSync(new URL("../prisma/templates/cna-lenoir.json", import.meta.url), "utf8")) as Pack;

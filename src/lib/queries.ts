@@ -252,9 +252,11 @@ export async function getNorthStarHome(currentYear?: number): Promise<JobNorthSt
  *  planned or active offerings, then the most such offerings — the workspace's working college,
  *  not the alphabetically first one. */
 export async function defaultInstitution(): Promise<{ id: string; name: string } | null> {
-  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, programs: { select: { cohorts: { where: { status: { in: ["planned", "active"] } }, select: { _count: { select: { students: true } } } } } } } });
-  const weight = (i: (typeof institutions)[number]) => { let students = 0, offerings = 0; for (const p of i.programs) for (const c of p.cohorts) { students += c._count.students; offerings++; } return [students, offerings] as const; };
-  const best = [...institutions].sort((a, b) => { const [sa, oa] = weight(a), [sb, ob] = weight(b); return sb - sa || ob - oa || a.name.localeCompare(b.name); })[0];
+  // The college whose offerings are running now, by the students in them; planned runs (a
+  // schedule projected years ahead) break ties rather than outrank a live program.
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, programs: { select: { cohorts: { where: { status: { in: ["planned", "active"] } }, select: { status: true, _count: { select: { students: true } } } } } } } });
+  const weight = (i: (typeof institutions)[number]) => { let active = 0, planned = 0, offerings = 0; for (const p of i.programs) for (const c of p.cohorts) { if (c.status === "active") active += c._count.students; else planned += c._count.students; offerings++; } return [active, planned, offerings] as const; };
+  const best = [...institutions].sort((a, b) => { const [aa, pa, oa] = weight(a), [ab, pb, ob] = weight(b); return ab - aa || pb - pa || ob - oa || a.name.localeCompare(b.name); })[0];
   return best ? { id: best.id, name: best.name } : null;
 }
 

@@ -12,6 +12,7 @@ import { deriveCohortTargets } from "../src/lib/pipeline";
 import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { seasonOfDate } from "../src/lib/term";
+import { holidayMap } from "../src/lib/academiccalendar";
 
 interface Row { cohort: string; start: string; end: string; days: string; time: string; location: string; given?: string }
 
@@ -113,8 +114,75 @@ export function modelFor(r: Pick<Row, "days" | "time" | "start" | "end">, models
   return [...pool].sort((a, b) => miss(a) - miss(b) || b.weeks - a.weeks)[0];
 }
 
+// ----- Scheduling the cohorts ahead ------------------------------------------------------------
+// The college runs its classes in slots — a room, its class days (Monday & Wednesday or Tuesday &
+// Thursday) and a time of day — and most slots run one cohort after another with a short gap
+// (Bullock 175 mornings: Oct 2024 → Mar 2025, Jan → Jun, Jun → Oct, Nov → Mar, Apr → Aug). A few
+// run once a year (Lancer Academy each fall). The projection carries each slot forward the way
+// the sheet shows it running: back-to-back slots start again their usual gap after the last run
+// ends, yearly slots start again a year after their last start, each new run as long as the
+// slot's runs have been, on the same days, at the same time, in the same room.
+
+/** A slot: room · class days · time of day. Mon/Sat and Mon/Tue cohorts go with Monday & Wednesday. */
+export function slotOf(r: Pick<Row, "days" | "time" | "location">): string {
+  const days = parseDays(r.days);
+  const mw = days.filter((d) => d === "Mon" || d === "Wed").length, tt = days.filter((d) => d === "Tue" || d === "Thu").length;
+  const group = mw > tt ? "Mon & Wed" : tt > mw ? "Tue & Thu" : days[0] === "Mon" ? "Mon & Wed" : "Tue & Thu";
+  return `${parseLocation(r.location).room} · ${group} · ${isEvening(r.time) ? "evening" : "daytime"}`;
+}
+
+export interface ProjectedRow extends Row { slot: string; basis: string }
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const addDaysIso = (s: string, n: number) => new Date(iso(s).getTime() + n * 86400000).toISOString().slice(0, 10);
+const daysBetween = (a: string, b: string) => Math.round((iso(b).getTime() - iso(a).getTime()) / 86400000);
+const median = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN; };
+const monthYear = (s: string) => iso(s).toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
+/** Slots whose runs follow each other within this many days are back-to-back; longer gaps mean a yearly run. */
+const BACK_TO_BACK_DAYS = 56;
+
+/** Project the sheet's slots forward: every run that would start after `from` and by `through`. */
+export function projectLenoirCohorts(rows: Row[], opts: { from: string; through: string; holidays?: Record<string, string> }): ProjectedRow[] {
+  const holidays = opts.holidays ?? {};
+  const slots = new Map<string, Row[]>();
+  for (const r of rows) { const k = slotOf(r); slots.set(k, [...(slots.get(k) ?? []), r]); }
+  const out: ProjectedRow[] = [];
+  for (const [slot, runs] of slots) {
+    runs.sort((a, b) => a.start.localeCompare(b.start));
+    const last = runs[runs.length - 1];
+    const meetDays = parseDays(last.days);
+    const length = Math.round(median(runs.map((r) => daysBetween(r.start, r.end))));
+    // The slot's first class day of the week, on or after `s`, that is not a holiday.
+    const firstClassDay = (s: string) => { let d = s; for (let n = 0; n < 60; n++, d = addDaysIso(d, 1)) if (DOW[iso(d).getUTCDay()] === meetDays[0] && !holidays[d]) return d; return s; };
+    const overlapsReal = (start: string, end: string) => runs.some((r) => start <= r.end && end >= r.start);
+    const gaps = runs.slice(1).map((r, i) => daysBetween(runs[i].end, r.start)).filter((g) => g >= 0);
+    const gap = gaps.length ? Math.round(median(gaps)) : NaN;
+    const basis = runs.length >= 2 && gap <= BACK_TO_BACK_DAYS
+      ? `${runs.length} runs back to back, about ${Math.round(gap / 7)} week${Math.round(gap / 7) === 1 ? "" : "s"} apart`
+      : runs.length >= 2 ? `${runs.length} runs about a year apart` : `one run (${last.cohort})`;
+    const make = (start: string): ProjectedRow => ({ cohort: `Planned ${monthYear(start)} · ${slot}`, start, end: addDaysIso(start, length), days: last.days, time: last.time, location: last.location, slot, basis });
+    if (runs.length >= 2 && gap <= BACK_TO_BACK_DAYS) {
+      let cursor = last.end;
+      for (let n = 0; n < 12; n++) {
+        const start = firstClassDay(addDaysIso(cursor, gap));
+        if (start > opts.through) break;
+        const row = make(start);
+        if (start > opts.from && !overlapsReal(row.start, row.end)) out.push(row);
+        cursor = row.end;
+      }
+    } else {
+      for (let start = addDaysIso(last.start, 364); start <= opts.through; start = addDaysIso(start, 364)) {
+        const row = make(firstClassDay(start));
+        if (row.start > opts.from && !overlapsReal(row.start, row.end)) out.push(row);
+      }
+    }
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start) || a.slot.localeCompare(b.slot));
+}
+
 /** Seed the cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and weekly class patterns. */
-export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number> }> {
+/** Seed the sheet's cohorts and, after today, the runs projected from them through `through`
+ *  (projected runs are planned offerings named "Planned <month> · <slot>"). */
+export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date(), through = "2027-12-31"): Promise<{ cohorts: number; projected: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number>; startsByYear: Record<string, number> }> {
   const programs = await prisma.program.findMany({ where: { institutionId, name: { startsWith: "Nurse Aide Level I" } }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
   const models = programs.map((p) => ({ program: p, model: parseModel(p.name, p.programType) })).filter((x): x is { program: (typeof programs)[number]; model: LenoirModel } => !!x.model && x.program.terms.length > 0 && x.program.terms[0].courses.length > 0);
   if (!models.length) throw new Error("Lenoir's Nurse Aide Level I delivery models are not seeded");
@@ -134,10 +202,16 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     if (!roomId.has(loc.room)) roomId.set(loc.room, (await prisma.facility.create({ data: { institutionId, name: loc.room, kind: "CLASSROOM", buildingId: buildingId.get(loc.building)!, building: loc.building, roomNumber: loc.roomNumber, availability: "Nurse Aide I cohorts", status: "active" } })).id);
   }
 
+  // The runs ahead, on the college's own holidays (a run never starts on a closed day).
+  const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
+    .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+  const projected = projectLenoirCohorts(LENOIR_COHORTS, { from: today.toISOString().slice(0, 10), through, holidays });
+  const rows: Row[] = [...LENOIR_COHORTS, ...projected];
+
   const startsInYear = new Map<number, number>();
-  for (const r of LENOIR_COHORTS) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
+  for (const r of rows) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
   const byStatus: Record<string, number> = {}; const byModel: Record<string, number> = {}; let patterns = 0;
-  for (const r of LENOIR_COHORTS) {
+  for (const r of rows) {
     const start = iso(r.start), end = iso(r.end);
     const status = end < today ? "completed" : start <= today ? "active" : "planned";
     byStatus[status] = (byStatus[status] ?? 0) + 1;
@@ -162,5 +236,5 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
       patterns++;
     }
   }
-  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus, byModel };
+  return { cohorts: LENOIR_COHORTS.length, projected: projected.length, rooms: roomId.size, patterns, byStatus, byModel, startsByYear: Object.fromEntries([...startsInYear].sort().map(([y, n]) => [String(y), n])) };
 }
