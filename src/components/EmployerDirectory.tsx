@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { createEmployer } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 export interface HostPeriod { year: number; season: string; sections: number; students: number }
 export interface DirEmployer {
@@ -192,7 +192,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                   <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county].filter(Boolean).join(" · ") || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {e.ring ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.geo?.ringSource === "manual" ? " ✎" : ""}</span> : <span className="text-slate-300">not located</span>}
-                    {e.geo?.driveMinutes != null && <span className="block text-[10px] tabular-nums text-slate-500">≈ {Math.round(e.geo.driveMinutes)} min · {e.geo.distanceMiles != null ? `${dec(e.geo.distanceMiles, 1)} mi` : ""}{e.geo.source === "gazetteer" ? " · town centre" : e.geo.source === "manual" ? " · pinned" : ""}</span>}
+                    {e.geo?.driveMinutes != null && <span className="block text-[10px] tabular-nums text-slate-500">≈ {fmt.minutes(e.geo.driveMinutes)} · {e.geo.distanceMiles != null ? `${dec(e.geo.distanceMiles, 1)} mi` : ""}{e.geo.source === "gazetteer" ? " · town centre" : e.geo.source === "manual" ? " · pinned" : ""}</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{e.licensedBeds ?? e.nursingHomeBeds ?? "—"}{e.operatingRooms ? ` / ${e.operatingRooms} OR` : ""}</td>
                   <td className="px-3 py-2 text-slate-600">{(() => {

@@ -2,7 +2,7 @@ import { Fragment } from "react";
 import Link from "next/link";
 import { logRequirement, deleteRequirementLog, verifyRequirementLog } from "@/lib/actions";
 import type { getStudentRequirementProgress } from "@/lib/queries";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 // ONE STUDENT'S STANDING against the credentialing body's list, and the log that feeds
 // it: every rule with a bar, every item with its state, the entry form, the entries, and
@@ -30,7 +30,7 @@ export function RequirementLog({ data }: { data: Data }) {
                 <div className="text-sm font-semibold text-slate-900">{set.name} <span className="font-normal text-slate-500">— {set.authority}</span></div>
                 <div className="text-[11px] text-slate-500">{set.edition}{!set.verified && <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">starter content — verify the list</span>}</div>
               </div>
-              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${pr.complete ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{pr.complete ? "✓ requirements complete" : `${Math.round(pr.pct * 100)}% of the way`}</span>
+              <span className={`rounded-full px-3 py-1 text-sm font-semibold ${pr.complete ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{pr.complete ? "✓ requirements complete" : `${fmt.pct(pr.pct)} of the way`}</span>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {counted.map((r) => {
@@ -56,7 +56,7 @@ export function RequirementLog({ data }: { data: Data }) {
                     {set.whereNext.slice(0, 6).map((w) => (
                       <li key={w.employerId} className="flex flex-wrap items-baseline gap-x-2">
                         <Link href={`/programs/${data.student.programId}/clinical/sites/${w.employerId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{w.name}</Link>
-                        <span className="text-slate-500">{w.driveMinutes != null ? `≈ ${Math.round(w.driveMinutes)} min · ` : ""}{w.required.length ? <span className="text-rose-700">{w.required.length} required: {w.required.slice(0, 5).join(", ")}{w.required.length > 5 ? ` +${w.required.length - 5}` : ""}</span> : null}{w.required.length && w.elective.length ? " · " : ""}{w.elective.length ? <span>{w.elective.length} elective{w.elective.length === 1 ? "" : "s"}</span> : null}</span>
+                        <span className="text-slate-500">{w.driveMinutes != null ? `≈ ${fmt.minutes(w.driveMinutes)} · ` : ""}{w.required.length ? <span className="text-rose-700">{w.required.length} required: {w.required.slice(0, 5).join(", ")}{w.required.length > 5 ? ` +${w.required.length - 5}` : ""}</span> : null}{w.required.length && w.elective.length ? " · " : ""}{w.elective.length ? <span>{w.elective.length} elective{w.elective.length === 1 ? "" : "s"}</span> : null}</span>
                         <span className={`text-[10px] ${w.coming ? "text-emerald-700" : "text-amber-700"}`}>{w.coming ? `${w.coming} coming shift${w.coming === 1 ? "" : "s"} here` : "no shift booked here yet"}</span>
                       </li>
                     ))}

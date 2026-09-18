@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { moveMeeting } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 import type { CalOccurrence, CalRosterDay } from "@/lib/queries";
 
 /** A block on the week grid: a weekly pattern, or — for clinicals the plan or a move has dated — the shift as it actually happens. */
@@ -310,13 +310,13 @@ export function MasterCalendar({
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Room utilization (peak week)</h3>
             <div className="space-y-2">
               {rooms.map((r) => {
-                const pct = Math.round(r.utilization * 100);
+                const pct = Math.round(r.utilization * 100); // CSS width only
                 const bar = pct >= 85 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : pct > 0 ? "bg-emerald-500" : "bg-slate-200";
                 return (
                   <button key={r.facilityId} onClick={() => setFRoom(fRoom === r.facilityId ? "" : r.facilityId)} className={`block w-full text-left ${fRoom === r.facilityId ? "rounded-lg ring-1 ring-rose-300" : ""}`}>
                     <span className="flex items-center justify-between text-[11px]">
                       <span className="truncate font-medium text-slate-700">{r.name}</span>
-                      <span className="tabular-nums text-slate-400">{pct}%</span>
+                      <span className="tabular-nums text-slate-400">{fmt.pct(r.utilization)}</span>
                     </span>
                     <span className="mt-0.5 block h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><span className={`block h-full ${bar}`} style={{ width: `${pct}%` }} /></span>
                     <span className="block text-[9px] text-slate-400">{r.kind.toLowerCase()} · cap {r.capacity ?? "—"} · {dec(r.bookedHoursPeakWeek)}/{dec(r.openHoursPerWeek)}h · {r.meetingCount} mtgs</span>

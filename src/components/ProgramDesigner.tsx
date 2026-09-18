@@ -9,7 +9,7 @@ import { SheetImport } from "@/components/SheetImport";
 import { ClinicalAnalytics } from "@/components/ClinicalAnalytics";
 import { type AnalyticsCourse, shiftOf } from "@/lib/clinicalanalytics";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 import {
   addTerm, deleteTerm, updateTerm, addCourse, updateCourse, deleteCourse,
   updateWorkloadAssumptions,
@@ -169,7 +169,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         </div>
         <div className="mt-2 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
           <div><span className="font-semibold text-slate-600">Across the whole program</span> (semester-FTE of every term added together — a budget total, not people at once): faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong>, provided by partner sites.</div>
-          <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ a {n0(assumptions.facWorkWeekHours)}-hour week): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {n0(Math.ceil(calc.peakFacFte - 1e-9))} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {n0(Math.ceil(calc.peakPreFte - 1e-9))} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
+          <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ a {n0(assumptions.facWorkWeekHours)}-hour week): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakFacFte)} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakPreFte)} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
         </div>
         {/* Terms → courses, the sessions each holds */}
         <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">

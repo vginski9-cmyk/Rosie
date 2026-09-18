@@ -315,7 +315,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Collapse
           title="Staffing — instructors & preceptors"
           sub="How many people this run needs and when, then who covers each session"
-          summary={<><span className="text-emerald-700">{Math.ceil(peakFac - 1e-9)} instructors</span> · <span className="text-amber-700">{Math.ceil(peakPre - 1e-9)} preceptors</span> at the peak week{staffing ? <> · {staffing.loads.length} people assigned · {Math.round(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h</> : null}</>}
+          summary={<><span className="text-emerald-700">{fmt.atLeast(peakFac)} instructors</span> · <span className="text-amber-700">{fmt.atLeast(peakPre)} preceptors</span> at the peak week{staffing ? <> · {staffing.loads.length} people assigned · {fmt.hours(staffing.assignments.reduce((n, a) => n + a.contactHours, 0))} contact h</> : null}</>}
         >
           <div className="space-y-6">
             {capCohort && (

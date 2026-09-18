@@ -15,7 +15,7 @@ const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500",
 const RING: Record<string, string> = { Core: "bg-emerald-50 text-emerald-800", "Ring 1": "bg-sky-50 text-sky-800", "Ring 2": "bg-amber-50 text-amber-800", "Ring 3": "bg-rose-50 text-rose-800" };
 const fmtP = (p: string) => (/^\d{4}-\d{2}$/.test(p) ? new Date(p + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }) : /^\d{4}-\d{2}-\d{2}$/.test(p) ? `${Number(p.slice(5, 7))}/${Number(p.slice(8, 10))}/${p.slice(2, 4)}` : p);
 const n1 = (v: number) => dec(v, 1);
-const pct = (v: number) => `${Math.round(v * 100)}%`;
+const pct = (v: number) => fmt.pct(v);
 const heat = (v: number, max: number) => (v <= 0 ? "" : v / max < 0.25 ? "bg-rose-100 text-rose-900" : v / max < 0.5 ? "bg-rose-200 text-rose-900" : v / max < 0.75 ? "bg-rose-300 text-rose-950" : "bg-rose-500 text-white");
 const fmtCell = (v: number, m: LoadMeasure) => (m === "hours" ? fmt.hours(v) : fmt.num(v));
 const download = (name: string, text: string) => { const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); };
@@ -157,7 +157,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                       <td className={`px-2 py-1.5 text-right tabular-nums ${s.utilization == null ? "text-slate-300" : s.utilization > 1 ? "font-semibold text-rose-600" : s.utilization > 0.75 ? "text-amber-700" : "text-emerald-700"}`}>{s.utilization == null ? "—" : pct(s.utilization)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{s.preceptorsUsed}<span className="text-slate-400"> / {s.preceptorsOnRecord ?? "—"}</span>{s.preceptorsUsed === 0 && <span className="block text-[10px] text-amber-600">none named</span>}</td>
                       <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${AGREEMENT[s.agreement] ?? ""}`}>{s.agreement}</span></td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">{s.ring && <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{Math.round(s.driveMinutes)} min</span>}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{s.ring && <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
                     </tr>
                     {open === key && (
                       <tr key={key + "-d"} className="bg-rose-50/30">

@@ -8,11 +8,11 @@
 
 import { useMemo, useState } from "react";
 import { clinicalProfile, courseProfiles, settingMatrix, clinicalStatement, sessionsOf, NOT_SET, type AnalyticsCourse, type Slice } from "@/lib/clinicalanalytics";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
 const n1 = (v: number) => dec(v);
-const pct = (v: number) => `${Math.round(v * 100)}%`;
+const pct = (v: number) => fmt.pct(v);
 const fmtT = (t: string) => { const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
 
 export interface AnalyticsSite { courseId: string; siteName: string; sections: number }

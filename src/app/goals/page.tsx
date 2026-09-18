@@ -91,7 +91,7 @@ export default async function HomePage() {
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-slate-500">{thisYear} placed so far</span>
-                        <span className={f.progress == null ? "text-slate-400" : onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>{f.progress != null ? `${Math.round(f.progress * 100)}% of the ${thisYear} goal` : "no goal set"}</span>
+                        <span className={f.progress == null ? "text-slate-400" : onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>{f.progress != null ? `${fmt.pct(f.progress)} of the ${thisYear} goal` : "no goal set"}</span>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${f.progress != null ? Math.min(100, f.progress * 100) : 0}%` }} /></div>
                     </div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProgramFull, getProgramOfferings } from "@/lib/queries";
 import { duplicateProgram, deleteProgram, createOffering } from "@/lib/actions";
+import { fmt } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,8 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{o.status}</span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
-                    <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">enrolled <strong>{Math.round(enrolled?.actualNumber ?? o._count.students)}</strong><span className="text-slate-400"> / {enrolled?.targetNumber != null ? Math.round(enrolled.targetNumber) : "—"} target</span></span>
-                    <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">productive <strong>{productive?.actualNumber != null ? Math.round(productive.actualNumber) : "—"}</strong><span className="text-slate-400"> / {productive?.targetNumber != null ? Math.round(productive.targetNumber) : "—"} target</span></span>
+                    <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">enrolled <strong>{fmt.num(enrolled?.actualNumber ?? o._count.students)}</strong><span className="text-slate-400" title={fmt.calcTitle(enrolled?.targetNumber, fmt.atLeastPhrase(enrolled?.targetNumber))}> / {fmt.atLeastPhrase(enrolled?.targetNumber)} target</span></span>
+                    <span className="rounded-full bg-slate-50 px-2 py-0.5 ring-1 ring-slate-200">productive <strong>{fmt.num(productive?.actualNumber)}</strong><span className="text-slate-400" title={fmt.calcTitle(productive?.targetNumber, fmt.atLeastPhrase(productive?.targetNumber))}> / {fmt.atLeastPhrase(productive?.targetNumber)} target</span></span>
                     <a href={`/api/offerings/${o.id}/rotations`} className="ml-auto rounded-full border border-slate-200 px-2 py-0.5 text-slate-600 hover:bg-slate-50" title="every clinical course's rotation schedule as a workbook">clinical rotations ↓</a>
                   </div>
                 </div>

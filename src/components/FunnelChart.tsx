@@ -61,7 +61,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
                     <span className="text-3xl font-extrabold tabular-nums text-white mix-blend-luminosity" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}>
                       {fmt.num(a.actual)}
                     </span>
-                    <span className="text-lg font-semibold tabular-nums text-slate-700">/ {fmt.num(a.target)}</span>
+                    <span className="text-lg font-semibold tabular-nums text-slate-700" title={fmt.calcTitle(a.target, fmt.atLeastPhrase(a.target))}>/ {fmt.atLeastPhrase(a.target)}</span>
                   </div>
                 </div>
               </div>
@@ -110,7 +110,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
                     <div className="w-44 shrink-0 text-right">
                       <div className="text-[13px] font-medium leading-tight text-slate-700">Enrolled — {t.label}{t.current ? <span className="ml-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">now</span> : null}</div>
                       {conv != null ? <div className="text-[10px] text-slate-400">{fmt.pct(conv)} retained from the term above</div> : t.current ? <div className="text-[10px] text-slate-400">still enrolled today</div> : null}
-                      {t.current && t.actual != null && t.actual < t.target && <div className="text-[10px] font-medium text-amber-700">target {fmt.num(t.target)} · enrolled now {fmt.num(t.actual)} — at risk</div>}
+                      {t.current && t.actual != null && t.actual < t.target && <div className="text-[10px] font-medium text-amber-700" title={fmt.calcTitle(t.target, fmt.atLeastPhrase(t.target))}>target {fmt.atLeastPhrase(t.target)} · enrolled now {fmt.num(t.actual)} — at risk</div>}
                     </div>
                     <div className="relative flex-1">
                       <div
@@ -122,7 +122,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
                           <span className="text-3xl font-extrabold tabular-nums text-white mix-blend-luminosity" style={{ textShadow: "0 1px 2px rgba(0,0,0,0.35)" }}>
                             {fmt.num(t.actual)}
                           </span>
-                          <span className="text-lg font-semibold tabular-nums text-slate-700">/ {fmt.num(t.target)}</span>
+                          <span className="text-lg font-semibold tabular-nums text-slate-700" title={fmt.calcTitle(t.target, fmt.atLeastPhrase(t.target))}>/ {fmt.atLeastPhrase(t.target)}</span>
                         </div>
                       </div>
                     </div>
@@ -145,7 +145,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
       </div>
 
       <div className="flex items-center justify-center gap-6 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1"><span className="h-3 w-6 rounded ring-1 ring-slate-300" /> target (plan)</span>
+        <span className="inline-flex items-center gap-1"><span className="h-3 w-6 rounded ring-1 ring-slate-300" /> target (plan) — required counts round up; hover a target for the calculation</span>
         <span className="inline-flex items-center gap-1"><span className="h-3 w-6 rounded bg-slate-500" /> actual reached</span>
         {programId && <span className="text-rose-600">click any stage to see the students in it</span>}
       </div>

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createPerson, updatePerson, deletePerson } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 export interface LoadCohort { cohortId: string; name: string; program: string; hours: number; year: number | null; season: string | null }
 export interface DirPerson {
@@ -249,7 +249,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                     ) : (
                       <button onClick={() => setLoadOpen(loadOpen === p.id ? null : p.id)} className="text-left text-[12px] text-slate-600 hover:text-rose-700">
                         <span className="tabular-nums text-rose-600">{hh(hrs)} h</span> · {(() => { const n = new Set(cohorts.map((c) => c.cohortId)).size; return `${n} offering${n === 1 ? "" : "s"}`; })()} · {cohorts.length} semester{cohorts.length === 1 ? "" : "s"} · {p.workload.shifts} shifts
-                        {p.workload.peakWeek && <div className={`text-[10px] ${p.workload.overloadedWeeks.length ? "font-semibold text-amber-700" : "text-slate-400"}`}>peak week {hh(p.workload.peakWeek.contactHours)} h = {Math.round(p.workload.peakWeekLoad * 100)}% of load{p.workload.overloadedWeeks.length ? ` · ⚠ ${p.workload.overloadedWeeks.length} wk over` : ""}{p.workload.peakDay ? ` · peak day ${hh(p.workload.peakDay.contactHours)} h` : ""}</div>}
+                        {p.workload.peakWeek && <div className={`text-[10px] ${p.workload.overloadedWeeks.length ? "font-semibold text-amber-700" : "text-slate-400"}`}>peak week {hh(p.workload.peakWeek.contactHours)} h = {fmt.pct(p.workload.peakWeekLoad)} of load{p.workload.overloadedWeeks.length ? ` · ⚠ ${p.workload.overloadedWeeks.length} wk over` : ""}{p.workload.peakDay ? ` · peak day ${hh(p.workload.peakDay.contactHours)} h` : ""}</div>}
                         <span className="ml-1 text-slate-300">{loadOpen === p.id ? "▾ annual · semester · weekly · daily" : "▸ annual · semester · weekly · daily"}</span>
                       </button>
                     )}
@@ -267,7 +267,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                     <div className="grid gap-3 text-[11px] md:grid-cols-4">
                       <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Annual</div>{p.workload.years.length === 0 ? <div className="text-slate-400">—</div> : p.workload.years.map((y) => <div key={y.key} className="tabular-nums"><strong>{y.key}</strong>: {hh(y.contactHours)} contact h · {hh(y.creditedHours)} work h · <span className="text-rose-600">{dec(y.fte)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.annualWeeks)} contact h over {hh(p.workload.annualWeeks)} wk</div></div>
                       <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Semester</div>{p.workload.terms.map((t) => <div key={t.key} className="tabular-nums"><strong>{t.key}</strong>: {hh(t.contactHours)} contact h · {hh(t.creditedHours)} work h · <span className="text-rose-600">{dec(t.fte)} FTE</span></div>)}<div className="mt-1 text-[10px] text-slate-400">1.0 FTE = {hh(p.workload.contactHoursPerWeek * p.workload.termWeeks)} contact h over {hh(p.workload.termWeeks)} wk</div></div>
-                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Weekly · busiest first</div>{[...p.workload.weekly].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((w) => <div key={w.key} className={`tabular-nums ${p.workload.overloadedWeeks.includes(w.key) ? "font-semibold text-amber-700" : ""}`}>wk of {dayLabel(w.key)}: {hh(w.contactHours)} h ({Math.round((w.contactHours / Math.max(0.01, p.workload.contactHoursPerWeek)) * 100)}%)</div>)}{p.workload.weekly.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.weekly.length - 6} more weeks</div>}{p.workload.undatedHours > 0 && <div className="text-[10px] text-slate-400">{hh(p.workload.undatedHours)} h on undated shifts</div>}</div>
+                      <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Weekly · busiest first</div>{[...p.workload.weekly].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((w) => <div key={w.key} className={`tabular-nums ${p.workload.overloadedWeeks.includes(w.key) ? "font-semibold text-amber-700" : ""}`}>wk of {dayLabel(w.key)}: {hh(w.contactHours)} h ({fmt.pct(w.contactHours / Math.max(0.01, p.workload.contactHoursPerWeek))})</div>)}{p.workload.weekly.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.weekly.length - 6} more weeks</div>}{p.workload.undatedHours > 0 && <div className="text-[10px] text-slate-400">{hh(p.workload.undatedHours)} h on undated shifts</div>}</div>
                       <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Daily · busiest first</div>{[...p.workload.daily].sort((a, b) => b.contactHours - a.contactHours).slice(0, 6).map((d) => <div key={d.key} className="tabular-nums">{dayLabel(d.key)}: {hh(d.contactHours)} h</div>)}{p.workload.daily.length > 6 && <div className="text-[10px] text-slate-400">+ {p.workload.daily.length - 6} more days</div>}</div>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -277,7 +277,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                           <span className="text-slate-700">{c.name}</span>
                           <span className="text-slate-400">{c.program}</span>
                           {c.year && <span className="text-slate-400">{c.season} {c.year}</span>}
-                          <span className="tabular-nums text-rose-600">{Math.round(c.hours)}h</span>
+                          <span className="tabular-nums text-rose-600">{fmt.hours(c.hours)} h</span>
                         </span>
                       ))}
                     </div>

@@ -413,3 +413,16 @@ Tests: `test/metrics-audit.test.ts` (weekday resolver, 60-distinct-students fixt
 | Withdrawal rate | one function, `outcomeStats` in `src/lib/learners.ts`, used by the analytics tiles, the pivot rows and the offering page; test: 9 of 60 entrants = 15 %, prospects excluded, null when nobody started |
 | Hours bridge | `programHoursBridge` in `src/lib/hoursbridge.ts`; test: RAD-171 54 h unassigned |
 | Legacy readers | listed in §5, not fixed |
+
+## 7. Phase 1 — number formatting (2026-09-18)
+
+| Item | Outcome |
+|---|---|
+| Required-pipeline counts round up and read "at least 83" | `fmt.atLeastPhrase`: a fractional requirement reads "at least 83", a whole one reads "29". Used by the offering funnel, the goal page ladder and offering editor, the pipeline analytics board and the program cards |
+| Unrounded value on hover only | `fmt.calcTitle` puts "calculated 82.214082 · shown as at least 83" in the element's `title`; the figure itself never shows more than the rule allows |
+| Targets stored at full precision | lock-in, the pipeline save and the seeds stored `Math.round(target)`; they now store the calculation (the column is a float). Display rounds, storage does not |
+| Remaining hand-made formats | every `Math.round(x * 100)%`, `Math.round(minutes) min`, `Math.round(hours)h`, `toLocaleString`, `Math.ceil(fte)` in a page or component now goes through `fmt.pct / minutes / hours / atLeast / num / dateTime`. CSS bar widths and input values are left as numbers (not screen text) |
+| A check that fails on a raw float | `test/format-lint.test.ts` parses every `.tsx` under `src/components` and `src/app` and fails on `.toFixed(`, `.toLocaleString(`, a `Math.round/ceil/floor` or a `/`·`*` calculation interpolated into JSX text, or `{x}%`. Attributes (`title`, `style`, `value`) are exempt; arithmetic inside a formatter call is fine |
+| The twelve known offenders | crawled every page after the change: no figure with three or more decimals renders anywhere (the one match, "42 CFR §483.152", is a citation) |
+
+Tests: `test/format.test.ts` (phrase, hover title, signed percent, minutes, timestamp), `test/format-lint.test.ts` (the static check, with a fixture proving what it catches).

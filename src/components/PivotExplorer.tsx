@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { pivot, distinct, applyFilters, DIMS, type Fact, type Dim, type Measure, type Filters, dimValue } from "@/lib/pivot";
 import { getCohortDrill, type CohortDrill } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 const fmtN = (v: number) => {
   if (v === 0) return "—";
@@ -197,7 +197,7 @@ export function PivotExplorer({
                       {entities.instructors.map((ins) => (
                         <div key={ins.personId} className="flex items-center justify-between rounded-md border border-slate-100 bg-white px-2 py-1.5">
                           <span className="truncate font-medium text-slate-700">{ins.name} <span className="font-normal text-slate-400">· {ins.role}</span></span>
-                          <span className="ml-2 shrink-0 text-[11px] tabular-nums text-slate-400">{ins.sessions} sess · {Math.round(ins.contactHours)}h</span>
+                          <span className="ml-2 shrink-0 text-[11px] tabular-nums text-slate-400">{ins.sessions} sess · {fmt.hours(ins.contactHours)} h</span>
                         </div>
                       ))}
                     </DrillGroup>

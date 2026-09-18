@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { getFamilyClinicalSetup } from "@/lib/queries";
 import { addSiteToProgram } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 // THE SITES THAT SERVE ONE PROGRAM — one row each with its setup state and what it
 // contributes, and a folded-away form that adds a site. Server component.
@@ -27,11 +27,11 @@ export function FamilySitesTable({ setup, siteHref }: { setup: Setup; siteHref: 
           <Link href={href} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link>
           <span className="block text-[11px] text-slate-500">{[s.facilityType, s.city].filter(Boolean).join(" · ")}{s.sections ? ` · hosting ${s.students} students` : ""}</span>
         </td>
-        <td className="px-2 py-2 align-top whitespace-nowrap">{s.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span> : <span className="text-[10px] text-amber-600">not located</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{Math.round(s.driveMinutes)} min</span>}</td>
+        <td className="px-2 py-2 align-top whitespace-nowrap">{s.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span> : <span className="text-[10px] text-amber-600">not located</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
         <td className="px-2 py-2 align-top"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT[s.agreementStatus] ?? ""}`}>{s.agreementStatus}</span>{fam.accreditor && <span className={`block text-[10px] ${s.accreditorStatus === "recognized" ? "text-emerald-700" : s.accreditorStatus === "requested" ? "text-amber-700" : "text-slate-400"}`}>{fam.accreditor} {s.accreditorStatus}</span>}</td>
         <td className="px-2 py-2 align-top text-slate-700">{s.assets ? <>{s.assets} · <span className="tabular-nums">{s.seats}</span> seats<span className="block text-[10px] text-slate-400">{Object.entries(s.seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ")}</span></> : <span className="text-amber-600">none</span>}</td>
         <td className="px-2 py-2 align-top tabular-nums text-slate-700">{s.preceptors}{s.qualifiedStaffOnShift != null && <span className="block text-[10px] text-slate-400">{s.qualifiedStaffOnShift} on shift</span>}</td>
-        <td className="px-2 py-2 align-top whitespace-nowrap text-slate-600">{cap != null ? `${cap} at once` : <span className="text-slate-300">no cap</span>}{fam.capacityBasis === "cases" && <span className="block text-[10px] text-slate-500">{s.casesPerDay != null ? `≈ ${dec(s.casesPerDay, 1)} cases/day${s.annualSurgicalCases != null ? ` · ${s.annualSurgicalCases.toLocaleString("en-US")}/yr` : ""}` : "no case volume"}</span>}{(s.daysAllowed || s.blocksAllowed) && <span className="block text-[10px] text-slate-400">{[s.daysAllowed, s.blocksAllowed].filter(Boolean).join(" · ")}</span>}</td>
+        <td className="px-2 py-2 align-top whitespace-nowrap text-slate-600">{cap != null ? `${cap} at once` : <span className="text-slate-300">no cap</span>}{fam.capacityBasis === "cases" && <span className="block text-[10px] text-slate-500">{s.casesPerDay != null ? `≈ ${dec(s.casesPerDay, 1)} cases/day${s.annualSurgicalCases != null ? ` · ${fmt.num(s.annualSurgicalCases)}/yr` : ""}` : "no case volume"}</span>}{(s.daysAllowed || s.blocksAllowed) && <span className="block text-[10px] text-slate-400">{[s.daysAllowed, s.blocksAllowed].filter(Boolean).join(" · ")}</span>}</td>
         <td className="px-2 py-2 align-top">
           {s.fit.required > 0 ? <>
             <div className="flex items-center gap-2"><div className="h-1.5 w-16 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-400" : "bg-rose-400"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div><span className="tabular-nums text-slate-700">{s.fit.requiredProvided} / {s.fit.required}</span></div>

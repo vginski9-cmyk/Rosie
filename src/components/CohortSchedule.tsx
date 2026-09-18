@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveMeeting } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt as fmtNum } from "@/lib/format";
 
 export interface CohortMeeting {
   id: string; courseId: string; courseCode: string | null; courseName: string;
@@ -106,7 +106,7 @@ export function CohortSchedule({ meetings, rooms, people = [], conflictCount }: 
             {staffing.map((s) => (
               <div key={s.name} className="flex items-center justify-between text-[12px]">
                 <span className="truncate text-slate-700">{s.name}</span>
-                <span className="tabular-nums text-slate-400">{Math.round(s.hours)}h · {s.meetings}</span>
+                <span className="tabular-nums text-slate-400">{fmtNum.hours(s.hours)} h · {s.meetings}</span>
               </div>
             ))}
             {staffing.length === 0 && <p className="text-[11px] text-slate-400">No staff assigned.</p>}

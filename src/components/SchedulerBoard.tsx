@@ -14,10 +14,10 @@ import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetm
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
 import { applySchedulerLevers, clearSchedulerPlan } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
-const pct = (v: number) => `${Math.round(v * 100)}%`;
+const pct = (v: number) => fmt.pct(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtW = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
@@ -33,7 +33,7 @@ const VARIETY: { key: string; label: string; set: Pick<Policy, "varietySites" | 
   { key: "all", label: "new sites + types + health systems", set: { varietySites: true, varietyFacilityTypes: true, varietySystems: true } },
 ];
 const varietyKey = (p: Policy) => (p.varietySystems ? "all" : p.varietyFacilityTypes ? "types" : p.varietySites ? "sites" : "none");
-const min = (v: number | null) => (v == null ? "—" : `${Math.round(v)} min`);
+const min = (v: number | null) => fmt.minutes(v);
 
 export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, from, to }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];

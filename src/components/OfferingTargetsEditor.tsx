@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { RATE_DEFS, type LadderRates } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
-import { dec, fmt, numInput } from "@/lib/format";
+import { fmt, numInput } from "@/lib/format";
 
 export interface OfferingTargets {
   /** Fully-productive placements this offering is responsible for. */
@@ -20,7 +20,10 @@ export interface OfferingTargets {
   rates: Partial<LadderRates>;
 }
 
-const num = (v: number) => dec(v);
+/** A required count: rounded UP on screen, the calculation on hover. */
+const Req = ({ v }: { v: number }) => <strong className="text-slate-700" title={fmt.calcTitle(v, fmt.atLeastPhrase(v))}>{fmt.atLeastPhrase(v)}</strong>;
+/** Seats a term must hold: a count that must be met, so it rounds up. */
+export const seatsNeeded = (v: number) => Math.max(0, Math.ceil(v - 1e-9));
 
 export function effectiveRates(defaults: LadderRates, own: Partial<LadderRates> | undefined): LadderRates {
   return { ...defaults, ...(own ?? {}) };
@@ -40,7 +43,7 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
   const ownRates = Object.keys(value.rates ?? {}).length > 0;
   const n = Math.max(1, termNames.length);
   const t = deriveCohortTargets(Math.max(0, value.goal), rates, n);
-  const enrolled = (i: number) => value.termOverrides[i] ?? Math.round(t.terms[i] ?? t.terms[t.terms.length - 1] ?? 0);
+  const enrolled = (i: number) => value.termOverrides[i] ?? seatsNeeded(t.terms[i] ?? t.terms[t.terms.length - 1] ?? 0);
   const inp = "rounded border border-slate-200 px-1.5 py-0.5 text-right tabular-nums focus:border-rose-400 focus:outline-none disabled:bg-slate-50 disabled:text-slate-400";
 
   return (
@@ -53,10 +56,10 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
           <span className="text-slate-500">productive</span>
         </label>
         <span className="tabular-nums text-slate-500">
-          needs <strong className="text-slate-700">{num(t.interested)}</strong> interested · <strong className="text-slate-700">{num(t.qualified)}</strong> qualified · <strong className="text-slate-700">{num(t.offered)}</strong> offered · capacity <strong className="text-slate-700">{num(t.capacity)}</strong>
+          needs <Req v={t.interested} /> interested · <Req v={t.qualified} /> qualified · <Req v={t.offered} /> offered · capacity <Req v={t.capacity} />
         </span>
         <span className="tabular-nums text-slate-500">
-          → <strong className="text-slate-700">{num(t.completing)}</strong> completing · <strong className="text-slate-700">{num(t.licensed)}</strong> licensed · <strong className="text-slate-700">{num(t.placed)}</strong> placed
+          → <Req v={t.completing} /> completing · <Req v={t.licensed} /> licensed · <Req v={t.placed} /> placed
         </span>
         <button type="button" onClick={() => setShowRates((v) => !v)} className={`ml-auto rounded border px-2 py-0.5 ${ownRates ? "border-rose-300 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`} title="this offering's own health rates (defaults come from the family)">
           {showRates ? "hide rates" : ownRates ? "own health rates ✓" : "health rates: family defaults"}
@@ -76,7 +79,7 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
                 value={enrolled(i)}
                 onChange={(e) => { const o = [...value.termOverrides]; while (o.length < n) o.push(null); o[i] = e.target.value === "" ? null : Math.max(0, Number(e.target.value)); onChange({ termOverrides: o }); }}
                 className={`${inp} w-16 ${ov != null ? "border-rose-300 bg-rose-50 font-semibold text-rose-800" : "text-slate-700"}`}
-                title={ov != null ? "set for this offering — clear to go back to the derived figure" : "derived from this offering's goal; type to set it"}
+                title={ov != null ? "set for this offering — clear to go back to the derived figure" : `derived from this offering's goal (${fmt.calcTitle(t.terms[i] ?? t.terms[t.terms.length - 1] ?? 0, fmt.atLeastPhrase(t.terms[i] ?? t.terms[t.terms.length - 1] ?? 0))}); type to set it`}
               />
             </label>
           );

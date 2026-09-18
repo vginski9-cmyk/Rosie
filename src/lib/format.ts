@@ -25,8 +25,20 @@ export const fmt = {
   num(n: number | null | undefined, _digits = 0): string { void _digits; return bad(n) ? "—" : loc(Math.round(n), 0); },
   /** A count that must be met (a pipeline target): rounded UP, never down. */
   atLeast(n: number | null | undefined): string { return bad(n) ? "—" : loc(Math.ceil(n - 1e-9), 0); },
+  /** A required count as a phrase: "at least 83" when the calculation is fractional, plain "29" when it is whole. */
+  atLeastPhrase(n: number | null | undefined): string { return bad(n) ? "—" : Math.abs(n - Math.round(n)) < 1e-9 ? loc(Math.round(n), 0) : `at least ${loc(Math.ceil(n - 1e-9), 0)}`; },
+  /** The unrounded calculation, for a hover or a detail view only — never the headline figure. */
+  exact(n: number | null | undefined): string { return bad(n) ? "—" : loc(n, PRECISION); },
+  /** A hover title pairing the shown figure with its calculation: "calculated 82.214082 · shown as at least 83". */
+  calcTitle(n: number | null | undefined, shown: string): string { return bad(n) ? "" : Math.abs(n - Math.round(n)) < 1e-9 ? `exactly ${loc(n, 0)}` : `calculated ${loc(n, PRECISION)} · shown as ${shown}`; },
   /** A share (0–1) as a percentage with at most one decimal. */
   pct(n: number | null | undefined, _digits = 0): string { void _digits; return bad(n) ? "—" : `${loc(n * 100, 1)}%`; },
+  /** A change as a signed percentage ("+12.5%", "−3%"). */
+  pctSigned(n: number | null | undefined): string { return bad(n) ? "—" : `${n > 0 ? "+" : n < 0 ? "−" : ""}${loc(Math.abs(n) * 100, 1)}%`; },
+  /** Minutes (drive time): a whole number with its unit. */
+  minutes(n: number | null | undefined): string { return bad(n) ? "—" : `${loc(Math.round(n), 0)} min`; },
+  /** A timestamp for a footer ("Sep 18, 3:05 PM UTC"). */
+  dateTime(d: Date | null | undefined): string { return d == null || Number.isNaN(d.getTime()) ? "—" : `${d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC`; },
   /** A full-time-equivalent: one to two decimals. */
   fte(n: number | null | undefined): string { return bad(n) ? "—" : loc(n, 2, 1); },
   /** Hours: at most one decimal. */

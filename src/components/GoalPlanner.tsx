@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BENCHMARK_RATES, RATE_DEFS, UTILIZATION_BENCHMARK,
-  buildLadder, capacityFromNorthStar, utilization, roundLadder,
+  buildLadder, capacityFromNorthStar, utilization,
   type LadderRates,
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
-import { OfferingTargetsEditor, type OfferingTargets } from "@/components/OfferingTargetsEditor";
+import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
 import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 
@@ -95,7 +95,6 @@ interface Persisted {
 
 const pct = (v: number) => fmt.pct(v);
 const pctOf = (v: number | null) => fmt.pct(v);
-const num = (v: number) => dec(v);
 
 function attainColor(a: number | null): string {
   if (a == null) return "text-slate-400";
@@ -170,7 +169,7 @@ export function GoalPlanner({
   const productiveForYear = (year: number): number => buildLadder(capacityForYear(year), s.goal).productive;
 
   const goalCapacity = capacityForYear(s.selectedYear);
-  const goalLadder = roundLadder(buildLadder(goalCapacity, s.goal));
+  const goalLadder = buildLadder(goalCapacity, s.goal); // full precision; the table rounds required counts UP on screen
   // ACTUAL is sourced live from the student database (no manual entry).
   const actualFunnel: ActualFunnel | null = actualByYear[s.selectedYear] ?? null;
   const hasActual = actualFunnel != null && (actualFunnel.interested > 0 || actualFunnel.enrolled > 0);
@@ -452,7 +451,7 @@ export function GoalPlanner({
                     {m.credential ?? "—"} · {m.terms}-term structure · {m.running} running
                   </div>
                   <div className={`mt-0.5 font-medium ${used ? "" : "text-slate-600"}`}>
-                    max cohort enrollment: <span className="tabular-nums">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "not set"}</span>
+                    max cohort enrollment: <span className="tabular-nums">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "not set"}</span>
                   </div>
                   {used && <div className="mt-0.5 text-[10px]">in the plan below</div>}
                 </div>
@@ -478,7 +477,7 @@ export function GoalPlanner({
                   if (!m) return null;
                   const goalSum = allocGoal(a);
                   const t = deriveCohortTargets(goalSum, s.goal, Math.max(1, m.terms));
-                  const capNeeded = Math.round(t.capacity);
+                  const capNeeded = seatsNeeded(t.capacity); // a count that must be met rounds up
                   const nOfferings = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capNeeded / m.maxCapacity)) : 1;
                   const slots = slotsFor(a, nOfferings);
                   const lockedCount = slots.filter((o) => o.locked).length;
@@ -494,7 +493,7 @@ export function GoalPlanner({
                     if (slots[oi].locked && slots[oi].cohortId) persistLocked(slots[oi].cohortId!, v);
                   };
                   const allLocked = slots.length > 0 && slots.every((o) => o.locked);
-                  const share = yearGoal > 0 ? Math.round((goalSum / yearGoal) * 100) : 0;
+                  const share = yearGoal > 0 ? goalSum / yearGoal : 0;
                   const termNames = Array.from({ length: Math.max(1, m.terms) }, (_, i) => `Term ${i + 1}`);
                   return (
                     <div key={a.programId} className={`rounded-lg border bg-white p-3 ${allLocked ? "border-emerald-200" : "border-slate-200"}`}>
@@ -504,14 +503,14 @@ export function GoalPlanner({
                         <span className="ml-auto flex items-center gap-2 text-xs">
                           <span className="text-slate-500">its offerings cover</span>
                           <strong className="tabular-nums text-slate-800">{dec(goalSum)}</strong>
-                          <span className="text-slate-500">productive ({share}%)</span>
+                          <span className="text-slate-500">productive ({fmt.pct(share)})</span>
                           {lockedCount === 0 && <button onClick={() => setAllocs(allocs.filter((_, i) => i !== ai))} className="text-slate-300 hover:text-rose-600" title="remove">✕</button>}
                         </span>
                       </div>
                       {/* How many offerings — suggested from the model's max cohort, but YOURS to add / subtract */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
-                        <span className="text-slate-500">at the family&apos;s rates that needs enrollment capacity <strong className="text-slate-700">{capNeeded}</strong></span>
-                        <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? Math.round(m.maxCapacity) : "—"}</strong></span>
+                        <span className="text-slate-500">at the family&apos;s rates that needs enrollment capacity <strong className="text-slate-700" title={fmt.calcTitle(t.capacity, fmt.atLeastPhrase(t.capacity))}>{fmt.atLeastPhrase(t.capacity)}</strong></span>
+                        <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong></span>
                         <span className="inline-flex items-center gap-1">
                           <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
                           <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering of this model — give it its own goal and enrollment below">+ offering</button>
@@ -524,7 +523,7 @@ export function GoalPlanner({
                         {slots.map((o, oi) => {
                           const tv = slotTargets(o);
                           const own = deriveCohortTargets(Math.max(0, tv.goal), { ...s.goal, ...tv.rates }, Math.max(1, m.terms));
-                          const seats = tv.termOverrides[0] ?? Math.round(own.capacity);
+                          const seats = tv.termOverrides[0] ?? seatsNeeded(own.capacity);
                           const over = m.maxCapacity != null && m.maxCapacity > 0 && seats > m.maxCapacity;
                           return (
                             <div key={oi} className={`rounded-lg border px-3 py-2 ${o.locked ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200 bg-slate-50/70"}`}>
@@ -545,7 +544,7 @@ export function GoalPlanner({
                                       <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
                                     </label>
                                     <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
-                                    <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{seats} seats in term 1{over ? ` — over this model's max cohort of ${Math.round(m.maxCapacity ?? 0)}` : ""}</span>
+                                    <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}</span>
                                     <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className="ml-auto rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real instantiation with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
                                     {slots.length > 1 && <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>}
                                   </>
@@ -634,7 +633,7 @@ export function GoalPlanner({
               <thead>
                 <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-400">
                   <th className="px-4 py-2 text-left font-medium">Metric</th>
-                  <th className="px-3 py-2 text-right font-medium">Goal</th>
+                  <th className="px-3 py-2 text-right font-medium" title="required counts round up; hover a figure for the calculation">Goal (rounded up)</th>
                   <th className="px-3 py-2 text-right font-medium">Actual</th>
                   <th className="px-3 py-2 text-right font-medium">Attain</th>
                 </tr>
@@ -645,8 +644,8 @@ export function GoalPlanner({
                   return (
                     <tr key={r.label} className={r.strong ? "bg-rose-50/40" : "hover:bg-slate-50/60"}>
                       <td className={`px-4 py-1.5 ${r.strong ? "font-semibold text-slate-800" : "text-slate-700"}`}>{r.label}</td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{num(r.g)}</td>
-                      <td className={`px-3 py-1.5 text-right tabular-nums ${r.a == null ? "text-slate-300" : r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{r.a == null ? "—" : num(r.a)}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-600" title={fmt.calcTitle(r.g, fmt.atLeastPhrase(r.g))}>{fmt.atLeastPhrase(r.g)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${r.a == null ? "text-slate-300" : r.strong ? "font-semibold text-slate-900" : "text-slate-700"}`}>{r.a == null ? "—" : fmt.num(r.a)}</td>
                       <td className={`px-3 py-1.5 text-right tabular-nums font-medium ${attainColor(a)}`}>{pctOf(a)}</td>
                     </tr>
                   );

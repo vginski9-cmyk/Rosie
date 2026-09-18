@@ -17,7 +17,7 @@ import {
 } from "@/lib/clinicalsupply";
 import { assignSectionSite, upsertRotationSetting, updateEmployerAgreement } from "@/lib/actions";
 import type { CapacityCohort } from "@/components/CapacityBoard";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -114,8 +114,8 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
                   <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200"><div className={`text-2xl font-bold tabular-nums ${okPhysical ? "text-slate-800" : "text-rose-700"}`}>{n0(v.physicalAtPeak)}</div><div className="text-[10px] uppercase tracking-wide text-slate-400">physical room that block</div><div className="text-[10px] text-slate-500">{v.sitesPhysical} site{v.sitesPhysical === 1 ? "" : "s"} with units</div></div>
                 </div>
                 <p className="mt-2 text-xs text-slate-600">
-                  Over the period: <strong>{n0(v.hostedSecured)}</strong> of {n0(v.studentDays)} student-days fit in secured sites ({v.studentDays ? Math.round((v.hostedSecured / v.studentDays) * 100) : 0}%);
-                  {" "}<strong>{n0(v.hostedPhysical)}</strong> fit physically ({v.studentDays ? Math.round((v.hostedPhysical / v.studentDays) * 100) : 0}%).
+                  Over the period: <strong>{n0(v.hostedSecured)}</strong> of {n0(v.studentDays)} student-days fit in secured sites ({fmt.pct(v.studentDays ? v.hostedSecured / v.studentDays : 0)});
+                  {" "}<strong>{n0(v.hostedPhysical)}</strong> fit physically ({fmt.pct(v.studentDays ? v.hostedPhysical / v.studentDays : 0)}).
                   {v.shortDaysSecured > 0 && <> <strong className="text-rose-700">{n0(v.shortDaysSecured)} date-blocks short</strong> — secure more {v.category.toLowerCase()} sites, spread onto evening/night blocks, or move rotations off the pile-up days.</>}
                 </p>
               </div>

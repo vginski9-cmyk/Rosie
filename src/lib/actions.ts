@@ -1385,7 +1385,7 @@ export async function lockInInstantiation(
   await prisma.funnelStage.createMany({
     data: STAGES.map((s, i) => ({
       cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label,
-      targetNumber: Math.round(stageTargets[s.key] ?? 0),
+      targetNumber: stageTargets[s.key] ?? 0,
     })),
   });
 
@@ -1936,8 +1936,8 @@ export async function saveCohortPipeline(
   for (const s of STAGES) {
     await prisma.funnelStage.upsert({
       where: { cohortId_stageKey: { cohortId, stageKey: s.key } },
-      update: { targetNumber: Math.round(targets[s.key] ?? 0) },
-      create: { cohortId, stageKey: s.key, sortOrder: STAGES.indexOf(s), label: s.label, targetNumber: Math.round(targets[s.key] ?? 0) },
+      update: { targetNumber: targets[s.key] ?? 0 },
+      create: { cohortId, stageKey: s.key, sortOrder: STAGES.indexOf(s), label: s.label, targetNumber: targets[s.key] ?? 0 },
     });
   }
   await prisma.cohort.update({

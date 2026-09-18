@@ -7,7 +7,7 @@ import {
 } from "@/lib/capacitymodel";
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 import { MultiSelect } from "@/components/MultiSelect";
 import { drillDown, type DrillAssignment, type DrillResult, type DrillScale } from "@/lib/staffingdrill";
 import type { ColLeaf } from "@/components/FteCharts";
@@ -711,7 +711,7 @@ function StaffingDrill({ label, r, hasAssignments, onClose }: { label: string; r
     <div className="min-w-[14rem] flex-1 rounded-lg border border-slate-200 bg-white p-3">
       <div className="flex items-baseline justify-between text-xs"><span className="font-semibold text-slate-800">{name}</span><span className="tabular-nums text-slate-600"><strong className="text-slate-900">{n1(have)}</strong> of {n1(need)} {unit}</span></div>
       <div className="mt-1 h-2 overflow-hidden rounded bg-slate-100"><div className="h-full" style={{ width: `${pct(have, need)}%`, background: color }} /></div>
-      <div className="mt-1 text-[11px] text-slate-500">{need <= 0 ? "nothing needed" : have >= need - 1e-9 ? "covered" : <><span className="font-medium text-rose-600">{n1(need - have)} {unit} unfilled</span> · {Math.ceil(need - 1e-9)} people needed, {r.scale === "weekly" ? "" : ""}{name === "Faculty" ? r.assigned.facultyPeople : r.assigned.preceptorPeople} assigned</>}</div>
+      <div className="mt-1 text-[11px] text-slate-500">{need <= 0 ? "nothing needed" : have >= need - 1e-9 ? "covered" : <><span className="font-medium text-rose-600">{n1(need - have)} {unit} unfilled</span> · {fmt.atLeast(need)} people needed, {r.scale === "weekly" ? "" : ""}{name === "Faculty" ? r.assigned.facultyPeople : r.assigned.preceptorPeople} assigned</>}</div>
     </div>
   );
   return (
@@ -738,7 +738,7 @@ function StaffingDrill({ label, r, hasAssignments, onClose }: { label: string; r
                   <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${p.side === "preceptor" ? "bg-orange-100 text-orange-700" : "bg-sky-100 text-sky-700"}`}>{p.role}</span>{p.employmentType ? <span className="ml-1 text-[10px] text-slate-400">{p.employmentType}</span> : null}</td>
                   <td className="px-2 py-1 text-slate-600">{p.employer ?? "campus"}</td>
                   <td className="px-2 py-1 text-right font-semibold tabular-nums text-slate-900">{n1(p.fte)}</td>
-                  <td className="px-2 py-1 text-right tabular-nums text-slate-500">{total > 0 ? `${Math.round((p.fte / total) * 100)}%` : "—"}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-slate-500">{total > 0 ? fmt.pct(p.fte / total) : "—"}</td>
                   <td className="px-2 py-1 text-right tabular-nums text-slate-600">{n1(p.contactHours)}</td>
                   <td className="px-2 py-1 text-right tabular-nums text-slate-600">{p.shifts}</td>
                   <td className="px-2 py-1 text-slate-500">{p.days.length <= 3 ? p.days.map(fmtMD).join(", ") : `${p.days.length} days`}</td>
@@ -1117,7 +1117,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
     return {
       setting, peak: p, supply: sSupply, siteCount: sSites.length,
       hosted, total, unhosted: total - hosted, shortDays, dates: dByDate.size,
-      pctUsed: sSupply > 0 && p ? Math.round((p.value / sSupply) * 100) : null,
+      shareUsed: sSupply > 0 && p ? p.value / sSupply : null,
     };
   });
 
@@ -1141,7 +1141,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
           <div className="space-y-2">
             {settingRows.map((s) => {
               const noSupply = s.supply === 0;
-              const pct = s.total > 0 ? Math.round((s.hosted / s.total) * 100) : 100;
+              const hostedShare = s.total > 0 ? s.hosted / s.total : 1;
               return (
                 <div key={s.setting} className={`rounded-lg border p-2.5 text-xs ${noSupply || s.unhosted > 0 ? "border-rose-200 bg-rose-50/40" : "border-emerald-200 bg-emerald-50/40"}`}>
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1149,14 +1149,14 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
                     {noSupply ? (
                       <span className="font-medium text-rose-700">{s.peak ? `${n0(s.peak.value)} students/day at peak` : "demand"} — no supply data for this setting</span>
                     ) : (
-                      <span className={s.pctUsed != null && s.pctUsed > 100 ? "font-medium text-rose-700" : "text-slate-600"}>
-                        needs {s.peak ? n0(s.peak.value) : 0} slots/day at peak, sites offer {n0(s.supply)}{s.pctUsed != null ? ` (${s.pctUsed}% used)` : ""} · {s.siteCount} matching site{s.siteCount === 1 ? "" : "s"}
+                      <span className={s.shareUsed != null && s.shareUsed > 1 ? "font-medium text-rose-700" : "text-slate-600"}>
+                        needs {s.peak ? n0(s.peak.value) : 0} slots/day at peak, sites offer {n0(s.supply)}{s.shareUsed != null ? ` (${fmt.pct(s.shareUsed)} used)` : ""} · {s.siteCount} matching site{s.siteCount === 1 ? "" : "s"}
                       </span>
                     )}
                   </div>
                   <div className="mt-0.5 text-[11px] text-slate-500">
                     {s.peak && <>Peak day {fmtDateM(s.peak.key as string)}{!noSupply && s.peak.value > s.supply ? ` — short by ${n0(s.peak.value - s.supply)} slots` : ""}. </>}
-                    Over the period: {n0(s.hosted)} of {n0(s.total)} student-days hosted ({pct}%){s.unhosted > 0 ? <strong className="text-rose-700"> — {n0(s.unhosted)} student-days have no slot across {n0(s.shortDays)} short day{s.shortDays === 1 ? "" : "s"}</strong> : ""} · {n0(s.dates)} clinical dates.
+                    Over the period: {n0(s.hosted)} of {n0(s.total)} student-days hosted ({fmt.pct(hostedShare)}){s.unhosted > 0 ? <strong className="text-rose-700"> — {n0(s.unhosted)} student-days have no slot across {n0(s.shortDays)} short day{s.shortDays === 1 ? "" : "s"}</strong> : ""} · {n0(s.dates)} clinical dates.
                     {noSupply && <> Add partner sites with setting “{s.setting}” (and students/day) in the Employers directory, or map this rotation to an existing setting.</>}
                   </div>
                 </div>
@@ -1192,7 +1192,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
                   <td className="px-4 py-1.5">{x.setting ?? "—"}</td>
                   <td className="px-4 py-1.5">{x.city ?? "—"}</td>
                   <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.wblSlots != null ? n0(x.wblSlots) : "not set"}</td>
-                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.status === "active" && supply > 0 && x.wblSlots ? `${Math.round((x.wblSlots / supply) * 100)}%` : "—"}</td>
+                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.status === "active" && supply > 0 && x.wblSlots ? fmt.pct(x.wblSlots / supply) : "—"}</td>
                   <td className="px-4 py-1.5">{x.status}</td>
                 </tr>
               ))}

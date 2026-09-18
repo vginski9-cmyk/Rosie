@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { getCohortRequirementProgress } from "@/lib/queries";
+import { fmt } from "@/lib/format";
 
 // ONE OFFERING against the credentialing body's list: every student on every rule, and
 // what the cohort still needs — each experience with how many students lack it and the
@@ -34,7 +35,7 @@ export function CohortRequirementProgress({ data, base }: { data: Data; base: st
                       {set.ruleKeys.map((rk) => { const r = s.rules.find((x) => x.key === rk.key); if (!r) return <td key={rk.key} />; return <td key={rk.key} className={`px-2 py-1 text-right tabular-nums ${r.ok ? (r.min != null && r.have >= r.min ? "text-emerald-700" : "text-slate-600") : "font-semibold text-rose-600"}`} title={r.note ?? ""}>{r.have}</td>; })}
                       <td className={`px-2 py-1 text-right tabular-nums ${s.missingRequired ? "text-rose-600" : "text-emerald-700"}`}>{s.missingRequired}</td>
                       <td className="px-2 py-1 text-right tabular-nums text-slate-500">{s.logged}</td>
-                      <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.complete ? "bg-emerald-100 text-emerald-700" : s.pct >= 0.5 ? "bg-sky-100 text-sky-700" : "bg-amber-100 text-amber-700"}`}>{s.complete ? "complete" : `${Math.round(s.pct * 100)}%`}</span></td>
+                      <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.complete ? "bg-emerald-100 text-emerald-700" : s.pct >= 0.5 ? "bg-sky-100 text-sky-700" : "bg-amber-100 text-amber-700"}`}>{s.complete ? "complete" : fmt.pct(s.pct)}</span></td>
                     </tr>
                   ))}
                   {set.students.length === 0 && <tr><td colSpan={set.ruleKeys.length + 4} className="px-3 py-3 text-center text-slate-400">No enrolled students.</td></tr>}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { fmt } from "@/lib/format";
 
 // One strip above every capacity, load, coverage, staffing and scheduler view saying what the
 // numbers are (requirements, a proposed scenario, or the applied plan), whose enrollment they
@@ -18,7 +19,7 @@ export function ScopeStrip({ shows, population, window, constraints, differs = [
         <span><span className="font-semibold uppercase tracking-wide text-slate-400">Population</span> {population}</span>
         <span><span className="font-semibold uppercase tracking-wide text-slate-400">Window</span> {window}</span>
         <span><span className="font-semibold uppercase tracking-wide text-slate-400">Enforces</span> {constraints.join(" · ")}</span>
-        <span className="text-slate-400">computed {computedAt.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC</span>
+        <span className="text-slate-400">computed {fmt.dateTime(computedAt)}</span>
       </div>
       {differs.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1">

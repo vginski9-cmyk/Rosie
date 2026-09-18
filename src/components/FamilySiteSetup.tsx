@@ -6,7 +6,7 @@ import { AssetRoster } from "@/components/AssetRoster";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { SiteProvisionChecklist } from "@/components/SiteProvisionChecklist";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 import { avgCasesPerDay, caseVolumeLine } from "@/lib/surgvolume";
 
 // ONE SITE, SET UP FOR ONE PROGRAM — in the order a coordinator fills it in: where it is,
@@ -66,7 +66,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
             <p className="text-sm text-slate-500">{[site.organization, site.facilityType].filter(Boolean).join(" · ")}{site.address || site.city ? <> · {[site.address, [site.city, site.state].filter(Boolean).join(", ")].filter(Boolean).join(", ")}</> : <span className="text-amber-700"> · no address on file</span>} · <Link href={`/employers/${site.id}`} className="text-rose-600 hover:underline">organization record</Link></p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {site.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${RING[site.ring] ?? "bg-slate-100"}`}>{site.ring}{site.driveMinutes != null ? ` · ${Math.round(site.driveMinutes)} min` : ""}</a>}
+            {site.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${RING[site.ring] ?? "bg-slate-100"}`}>{site.ring}{site.driveMinutes != null ? ` · ${fmt.minutes(site.driveMinutes)}` : ""}</a>}
             <a href="#agreement" className={`rounded-full px-3 py-1 text-xs font-medium ${AGREEMENT[fs?.agreementStatus ?? "none"]}`}>{fs ? fs.agreementStatus : "not in this program yet"}</a>
             {fam.accreditor && <a href="#accreditor" className={`rounded-full px-3 py-1 text-xs font-medium ${fs?.accreditorStatus === "recognized" ? "bg-emerald-100 text-emerald-700" : fs?.accreditorStatus === "requested" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{fam.accreditor}: {fs?.accreditorStatus ?? "none"}{fs?.approvedCapacity != null ? ` · ${fs.approvedCapacity} at once` : ""}</a>}
           </div>
@@ -80,7 +80,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
       <Section id="location" n={next()} title="Where it is" sub={`drive from ${d.campus?.name ?? "the main campus"}, auto-coded from the address`} right={<form action={relocateSite.bind(null, site.id)}><button className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Re-locate</button></form>}>
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
           <span>Ring: {site.ring ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RING[site.ring] ?? ""}`}>{site.ring}</span> : <span className="text-amber-600">not located</span>}{site.ringSource === "manual" && <span className="text-[11px] text-slate-400"> (set by hand)</span>}</span>
-          <span>Drive: <strong className="tabular-nums">{site.driveMinutes != null ? `${Math.round(site.driveMinutes)} min` : "—"}</strong>{site.distanceMiles != null && <span className="text-slate-500"> · {dec(site.distanceMiles, 1)} mi straight-line</span>}</span>
+          <span>Drive: <strong className="tabular-nums">{fmt.minutes(site.driveMinutes)}</strong>{site.distanceMiles != null && <span className="text-slate-500"> · {dec(site.distanceMiles, 1)} mi straight-line</span>}</span>
           <span className="text-slate-500">Bands: Core ≤ {d.bands.core} · Ring 1 ≤ {d.bands.one} · Ring 2 ≤ {d.bands.two} min</span>
           <span className="text-slate-500">{site.geoSource === "census" ? "street-level fix" : site.geoSource === "gazetteer" ? "town-centre fix (±1–2 mi)" : site.geoSource === "manual" ? "pinned by hand" : "not located"} · <Link href={`/employers/${site.id}#location`} className="text-rose-600 hover:underline">correct the address or pin</Link></span>
         </div>

@@ -37,7 +37,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
   const terms = Array.from(new Set(student.grades.map((g) => g.termIndex))).sort((a, b) => a - b);
   const clinicalShifts = assignments.shifts.length;
   const completedShifts = assignments.shifts.filter((s) => s.status === "completed").length;
-  const reqSummary = requirements?.sets.map((s) => (s.progress.complete ? `${s.authority.split(" · ")[0]} complete` : `${Math.round(s.progress.pct * 100)}% of ${s.authority.split(" · ")[0]}`)).join(" · ");
+  const reqSummary = requirements?.sets.map((s) => (s.progress.complete ? `${s.authority.split(" · ")[0]} complete` : `${fmt.pct(s.progress.pct)} of ${s.authority.split(" · ")[0]}`)).join(" · ");
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">

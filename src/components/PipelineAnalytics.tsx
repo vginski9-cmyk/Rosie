@@ -6,7 +6,7 @@ import {
   PIPELINE_METRICS, type PipelineFact, type PipelineMetricKey,
 } from "@/lib/pipeline";
 import type { LadderRates } from "@/lib/northstar";
-import { dec } from "@/lib/format";
+import { fmt } from "@/lib/format";
 
 // The talent-pipeline analytics board — the institution workbook's three output
 // surfaces on one page, computed live from the same facts:
@@ -21,10 +21,11 @@ import { dec } from "@/lib/format";
 export interface ProgramOpt { id: string; name: string; credential: string | null }
 export interface CohortOpt { id: string; name: string; programId: string; endYear: number }
 
-const fmtT = (v: number | null) => (v == null ? "—" : dec(v));
-const fmtA = (v: number | null) => (v == null ? "—" : dec(v));
-const fmtR = (v: number | null) => (v == null ? "—" : dec(v));
-const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`);
+/** A required (target) count: rounded UP on screen ("at least 83"), the calculation on hover. */
+const T = ({ v }: { v: number | null | undefined }) => (v == null ? <>—</> : <span title={fmt.calcTitle(v, fmt.atLeastPhrase(v))}>{fmt.atLeastPhrase(v)}</span>);
+const fmtA = (v: number | null) => fmt.num(v);
+const fmtR = (v: number | null) => fmt.mult(v);
+const fmtPct = (v: number | null) => fmt.pctSigned(v);
 
 function attainCls(actual: number | null, target: number | null): string {
   if (actual == null || target == null || target === 0) return "text-slate-400";
@@ -126,8 +127,8 @@ export function PipelineAnalytics({
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2 font-semibold">Pipeline stage</th>
-                <th className="px-3 py-2 text-right font-semibold">Target (normalized)</th>
-                <th className="px-3 py-2 text-right font-semibold">Actual (normalized)</th>
+                <th className="px-3 py-2 text-right font-semibold" title="required counts round up; hover a figure for the calculation">Target (rounded up)</th>
+                <th className="px-3 py-2 text-right font-semibold">Actual</th>
                 <th className="px-3 py-2 text-right font-semibold">Attainment</th>
                 {lineage && <th className="px-3 py-2 font-semibold">Target sourced from</th>}
               </tr>
@@ -143,9 +144,9 @@ export function PipelineAnalytics({
                     <td className={`px-3 py-1.5 ${r.nested ? "pl-8 text-slate-500" : "font-medium text-slate-800"}`}>
                       {r.nested ? "↳ " : ""}{r.label}
                     </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{fmtT(r.target)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-700"><T v={r.target} /></td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{fmtA(r.actual)}</td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${attainCls(r.actual, r.target)}`}>{attain == null ? "—" : `${Math.round(attain * 100)}%`}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${attainCls(r.actual, r.target)}`}>{fmt.pct(attain)}</td>
                     {lineage && <td className="px-3 py-1.5 text-xs text-slate-400">{src}</td>}
                   </tr>,
                   open && r.parts.length > 1 ? (
@@ -154,9 +155,9 @@ export function PipelineAnalytics({
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">How this row adds up</div>
                         <div className="mt-1 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
                           {r.parts.map((p) => (
-                            <span key={p.cohort} className="tabular-nums">{p.cohort}: <strong>{fmtT(p.target)}</strong> target{p.actual != null ? <> · {fmtA(p.actual)} actual</> : null}</span>
+                            <span key={p.cohort} className="tabular-nums">{p.cohort}: <strong><T v={p.target} /></strong> target{p.actual != null ? <> · {fmtA(p.actual)} actual</> : null}</span>
                           ))}
-                          <span className="tabular-nums text-slate-800">Σ = <strong>{fmtT(r.target)}</strong></span>
+                          <span className="tabular-nums text-slate-800">Σ = <strong><T v={r.target} /></strong></span>
                         </div>
                       </td>
                     </tr>
@@ -165,7 +166,7 @@ export function PipelineAnalytics({
               })}
               <tr className="bg-slate-100/80 font-semibold text-slate-800">
                 <td className="px-3 py-2">Grand Total</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmtT(pivot.grandTotalTarget)}</td>
+                <td className="px-3 py-2 text-right tabular-nums"><T v={pivot.grandTotalTarget} /></td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmtA(pivot.grandTotalActual)}</td>
                 <td className="px-3 py-2" />
                 {lineage && <td className="px-3 py-2 text-xs font-normal text-slate-400">sum of every normalized row above (terms included)</td>}
@@ -205,7 +206,7 @@ export function PipelineAnalytics({
                     {h.formula}
                     {lineage && (
                       <span className="ml-1 tabular-nums text-slate-400">
-                        (goal {fmtT(h.targetNum)} ÷ {fmtT(h.targetDen)}{h.actualRatio != null ? <> · actual {fmtA(h.actualNum)} ÷ {fmtA(h.actualDen)}</> : null})
+                        (goal <T v={h.targetNum} /> ÷ <T v={h.targetDen} />{h.actualRatio != null ? <> · actual {fmtA(h.actualNum)} ÷ {fmtA(h.actualDen)}</> : null})
                       </span>
                     )}
                   </td>
@@ -237,7 +238,7 @@ export function PipelineAnalytics({
             <li key={s.key + i} className="flex flex-wrap items-baseline gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
               <span className="w-6 text-right text-xs tabular-nums text-slate-400">{i + 1}.</span>
               <span className="font-medium text-slate-800">{s.label}</span>
-              <span className="tabular-nums font-semibold text-rose-700">{fmtT(s.value)}</span>
+              <span className="tabular-nums font-semibold text-rose-700"><T v={s.value} /></span>
               <span className="text-xs text-slate-500">{s.formula}</span>
             </li>
           ))}
@@ -272,14 +273,14 @@ export function PipelineAnalytics({
               {visual.rows.map((y) => [
                 <tr key={y.year} className="border-b border-slate-100 bg-slate-50/60 font-medium text-slate-800">
                   <td className="px-3 py-1.5">{y.year}{y.year === nowYear ? <span className="ml-2 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">now</span> : null}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{fmtT(y.target)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums"><T v={y.target} /></td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{fmtA(y.actual)}</td>
                   {lineage && <td />}
                 </tr>,
                 ...y.seasons.map((s) => (
                   <tr key={`${y.year}-${s.season}`} className="border-b border-slate-100">
                     <td className="px-3 py-1.5 pl-8 text-slate-500">↳ {s.season}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{fmtT(s.target)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-700"><T v={s.target} /></td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">{fmtA(s.actual)}</td>
                     {lineage && <td className="px-3 py-1.5 text-xs text-slate-400">{[...new Set(s.cohorts)].join(" · ")}</td>}
                   </tr>
@@ -287,7 +288,7 @@ export function PipelineAnalytics({
               ])}
               <tr className="bg-slate-100/80 font-semibold text-slate-800">
                 <td className="px-3 py-2">Grand Total</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmtT(visual.grandTotalTarget)}</td>
+                <td className="px-3 py-2 text-right tabular-nums"><T v={visual.grandTotalTarget} /></td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmtA(visual.grandTotalActual)}</td>
                 {lineage && <td />}
               </tr>

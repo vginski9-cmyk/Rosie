@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { assignCourseStaffBulk, removeCourseStaff } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 // Staffing for ONE offering: who covers this run, how loaded each person is
 // under their workload policy (annual · semester · weekly · daily contact
@@ -63,7 +63,7 @@ export function OfferingStaffing({ cohortId, programId, terms, assignments, peop
                 <td className="px-2 py-1.5 text-right tabular-nums"><strong>{h(l.total)}</strong> h · {h(l.credited)} h</td>
                 <td className="px-2 py-1.5 tabular-nums text-slate-600">{l.terms.map((t) => `${t.key}: ${h(t.contactHours)} h (${fte(t.fte)})`).join(" · ")}</td>
                 <td className="px-2 py-1.5 tabular-nums text-slate-600">{l.years.map((y) => `${y.key}: ${h(y.contactHours)} h (${fte(y.fte)})`).join(" · ")}</td>
-                <td className={`px-2 py-1.5 text-right tabular-nums ${l.overloadedWeeks.length ? "font-semibold text-amber-700" : ""}`}>{l.peakWeek ? `${h(l.peakWeek.contactHours)} h · wk of ${day(l.peakWeek.key)} · ${Math.round(l.peakWeekLoad * 100)}%` : "—"}{l.overloadedWeeks.length ? <div className="text-[10px]">⚠ {l.overloadedWeeks.length} week{l.overloadedWeeks.length === 1 ? "" : "s"} over policy</div> : null}</td>
+                <td className={`px-2 py-1.5 text-right tabular-nums ${l.overloadedWeeks.length ? "font-semibold text-amber-700" : ""}`}>{l.peakWeek ? `${h(l.peakWeek.contactHours)} h · wk of ${day(l.peakWeek.key)} · ${fmt.pct(l.peakWeekLoad)}` : "—"}{l.overloadedWeeks.length ? <div className="text-[10px]">⚠ {l.overloadedWeeks.length} week{l.overloadedWeeks.length === 1 ? "" : "s"} over policy</div> : null}</td>
                 <td className="px-2 py-1.5 text-right tabular-nums">{l.peakDay ? `${h(l.peakDay.contactHours)} h · ${day(l.peakDay.key)}` : "—"}</td>
               </tr>
             ))}

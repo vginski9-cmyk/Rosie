@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { updateRequirementSet, updateRequirementItem } from "@/lib/actions";
 import type { getFamilyRequirements } from "@/lib/queries";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 // WHAT COMPLETION REQUIRES for a job family — the credentialing / accrediting body's
 // rules and every item on its list — scored ITEM BY ITEM against the sites in the
@@ -117,7 +117,7 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                         <td className="px-2 py-1.5 align-top">{c.settings.length ? c.settings.map((s) => <span key={s} className="mr-1 rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-700">{s}</span>) : <span className="text-slate-300">—</span>}</td>
                         <td className="min-w-[16rem] px-2 py-1.5 align-top text-slate-700">{c.sites.secured.length ? <>{c.sites.secured.length} site{c.sites.secured.length === 1 ? "" : "s"} · <span className="tabular-nums">{c.seatsSecured}</span> seats<span className="block text-[10px] text-slate-400">{c.sites.secured.slice(0, 3).map((s) => short(s.name)).join(", ")}{c.sites.secured.length > 3 ? ` +${c.sites.secured.length - 3}` : ""}</span>{c.unverified > 0 && <span className="block text-[10px] text-slate-400">{c.unverified} item{c.unverified === 1 ? "" : "s"} inferred only</span>}</> : <span className="text-slate-300">—</span>}</td>
                         <td className="px-2 py-1.5 align-top whitespace-nowrap text-slate-600">{c.sites.asked.length ? `${c.sites.asked.length} · ${c.seatsAsked} seats` : <span className="text-slate-300">—</span>}</td>
-                        <td className="px-2 py-1.5 text-right align-top whitespace-nowrap tabular-nums">{c.nearestSecuredMinutes != null ? `${dec(Math.round(c.nearestSecuredMinutes))} min` : "—"}</td>
+                        <td className="px-2 py-1.5 text-right align-top whitespace-nowrap tabular-nums">{fmt.minutes(c.nearestSecuredMinutes)}</td>
                         <td className="px-2 py-1.5 align-top"><span className={`whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium ${VERDICT[c.verdict].tone}`}>{VERDICT[c.verdict].label}</span>{c.mandatoryGaps.length > 0 && <span className="block text-[10px] text-rose-600">missing: {c.mandatoryGaps.map((g) => g.name).join(", ")}</span>}</td>
                       </tr>
                     );

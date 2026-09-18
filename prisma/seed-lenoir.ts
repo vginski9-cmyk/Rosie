@@ -230,7 +230,7 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     const t = deriveCohortTargets(goal, rates, 1);
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name: r.cohort, status, startDate: start, entryYear: year, isExplicit: true, plannedSeats: seats, pipelineRates: JSON.stringify({ goal, rates, termOverrides: [] }) } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: seats, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
-    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
+    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
     await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: start, endDate: end, source: "chosen", semester: seasonOfDate(start) } });
     await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId, startDate: start, endDate: end, auto: false } });
     // The weekly class pattern: the days and hours the sheet gives, in the room it names.

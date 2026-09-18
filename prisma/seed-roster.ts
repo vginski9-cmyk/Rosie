@@ -211,7 +211,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const status = startD <= new Date() ? "active" : "planned";
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }) } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
-    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: Math.round(stageTargets[s.key] ?? 0) })) });
+    await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
     for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
     for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
     program.cohorts.push({ name });
