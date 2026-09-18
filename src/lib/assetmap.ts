@@ -9,6 +9,7 @@
 //   • parsing the partner workbook (ASSET_MAP + 365_SHIFT_MAP) and writing it back out
 
 import type { DatedInstance } from "./capacitymodel";
+import { clinicalDemandRows } from "./clinicaldemand";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock, type Weekday } from "./clinicalsupply";
 
 export const ASSET_BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
@@ -126,16 +127,9 @@ export interface AssetDemandPoint { iso: string; block: ShiftBlock; settingCode:
 
 /** Dated clinical demand mapped to setting codes (rotation type → code). */
 export function assetDemand(rows: DatedInstance[], rotations: RotationCode[]): AssetDemandPoint[] {
-  const map = new Map(rotations.map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
-  const out: AssetDemandPoint[] = [];
-  for (const r of rows) {
-    if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
-    const rt = r.session.rotationType ?? "(unspecified)";
-    const Y = r.computed.Y ?? 0;
-    out.push({ iso: r.dateIso, block: shiftBlockOf(r.session.startTime ?? null), settingCode: map.get(rt.toLowerCase()) ?? null, rotationType: rt,
-      students: Math.min(r.computed.C, Y * (r.session.maxStudents ?? 0)), sections: Y, cohortId: r.cohortId, cohort: r.cohort, program: r.program, courseCode: r.courseCode, sessionId: r.session.id, startTime: r.session.startTime ?? null });
-  }
-  return out;
+  // One definition of dated clinical demand (lib/clinicaldemand) — the scheduler starts from the same rows.
+  return clinicalDemandRows(rows, rotations).map((d) => ({ iso: d.dateIso, block: d.block, settingCode: d.settingCode, rotationType: d.rotationType,
+    students: d.students, sections: d.sections, cohortId: d.row.cohortId, cohort: d.row.cohort, program: d.row.program, courseCode: d.row.courseCode, sessionId: d.row.session.id, startTime: d.row.session.startTime ?? null }));
 }
 
 export interface AssetMatchCell extends AssetSupplyCell {

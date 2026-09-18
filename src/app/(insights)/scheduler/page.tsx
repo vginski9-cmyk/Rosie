@@ -1,4 +1,4 @@
-import { getCapacityModel, getSchedulerData, getCalendarProvenance } from "@/lib/queries";
+import { getCapacityModel, getSchedulerData, getCalendarProvenance, getCapacityBridge } from "@/lib/queries";
 import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
@@ -16,6 +16,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   const { from, to } = schedulerWindow(data.cohorts);
   const sched = await getSchedulerData(data.institution.id, from, to);
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
+  const bridge = await getCapacityBridge(data.institution.id, from, to);
   return (
     <div className="space-y-6">
       <div>
@@ -24,6 +25,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
       </div>
       <ScopeStrip
         provisional={provenance}
+        bridge={bridge} self="scheduler"
         shows="A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load."
         population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
         window={`${from} → ${to} (adjustable in the levers)`}

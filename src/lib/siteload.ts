@@ -15,6 +15,23 @@ export interface LoadRow {
   setting: string | null; preceptorId: string | null; preceptor: string | null;
   /** The program's agreement with the site (none | prospect | asked | secured | declined). */
   agreement: string;
+  /** The student's lifecycle status today, and whether their future assignments are deliberately kept (Phase 4). */
+  studentStatus: string; keepAssignments: boolean;
+}
+
+/** Withdrawn students leave FUTURE operational demand unless explicitly kept (Phase 4): their past shifts stay
+ *  (they happened), their undated or future shifts are dropped and counted so the page can say so. */
+export function withdrawnRule(rows: LoadRow[], todayIso: string): { rows: LoadRow[]; excluded: number; kept: number; students: number } {
+  const keep: LoadRow[] = []; let excluded = 0, kept = 0; const who = new Set<string>();
+  for (const r of rows) {
+    const future = r.date == null || r.date > todayIso;
+    if (r.studentStatus === "withdrawn" && future) {
+      if (r.keepAssignments) { kept++; keep.push(r); } else { excluded++; who.add(r.studentId); }
+      continue;
+    }
+    keep.push(r);
+  }
+  return { rows: keep, excluded, kept, students: who.size };
 }
 export interface SiteSeats { employerId: string; /** Learner seats per day in the family's settings (day shift). */ seatsPerDay: number; preceptorsOnRecord: number }
 

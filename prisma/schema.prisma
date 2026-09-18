@@ -1565,6 +1565,9 @@ model Student {
   /// Cohort section/group this student belongs to (1-based). Maps the student to
   /// specific lab/clinical section shifts on the calendar.
   sectionIndex  Int     @default(1)
+  /// Phase 4: a withdrawn student's FUTURE assignments leave operational demand unless this is set
+  /// (e.g. a leave of absence with a planned return keeps their shifts on the books).
+  keepAssignments Boolean @default(false)
   /// Clinical rotation site/group, when on clinical rotations.
   clinicalSite  String?
   // --- Demographics (coded dropdowns, for aggregate / disaggregate analytics) ---

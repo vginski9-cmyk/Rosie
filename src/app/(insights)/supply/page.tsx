@@ -1,7 +1,7 @@
 import { getSupplyExplorer } from "@/lib/queries";
 import { presetWindow } from "@/lib/supplyexplorer";
 import { SupplyExplorer } from "@/components/SupplyExplorer";
-import { ProvisionalDatesBanner } from "@/components/Evidence";
+import { ScopeStrip } from "@/components/ScopeStrip";
 import { getCalendarProvenance } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,14 @@ export default async function SupplyPage({ searchParams }: { searchParams: { ins
         <h1 className="text-2xl font-semibold tracking-tight">Asset supply</h1>
         <p className="text-sm text-slate-500">Every site&apos;s assets shift by shift for any window: seats offered, booked and open — by asset, site, setting or period. Click a row to drill in.</p>
       </div>
-      <ProvisionalDatesBanner provenance={provenance} />
+      <ScopeStrip
+        provisional={provenance}
+        shows="A physical ceiling with the applied plan on it — every asset-shift in the window (seats offered), the asset bookings on them (booked), and what is left (open)."
+        population={`Asset bookings of every offering at ${data.institution.name}; seats offered are learners per shift × asset-shifts, a theoretical ceiling, not usable capacity`}
+        window={win.label}
+        constraints={["asset operating days and shift blocks", "date exceptions"]}
+        differs={[["Clinical scheduler", "/scheduler", "places demand under levers (agreements, preceptors, travel); its placed seats are always at or below what is open here"], ["Clinical site capacity", "/insights/clinical-sites", "matches the same ceiling against demand date by date"]]}
+      />
       <SupplyExplorer institution={data.institution} institutions={data.institutions} assets={data.assets} overrides={data.overrides} bookings={data.bookings} from={win.from} to={win.to} preset={preset} windowLabel={win.label} />
     </div>
   );

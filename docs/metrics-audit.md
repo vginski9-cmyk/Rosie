@@ -460,3 +460,16 @@ Decisions taken on the owner's "let's go" (each reversible): the provenance colu
 Not done, by design: no UI to edit an asset's provenance beyond its dataSource (the columns exist and the seed fills the source); `Employer.wblSlots` readers stay as listed in §5.
 
 Tests: `test/evidence.test.ts` (ladder and weakest-input rule, headline tones, confirmed vs inferred counts, service-line no-inference, rule lines, provisional criterion); `test/requirements.test.ts` still passes.
+
+## 10. Phase 4 — reconciliation and scope (2026-09-18)
+
+| Item | Outcome |
+|---|---|
+| Scope strip on every capacity, load, coverage, staffing, scheduler and utilization screen | added to room utilization and asset supply (the other five had it from Phase 0); each says what it shows, whose enrollment, the window, what is enforced, when it was computed, and carries the provisional-dates line |
+| One shared calculation module | `src/lib/clinicaldemand.ts` is the one definition of dated clinical demand (sections, students capped at sections × seats, shift block, setting). The scheduler's `demandUnits` and site capacity's `assetDemand` both start from it; §3's other duplicates were consolidated in Phase 0 (window, resolver, distinct students, withdrawal rate, hours bridge, goal allocation) |
+| "Why does this differ?" bridge | `getCapacityBridge()` puts the three views' totals for one scope side by side in the strip: scheduler 7,246 learner-shifts = site capacity 7,246 (one definition); site load 7,480 student-shifts, a different population (the roster, completed cohorts included, withdrawn students' future shifts left out) |
+| Withdrawn students out of future demand | `withdrawnRule()` in `src/lib/siteload.ts`: a withdrawn student's past shifts stay, their future and undated shifts leave site load and are counted on the strip; `Student.keepAssignments` (additive, default false) keeps them on the books when set. Enrollment-target demand never included withdrawn students; auto-assign already skips them |
+| 360,856 "seats of supply" | relabeled theoretical ceiling in Phase 0; the supply page's strip says the same |
+| 1,152 vs 1,098 hours; RAD-171 144 vs 90 | the hours bridge from Phase 0 names the unmapped hours on the clinical hub |
+
+Tests: `test/reconcile.test.ts` — identical rows and window give identical learner-shifts and shifts in the scheduler and site capacity (101 on the Aug 17 week fixture; capped at sections × seats; a lab is never clinical demand); withdrawn rule keeps past, drops future and undated, counts what it dropped, honors the keep flag.

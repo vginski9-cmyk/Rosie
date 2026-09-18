@@ -18,6 +18,7 @@
 // Pure functions, no React, no Prisma. Deterministic for the same input.
 
 import type { DatedInstance } from "./capacitymodel";
+import { clinicalDemandRows } from "./clinicaldemand";
 import { blocksOn, overrideIndex, overrideKey, shiftHours, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
 import { dec } from "./format";
@@ -200,30 +201,30 @@ export interface MoveLite { sessionId: string; sectionIndex: number; fromDate: s
 
 /** One unit per SECTION of every dated clinical shift; per-occurrence moves applied. */
 export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}): DemandUnit[] {
-  const codeOf = new Map(rotations.map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
   const moveKey = (sid: string, sec: number, d: string) => `${sid}|${sec}|${d}`;
   const mv = new Map(moves.map((m) => [moveKey(m.sessionId, m.sectionIndex, m.fromDate), m]));
   const out: DemandUnit[] = [];
-  for (const r of rows) {
-    if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
-    const Y = Math.max(0, Math.round(r.computed.Y ?? 0));
-    const C = Math.max(0, Math.round(r.computed.C ?? 0));
-    if (Y === 0 || C === 0) continue;
-    const rt = r.session.rotationType?.trim() || "(unspecified)";
-    const per = Math.max(1, r.session.maxStudents ?? 1);
-    let left = C;
+  // One definition of dated clinical demand (lib/clinicaldemand) — site capacity starts from the same rows;
+  // here each row is split into its sections, seats dealt in section order until the students are seated.
+  for (const d of clinicalDemandRows(rows, rotations)) {
+    const r = d.row;
+    const Y = d.sections, per = d.seatsPerSection;
+    if (Y === 0 || d.students === 0) continue;
+    const rt = d.rotationType;
+    let left = d.students;
     for (let sec = 1; sec <= Y; sec++) {
+      if (left <= 0) break;
       const seats = Math.max(1, Math.min(per, left)); left -= seats;
-      const m = mv.get(moveKey(r.session.id, sec, r.dateIso));
-      const date = m?.toDate ?? r.dateIso;
+      const m = mv.get(moveKey(r.session.id, sec, d.dateIso));
+      const date = m?.toDate ?? d.dateIso;
       const startTime = m?.startTime ?? r.session.startTime ?? null;
       out.push({
-        id: `${r.session.id}|${sec}|${r.dateIso}`,
+        id: `${r.session.id}|${sec}|${d.dateIso}`,
         cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, program: r.program, familyId: familyByCohort[r.cohortId] ?? null,
         courseId: r.courseId, courseCode: r.courseCode, courseTitle: r.courseTitle, termIndex: r.termIndex, termName: r.termName, weekOfTerm: r.weekOfTerm,
         sessionId: r.session.id, sessionTitle: r.session.title ?? null, sectionIndex: sec, sectionCount: Y,
-        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: r.dateIso,
-        rotationType: rt, settingCode: codeOf.get(rt.toLowerCase()) ?? null,
+        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: d.dateIso,
+        rotationType: rt, settingCode: d.settingCode,
         seats, preceptorsNeeded: Math.max(0, r.session.preceptorsNeeded ?? 0), facultyNeeded: Math.max(0, r.session.facultyNeeded ?? 0), clinicalMode: r.session.clinicalMode ?? null,
         seatsPerSection: per,
         holiday: m ? null : r.holiday, moved: !!m,

@@ -2975,13 +2975,13 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
 }
 
 /** Every clinical student-shift at the institution as a site-load row, plus each site's seats in the program's settings. */
-export async function getSiteLoad(institutionId?: string): Promise<{ institution: { id: string; name: string }; rows: import("./siteload").LoadRow[]; seats: import("./siteload").SiteSeats[]; programs: string[]; cohorts: string[]; terms: string[]; settings: string[] } | null> {
+export async function getSiteLoad(institutionId?: string): Promise<{ institution: { id: string; name: string }; rows: import("./siteload").LoadRow[]; withdrawn: { excluded: number; kept: number; students: number }; seats: import("./siteload").SiteSeats[]; programs: string[]; cohorts: string[]; terms: string[]; settings: string[] } | null> {
   if (institutionId === ALL_INSTITUTIONS) {
     // Every college together: each one's load, then one table.
     const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true } });
     const parts = (await Promise.all(institutions.map((i) => getSiteLoad(i.id)))).filter((p): p is NonNullable<typeof p> => !!p);
     const uniq = (xs: string[]) => [...new Set(xs)].sort();
-    return { institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, rows: parts.flatMap((p) => p.rows), seats: parts.flatMap((p) => p.seats), programs: uniq(parts.flatMap((p) => p.programs)), cohorts: uniq(parts.flatMap((p) => p.cohorts)), terms: uniq(parts.flatMap((p) => p.terms)), settings: uniq(parts.flatMap((p) => p.settings)) };
+    return { institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, rows: parts.flatMap((p) => p.rows), withdrawn: parts.reduce((a, p) => ({ excluded: a.excluded + p.withdrawn.excluded, kept: a.kept + p.withdrawn.kept, students: a.students + p.withdrawn.students }), { excluded: 0, kept: 0, students: 0 }), seats: parts.flatMap((p) => p.seats), programs: uniq(parts.flatMap((p) => p.programs)), cohorts: uniq(parts.flatMap((p) => p.cohorts)), terms: uniq(parts.flatMap((p) => p.terms)), settings: uniq(parts.flatMap((p) => p.settings)) };
   }
   const inst = institutionId
     ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
@@ -3001,7 +3001,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
     const fam = co.program.family;
     const settingSet = fam ? familySettingSet(fam, { sets: fam.requirementSets }) : new Set<string>();
     const agreementBy = new Map((fam?.familySites ?? []).map((f) => [f.employerId, f.agreementStatus]));
-    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
+    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
     for (const s of shifts) {
       const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
       const employerId = s.asset?.employerId ?? m?.employerId ?? null;
@@ -3019,13 +3019,17 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
         setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
         preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,
         agreement: employerId ? agreementBy.get(employerId) ?? e?.agreementStatus ?? "none" : "none",
+        studentStatus: s.student.status, keepAssignments: s.student.keepAssignments,
       });
     }
   }
   // Seats per site: the largest program-specific figure (a site's OR suites serve surg tech, its rooms serve radiography).
   const seats = new Map<string, import("./siteload").SiteSeats>();
   for (const s of seatsByFamilySite.values()) { const cur = seats.get(s.employerId); if (!cur || s.seatsPerDay > cur.seatsPerDay) seats.set(s.employerId, s); }
-  return { institution: inst, rows, seats: [...seats.values()], programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
+  // Withdrawn students leave future demand unless kept (Phase 4).
+  const { withdrawnRule } = await import("./siteload");
+  const ruled = withdrawnRule(rows, new Date().toISOString().slice(0, 10));
+  return { institution: inst, rows: ruled.rows, withdrawn: { excluded: ruled.excluded, kept: ruled.kept, students: ruled.students }, seats: [...seats.values()], programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
 }
 
 // ── Where the offerings run: campuses (rooms the class and lab sessions are booked in) and the
@@ -3108,4 +3112,33 @@ export async function getCalendarProvenance(institutionId?: string | null) {
     return { id: i.id, name: i.name, calendarImported: i._count.academicEvents > 0, termsTotal: terms.length, termsFromCalendar: n(["calendar"]), termsHandSet: n(["chosen", "manual"]), termsPattern: n(["pattern", "template", ""]) };
   });
   return { institutions: per, all: per.reduce((a, p) => ({ calendarImported: a.calendarImported && p.calendarImported, termsTotal: a.termsTotal + p.termsTotal, termsFromCalendar: a.termsFromCalendar + p.termsFromCalendar, termsHandSet: a.termsHandSet + p.termsHandSet, termsPattern: a.termsPattern + p.termsPattern }), { calendarImported: per.length > 0, termsTotal: 0, termsFromCalendar: 0, termsHandSet: 0, termsPattern: 0 }) };
+}
+
+/** The three capacity views' headline totals for ONE scope (institution × window), side by side, with the scope
+ *  difference that explains any gap (Phase 4): the scheduler's demand and site capacity's demand are the same
+ *  learner-shifts by definition (lib/clinicaldemand); site load counts the roster's assigned student-shifts. */
+export async function getCapacityBridge(institutionId: string, from: string, to: string) {
+  const { schedulerModel, filterDemand } = await import("./schedulerplan");
+  const { clinicalDemandRows, learnerShifts, inWindow } = await import("./clinicaldemand");
+  const { buildInstances } = await import("./capacitymodel");
+  const data = await getCapacityModel({ institutionId });
+  if (!data) return null;
+  const rows = data.cohorts.flatMap((c) => buildInstances({
+    cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
+    termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
+  } as import("./capacitymodel").CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
+  const rotations = await prisma.rotationSetting.findMany({ where: institutionId === ALL_INSTITUTIONS ? {} : { institutionId: data.institution.id }, select: { rotationType: true, settingCode: true } });
+  const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotations), from, to));
+  const { demand } = schedulerModel(data.cohorts, rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: "" })));
+  const schedulerDemand = filterDemand(demand, { from, to, cohortIds: [] }).reduce((n, u) => n + u.seats, 0);
+  const load = await getSiteLoad(institutionId === ALL_INSTITUTIONS ? ALL_INSTITUTIONS : data.institution.id);
+  const loadRows = (load?.rows ?? []).filter((r) => r.date != null && r.date >= from && r.date <= to);
+  const loadShifts = loadRows.length;
+  return {
+    from, to,
+    scheduler: { label: "Clinical scheduler", href: "/scheduler", value: schedulerDemand, unit: "learner-shifts", why: "enrollment targets of planned and running offerings, split into sections; per-date moves applied" },
+    capacity: { label: "Clinical site capacity", href: "/insights/clinical-sites", value: capacityDemand, unit: "learner-shifts", why: "the same targets on the same dates, before any move — identical to the scheduler by definition" },
+    load: { label: "Clinical site load", href: "/insights/site-load", value: loadShifts, unit: "student-shifts", why: `the roster's assigned student-shifts in the window (named students, including completed cohorts; ${load?.withdrawn.excluded ?? 0} future shifts of withdrawn students left out)` },
+  };
 }
