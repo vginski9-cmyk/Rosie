@@ -22,7 +22,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { createProgram, createCnaProgram, genTerms, CnaTemplate, CourseSeed, TermSeed } from "./seed";
 
 /** The Nurse Aide I template packs, one per college workbook (prisma/templates/cna*.json). */
-export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[] };
+export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[]; roanokeChowan: CnaTemplate[] };
 type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; genTerms: typeof genTerms; cnaPacks: CnaPacks };
 
 // ── Curricula ───────────────────────────────────────────────────────────────
@@ -150,8 +150,13 @@ export const INSTITUTIONS: InstitutionDef[] = [
     { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(20), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 24, months: 3 }] },
     { name: "Medical Office Administration", ...MOA, description: "Medical Office Administration.", goals: goals(18), programs: [{ name: "Medical Office Administration", type: "Traditional Full Time", credential: "Diploma", terms: medicalOfficeTerms, launch: "FALL", seats: 24, months: 3 }] },
   ] },
+  // Roanoke-Chowan's Medical Assisting is the continuing-education MED 3300 from the college's
+  // program-structure workbook (prisma/templates/ma-roanoke-chowan.json): 720 hours in two terms —
+  // Part 1 in the fall (class and lab, Tue/Thu 5:30–9p plus online, up to 10 students) and Part 2
+  // in the spring (class plus a precepted community-health clinical, one student per preceptor).
+  // Stated North-Star goal: 9 medical assistants a year fully productive.
   { name: "Roanoke-Chowan Community College", short: "Roanoke-Chowan CC", kind: "Community college", city: "Ahoskie", serviceArea: "Hertford, Bertie, Gates & Northampton Counties, NC", families: [
-    { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(16), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 20, months: 3 }] },
+    { name: "Medical Assisting", ...MA, description: "Medical Assisting (MED 3300 continuing education) from the college's program-structure workbook: 720 hours as Part 1 in the fall (class and lab, Tue/Thu evenings plus online) and Part 2 in the spring (class plus a precepted community-health clinical).", goals: flatGoal(9), programs: [], cnaAll: "roanokeChowan" },
   ] },
   { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven County, NC", families: [
     { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true },
@@ -177,10 +182,11 @@ export const INSTITUTIONS: InstitutionDef[] = [
  *  switched back on by removing them from this list). */
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Brunswick Community College", "Cape Fear Community College", "Davidson-Davie Community College",
-  "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College", "Roanoke-Chowan Community College",
+  "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
   "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
-  // Carteret and Lenoir are back in with their Nurse Aide I programs and offerings (see seed.ts).
+  // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
+  // workbook programs and offerings (see seed.ts).
   "College of The Albemarle", "Craven Community College",
 ]);
 

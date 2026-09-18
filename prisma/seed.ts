@@ -439,6 +439,7 @@ async function seedOfferingStudents() {
     default: { counties: ["Moore", "Hoke", "Richmond", "Montgomery", "Lee", "Cumberland", "Scotland", "Harnett"], cities: { Moore: "Pinehurst", Hoke: "Raeford", Richmond: "Rockingham", Montgomery: "Troy", Lee: "Sanford", Cumberland: "Fayetteville", Scotland: "Laurinburg", Harnett: "Lillington" } },
     "Carteret Community College": { counties: ["Carteret", "Carteret", "Carteret", "Craven", "Onslow"], cities: { Carteret: "Morehead City", Craven: "Havelock", Onslow: "Jacksonville" } },
     "Lenoir Community College": { counties: ["Lenoir", "Lenoir", "Greene", "Jones", "Wayne"], cities: { Lenoir: "Kinston", Greene: "Snow Hill", Jones: "Trenton", Wayne: "Goldsboro" } },
+    "Roanoke-Chowan Community College": { counties: ["Hertford", "Hertford", "Bertie", "Northampton", "Gates"], cities: { Hertford: "Ahoskie", Bertie: "Windsor", Northampton: "Jackson", Gates: "Gatesville" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   let made = 0, sections = 0, shifts = 0;
@@ -593,7 +594,7 @@ async function loadClinicalModels(institutionId: string) {
       // Where the course's clinical sessions name their rotation (the Nurse Aide workbook packs:
       // Medical-Surgical, Long-Term Care), each rotation's hours go to its own setting; otherwise
       // the course's catalog clinical hours go to the family's primary setting.
-      const AREA_OF: Record<string, string> = { "medical-surgical": "MS", "med-surg": "MS", "long-term care": "LTC", "skilled nursing": "LTC", "adult care": "ACH", "adult care home": "ACH" };
+      const AREA_OF: Record<string, string> = { "medical-surgical": "MS", "med-surg": "MS", "long-term care": "LTC", "skilled nursing": "LTC", "adult care": "ACH", "adult care home": "ACH", "community health": "AMB", "doctor's office": "AMB", "physician office": "AMB", "clinic": "AMB" };
       const primary = areaByCode.get(areaDefs[0].code)!;
       for (const p of fam.programs) for (const t of p.terms) for (const c of t.courses) {
         const byArea = new Map<string, number>();
@@ -619,6 +620,14 @@ async function loadClinicalModels(institutionId: string) {
         ["Long-Term Care", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Skilled Nursing", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Adult Care", "Adult care beds", "Adult Care Unit", "LTC"],
       ];
       for (const [rotationType, unitCategory, unitType, settingCode] of CNA_ROT) {
+        await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
+      }
+    }
+    if (isMa) {
+      const MA_ROT: [string, string, string | null, string][] = [
+        ["Community Health", "Ambulatory office", "Community Health Center", "AMB"], ["Doctor's Office", "Ambulatory office", "Physician Office", "AMB"], ["Physician Office", "Ambulatory office", "Physician Office", "AMB"], ["Clinic", "Ambulatory office", "Clinic", "AMB"],
+      ];
+      for (const [rotationType, unitCategory, unitType, settingCode] of MA_ROT) {
         await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
       }
     }
@@ -1213,46 +1222,58 @@ export type CnaSession = {
   notes: string | null; preceptorsNeeded: number; preceptorContactPolicy: number | null;
   rotationType: string | null; clinicalMode: string | null;
 };
+export type CnaCourse = { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number };
+export type CnaTerm = { index: number; name: string; semester: string | null; weeks: number; enrollment: number | null; courses: (CnaCourse & { sessions: CnaSession[] })[] };
 export type CnaTemplate = {
   name: string; label: string; programType: string; credential: string; sourceWorkbook: string;
   termWeeks: number; maxCohort: number;
   assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
-  course: { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number };
+  course: CnaCourse | null;
   sessions: CnaSession[];
+  /** A program in terms (Roanoke-Chowan's Medical Assisting: Fall Part 1, Spring Part 2); absent for a single-term delivery model. */
+  terms?: CnaTerm[];
 };
-/** One Nurse Aide I delivery model from the CNA workbook pack: program → one term → one course → the exact session table. */
+/** One program from a workbook pack: a delivery model (program → one term → one course → the exact
+ *  session table) or a program in terms (each term's courses with their session tables). */
 export async function createCnaProgram(institutionId: string, occupationId: string, familyId: string, tpl: CnaTemplate) {
+  const sessionRows = (sessions: CnaSession[]) => sessions.map((x) => ({
+    kind: x.kind, number: x.number, title: x.title,
+    deliveryMode: x.deliveryMode, location: x.location,
+    lengthHours: x.lengthHours, maxStudents: x.maxStudents,
+    facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
+    facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
+    week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, notes: x.notes,
+    rotationType: x.rotationType, clinicalMode: x.clinicalMode,
+  }));
+  const terms: CnaTerm[] = tpl.terms ?? [{ index: 1, name: "Term 1", semester: null, weeks: tpl.termWeeks, enrollment: tpl.maxCohort, courses: tpl.course ? [{ ...tpl.course, sessions: tpl.sessions }] : [] }];
+  const semesters = [...new Set(terms.map((t) => t.semester?.toUpperCase()).filter((s): s is string => !!s))];
   const program = await prisma.program.create({
     data: {
       institutionId, occupationId, familyId,
       name: tpl.name, programType: tpl.programType, credential: tpl.credential,
       monthsToFullProductivity: 1, status: "active",
-      launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING,SUMMER", termSlots: "FALL,SPRING,SUMMER",
+      launchCadence: semesters.length ? "ANNUAL" : "MULTI_PER_YEAR", launchTerms: semesters[0] ?? "FALL,SPRING,SUMMER", termSlots: "FALL,SPRING,SUMMER",
       defaultCohortSeats: tpl.maxCohort,
       facContactHours: tpl.assumptions.facContactHours, facWorkWeekHours: tpl.assumptions.facWorkWeekHours, facTermWeeks: tpl.assumptions.facTermWeeks,
       preContactHours: tpl.assumptions.preContactHours, preWorkWeekHours: tpl.assumptions.preWorkWeekHours, preTermWeeks: tpl.assumptions.preTermWeeks,
     },
   });
-  const term = await prisma.term.create({ data: { programId: program.id, index: 1, name: "Term 1", startWeek: 1, endWeek: tpl.termWeeks } });
-  await prisma.course.create({
-    data: {
-      termId: term.id, code: tpl.course.code, name: tpl.course.title, sequenceOrder: 0,
-      weeklyClassHours: tpl.course.weeklyClassHours, weeklyLabHours: tpl.course.weeklyLabHours, weeklyClinicalHours: tpl.course.weeklyClinicalHours,
-      creditHours: 6, semesterOffered: "All", courseType: "CORE",
-      description: `Nurse Aide I (${tpl.label}) — imported from ${tpl.sourceWorkbook}.`,
-      sessions: {
-        create: tpl.sessions.map((x) => ({
-          kind: x.kind, number: x.number, title: x.title,
-          deliveryMode: x.deliveryMode, location: x.location,
-          lengthHours: x.lengthHours, maxStudents: x.maxStudents,
-          facultyNeeded: x.facultyNeeded, supportStaffNeeded: x.supportStaffNeeded, preceptorsNeeded: x.preceptorsNeeded,
-          facultyContactPolicy: x.facultyContactPolicy, supportContactPolicy: x.supportContactPolicy, preceptorContactPolicy: x.preceptorContactPolicy,
-          week: x.week, dayOfWeek: x.dayOfWeek, startTime: x.startTime ?? null, notes: x.notes,
-          rotationType: x.rotationType, clinicalMode: x.clinicalMode,
-        })),
-      },
-    },
-  });
+  let startWeek = 1;
+  for (const t of terms) {
+    const term = await prisma.term.create({ data: { programId: program.id, index: t.index, name: t.name, semester: t.semester, startWeek, endWeek: startWeek + t.weeks - 1 } });
+    startWeek += t.weeks;
+    for (const [i, c] of t.courses.entries()) {
+      await prisma.course.create({
+        data: {
+          termId: term.id, code: c.code, name: c.title, sequenceOrder: i,
+          weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
+          creditHours: 6, semesterOffered: t.semester ?? "All", courseType: "CORE",
+          description: `${c.title} (${tpl.label}) — imported from ${tpl.sourceWorkbook}.`,
+          sessions: { create: sessionRows(c.sessions) },
+        },
+      });
+    }
+  }
   return program;
 }
 
@@ -1374,6 +1395,8 @@ async function main() {
   const cnaPacks: CnaPacks = {
     carteret: JSON.parse(readFileSync(join(__dirname, "templates", "cna.json"), "utf8")) as CnaTemplate[],
     lenoir: JSON.parse(readFileSync(join(__dirname, "templates", "cna-lenoir.json"), "utf8")) as CnaTemplate[],
+    //  · ma-roanoke-chowan.json (Roanoke-Chowan): Medical Assisting MED 3300, Part 1 (Fall) and Part 2 (Spring).
+    roanokeChowan: JSON.parse(readFileSync(join(__dirname, "templates", "ma-roanoke-chowan.json"), "utf8")) as CnaTemplate[],
   };
 
 
@@ -1416,6 +1439,13 @@ async function main() {
     { program: "Nurse Aide Level I — 14-week high school offering", start: "2027-01-11", goal: 9, seats: 10 },
     { program: "Nurse Aide Level I — 8-week summer offering", start: "2027-06-01", goal: 9, seats: 10 },
   ]));
+  // Roanoke-Chowan runs Medical Assisting once a year: Part 1 from the fall semester's first day,
+  // Part 2 in the spring — this year's class and next year's, each carrying the 9-a-year goal.
+  const roanoke = await prisma.institution.findFirst({ where: { name: "Roanoke-Chowan Community College" }, select: { id: true } });
+  if (roanoke) console.log("Roanoke-Chowan offerings:", await seedOfferings(prisma, roanoke.id, [
+    { program: "Medical Assisting", start: "2026-08-17", goal: 9, seats: 10 },
+    { program: "Medical Assisting", start: "2027-08-16", goal: 9, seats: 10 },
+  ]));
   // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms), each cohort on the
   // workbook delivery model its days and length match — see seed-lenoir.ts.
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });
@@ -1429,6 +1459,23 @@ async function main() {
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) console.log(`clinical models — ${inst.name}:`, await loadClinicalModels(inst.id));
   // Calendarize the offerings only now — against the families' final site agreements.
   console.log("offering meetings:", await seedOfferingMeetings(prisma, sandhills.id));
+  // The workbook colleges' offerings too (Lenoir's keep the patterns its cohort sheet gives them).
+  // A college with no rooms yet gets the rooms its workbook sessions name ("Freeland 127A"), so
+  // campus sessions land somewhere on the calendar; generic places (Classroom, Lab, Internet,
+  // Clinical site) are not rooms.
+  for (const inst of await prisma.institution.findMany({ where: { name: { notIn: ["Sandhills Community College", "Lenoir Community College"] } }, select: { id: true, name: true } })) {
+    if (!(await prisma.facility.count({ where: { institutionId: inst.id } }))) {
+      const campus = await prisma.campus.findFirst({ where: { institutionId: inst.id }, orderBy: { createdAt: "asc" } });
+      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } }, kind: { not: "CLINICAL" } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l)));
+      const buildings = new Map<string, string>();
+      for (const loc of locations) {
+        const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const building = m?.[1]?.trim() || "Main Building"; const room = m?.[2] ?? null;
+        if (!buildings.has(building)) buildings.set(building, (await prisma.building.create({ data: { institutionId: inst.id, campusId: campus?.id ?? (await prisma.campus.create({ data: { institutionId: inst.id, name: "Main Campus", state: "NC" } })).id, name: building } })).id);
+        await prisma.facility.create({ data: { institutionId: inst.id, name: loc, kind: "CLASSROOM", buildingId: buildings.get(building)!, building, roomNumber: room, availability: "From the program workbook", status: "active" } });
+      }
+    }
+    console.log(`offering meetings — ${inst.name}:`, await seedOfferingMeetings(prisma, inst.id));
+  }
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
