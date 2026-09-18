@@ -235,6 +235,23 @@ export function OfferingDesign({
   }
   const allMix = [...termMix.values()].reduce(addMix, emptyMix());
   const hrsTot = (m: Mix) => m.hrs.CLASS + m.hrs.LAB + m.hrs.CLINICAL;
+  // At a glance across the whole run: sessions by kind, the shifts they become at each term's
+  // enrollment target, and student-hours (hours per student × that term's enrollment).
+  const KINDS3 = ["CLASS", "LAB", "CLINICAL"] as const;
+  const glance = (() => {
+    const sessions = { CLASS: 0, LAB: 0, CLINICAL: 0 }, studentHrs = { CLASS: 0, LAB: 0, CLINICAL: 0 };
+    let tally = emptyTally();
+    for (const t of terms) {
+      const e = enrollmentByTerm[t.index] ?? 0;
+      const rs = t.courses.flatMap((c) => c.sessions.map((s) => rows.get(s.id)!).filter(Boolean));
+      for (const r of rs) if (r.kind in sessions) sessions[r.kind as keyof typeof sessions]++;
+      const m = termMix.get(t.id) ?? emptyMix();
+      for (const k of KINDS3) studentHrs[k] += m.hrs[k] * e;
+      tally = addTally(tally, tallyOf(rs, e, assumptions));
+    }
+    return { sessions, studentHrs, shifts: tally.sec, space: tally.space, facFte: tally.facFte, precFte: tally.precFte };
+  })();
+  const enrollmentPeak = Math.max(0, ...Object.values(enrollmentByTerm));
 
   const MixStrip = ({ m, size = "sm" }: { m: Mix; size?: "sm" | "lg" }) => (
     <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${size === "lg" ? "text-sm" : "text-[11px]"}`}>
@@ -277,18 +294,46 @@ export function OfferingDesign({
 
       {/* ── Whole-instantiation analytics ─────────────────────────────────── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">This instantiation — what a student sits through, and how it&apos;s delivered</div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(["CLASS", "LAB", "CLINICAL"] as const).map((k) => (
-            <div key={k} className="rounded-lg bg-slate-50 p-3">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">{KIND_LABEL[k]} hours / student</div>
-              <div className={`text-2xl font-bold tabular-nums ${k === "CLASS" ? "text-sky-700" : k === "LAB" ? "text-violet-700" : "text-rose-700"}`}>{n1(allMix.hrs[k])}h</div>
-            </div>
-          ))}
-          <div className="rounded-lg bg-slate-800 p-3 text-white">
-            <div className="text-[10px] uppercase tracking-wide text-slate-300">Total hours / student</div>
-            <div className="text-2xl font-bold tabular-nums">{n1(hrsTot(allMix))}h</div>
-          </div>
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Design at a glance — what a student sits through, and what this run needs at its enrollment targets</div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="py-1.5 pr-4 font-semibold"></th>
+                <th className="py-1.5 pr-4 text-right font-semibold text-sky-700">Class</th>
+                <th className="py-1.5 pr-4 text-right font-semibold text-violet-700">Lab</th>
+                <th className="py-1.5 pr-4 text-right font-semibold text-rose-700">Clinical</th>
+                <th className="py-1.5 text-right font-semibold text-slate-700">Total</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Sessions <span className="text-[11px] text-slate-400">— what one student sits through</span></td>
+                {KINDS3.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(glance.sessions[k])}</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(glance.sessions.CLASS + glance.sessions.LAB + glance.sessions.CLINICAL)}</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Shifts <span className="text-[11px] text-slate-400">— each session run as many times as its capacity needs, at each term&apos;s enrollment target</span></td>
+                {KINDS3.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(glance.shifts[k])}</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(glance.shifts.CLASS + glance.shifts.LAB + glance.shifts.CLINICAL)}</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Hours per student</td>
+                {KINDS3.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n1(allMix.hrs[k])} h</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n1(hrsTot(allMix))} h</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Student-hours <span className="text-[11px] text-slate-400">— hours per student × each term&apos;s enrollment target{enrollmentPeak ? ` (up to ${n0(enrollmentPeak)})` : ""}</span></td>
+                {KINDS3.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(glance.studentHrs[k])} h</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(glance.studentHrs.CLASS + glance.studentHrs.LAB + glance.studentHrs.CLINICAL)} h</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 pr-4 text-slate-600">Staffing <span className="text-[11px] text-slate-400">— from the workload assumptions</span></td>
+                <td className="py-1.5 pr-4 text-right text-slate-500" colSpan={3}>faculty <strong className="text-rose-700">{n2(glance.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(glance.precFte)} FTE</strong></td>
+                <td className="py-1.5 text-right text-slate-500">{n0(glance.space)} room / site h</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         <div className="mt-3"><MixStrip m={allMix} size="lg" /></div>
         {/* Per-term roll-up */}
@@ -359,7 +404,7 @@ export function OfferingDesign({
             <div className="text-right">
               <div className="text-3xl font-extrabold tabular-nums text-rose-700">{n0(enrollment)}</div>
               <div className="text-[10px] uppercase tracking-wide text-slate-400">enrollment target</div>
-              <div className="mt-1 text-[11px] text-slate-600">{n0(secTot)} sections · faculty <strong className="text-rose-700">{n2(tt.facFte)}</strong> FTE{tt.precFte > 0 && <> · preceptors <strong className="text-rose-700">{n2(tt.precFte)}</strong> FTE</>}</div>
+              <div className="mt-1 text-[11px] text-slate-600">{n0(secTot)} shifts · faculty <strong className="text-rose-700">{n2(tt.facFte)}</strong> FTE{tt.precFte > 0 && <> · preceptors <strong className="text-rose-700">{n2(tt.precFte)}</strong> FTE</>}</div>
             </div>
           </button>
 
@@ -396,7 +441,7 @@ export function OfferingDesign({
                     <div className="mt-1"><MixStrip m={cm} /></div>
                   </div>
                   <div className="text-right text-[11px] text-slate-600">
-                    <div>@ {n0(enrollment)}: <strong>{n0(cSecTot)}</strong> sections ({n0(ct.sec.CLASS)}/{n0(ct.sec.LAB)}/{n0(ct.sec.CLINICAL)}) · {n1(ct.space)} space hrs</div>
+                    <div>@ {n0(enrollment)}: <strong>{n0(cSecTot)}</strong> shifts ({n0(ct.sec.CLASS)} class / {n0(ct.sec.LAB)} lab / {n0(ct.sec.CLINICAL)} clinical) · {n1(ct.space)} room / site hrs</div>
                     <div>fac <strong className="text-rose-700">{n2(ct.facFte)}</strong> FTE{ct.precFte > 0 && <> · prec <strong className="text-rose-700">{n2(ct.precFte)}</strong> FTE</>}</div>
                   </div>
                 </button>

@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 // against every partner's physical assets, day by day (supply) — placed by
 // the recommendation engine under levers the room can turn together.
 export default async function SchedulerPage({ searchParams }: { searchParams: { inst?: string } }) {
-  const data = await getCapacityModel({ institutionId: searchParams.inst });
+  // The scheduler places one college's demand on that college's sites — "all" reads as the working college.
+  const data = await getCapacityModel({ institutionId: searchParams.inst === "all" ? undefined : searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   // The same window the apply action rebuilds the plan in — see lib/schedulerplan.
   const { from, to } = schedulerWindow(data.cohorts);

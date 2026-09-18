@@ -66,37 +66,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         </div>
       )}
 
-      {/* Design at a glance */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Design at a glance <span className="text-sm font-normal text-slate-400">— {program.terms.length} terms · {program.terms.reduce((n, t) => n + t.courses.length, 0)} courses</span></h2>
-          <Link href={`/programs/${program.id}/structure`} className="text-sm text-rose-700 hover:underline">Edit design &amp; sequence →</Link>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {program.terms.map((term) => (
-            <div key={term.id} className="card p-4">
-              <div className="flex items-center justify-between"><h3 className="font-semibold">{term.name}</h3><span className="text-xs text-slate-400">weeks {term.startWeek}–{term.endWeek}</span></div>
-              <div className="mt-2 divide-y divide-slate-100">
-                {term.courses.map((course) => {
-                  const counts = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<string, number>;
-                  course.sessions.forEach((s) => (counts[s.kind] += 1));
-                  return (
-                    <Link key={course.id} href={`/courses/${course.id}`} className="flex items-center justify-between gap-2 py-1.5 text-sm hover:text-rose-700">
-                      <span className="min-w-0 truncate"><span className="text-slate-400">{course.code ?? ""}</span> {course.name}</span>
-                      <span className="flex shrink-0 gap-1 text-[10px]">
-                        {counts.CLASS > 0 && <span className="rounded bg-sky-100 px-1 text-sky-700">{counts.CLASS} class</span>}
-                        {counts.LAB > 0 && <span className="rounded bg-violet-100 px-1 text-violet-700">{counts.LAB} lab</span>}
-                        {counts.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{counts.CLINICAL} clinical</span>}
-                      </span>
-                    </Link>
-                  );
-                })}
-                {term.courses.length === 0 && <p className="py-1.5 text-xs text-slate-400">No courses yet.</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <p className="text-sm text-slate-500">The design — {program.terms.length} term{program.terms.length === 1 ? "" : "s"} · {program.terms.reduce((n, t) => n + t.courses.length, 0)} course{program.terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"} — is under <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">Design &amp; sequence →</Link></p>
     </div>
   );
 }

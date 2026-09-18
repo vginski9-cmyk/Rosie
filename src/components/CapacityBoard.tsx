@@ -8,6 +8,7 @@ import {
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
 import { dec } from "@/lib/format";
+import { MultiSelect } from "@/components/MultiSelect";
 import { drillDown, type DrillAssignment, type DrillResult, type DrillScale } from "@/lib/staffingdrill";
 import type { ColLeaf } from "@/components/FteCharts";
 
@@ -42,6 +43,9 @@ export interface CapacityCohort {
   program: string;
   familyId: string | null;
   family: string | null;
+  /** The college running it (set when several colleges read together). */
+  institutionId?: string;
+  institution?: string;
   students: number;
   enrollmentByTerm: Record<number, number>;
   termStartByIndex: Record<number, string | null>;
@@ -232,14 +236,11 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
       <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
         <div className="flex flex-wrap gap-x-8 gap-y-3">
           {cohorts.length > 1 && (
-            <div>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Cohorts</div>
-              <div className="flex flex-wrap gap-1.5">
-                {cohorts.map((c) => (
-                  <Chip key={c.cohortId} on={cohortsOn.has(c.cohortId)} label={`${c.cohort} · ${c.program}`} onClick={() => setCohortsOn((s) => toggle(s, c.cohortId))} />
-                ))}
-              </div>
-            </div>
+            <MultiSelect
+              label="Cohorts" noun="cohorts"
+              options={cohorts.map((c) => ({ value: c.cohortId, label: c.cohort, group: [c.institution, c.program].filter(Boolean).join(" · "), hint: `${c.status}${c.students ? ` · ${c.students} students` : ""}` }))}
+              selected={cohortsOn} onChange={setCohortsOn}
+            />
           )}
           <div>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Term Number</div>

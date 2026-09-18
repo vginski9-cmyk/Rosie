@@ -2091,19 +2091,33 @@ export async function getCohortPlacements(cohortId: string) {
  *  inputs. Per-term enrollment comes from the same backward derivation the
  *  analytics page uses (the cohort's North-Star goal through the family's goal
  *  plan rates), so all surfaces agree on the numbers. */
-export async function getCapacityModel(opts?: { institutionId?: string; cohortId?: string }) {
-  const { deriveCohortTargets } = await import("./pipeline");
-  const { BENCHMARK_RATES } = await import("./northstar");
+/** The id the Insights pages use for every college at once. */
+export const ALL_INSTITUTIONS = "all";
 
+export async function getCapacityModel(opts?: { institutionId?: string; cohortId?: string }) {
   // Which institution: the one asked for, the one an offering belongs to, or —
   // with no hint — the one that actually has offerings running (not the
-  // alphabetically first college in the workspace).
+  // alphabetically first college in the workspace). "all" reads every college together.
   const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
   let wantedId = opts?.institutionId ?? null;
+  if (wantedId === ALL_INSTITUTIONS) {
+    const parts = await Promise.all(institutions.map((i) => capacityModelFor(i)));
+    return {
+      institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, institutions,
+      cohorts: parts.flatMap((p) => p.cohorts), clinicalSites: parts.flatMap((p) => p.clinicalSites), rooms: parts.flatMap((p) => p.rooms), people: parts.flatMap((p) => p.people),
+    };
+  }
   if (!wantedId && opts?.cohortId) wantedId = (await prisma.cohort.findUnique({ where: { id: opts.cohortId }, select: { program: { select: { institutionId: true } } } }))?.program.institutionId ?? null;
   let institution = institutions.find((i) => i.id === wantedId);
   if (!institution) institution = (await defaultInstitution()) ?? institutions[0];
   if (!institution) return null;
+  return { institution, institutions, ...(await capacityModelFor(institution)) };
+}
+
+/** One college's offerings as the capacity model reads them, with its sites, rooms and people. */
+async function capacityModelFor(institution: { id: string; name: string }) {
+  const { deriveCohortTargets } = await import("./pipeline");
+  const { BENCHMARK_RATES } = await import("./northstar");
 
   // The institution's coded holidays & breaks (imported academic calendar) —
   // every dated session checks against these before the U.S. defaults.
@@ -2207,6 +2221,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
       return {
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
+        institutionId: institution.id, institution: institution.name,
         students: co._count.students,
         enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays,
         // One row per booked section — the calendar's draggable shift instances.
@@ -2275,7 +2290,7 @@ export async function getCapacityModel(opts?: { institutionId?: string; cohortId
     prisma.person.findMany({ where: { institutionId: institution.id, active: true, role: { in: ["instructor", "preceptor", "coordinator"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true } }),
   ]);
 
-  return { institution, institutions, cohorts, clinicalSites, rooms, people };
+  return { cohorts, clinicalSites, rooms, people };
 }
 
 /** Everything the per-offering design & sequence page needs: the template's
@@ -2891,7 +2906,14 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
 }
 
 /** Every clinical student-shift at the institution as a site-load row, plus each site's seats in the program's settings. */
-export async function getSiteLoad(institutionId?: string) {
+export async function getSiteLoad(institutionId?: string): Promise<{ institution: { id: string; name: string }; rows: import("./siteload").LoadRow[]; seats: import("./siteload").SiteSeats[]; programs: string[]; cohorts: string[]; terms: string[]; settings: string[] } | null> {
+  if (institutionId === ALL_INSTITUTIONS) {
+    // Every college together: each one's load, then one table.
+    const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true } });
+    const parts = (await Promise.all(institutions.map((i) => getSiteLoad(i.id)))).filter((p): p is NonNullable<typeof p> => !!p);
+    const uniq = (xs: string[]) => [...new Set(xs)].sort();
+    return { institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, rows: parts.flatMap((p) => p.rows), seats: parts.flatMap((p) => p.seats), programs: uniq(parts.flatMap((p) => p.programs)), cohorts: uniq(parts.flatMap((p) => p.cohorts)), terms: uniq(parts.flatMap((p) => p.terms)), settings: uniq(parts.flatMap((p) => p.settings)) };
+  }
   const inst = institutionId
     ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
     : await defaultInstitution();
@@ -2935,4 +2957,57 @@ export async function getSiteLoad(institutionId?: string) {
   const seats = new Map<string, import("./siteload").SiteSeats>();
   for (const s of seatsByFamilySite.values()) { const cur = seats.get(s.employerId); if (!cur || s.seatsPerDay > cur.seatsPerDay) seats.set(s.employerId, s); }
   return { institution: inst, rows, seats: [...seats.values()], programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
+}
+
+// ── Where the offerings run: campuses (rooms the class and lab sessions are booked in) and the
+//    clinical sites their shifts are booked at, located for a map ─────────────────────────────
+export interface MapPoint {
+  id: string; kind: "campus" | "site"; name: string; institution: string; institutionId: string;
+  city: string | null; lat: number; lng: number;
+  /** The offerings at this place, with what runs there. */
+  offerings: { cohortId: string; cohort: string; program: string; programId: string; status: string; students: number; kinds: string[] }[];
+}
+export async function getOfferingsMap(): Promise<{ points: MapPoint[]; unlocated: { cohort: string; program: string; institution: string }[] }> {
+  const { geocodeOffline } = await import("./geo");
+  const cohorts = await prisma.cohort.findMany({
+    where: { status: { in: ["planned", "active"] } },
+    select: {
+      id: true, name: true, status: true, _count: { select: { students: true } },
+      program: { select: { id: true, name: true, institution: { select: { id: true, name: true, city: true, state: true, campuses: { select: { id: true, name: true, city: true, state: true, lat: true, lng: true, isMain: true } } } } } },
+      meetings: { select: { kind: true, facility: { select: { id: true, name: true, buildingRef: { select: { campus: { select: { id: true, name: true, city: true, state: true, lat: true, lng: true } } } } } }, employer: { select: { id: true, name: true, city: true, state: true, lat: true, lng: true } } } },
+    },
+    orderBy: { startDate: "asc" },
+  });
+  const points = new Map<string, MapPoint>();
+  const unlocated: { cohort: string; program: string; institution: string }[] = [];
+  const locate = (p: { lat: number | null; lng: number | null; city: string | null; state: string | null }) => {
+    if (p.lat != null && p.lng != null) return { lat: p.lat, lng: p.lng };
+    const g = geocodeOffline({ city: p.city, state: p.state ?? "NC" });
+    return g ? { lat: g.lat, lng: g.lng } : null;
+  };
+  const add = (key: string, kind: MapPoint["kind"], name: string, inst: { id: string; name: string }, place: { lat: number | null; lng: number | null; city: string | null; state: string | null }, co: (typeof cohorts)[number], k: string) => {
+    const loc = locate(place); if (!loc) return false;
+    const pt = points.get(key) ?? { id: key, kind, name, institution: inst.name, institutionId: inst.id, city: place.city, ...loc, offerings: [] };
+    let o = pt.offerings.find((x) => x.cohortId === co.id);
+    if (!o) { o = { cohortId: co.id, cohort: co.name, program: co.program.name, programId: co.program.id, status: co.status, students: co._count.students, kinds: [] }; pt.offerings.push(o); }
+    if (!o.kinds.includes(k)) o.kinds.push(k);
+    points.set(key, pt); return true;
+  };
+  for (const co of cohorts) {
+    const inst = co.program.institution;
+    let placed = false;
+    for (const m of co.meetings) {
+      if (m.kind === "CLINICAL") { if (m.employer && add(`site:${m.employer.id}`, "site", m.employer.name, inst, m.employer, co, "clinical")) placed = true; continue; }
+      const campus = m.facility?.buildingRef?.campus;
+      if (campus && add(`campus:${campus.id}`, "campus", campus.name, inst, campus, co, m.kind.toLowerCase())) placed = true;
+    }
+    if (!placed) {
+      // Not calendarized (or no room yet): it runs at the college's main campus.
+      const main = inst.campuses.find((c) => c.isMain) ?? inst.campuses[0] ?? null;
+      const place = main ?? { lat: null, lng: null, city: inst.city, state: inst.state };
+      if (!add(main ? `campus:${main.id}` : `inst:${inst.id}`, "campus", main?.name ?? inst.name, inst, place, co, "campus")) unlocated.push({ cohort: co.name, program: co.program.name, institution: inst.name });
+    }
+  }
+  const out = [...points.values()].sort((a, b) => a.institution.localeCompare(b.institution) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  return { points: out, unlocated };
 }

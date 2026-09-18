@@ -104,19 +104,90 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
 
   const psTotal = calc.perStudent.CLASS + calc.perStudent.LAB + calc.perStudent.CLINICAL;
   const shTotal = calc.sectionHrs.CLASS + calc.sectionHrs.LAB + calc.sectionHrs.CLINICAL;
+  // Sessions the template holds, by kind (one row each — what a student sits through).
+  const sessionCount = useMemo(() => { const n = { CLASS: 0, LAB: 0, CLINICAL: 0 }; for (const s of allSessions) n[s.kind]++; return n; }, [allSessions]);
+  const KINDS = ["CLASS", "LAB", "CLINICAL"] as const;
+  const KIND_TEXT: Record<Kind, string> = { CLASS: "text-sky-700", LAB: "text-violet-700", CLINICAL: "text-rose-700" };
+  const KIND_NAME: Record<Kind, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
 
   return (
     <div className="space-y-4">
-      {/* Enrollment driver + what the design adds up to, one row */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <label className="flex items-center gap-3 text-sm">
-          <span className="font-semibold text-slate-700">Planned enrollment</span>
-          <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
-          <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
-        </label>
-        <span className="text-xs text-slate-500">Per student: <strong className="text-slate-800">{n1(psTotal)} h</strong> ({n1(calc.perStudent.CLASS)} class · {n1(calc.perStudent.LAB)} lab · {n1(calc.perStudent.CLINICAL)} clinical)</span>
-        <span className="text-xs text-slate-500">At {n0(enrollment)}: <strong className="text-slate-800">{n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} sections</strong> · {n0(shTotal)} space h · faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong></span>
-      </div>
+      {/* Design at a glance — sessions, shifts and hours by kind, at the planned enrollment */}
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-900">Design at a glance <span className="text-sm font-normal text-slate-400">— {terms.length} term{terms.length === 1 ? "" : "s"} · {terms.reduce((n, t) => n + t.courses.length, 0)} course{terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"}</span></h2>
+          <label className="flex items-center gap-3 text-sm">
+            <span className="font-semibold text-slate-700">Planned enrollment</span>
+            <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
+            <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
+          </label>
+        </div>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-slate-400">
+                <th className="py-1.5 pr-4 font-semibold"></th>
+                {KINDS.map((k) => <th key={k} className={`py-1.5 pr-4 text-right font-semibold ${KIND_TEXT[k]}`}>{KIND_NAME[k]}</th>)}
+                <th className="py-1.5 text-right font-semibold text-slate-700">Total</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Sessions <span className="text-[11px] text-slate-400">— what one student sits through</span></td>
+                {KINDS.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(sessionCount[k])}</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(sessionCount.CLASS + sessionCount.LAB + sessionCount.CLINICAL)}</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Shifts at {n0(enrollment)} students <span className="text-[11px] text-slate-400">— each session run as many times as its capacity needs</span></td>
+                {KINDS.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(calc.sections[k])}</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)}</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Hours per student</td>
+                {KINDS.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n1(calc.perStudent[k])} h</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n1(psTotal)} h</td>
+              </tr>
+              <tr className="border-b border-slate-100">
+                <td className="py-1.5 pr-4 text-slate-600">Student-hours at {n0(enrollment)} <span className="text-[11px] text-slate-400">— hours per student × enrollment</span></td>
+                {KINDS.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(calc.perStudent[k] * enrollment)} h</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(psTotal * enrollment)} h</td>
+              </tr>
+              <tr>
+                <td className="py-1.5 pr-4 text-slate-600">Room / site hours at {n0(enrollment)} <span className="text-[11px] text-slate-400">— shifts × length</span></td>
+                {KINDS.map((k) => <td key={k} className="py-1.5 pr-4 text-right font-medium text-slate-800">{n0(calc.sectionHrs[k])} h</td>)}
+                <td className="py-1.5 text-right font-semibold text-slate-900">{n0(shTotal)} h</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-2 text-xs text-slate-500">Staffing at {n0(enrollment)}: faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong> <span className="text-slate-400">(from the workload assumptions below)</span></div>
+        {/* Terms → courses, the sessions each holds */}
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {terms.map((term) => (
+            <div key={term.id} className="rounded-lg border border-slate-100 p-3">
+              <div className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-800">{term.name}{term.semester ? <span className="font-normal text-slate-400"> · {term.semester}</span> : null}</span><span className="text-xs text-slate-400">weeks {term.startWeek}–{term.endWeek}</span></div>
+              <div className="mt-1 divide-y divide-slate-100">
+                {term.courses.map((course) => {
+                  const n = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<Kind, number>; for (const s of course.sessions) n[s.kind]++;
+                  const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
+                  return (
+                    <div key={course.id} className="flex items-center justify-between gap-2 py-1 text-xs">
+                      <span className="min-w-0 truncate text-slate-700"><span className="text-slate-400">{course.code ?? ""}</span> {course.name}</span>
+                      <span className="flex shrink-0 gap-1 text-[10px]">
+                        {n.CLASS > 0 && <span className="rounded bg-sky-100 px-1 text-sky-700">{n.CLASS} class</span>}
+                        {n.LAB > 0 && <span className="rounded bg-violet-100 px-1 text-violet-700">{n.LAB} lab</span>}
+                        {n.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{n.CLINICAL} clinical</span>}
+                        <span className="text-slate-400">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h</span>
+                      </span>
+                    </div>
+                  );
+                })}
+                {term.courses.length === 0 && <p className="py-1 text-xs text-slate-400">No courses yet.</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <details open={allSessions.some((s) => s.kind === "CLINICAL")} className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Clinical analytics <span className="font-normal text-slate-400">— settings, modes, shifts and days across the sequence</span></summary>
@@ -217,7 +288,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                         {n.CLASS + n.LAB + n.CLINICAL === 0 && <span className="rounded bg-amber-50 px-1 text-amber-700">no sessions yet</span>}
                       </span>
                       {cc.n > 0 && <span className="flex flex-wrap gap-1 text-[10px]">{cc.settings.map(([k, h]) => <span key={k} className={`rounded border px-1 ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{k} {n1(h)}h</span>)}</span>}
-                      <span className="ml-auto text-[11px] tabular-nums text-slate-500">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h / student · {n0(fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL)} sections · fac <strong className="text-rose-700">{n2(fp.facFte)}</strong>{fp.precFte > 0 ? <> · prec <strong className="text-rose-700">{n2(fp.precFte)}</strong></> : null} FTE</span>
+                      <span className="ml-auto text-[11px] tabular-nums text-slate-500">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h / student · {n0(fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL)} shifts at {n0(enrollment)} · fac <strong className="text-rose-700">{n2(fp.facFte)}</strong>{fp.precFte > 0 ? <> · prec <strong className="text-rose-700">{n2(fp.precFte)}</strong></> : null} FTE</span>
                       <Link href={`/courses/${course.id}`} className="text-[11px] text-rose-600 hover:underline">open ↦</Link>
                     </div>
 
