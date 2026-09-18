@@ -66,6 +66,9 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
     const courseStudentHrs = new Map<string, { CLASS: number; LAB: number; CLINICAL: number }>();
     const courseFootprint = new Map<string, { sec: { CLASS: number; LAB: number; CLINICAL: number }; space: { CLASS: number; LAB: number; CLINICAL: number }; facFte: number; precFte: number }>();
     const termStudentHrs = new Map<string, { CLASS: number; LAB: number; CLINICAL: number }>();
+    // Contact hours landing in each template week (term × week) — the concurrent need, as
+    // opposed to the FTE totals above, which add every term's semester-FTE together.
+    const weekLoad = new Map<string, { fac: number; pre: number }>();
     for (const t of terms) {
       const th = { CLASS: 0, LAB: 0, CLINICAL: 0 };
       for (const c of t.courses) {
@@ -74,6 +77,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         for (const s of c.sessions) {
           const r = sessionService(s, enrollment, DEFAULT_SERVICE);
           bySession.set(s.id, r);
+          const wk = `${t.id}|${s.week ?? 0}`; const w = weekLoad.get(wk) ?? { fac: 0, pre: 0 }; w.fac += r.facultyContactHours; w.pre += r.preceptorContactHours; weekLoad.set(wk, w);
           perStudent[s.kind] += s.lengthHours; ch[s.kind] += s.lengthHours; th[s.kind] += s.lengthHours;
           sectionHrs[s.kind] += r.spaceHours; sections[s.kind] += r.sections;
           fp.sec[s.kind] += r.sections; fp.space[s.kind] += r.spaceHours; fp.facFte += r.facultyFte; fp.precFte += r.preceptorFte;
@@ -84,8 +88,11 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
       }
       termStudentHrs.set(t.id, th);
     }
-    return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, courseFootprint, termStudentHrs };
-  }, [terms, enrollment]);
+    // Peak week: the most faculty / preceptor hours any one template week asks for, as people working a full week.
+    const peakFacHrs = Math.max(0, ...[...weekLoad.values()].map((w) => w.fac)), peakPreHrs = Math.max(0, ...[...weekLoad.values()].map((w) => w.pre));
+    const peakFacFte = peakFacHrs / Math.max(1, assumptions.facWorkWeekHours), peakPreFte = peakPreHrs / Math.max(1, assumptions.preWorkWeekHours);
+    return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, courseFootprint, termStudentHrs, peakFacFte, peakPreFte };
+  }, [terms, enrollment, assumptions.facWorkWeekHours, assumptions.preWorkWeekHours]);
 
   // Every session in the program — its values feed the drop-downs on every row.
   const allSessions = useMemo(() => terms.flatMap((t) => t.courses.flatMap((c) => c.sessions)), [terms]);
@@ -160,7 +167,10 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
             </tbody>
           </table>
         </div>
-        <div className="mt-2 text-xs text-slate-500">Staffing at {n0(enrollment)}: faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong> <span className="text-slate-400">(from the workload assumptions below)</span></div>
+        <div className="mt-2 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
+          <div><span className="font-semibold text-slate-600">Across the whole program</span> (semester-FTE of every term added together — a budget total, not people at once): faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong>, provided by partner sites.</div>
+          <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ a {n0(assumptions.facWorkWeekHours)}-hour week): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {n0(Math.ceil(calc.peakFacFte - 1e-9))} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {n0(Math.ceil(calc.peakPreFte - 1e-9))} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
+        </div>
         {/* Terms → courses, the sessions each holds */}
         <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {terms.map((term) => (

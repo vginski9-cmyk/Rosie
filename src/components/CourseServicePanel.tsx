@@ -58,8 +58,8 @@ export function CourseServicePanel({ sessions, defaultEnrollment }: { sessions: 
       <div>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Service &amp; FTE requirements at {num(enrollment)} students</h3>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-          <BigStat label="Sections needed" value={num(t.sections)} sub={`${num(t.classSections)} class · ${num(t.labSections)} lab · ${num(t.clinicalSections)} clinical`} />
-          <BigStat label="Space / service hours" value={num(t.spaceHours)} sub="sections × session length" />
+          <BigStat label="Shifts" value={num(t.sections)} sub={`each session run as many times as its capacity needs: ${num(t.classSections)} class · ${num(t.labSections)} lab · ${num(t.clinicalSections)} clinical`} />
+          <BigStat label="Room / site hours" value={num(t.spaceHours)} sub="shifts × session length" />
           <BigStat label="Faculty contact hours" value={num(t.facultyContactHours, 1)} sub="per term, all sections" />
           <BigStat label="Faculty FTE" value={num(t.facultyFte, 2)} sub="contact hrs ÷ 256 (16 h/wk × 16 wk)" accent />
           <BigStat label="Preceptor contact hours" value={num(t.preceptorContactHours, 1)} sub="per term, all sections" />

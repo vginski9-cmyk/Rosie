@@ -7,7 +7,7 @@ import {
   type ScheduleSession, type Shift, type SectionStudent, type SectionOverride,
 } from "@/lib/schedule";
 import { SectionManager } from "@/components/SectionManager";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 export interface TermTemplate {
   id: string;
@@ -277,7 +277,7 @@ export function ScheduleBoard({ programId, terms, roster, students, sectionOverr
                           <div className="text-[11px] capitalize text-slate-400">{p?.role}{p?.employerName ? ` · ${p.employerName}` : ""}</div>
                         </div>
                         <div className="shrink-0 text-right">
-                          <div className="text-sm font-semibold tabular-nums">{l.contactHours.toLocaleString()} hrs</div>
+                          <div className="text-sm font-semibold tabular-nums">{fmt.hours(l.contactHours)} hrs</div>
                           <div className="text-[11px] text-slate-400">{dec(l.weeklyAvgHours)}/wk · {l.shifts} shifts</div>
                         </div>
                       </div>
@@ -287,9 +287,9 @@ export function ScheduleBoard({ programId, terms, roster, students, sectionOverr
                         <div className="bg-rose-500" style={{ width: `${(l.clinicalHours / max) * 100}%` }} />
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
-                        <span className="inline-flex items-center gap-1 text-sky-600"><span className="h-2 w-2 rounded-sm bg-sky-500" />class {l.classHours.toLocaleString()}h</span>
-                        <span className="inline-flex items-center gap-1 text-violet-600"><span className="h-2 w-2 rounded-sm bg-violet-500" />lab {l.labHours.toLocaleString()}h</span>
-                        <span className="inline-flex items-center gap-1 text-rose-600"><span className="h-2 w-2 rounded-sm bg-rose-500" />clinical {l.clinicalHours.toLocaleString()}h</span>
+                        <span className="inline-flex items-center gap-1 text-sky-600"><span className="h-2 w-2 rounded-sm bg-sky-500" />class {fmt.hours(l.classHours)}h</span>
+                        <span className="inline-flex items-center gap-1 text-violet-600"><span className="h-2 w-2 rounded-sm bg-violet-500" />lab {fmt.hours(l.labHours)}h</span>
+                        <span className="inline-flex items-center gap-1 text-rose-600"><span className="h-2 w-2 rounded-sm bg-rose-500" />clinical {fmt.hours(l.clinicalHours)}h</span>
                         <span className="text-slate-400">· {l.distinctDays} days</span>
                       </div>
                     </div>
@@ -637,5 +637,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <label className="block"><span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>{children}</label>;
 }
 function Stat({ label, value, dot }: { label: string; value: number; dot?: string }) {
-  return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">{dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}{label}</div><div className="mt-0.5 text-2xl font-semibold tabular-nums text-slate-900">{value.toLocaleString()}</div></div>;
+  return <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">{dot && <span className={`h-2 w-2 rounded-full ${dot}`} />}{label}</div><div className="mt-0.5 text-2xl font-semibold tabular-nums text-slate-900">{fmt.hours(value)}</div></div>;
 }

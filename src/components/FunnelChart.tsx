@@ -110,6 +110,7 @@ export function FunnelChart({ stages, programId, termEnrollment }: { stages: Fun
                     <div className="w-44 shrink-0 text-right">
                       <div className="text-[13px] font-medium leading-tight text-slate-700">Enrolled — {t.label}{t.current ? <span className="ml-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">now</span> : null}</div>
                       {conv != null ? <div className="text-[10px] text-slate-400">{fmt.pct(conv)} retained from the term above</div> : t.current ? <div className="text-[10px] text-slate-400">still enrolled today</div> : null}
+                      {t.current && t.actual != null && t.actual < t.target && <div className="text-[10px] font-medium text-amber-700">target {fmt.num(t.target)} · enrolled now {fmt.num(t.actual)} — at risk</div>}
                     </div>
                     <div className="relative flex-1">
                       <div

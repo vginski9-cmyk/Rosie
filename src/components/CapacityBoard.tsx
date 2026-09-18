@@ -1229,7 +1229,8 @@ function CoverageView({ rows, cohorts, rooms, people, sites }: {
               <thead className="sticky top-0 bg-slate-50">
                 <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-2 font-semibold">Date</th>
-                  <th className="px-3 py-2 text-right font-semibold">Students</th>
+                  <th className="px-3 py-2 text-right font-semibold" title="each cohort once — its biggest session's seats that day">Students (distinct)</th>
+                  <th className="px-3 py-2 text-right font-semibold" title="seats summed over every session of the day: a student in class and lab counts twice">Student-attendances</th>
                   <th className="px-3 py-2 text-right font-semibold">Shifts</th>
                   <th className="px-3 py-2 text-right font-semibold">Preceptors on site</th>
                   <th className="px-3 py-2 font-semibold">What arrives</th>
@@ -1240,6 +1241,7 @@ function CoverageView({ rows, cohorts, rooms, people, sites }: {
                   <tr key={d.dateIso} className="border-b border-slate-100 align-top">
                     <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">{fmtDate(d.dateIso)}{d.holiday ? <span className="ml-1 text-[10px] font-semibold text-rose-600">⚠ {d.holiday}</span> : null}</td>
                     <td className="px-3 py-1.5 text-right font-mono font-semibold tabular-nums">{n0(d.studentsOnSite)}</td>
+                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-slate-500">{n0(d.attendances)}</td>
                     <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n0(d.shifts)}</td>
                     <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n0(d.preceptorsOnSite)}</td>
                     <td className="px-3 py-1.5 text-slate-500">{[...new Set(d.details.map((x) => `${x.startTime ? x.startTime + " " : ""}${x.courseCode ?? x.courseTitle}: ${x.students} stu (${x.kind.toLowerCase()})${x.setting ? ` @ ${x.setting}` : ""} · ${x.cohort}`))].join(" / ")}</td>

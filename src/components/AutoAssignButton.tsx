@@ -1,4 +1,5 @@
 "use client";
+import { fmt } from "@/lib/format";
 
 // One button: calendarize, place clinicals on partner assets, staff every
 // shift under workload policies, and put every learner in sections and on
@@ -10,8 +11,8 @@ import Link from "next/link";
 import { autoAssignOffering } from "@/lib/actions";
 import type { AutoAssignSummary } from "@/lib/autoassign";
 
-const n = (x: number) => x.toLocaleString();
-const pct = (x: number) => `${Math.round(x * 100)}%`;
+const n = (x: number) => fmt.num(x);
+const pct = (x: number) => fmt.pct(x);
 
 export function AutoAssignButton({ cohortId, programId, meetings, staffedShifts, studentShifts, students }: { cohortId: string; programId: string; meetings: number; staffedShifts: number; studentShifts: number; students: number }) {
   const router = useRouter();

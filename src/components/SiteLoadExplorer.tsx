@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { applyFilter, optionsOf, pivot, siteStats, siteByPeriod, concentration, rowsToCsv, pivotToCsv, DIM_LABEL, MEASURE_LABEL, isTimeDim, type LoadRow, type SiteSeats, type LoadDim, type LoadMeasure, type LoadFilter, type SiteStat } from "@/lib/siteload";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 const RING: Record<string, string> = { Core: "bg-emerald-50 text-emerald-800", "Ring 1": "bg-sky-50 text-sky-800", "Ring 2": "bg-amber-50 text-amber-800", "Ring 3": "bg-rose-50 text-rose-800" };
@@ -17,7 +17,7 @@ const fmtP = (p: string) => (/^\d{4}-\d{2}$/.test(p) ? new Date(p + "-01T00:00:0
 const n1 = (v: number) => dec(v, 1);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const heat = (v: number, max: number) => (v <= 0 ? "" : v / max < 0.25 ? "bg-rose-100 text-rose-900" : v / max < 0.5 ? "bg-rose-200 text-rose-900" : v / max < 0.75 ? "bg-rose-300 text-rose-950" : "bg-rose-500 text-white");
-const fmtCell = (v: number, m: LoadMeasure) => (m === "hours" ? Math.round(v).toLocaleString("en-US") : v.toLocaleString("en-US"));
+const fmtCell = (v: number, m: LoadMeasure) => (m === "hours" ? fmt.hours(v) : fmt.num(v));
 const download = (name: string, text: string) => { const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); };
 
 /** The query bar's dimensions, in the order they read: when · who · where · what. */
@@ -92,7 +92,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
           <button onClick={() => setQueryOpen((v) => !v)} className="text-sm font-semibold text-slate-800">{queryOpen ? "▾" : "▸"} Query <span className="font-normal text-slate-500">— {active.length ? summary : "everything: every cohort, class, site and date"}</span></button>
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-500"><strong className="text-slate-800">{total.toLocaleString("en-US")}</strong> of {rows.length.toLocaleString("en-US")} student-shifts</span>
+            <span className="text-slate-500"><strong className="text-slate-800">{fmt.num(total)}</strong> of {fmt.num(rows.length)} student-shifts</span>
             {active.length > 0 && <button onClick={() => setFilter({})} className="text-slate-400 hover:text-rose-600">clear all</button>}
             <button onClick={() => download(`clinical_site_load_${stamp}.csv`, rowsToCsv(filtered))} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Export these rows ↓</button>
           </div>
@@ -119,10 +119,10 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
       {/* The headline of whatever the query leaves */}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
         {[
-          ["Student-days", total.toLocaleString("en-US"), span ? `${fmtP(span[0])} → ${fmtP(span[1])}` : "no dated shifts"],
+          ["Student-days", fmt.num(total), span ? `${fmtP(span[0])} → ${fmtP(span[1])}` : "no dated shifts"],
           ["Students placed", String(students), `${stats.length} site${stats.length === 1 ? "" : "s"} carrying them`],
           ["Top 3 sites carry", pct(conc.topShare), conc.top.map((t) => t.replace(/ — .*$/, "").slice(0, 22)).join(" · ")],
-          ["Secured sites", `${secured.length} of ${stats.length}`, unsecuredLoad ? `${unsecuredLoad.toLocaleString("en-US")} student-days at sites without a secured agreement` : "every student-day is at a secured site"],
+          ["Secured sites", `${secured.length} of ${stats.length}`, unsecuredLoad ? `${fmt.num(unsecuredLoad)} student-days at sites without a secured agreement` : "every student-day is at a secured site"],
           ["Watch", String(overfull.length + noPreceptor.length), `${overfull.length} over their seats · ${noPreceptor.length} with no preceptor named`],
         ].map(([k, v, d]) => <div key={k} className="rounded-xl border border-slate-200 bg-white px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{k}</div><div className="text-xl font-semibold tabular-nums text-slate-900">{v}</div><div className="text-[11px] text-slate-500">{d}</div></div>)}
       </div>
@@ -148,7 +148,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                       <td className="px-3 py-1.5 text-slate-400">{i + 1}</td>
                       <td className="px-2 py-1.5"><button onClick={() => setOpen(open === key ? null : key)} className="text-left font-medium text-slate-800 hover:text-rose-700">{open === key ? "▾" : "▸"} {s.site}</button><span className="block text-[10px] text-slate-400">{[s.system, s.facilityType, s.county ? `${s.county} County` : null].filter(Boolean).join(" · ")}</span></td>
                       <td className="px-2 py-1.5"><div className="flex items-center gap-2"><div className="h-2.5 flex-1 overflow-hidden rounded bg-slate-100"><div className="h-full bg-rose-500" style={{ width: `${Math.round((s.studentDays / maxDays) * 100)}%` }} /></div><span className="w-10 text-right tabular-nums text-slate-700">{pct(s.share)}</span></div></td>
-                      <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-900">{s.studentDays.toLocaleString("en-US")}</td>
+                      <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-900">{fmt.num(s.studentDays)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{s.students}</td>
                       <td className="px-2 py-1.5">{s.programs.map((p) => <span key={p.name} className="mr-1 inline-block rounded bg-slate-100 px-1 text-[10px] text-slate-700">{p.name} {p.students}</span>)}</td>
                       <td className="px-2 py-1.5">{s.settings.slice(0, 4).map((x) => <span key={x.code} className="mr-1 font-mono text-[10px] text-slate-600">{x.code} {x.studentDays}</span>)}{s.settings.length > 4 ? <span className="text-[10px] text-slate-400">+{s.settings.length - 4}</span> : null}</td>
@@ -165,7 +165,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                           <div className="grid gap-3 text-[11px] md:grid-cols-4">
                             <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By program</div>{s.programs.map((p) => <div key={p.name} className="tabular-nums">{p.name}: <strong>{p.studentDays}</strong> student-days · {p.students} students</div>)}</div>
                             <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By setting</div>{s.settings.map((x) => <div key={x.code} className="tabular-nums"><span className="font-mono">{x.code}</span>: {x.studentDays}</div>)}</div>
-                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">When</div><div>{s.firstDate ? `${fmtP(s.firstDate)} → ${fmtP(s.lastDate!)}` : "undated"} · {s.weeksActive} active weeks</div><div>{s.hours.toLocaleString("en-US")} student-hours · {s.completedDays} days logged{s.absentDays ? ` · ${s.absentDays} absences` : ""}</div><div>cohorts: {s.cohorts.join(", ")}</div></div>
+                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">When</div><div>{s.firstDate ? `${fmtP(s.firstDate)} → ${fmtP(s.lastDate!)}` : "undated"} · {s.weeksActive} active weeks</div><div>{fmt.num(s.hours)} student-hours · {s.completedDays} days logged{s.absentDays ? ` · ${s.absentDays} absences` : ""}</div><div>cohorts: {s.cohorts.join(", ")}</div></div>
                             <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Preceptors</div><div>{s.preceptorsUsed} named on shifts{s.preceptorsOnRecord != null ? ` · ${s.preceptorsOnRecord} on record` : ""}{s.studentDaysPerPreceptor != null ? ` · ${n1(s.studentDaysPerPreceptor)} student-days each` : ""}</div><div className="mt-1 flex flex-wrap gap-2">{href && <Link href={href} className="text-rose-600 hover:underline">open the site&apos;s setup →</Link>}{s.employerId && <Link href={`/employers/${s.employerId}`} className="text-rose-600 hover:underline">organization record →</Link>}<button onClick={() => { setFilter((f) => ({ ...f, site: new Set([s.site]) })); setView("pivot"); setRowDim("student"); setColDim("month"); }} className="text-rose-600 hover:underline">who is here, month by month →</button></div></div>
                           </div>
                         </td>
@@ -221,7 +221,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                   <tr key={s.employerId ?? s.site}>
                     <td className="sticky left-0 whitespace-nowrap bg-white px-3 py-1 font-medium text-slate-800">{s.site.replace(/ — .*$/, "").slice(0, 34)}</td>
                     {grid.periods.map((p) => { const v = s.cells[p] ?? 0; return <td key={p} className={`px-1.5 py-1 text-center tabular-nums ${heat(v, max)}`}>{v || ""}</td>; })}
-                    <td className="px-2 py-1 text-right font-semibold tabular-nums">{s.total.toLocaleString("en-US")}</td>
+                    <td className="px-2 py-1 text-right font-semibold tabular-nums">{fmt.num(s.total)}</td>
                   </tr>
                 ); })}
                 {grid.sites.length === 0 && <tr><td className="px-3 py-6 text-center text-slate-400">No dated clinical shifts match this query.</td></tr>}

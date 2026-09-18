@@ -11,7 +11,7 @@ import {
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, type OfferingTargets } from "@/components/OfferingTargetsEditor";
-import { dec, numInput } from "@/lib/format";
+import { dec, fmt, numInput } from "@/lib/format";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
@@ -127,8 +127,8 @@ interface Persisted {
   allocationsByYear?: Record<string, Alloc[]>;
 }
 
-const pct = (v: number) => `${dec(v * 100)}%`;
-const pctOf = (v: number | null) => (v == null ? "—" : `${dec(v * 100)}%`);
+const pct = (v: number) => fmt.pct(v);
+const pctOf = (v: number | null) => fmt.pct(v);
 const num = (v: number) => dec(v);
 
 function attainColor(a: number | null): string {
@@ -158,10 +158,11 @@ export function GoalPlanner({
     for (const y of years) { const g = Math.round(seedGoalsByYear[y] ?? 0) || last; goalsByYear[String(y)] = g; last = g; }
     const capByYear: Record<string, number> = {};
     for (const y of years) capByYear[String(y)] = Math.round(capacityFromNorthStar(goalsByYear[String(y)], BENCHMARK_RATES));
-    // Open on the latest year with live student data (else latest with a cohort, else last).
+    // Open on the latest year an offering delivers (else the latest with live student data, else the
+    // last) — a year with no offering would open on "N uncovered" for a goal nothing was ever meant to cover.
     const withData = years.filter((y) => (actualByYear[y]?.interested ?? 0) > 0);
     const withCohorts = years.filter((y) => (instantiationsByYear[y]?.length ?? 0) > 0);
-    const pool = withData.length ? withData : withCohorts;
+    const pool = withCohorts.length ? withCohorts : withData;
     const defaultYear = pool.length ? pool[pool.length - 1] : years[years.length - 1];
     const base: Persisted = {
       anchor: "northstar", years, goalsByYear, capByYear,
@@ -177,6 +178,8 @@ export function GoalPlanner({
           goalsByYear: { ...base.goalsByYear, ...saved.goalsByYear }, capByYear: { ...base.capByYear, ...saved.capByYear },
         };
         if (!merged.years.includes(merged.selectedYear)) merged.selectedYear = merged.years[merged.years.length - 1];
+        // A saved year with neither an offering nor student data (the seed's default) yields to the year that has them.
+        if (!(instantiationsByYear[merged.selectedYear]?.length) && !(actualByYear[merged.selectedYear]?.interested) && pool.length) merged.selectedYear = defaultYear;
         return merged;
       } catch { /* fall through */ }
     }
@@ -238,7 +241,27 @@ export function GoalPlanner({
 
   // --- Goal breakdown: delivery models → instantiations responsible for it ---
   const yearKey = String(s.selectedYear);
-  const allocs: Alloc[] = s.allocationsByYear?.[yearKey] ?? [];
+  // The year's allocations: the saved plan, plus every real offering delivering this year that the
+  // plan does not know about yet (an offering created on the program page or by the seed, never
+  // locked in from here) as a locked slot of its model — so the total counts what actually runs,
+  // instead of "0 allocated" beside a listed cohort.
+  const allocs: Alloc[] = useMemo(() => {
+    const saved: Alloc[] = s.allocationsByYear?.[yearKey] ?? [];
+    const known = new Set(saved.flatMap((a) => [a.cohortId, ...(a.offerings ?? []).map((o) => o.cohortId)]).filter((id): id is string => !!id));
+    const orphans = (instantiationsByYear[s.selectedYear] ?? []).filter((c) => !known.has(c.id));
+    if (!orphans.length) return saved;
+    const out = saved.map((a) => ({ ...a, offerings: a.offerings ? [...a.offerings] : a.offerings }));
+    for (const c of orphans) {
+      // The offering's own goal (its saved pipeline, else its productive target) is the slot's share.
+      let goal = c.goalProductive;
+      try { const saved = c.pipelineRates ? (JSON.parse(c.pipelineRates) as { goal?: number }) : null; if (saved?.goal != null) goal = saved.goal; } catch { /* productive target */ }
+      const slot: OfferingSlot = { startDate: null, goal, termOverrides: [], locked: true, cohortId: c.id, cohortName: c.name };
+      const a = out.find((x) => x.programId === c.programId);
+      if (a) { a.offerings = [...(a.offerings ?? (a.startDate != null || a.locked ? [{ startDate: a.startDate ?? null, locked: a.locked, cohortId: a.cohortId, cohortName: a.cohortName }] : [])), slot]; a.goal += goal; }
+      else out.push({ programId: c.programId, goal, offerings: [slot] });
+    }
+    return out;
+  }, [s.allocationsByYear, s.selectedYear, yearKey, instantiationsByYear]);
   const yearGoal = Math.round(s.anchor === "northstar" ? (s.goalsByYear[yearKey] ?? 0) : productiveForYear(s.selectedYear));
   const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
   const addAlloc = (programId: string) => {
@@ -272,8 +295,9 @@ export function GoalPlanner({
     }
     return out;
   };
-  /** A model's goal is whatever its offerings add up to. */
-  const allocGoal = (a: Alloc) => slotsFor(a, 1).reduce((n, o) => n + (o.goal ?? 0), 0);
+  /** A model's goal is whatever its offerings add up to — read the way each slot's card reads it, so a
+   *  locked offering from an older plan (goal saved on the cohort, not the slot) counts, not 0. */
+  const allocGoal = (a: Alloc) => slotsFor(a, 1).reduce((n, o) => n + slotTargets(o).goal, 0);
   /** Only the rate keys that differ from the family defaults count as "own". */
   const ownRatesOf = (r: Partial<LadderRates> | undefined): Partial<LadderRates> => { const out: Partial<LadderRates> = {}; for (const [k, v] of Object.entries(r ?? {})) if (typeof v === "number" && v !== s.goal[k as keyof LadderRates]) out[k as keyof LadderRates] = v; return out; };
   /** What a slot's editor shows: its own fields, else (locked, older plan) the cohort's saved plan. */

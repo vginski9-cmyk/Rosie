@@ -8,13 +8,15 @@
 
 import { useMemo, useState } from "react";
 import { DIMENSIONS, pivot, crosstab, ageOn, dimensionValue, type Dimension, type LearnerLite } from "@/lib/learners";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 
 export interface AnalyticsLearner extends LearnerLite { institutionId: string; programId: string; cohortId: string | null }
 
-const n = (x: number) => x.toLocaleString();
-const pct = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)}%`);
-const f1 = (x: number | null) => (x == null ? "—" : dec(x));
+const n = (x: number) => fmt.num(x);
+const pct = (x: number | null) => fmt.pct(x);
+const f1 = (x: number | null) => fmt.age(x);
+/** Learners who started: everyone enrolled or further along, and everyone who later withdrew. */
+const ENTRANT = new Set(["enrolled", "completed", "licensed", "placed", "productive", "withdrawn"]);
 
 export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearner[]; today: string }) {
   const [dim, setDim] = useState<Dimension>("raceEthnicity");
@@ -35,6 +37,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
   const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
   const completed = filtered.filter((l) => ["completed", "licensed", "placed", "productive"].includes(l.status)).length;
   const withdrawn = filtered.filter((l) => l.status === "withdrawn").length;
+  const entrants = filtered.filter((l) => ENTRANT.has(l.status)).length;
   const sel = "rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
   const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
 
@@ -50,7 +53,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), pct(completed + withdrawn ? completed / (completed + withdrawn) : null) + " of decided"], ["Withdrawn", n(withdrawn), pct(completed + withdrawn ? withdrawn / (completed + withdrawn) : null) + " of decided"], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"]].map(([k, v, s]) => (
+        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), `${pct(entrants ? completed / entrants : null)} of ${n(entrants)} entrants`], ["Withdrawn", n(withdrawn), `${pct(entrants ? withdrawn / entrants : null)} of ${n(entrants)} entrants (withdrawn to date ÷ everyone who started)`], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"]].map(([k, v, s]) => (
           <div key={k} className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">{k}</div><div className="text-xl font-bold tabular-nums text-slate-900">{v}</div><div className="truncate text-[11px] text-slate-500" title={s}>{s}</div></div>
         ))}
       </div>

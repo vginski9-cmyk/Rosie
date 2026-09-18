@@ -321,3 +321,27 @@ and the missing pending state a **label problem** (Phase 5.3).
 - The brief's "one phase per branch/PR" conflicts with this session's standing instruction to
   develop only on `claude/beautiful-wozniak-s9lf4d`. Phase 0 is committed there; say where later
   phases should go.
+
+## 6. Outcomes (2026-09-18, owner: "fix everything in Phase 0")
+
+| Finding | What changed | Where |
+|---|---|---|
+| Goal page "0 allocated / 29 uncovered" | root cause on inspection: an offering created outside the goal page (the seed, or the program page) is never an allocation in the saved plan, so the year's total ignored it while the card beside it listed it. The year's allocations now include every real offering delivering that year as a locked slot carrying its own saved goal (29 → "allocated 29 · fully covered"); `allocGoal` reads slots the way their cards do; the page opens on the latest year an offering delivers, and a saved year with neither offerings nor data yields to it | `GoalPlanner.tsx` (`allocs`, `allocGoal`, default year) |
+| Coverage ignored calendar pattern moves | one resolver decides a session's weekday for every reader: the session's day while a booking sits on it, else the booking the calendar moved to a day no session uses | `capacitymodel.ts` `resolveSessionDay`; used by the capacity model (`queries.ts`), hence coverage, staffing, scheduler and asset map |
+| Program page "4,552 rotations vs 376 hosted" | the stale launch-cadence banner is gone; the page points at the capacity-model views (staffing need, scheduler, site capacity) | `programs/[id]/page.tsx` |
+| Two window calculations | the site-capacity page now uses `schedulerWindow`, the scheduler's own | `insights/clinical-sites/page.tsx` |
+| Scenario vs ceiling vs roster, unexplained | a scope strip on the scheduler, site capacity, site load, daily coverage and staffing pages: what it shows, whose enrollment, window, constraints enforced, computed-at, and why each sibling view differs | `ScopeStrip.tsx` |
+| 360,856 "seats of supply" | tile reads "Theoretical ceiling — every asset-shift × learners per shift, not usable capacity" | `SchedulerBoard.tsx` |
+| Seats-only default unlabeled | the lever option says "exploratory — a shift can be placed with nobody to precept it"; the statement and the Placed tile say "seats only"; the Preceptors tile counts shifts placed with nobody to precept | `SchedulerBoard.tsx` |
+| "sections" for dated shifts | scheduler statement, tiles and apply notice say shifts (section × date); course pages say "Shifts", "Shifts needed"; bookings notice says asset bookings ≠ learner-shifts | `scheduler.ts`, `SchedulerBoard.tsx`, `CourseServicePanel.tsx`, `CourseDemand.tsx` |
+| 101 "students" on Aug 17 | the coverage list counts distinct students (each cohort once) with student-attendances beside it — 60 and 101 | `capacitymodel.ts` `distinctStudents`, `CapacityBoard.tsx` |
+| 73.8 preceptor FTE | Design & sequence shows "across the whole program (semester-FTE added together — a budget total)" and, beside it, "peak week, at once" from the busiest template week ÷ the work week, faculty and preceptors separately | `ProgramDesigner.tsx` |
+| 1,152 vs 1,098 hours; RAD-171 144 vs 90 | Clinical sites & requirements opens with "Clinical hours, two ways": session table vs hours coded by setting, per course, naming the unassigned hours | `queries.ts` `getFamilyClinicalHoursBridge`, `FamilyClinicalHub.tsx` |
+| Term-5 target 36 vs 35 enrolled | the current term's row reads "target 36 · enrolled now 35 — at risk" when enrollment is below target | `FunnelChart.tsx` |
+| Withdrawal "100 % of decided" | withdrawn and completed read "of N entrants" (everyone who started); average age shows one decimal | `LearnerAnalytics.tsx` |
+| Lever change with no pending state | the plan is built from deferred levers; a "recomputing under the new levers…" badge shows while the previous plan's numbers are still on screen | `SchedulerBoard.tsx` |
+| ~35 inline formats bypassing the module | `fmt.num / atLeast / pct / fte / hours / age / mult` with the Phase 1 rules; `toLocaleString`, `toFixed` and `dec(x*100)%` replaced in GoalPlanner, OfferingTargetsEditor, SiteLoadExplorer, ScheduleBoard, FacilityDirectory, AutoAssignButton, LearnerAnalytics, OfferingStaffing, employers page. Whole-number `Math.round(x*100)%` helpers and CSS bar widths were left: they satisfy the rule | `format.ts` |
+| Password gate | no change — works server-side; the DEMO build's client gate is documented in §2.2 | — |
+| 24 conflicts | no change — definition documented in §1.5 | — |
+
+Tests: `test/metrics-audit.test.ts` (weekday resolver, 60-distinct-students fixture, formatter rules).

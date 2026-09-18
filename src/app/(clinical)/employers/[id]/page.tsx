@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getEmployer, getAccreditedFamiliesForEmployer, getAccreditorCapacity, getSiteRequirementFit, getFamilyProgramId } from "@/lib/queries";
 import { AccreditorCapacity } from "@/components/AccreditorCapacity";
 import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalUnit, updateClinicalUnit, deleteClinicalUnit, setSiteGeography, relocateSite } from "@/lib/actions";
-import { dec } from "@/lib/format";
+import { dec, fmt } from "@/lib/format";
 import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
 import { Collapse } from "@/components/Collapse";
@@ -101,7 +101,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       </section>
 
       {/* 3 · Details */}
-      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.annualSurgicalCases != null ? `${e.annualSurgicalCases.toLocaleString("en-US")} cases/yr` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
+      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.annualSurgicalCases != null ? `${fmt.num(e.annualSurgicalCases)} cases/yr` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
         <form action={updateEmployer.bind(null, e.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="name" label="Name" defaultValue={e.name} required />
           <Field name="organization" label="Organization / system" defaultValue={e.organization} />

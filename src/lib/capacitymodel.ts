@@ -482,7 +482,9 @@ export function settingAsks(rows: DatedInstance[]): SettingAsk[] {
 export interface ShiftDay {
   dateIso: string;
   shifts: number;               // Σ Y that date
-  studentsOnSite: number;       // Σ min(C, Y×L) that date — people, not shifts
+  studentsOnSite: number;
+  /** Seats summed over every session of the day (a student in class and lab counts twice). */
+  attendances: number;       // Σ min(C, Y×L) that date — people, not shifts
   preceptorsOnSite: number;     // Σ Y × T
   holiday: string | null;
   details: {
@@ -492,6 +494,16 @@ export interface ShiftDay {
     students: number; sections: number; lengthHours: number;
     setting: string | null; startTime: string | null;
   }[];
+}
+
+/** Students on site on one date: each cohort once, at the seats of its largest session that day. */
+export function distinctStudents(rs: DatedInstance[]): number {
+  const byCohort = new Map<string, number>();
+  for (const r of rs) {
+    const seats = Math.min(r.computed.C, nz(r.computed.Y) * nz(r.session.maxStudents));
+    byCohort.set(r.cohortId, Math.max(byCohort.get(r.cohortId) ?? 0, seats));
+  }
+  let n = 0; for (const v of byCohort.values()) n += v; return n;
 }
 
 export function shiftBoard(rows: DatedInstance[]): ShiftDay[] {
@@ -505,7 +517,11 @@ export function shiftBoard(rows: DatedInstance[]): ShiftDay[] {
   return [...byDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([dateIso, rs]) => ({
     dateIso,
     shifts: rs.reduce((s, r) => s + nz(r.computed.Y), 0),
-    studentsOnSite: rs.reduce((s, r) => s + Math.min(r.computed.C, nz(r.computed.Y) * nz(r.session.maxStudents)), 0),
+    // Distinct students: a cohort's students attend every session of the day, so a cohort
+    // counts once (its biggest session's seats) — 41 in class and the same 41 in lab are 41,
+    // not 82. Attendances is the old seats-per-session sum.
+    studentsOnSite: distinctStudents(rs),
+    attendances: rs.reduce((s, r) => s + Math.min(r.computed.C, nz(r.computed.Y) * nz(r.session.maxStudents)), 0),
     preceptorsOnSite: rs.reduce((s, r) => s + nz(r.computed.Y) * nz(r.session.preceptorsNeeded), 0),
     holiday: rs[0]?.holiday ?? null,
     details: rs.map((r) => ({
@@ -566,4 +582,18 @@ export function weeklyNeedByKind(rows: DatedInstance[]): WeeklyKindRow[] {
       sections: w.s,
     };
   });
+}
+
+/** The weekday a template session lands on for one offering. The session's own day wins while a
+ *  weekly booking still sits on that day; when the calendar has moved the booking to another
+ *  weekday (no booking left on the session's day, and a booking on a day no session of this
+ *  course × kind uses), the moved booking's day wins — so daily coverage, the capacity model and
+ *  the master calendar all read the same date. A session with no day of its own takes the first
+ *  booking's day; an online session never lands on a day it does not name. */
+export function resolveSessionDay(sessionDay: string | null | undefined, online: boolean, bookings: { dayOfWeek: string }[], sessionDaysOfKind: Iterable<string>): string | null {
+  if (online) return sessionDay ?? null;
+  if (sessionDay == null) return bookings[0]?.dayOfWeek ?? null;
+  if (!bookings.length || bookings.some((b) => b.dayOfWeek === sessionDay)) return sessionDay;
+  const used = new Set(sessionDaysOfKind);
+  return bookings.find((b) => !used.has(b.dayOfWeek))?.dayOfWeek ?? sessionDay;
 }

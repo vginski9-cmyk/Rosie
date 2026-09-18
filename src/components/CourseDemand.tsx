@@ -35,7 +35,7 @@ export function CourseDemand({ rows, institutionId }: { rows: DemandRow[]; insti
             <th className="px-3 py-2 text-left font-semibold">Course</th>
             <th className="px-3 py-2 text-center font-semibold">Programs</th>
             <th className="px-3 py-2 text-center font-semibold">Total demand</th>
-            <th className="px-3 py-2 text-center font-semibold">Sections needed</th>
+            <th className="px-3 py-2 text-center font-semibold">Shifts needed</th>
             <th className="px-3 py-2 text-center font-semibold">Scheduled</th>
             <th className="px-3 py-2 text-left font-semibold">Capacity gap</th>
           </tr>

@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
+import { resolveSessionDay } from "./capacitymodel";
 
 /** Load a program's full archetype mapped to the capacity-engine shape. */
 export async function getProgramArchetype(programId: string): Promise<TermArchetype[]> {
@@ -2188,15 +2189,15 @@ async function capacityModelFor(institution: { id: string; name: string }) {
       });
       // Templates are timeless — days attach at instantiation. When this offering
       // has calendarized meetings, their day pattern dates the session rows.
-      const meetingDay = new Map<string, string>();
       const meetingTime = new Map<string, string>();
       const meetingLoc = new Map<string, string>();
       const meetingStaff = new Map<string, string>();
+      const bookingsByCK = new Map<string, { dayOfWeek: string }[]>();
       // A course that meets Tuesday and Thursday has a booking per weekday: the time keyed
       // by course|kind|day answers a session's own day; course|kind alone is the first booking.
       for (const m of co.meetings) {
         const k = `${m.courseId}|${m.kind}`;
-        if (!meetingDay.has(k)) meetingDay.set(k, m.dayOfWeek);
+        bookingsByCK.set(k, [...(bookingsByCK.get(k) ?? []), { dayOfWeek: m.dayOfWeek }]);
         if (!meetingTime.has(k)) meetingTime.set(k, m.startTime);
         if (!meetingTime.has(`${k}|${m.dayOfWeek}`)) meetingTime.set(`${k}|${m.dayOfWeek}`, m.startTime);
         const loc = m.kind === "CLINICAL" ? (m.employer?.name ? `@ ${m.employer.name}` : "@ site TBD") : (m.facility?.name ?? null);
@@ -2258,9 +2259,9 @@ async function capacityModelFor(institution: { id: string; name: string }) {
               facultyNeeded: ov?.facultyNeeded ?? s.facultyNeeded, facultyContactPolicy: ov?.facultyContactPolicy ?? s.facultyContactPolicy,
               supportStaffNeeded: ov?.supportStaffNeeded ?? s.supportStaffNeeded, supportContactPolicy: ov?.supportContactPolicy ?? s.supportContactPolicy,
               week: ov?.week ?? s.week,
-              // An online / no-fixed-day session stays undated (it counts in the week, never on a day);
-              // only an in-person session without a stated day borrows its weekly booking's slot.
-              dayOfWeek: ov?.dayOfWeek ?? s.dayOfWeek ?? ((ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet" ? null : meetingDay.get(`${c.id}|${s.kind}`) ?? null),
+              // The session's day, unless the calendar moved its weekly booking to another weekday
+              // (see resolveSessionDay); an online / no-fixed-day session stays undated.
+              dayOfWeek: ov?.dayOfWeek ?? resolveSessionDay(s.dayOfWeek, (ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet", bookingsByCK.get(`${c.id}|${s.kind}`) ?? [], c.sessions.filter((x) => x.kind === s.kind).map((x) => x.dayOfWeek).filter((d): d is string => !!d)),
               startTime: ov?.startTime ?? s.startTime ?? ((ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet" ? null : meetingTime.get(`${c.id}|${s.kind}|${ov?.dayOfWeek ?? s.dayOfWeek ?? ""}`) ?? meetingTime.get(`${c.id}|${s.kind}`) ?? null),
               notes: ov?.notes ?? s.notes,
               preceptorsNeeded: ov?.preceptorsNeeded ?? s.preceptorsNeeded, preceptorContactPolicy: ov?.preceptorContactPolicy ?? s.preceptorContactPolicy,
@@ -3010,4 +3011,19 @@ export async function getOfferingsMap(): Promise<{ points: MapPoint[]; unlocated
   }
   const out = [...points.values()].sort((a, b) => a.institution.localeCompare(b.institution) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   return { points: out, unlocated };
+}
+
+// ── Clinical hours, two ways: the session table vs the hours coded by setting ──────────────────
+// A program's clinical hours per student come from its clinical session rows. The requirement
+// roll-up and the by-setting grid read a second figure: the hours each course codes against a
+// setting (CourseClinicalRequirement — Sandhills' workbook "course allocation" table). When the
+// two disagree the difference is hours no setting claims; it must be shown, never hidden.
+export async function getFamilyClinicalHoursBridge(familyId: string): Promise<{ programs: { programId: string; program: string; sessionHours: number; codedHours: number; unmapped: { course: string; sessionHours: number; codedHours: number }[] }[] }> {
+  const programs = await prisma.program.findMany({ where: { familyId }, orderBy: { name: "asc" }, select: { id: true, name: true, terms: { select: { courses: { select: { code: true, name: true, sessions: { where: { kind: "CLINICAL" }, select: { lengthHours: true } }, clinicalRequirements: { select: { hoursPerStudent: true } } } } } } } });
+  return {
+    programs: programs.map((p) => {
+      const courses = p.terms.flatMap((t) => t.courses).map((c) => ({ course: c.code ?? c.name, sessionHours: c.sessions.reduce((n, s) => n + s.lengthHours, 0), codedHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0) })).filter((c) => c.sessionHours > 0 || c.codedHours > 0);
+      return { programId: p.id, program: p.name, sessionHours: courses.reduce((n, c) => n + c.sessionHours, 0), codedHours: courses.reduce((n, c) => n + c.codedHours, 0), unmapped: courses.filter((c) => Math.abs(c.sessionHours - c.codedHours) > 0.01) };
+    }).filter((p) => p.sessionHours > 0 || p.codedHours > 0),
+  };
 }

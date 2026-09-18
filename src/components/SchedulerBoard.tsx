@@ -6,7 +6,7 @@
 // sites, the ranked bottlenecks (each with what would fix it), and finally the
 // plan itself — by shift, and by student. The levers on top re-run everything.
 
-import { useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment } from "@/lib/scheduler";
 import { schedulerModel, filterDemand, planFor } from "@/lib/schedulerplan";
@@ -60,7 +60,13 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
   const autoBookings = useMemo(() => bookings.filter((b) => b.note === AUTO_PLAN_NOTE), [bookings]);
 
-  const plan: Plan = useMemo(() => planFor(demand, supply, policy, model.campus), [demand, supply, policy, model.campus]);
+  // The plan is rebuilt in the browser on every lever change. The levers the plan was last built
+  // under are deferred, so the page can say "recomputing…" (and keep the old numbers visibly
+  // stale) while the new plan is built, instead of freezing with the old numbers.
+  const builtLevers = useDeferredValue(levers);
+  const builtDemand = useMemo(() => filterDemand(demandAll, builtLevers), [demandAll, builtLevers]);
+  const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus), [builtDemand, supply, builtLevers.policy, model.campus]);
+  const recomputing = builtLevers !== levers;
   const s = plan.summary;
   const settingName = (code: string) => plan.balance.find((b) => b.settingCode === code)?.setting ?? code;
   const weekMondays = useMemo(() => [...new Set(plan.weeks.map((w) => w.weekMonday))].sort(), [plan]);
@@ -95,7 +101,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {/* ── Levers ────────────────────────────────────────────────────────── */}
       <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— the rules the plan is built under; everything below recomputes as you change them</span></div>
+          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— the rules the plan is built under; everything below recomputes as you change them</span>{recomputing && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">recomputing under the new levers… the numbers below are the previous plan&apos;s</span>}</div>
           <button onClick={() => setPolicy(DEFAULT_POLICY)} className="text-[11px] text-slate-500 hover:text-rose-700">reset levers</button>
         </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -118,7 +124,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             <select value={String(policy.spread)} onChange={(e) => setPolicy({ ...policy, spread: e.target.value === "true" })} className={sel}><option value="false">closest & most secured first</option><option value="true">spread load across sites</option></select>
           </Lever>
           <Lever label="Preceptors" hint="Only place a section where a free preceptor person exists at that site on that shift.">
-            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only</option><option value="true">require a free preceptor</option></select>
+            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory — a shift can be placed with nobody to precept it)</option><option value="true">require a free preceptor</option></select>
           </Lever>
           <Lever label="Split sections" hint="When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 with a preceptor anyway); an instructor-led group travels together.">
             <select value={policy.split} onChange={(e) => setPolicy({ ...policy, split: e.target.value as Policy["split"] })} className={sel}><option value="preceptor-led">preceptor-led may split</option><option value="none">never split a section</option><option value="any">any section may split</option></select>
@@ -172,19 +178,20 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {/* ── The statement + six numbers ──────────────────────────────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-base leading-relaxed text-slate-800">{s.statement}</p>
+        <p className="mt-1 text-xs text-slate-500">A <strong>proposed scenario</strong> under the levers above — nothing is written until you apply it. Demand is every dated clinical shift (session × section) at each term&apos;s enrollment target, not the roster. {!policy.requirePreceptor && <span className="text-amber-700">Seats only: a shift counts as placed with nobody to precept it; switch the Preceptors lever to see what is actually staffable.</span>}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          <Tile label="Demand" v={`${n0(s.demandSeats)} learner-shifts`} sub={`${n0(s.demandShifts)} sections · ${n0(s.demandHours)} learner-hours`} />
-          <Tile label="Supply that counts" v={`${n0(s.supplySeatsAllowed)} seats`} sub={`${n0(s.supplySeatsPhysical)} physical asset-shifts in the window`} />
-          <Tile label="Placed" v={pct(s.placedShare)} sub={`${n0(s.placedSeats)} learner-shifts at ${s.sitesUsed} sites`} strong />
-          <Tile label="Unplaced" v={n0(s.unmetShifts)} sub={s.unmetShifts ? `sections — see bottlenecks` : "nothing left over"} tone={s.unmetShifts ? "rose" : "emerald"} />
-          <Tile label="Preceptors" v={`${n0(s.preceptorsAssigned)} / ${n0(s.preceptorShifts)}`} sub="preceptor-shifts staffed by name" tone={s.preceptorShifts > 0 && s.preceptorsAssigned < s.preceptorShifts ? "amber" : undefined} />
+          <Tile label="Demand" v={`${n0(s.demandSeats)} learner-shifts`} sub={`${n0(s.demandShifts)} shifts (section × date) · ${n0(s.demandHours)} learner-hours`} />
+          <Tile label="Theoretical ceiling" v={`${n0(s.supplySeatsAllowed)} seats`} sub={`every asset-shift in the window at allowed sites × learners per shift — not usable capacity (${n0(s.supplySeatsPhysical)} asset-shifts at all sites)`} />
+          <Tile label="Placed" v={pct(s.placedShare)} sub={`${n0(s.placedSeats)} learner-shifts at ${s.sitesUsed} sites${policy.requirePreceptor ? "" : " · seats only"}`} strong />
+          <Tile label="Unplaced" v={n0(s.unmetShifts)} sub={s.unmetShifts ? `shifts — see bottlenecks` : "nothing left over"} tone={s.unmetShifts ? "rose" : "emerald"} />
+          <Tile label="Preceptors" v={`${n0(s.preceptorsAssigned)} / ${n0(s.preceptorShifts)}`} sub={`preceptor-shifts staffed by name${s.preceptorShifts > s.preceptorsAssigned ? ` · ${n0(s.preceptorShifts - s.preceptorsAssigned)} placed with nobody to precept` : ""}`} tone={s.preceptorShifts > 0 && s.preceptorsAssigned < s.preceptorShifts ? "amber" : undefined} />
           <Tile label="Instructors" v={`${n0(s.instructorsAssigned)} / ${n0(s.instructorShifts)}`} sub="instructor-led shifts staffed" tone={s.instructorShifts > 0 && s.instructorsAssigned < s.instructorShifts ? "amber" : undefined} />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} sections`}</button>
+          <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} shifts`}</button>
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
           <span className="text-slate-500">
-            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} sections as {n0(applied.bookings)} bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} bookings from an earlier applied plan are on the books (they will be replaced).` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
+            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} shifts as {n0(applied.bookings)} asset bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} asset bookings (one per shift × asset, not learner-shifts) from an earlier applied plan are on the books — they will be replaced.` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
         </div>

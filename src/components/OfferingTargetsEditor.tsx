@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { RATE_DEFS, type LadderRates } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
-import { dec, numInput } from "@/lib/format";
+import { dec, fmt, numInput } from "@/lib/format";
 
 export interface OfferingTargets {
   /** Fully-productive placements this offering is responsible for. */
@@ -99,7 +99,7 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
                 <span className="truncate text-slate-600" title={d.of}>{d.label}</span>
                 <span className="whitespace-nowrap">
                   <input type="number" step="any" disabled={disabled} value={numInput(rates[d.key] * 100)} onChange={(e) => onChange({ rates: { ...value.rates, [d.key]: (Number(e.target.value) || 0) / 100 } })} className={`${inp} w-14 ${value.rates?.[d.key] != null ? "border-rose-300 bg-white font-semibold text-rose-800" : ""}`} />%
-                  <span className="ml-1 text-[10px] text-slate-400">bench {dec(d.benchmark * 100)}%</span>
+                  <span className="ml-1 text-[10px] text-slate-400">bench {fmt.pct(d.benchmark)}</span>
                 </span>
               </label>
             ))}

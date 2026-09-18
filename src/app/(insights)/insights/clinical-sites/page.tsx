@@ -1,4 +1,6 @@
 import { getCapacityModel, getClinicalSupply, getAssetMap } from "@/lib/queries";
+import { schedulerWindow } from "@/lib/schedulerplan";
+import { ScopeStrip } from "@/components/ScopeStrip";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { ClinicalSupplyBoard } from "@/components/ClinicalSupplyBoard";
 import { AssetMapBoard } from "@/components/AssetMapBoard";
@@ -10,13 +12,9 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
   const data = await getCapacityModel({ institutionId: searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   const supply = await getClinicalSupply(data.institution.id);
-  // The window the asset map is matched over: from the earliest dated term to
-  // the latest, else the coming 18 months.
-  const starts = data.cohorts.flatMap((c) => Object.values(c.termStartByIndex).filter((v): v is string => !!v)).sort();
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const from = starts[0]?.slice(0, 10) ?? todayIso;
-  const last = starts[starts.length - 1]?.slice(0, 10) ?? todayIso;
-  const to = new Date(new Date(last + "T00:00:00Z").getTime() + 20 * 7 * 86400000).toISOString().slice(0, 10);
+  // The window the asset map is matched over — the same one the scheduler plans in
+  // (earliest dated term start → latest term start + 20 weeks), so the two pages read one demand.
+  const { from, to } = schedulerWindow(data.cohorts);
   const year = Number(from.slice(0, 4)) + 1;
   const map = await getAssetMap(data.institution.id, from, to);
   return (
@@ -25,6 +23,13 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
         <h1 className="text-2xl font-semibold tracking-tight">Clinical site capacity</h1>
         <p className="text-sm text-slate-500">Every asset on every calendar day against the learners booked on it — can the sites absorb the cohorts?</p>
       </div>
+      <ScopeStrip
+        shows="Requirements against a physical ceiling — each date × shift × setting: the learner-shifts the offerings need against what the assets could host. No plan, no preceptors, no holidays, no travel: the ceiling the scheduler places within."
+        population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
+        window={`${from} → ${to}`}
+        constraints={["agreement tier (secured vs physical)", "asset operating days and shift blocks"]}
+        differs={[["Clinical scheduler", "/scheduler", "places these same learner-shifts under levers (holidays, preceptors, continuity, travel) — its “placed” is always at or below this ceiling"], ["Clinical site load", "/insights/site-load", "counts the roster's actual student-shifts, including completed cohorts and undated rows"]]}
+      />
       <AssetMapBoard institutionId={data.institution.id} assets={map.assets} overrides={map.overrides} bookings={map.bookings} rotations={map.rotations} cohorts={data.cohorts} from={from} to={to} year={year} />
       {supply && <Collapse title="Functional units by weekday and shift" sub="The older grain: beds and units sized by weekday and shift block" summary={<>{supply.sites.length} sites</>}><ClinicalSupplyBoard institutionId={supply.institution.id} sites={supply.sites} rotations={supply.rotations} cohorts={data.cohorts} /></Collapse>}
       <Collapse title="What each setting needs to host, and when" sub="The request block per setting — students on the heaviest day, days on site, the window, preceptor hours — ready to hand to a partner"><CapacityBoard cohorts={data.cohorts} view="sites" sites={data.clinicalSites} /></Collapse>

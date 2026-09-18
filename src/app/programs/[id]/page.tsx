@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getProgramFull, getProgramBottleneck, getProgramOfferings } from "@/lib/queries";
-import { fmt } from "@/lib/format";
+import { getProgramFull, getProgramOfferings } from "@/lib/queries";
 import { duplicateProgram, deleteProgram, createOffering } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function ProgramPage({ params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) notFound();
-  const [offerings, bottleneck] = await Promise.all([getProgramOfferings(params.id), getProgramBottleneck(params.id)]);
+  const offerings = await getProgramOfferings(params.id);
   const northStar = program.yearTargets.find((t) => t.credentialTarget != null);
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? northStar?.cohortCapacity ?? 40);
   const STATUS: Record<string, string> = { active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700", completed: "bg-slate-200 text-slate-600", archived: "bg-slate-100 text-slate-400" };
@@ -60,11 +59,9 @@ export default async function ProgramPage({ params }: { params: { id: string } }
         </form>
       </section>
 
-      {bottleneck?.hasBottleneck && (
-        <div className="rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800 ring-1 ring-rose-200">
-          ⚠ <strong>{bottleneck.bottleneckCount}</strong> capacity bottleneck{bottleneck.bottleneckCount === 1 ? "" : "s"} across the offerings — peak need {fmt.fte(bottleneck.peak.facultyFte)} faculty FTE and {fmt.num(bottleneck.peak.clinicalSlots)} clinical rotations against {fmt.fte(bottleneck.supply.facultyFte)} FTE and {fmt.num(bottleneck.supply.wblSlots)} hosted. Work it on each offering.
-        </div>
-      )}
+      {/* Staffing and clinical placement for these offerings are read on Insights (the capacity model
+          and the scheduler), not from the old launch-cadence plan — see docs/metrics-audit.md §1.4. */}
+      <p className="text-xs text-slate-500">Instructors, preceptors and clinical placement for these offerings: <Link href="/insights/staffing-need" className="text-rose-700 hover:underline">Instructors &amp; preceptors needed</Link> · <Link href="/scheduler" className="text-rose-700 hover:underline">Clinical scheduler</Link> · <Link href="/insights/clinical-sites" className="text-rose-700 hover:underline">Clinical site capacity</Link>.</p>
 
       <p className="text-sm text-slate-500">The design — {program.terms.length} term{program.terms.length === 1 ? "" : "s"} · {program.terms.reduce((n, t) => n + t.courses.length, 0)} course{program.terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"} — is under <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">Design &amp; sequence →</Link></p>
     </div>

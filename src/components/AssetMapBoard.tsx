@@ -78,7 +78,7 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
           <p className="text-base text-slate-800">
             <strong>{n0(assets.length)} physical assets</strong> across {sites.length} sites, <strong className="text-emerald-700">{n0(securedAssets)} at secured sites</strong>.
             From {fmtD(from)} to {fmtD(to)} the offerings need <strong>{n0(demandTotal)} learner-shifts</strong>
-            {demandTotal > 0 && <> — the physical ceiling can host <strong>{n0(verdicts.reduce((n, v) => n + v.hostedPhysical, 0))}</strong>, secured sites <strong className="text-emerald-700">{n0(verdicts.reduce((n, v) => n + v.hostedSecured, 0))}</strong>, and <strong>{n0(bookedTotal)}</strong> are booked onto a specific asset</>}.
+            {demandTotal > 0 && <> — the physical ceiling can host <strong>{n0(verdicts.reduce((n, v) => n + v.hostedPhysical, 0))}</strong>, secured sites <strong className="text-emerald-700">{n0(verdicts.reduce((n, v) => n + v.hostedSecured, 0))}</strong> (a ceiling per date and shift, not a plan — no preceptors, holidays or travel), and <strong>{n0(bookedTotal)}</strong> are booked onto a specific asset by the applied plan</>}.
             {shortCells.length > 0 ? <> <strong className="text-rose-700">{n0(shortCells.length)} date-shifts</strong> exceed what secured sites can host.</> : demandTotal > 0 ? <> <span className="text-emerald-700">Every date-shift fits within secured sites.</span></> : null}
             {unmapped.length > 0 && <> <span className="text-amber-700">Rotation types with no setting yet: {unmapped.join(", ")} — map them under Rotation → setting.</span></>}
           </p>

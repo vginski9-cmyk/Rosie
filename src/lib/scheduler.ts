@@ -654,9 +654,9 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const shortSettings = balance.filter((b) => b.verdict === "short").map((b) => b.settingCode);
   const statement = demandShifts === 0
     ? "No dated clinical shifts in this window — offerings need real term dates and clinical sessions before there is demand to place."
-    : `${from === to ? `On ${from}` : `From ${from} to ${to}`}, ${num(demandShifts)} clinical sections (${num(demandSeats)} learner-shifts, ${num(demandHours)} learner-hours) need a home in ${balance.filter((b) => b.demandShifts > 0).length} settings. ` +
+    : `${from === to ? `On ${from}` : `From ${from} to ${to}`}, ${num(demandShifts)} clinical shifts — a section on a date — (${num(demandSeats)} learner-shifts, ${num(demandHours)} learner-hours) need a home in ${balance.filter((b) => b.demandShifts > 0).length} settings. ` +
       `Under the current levers the plan places ${pct(placedShare)} of them — ${num(placedSeats)} learner-shifts across ${sitesUsed} site${sitesUsed === 1 ? "" : "s"}, ${num(preceptorsAssigned)} of ${num(preceptorShifts)} preceptor-shifts staffed by name` +
-      (unmet.length ? `, and ${num(unmet.length)} sections (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} because ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
+      (unmet.length ? `, and ${num(unmet.length)} shifts (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} because ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
       (shortSettings.length ? ` Short settings: ${shortSettings.join(", ")}.` : "");
 
   return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement } };

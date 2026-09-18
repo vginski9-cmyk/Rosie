@@ -1,4 +1,5 @@
 "use client";
+import { fmt } from "@/lib/format";
 
 import { useMemo, useState } from "react";
 import { createFacility, updateFacility, deleteFacility } from "@/lib/actions";
@@ -108,7 +109,7 @@ export function FacilityDirectory({ facilities, institutions }: { facilities: Di
                   </td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${KIND_BADGE[r.kind] ?? "bg-slate-100 text-slate-600"}`}>{KIND_LABEL[r.kind] ?? r.kind}</span></td>
                   <td className="px-3 py-2 text-center tabular-nums text-slate-600">{r.capacity ?? "—"}</td>
-                  <td className="px-3 py-2 text-center tabular-nums text-slate-500">{r.areaSqft != null ? `${r.areaSqft.toLocaleString()} ft²` : "—"}</td>
+                  <td className="px-3 py-2 text-center tabular-nums text-slate-500">{r.areaSqft != null ? `${fmt.num(r.areaSqft)} ft²` : "—"}</td>
                   <td className="px-3 py-2 text-slate-500">{r.hours ?? "—"}</td>
                   <td className="px-3 py-2 text-[12px] text-slate-500">{r.equipment ? (r.equipment.length > 48 ? r.equipment.slice(0, 48) + "…" : r.equipment) : "—"}</td>
                   <td className="px-3 py-2 text-right"><button onClick={() => setEditing(r.id)} className="text-xs text-rose-600 hover:underline">edit</button></td>
