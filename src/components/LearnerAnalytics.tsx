@@ -7,7 +7,7 @@
 // and withdrawal rates, average age and GPA — plus a two-way cross-tab.
 
 import { useMemo, useState } from "react";
-import { DIMENSIONS, pivot, crosstab, ageOn, dimensionValue, outcomeStats, type Dimension, type LearnerLite } from "@/lib/learners";
+import { DIMENSIONS, SMALL_CELL, pivot, crosstab, ageOn, dimensionValue, outcomeStats, type Dimension, type LearnerLite } from "@/lib/learners";
 import { dec, fmt } from "@/lib/format";
 
 export interface AnalyticsLearner extends LearnerLite { institutionId: string; programId: string; cohortId: string | null }
@@ -33,7 +33,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
   const all = useMemo(() => pivot(filtered, "status", today), [filtered, today]);
   const ages = filtered.map((l) => ageOn(l.dob, today)).filter((a): a is number => a != null);
   const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
-  const { completed, withdrawn, entrants, withdrawalRate, completionRate } = outcomeStats(filtered);
+  const { completed, withdrawn, entrants, withdrawalRate, completionRate, maturedEntrants, maturedCompleted, unmaturedEntrants } = outcomeStats(filtered, today);
   const sel = "rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
   const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
 
@@ -49,7 +49,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), `${pct(completionRate)} of ${n(entrants)} entrants`], ["Withdrawn", n(withdrawn), `${pct(withdrawalRate)} of ${n(entrants)} entrants (withdrawn to date ÷ everyone who started)`], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"]].map(([k, v, s]) => (
+        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), completionRate == null ? `no completion rate yet — no cohort has ended (${n(entrants)} entrants still in cohorts running or undated)` : `${pct(completionRate)} of ${n(maturedEntrants)} entrants in cohorts that have ended (${n(maturedCompleted)} completed)${unmaturedEntrants ? ` · ${n(unmaturedEntrants)} entrants in cohorts still running are not counted` : ""}`], ["Withdrawn", n(withdrawn), `${pct(withdrawalRate)} of ${n(entrants)} entrants (withdrawn to date ÷ everyone who started)`], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"]].map(([k, v, s]) => (
           <div key={k} className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">{k}</div><div className="text-xl font-bold tabular-nums text-slate-900">{v}</div><div className="truncate text-[11px] text-slate-500" title={s}>{s}</div></div>
         ))}
       </div>
@@ -59,7 +59,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs"><span className="text-slate-400">break down by</span>{DIMENSIONS.map((d) => <button key={d.key} onClick={() => setDim(d.key)} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${dim === d.key ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{d.label}</button>)}<span className="ml-auto text-slate-500">click a value to slice everything by it</span></div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">{DIMENSIONS.find((d) => d.key === dim)?.label}</th><th className="px-2 py-1.5 text-right">Learners</th><th className="px-2 py-1.5 text-right">Share</th><th className="px-2 py-1.5 text-right">In progress</th><th className="px-2 py-1.5 text-right">Completed</th><th className="px-2 py-1.5 text-right">Withdrawn</th><th className="px-2 py-1.5 text-right">Completion rate</th><th className="px-2 py-1.5 text-right">Withdrawal rate</th><th className="px-2 py-1.5 text-right">Avg age</th><th className="px-2 py-1.5 text-right">Avg GPA</th></tr></thead>
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">{DIMENSIONS.find((d) => d.key === dim)?.label}</th><th className="px-2 py-1.5 text-right">Learners</th><th className="px-2 py-1.5 text-right">Share</th><th className="px-2 py-1.5 text-right">In progress</th><th className="px-2 py-1.5 text-right">Completed</th><th className="px-2 py-1.5 text-right">Withdrawn</th><th className="px-2 py-1.5 text-right" title="completed ÷ entrants whose cohort has ended; blank while no cohort in the cell has ended; suppressed for cells under 5 entrants">Completion rate<br /><span className="font-normal normal-case">of ended cohorts</span></th><th className="px-2 py-1.5 text-right" title="withdrawn to date ÷ everyone who started; suppressed for cells under 5 entrants">Withdrawal rate<br /><span className="font-normal normal-case">of entrants</span></th><th className="px-2 py-1.5 text-right">Avg age</th><th className="px-2 py-1.5 text-right">Avg GPA</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((r) => (
                 <tr key={r.value} className="hover:bg-rose-50/40">
@@ -67,7 +67,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
                   <td className="px-2 py-1.5 text-right tabular-nums">{n(r.n)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums"><span className="inline-block h-2 rounded bg-rose-200 align-middle" style={{ width: `${Math.max(2, r.share * 80)}px` }} /> {pct(r.share)}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums">{n(r.inProgress)}</td><td className="px-2 py-1.5 text-right tabular-nums">{n(r.completed)}</td><td className="px-2 py-1.5 text-right tabular-nums">{n(r.withdrawn)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{pct(r.completionRate)}</td><td className="px-2 py-1.5 text-right tabular-nums">{pct(r.withdrawalRate)}</td>
+                  {r.smallCell ? <td colSpan={2} className="px-2 py-1.5 text-center text-[10px] text-slate-400" title={`fewer than ${SMALL_CELL} entrants — a rate would be noise and could identify people`}>small cell ({n(r.entrants)} entrant{r.entrants === 1 ? "" : "s"}) — rates suppressed</td> : <><td className="px-2 py-1.5 text-right tabular-nums">{r.completionRate == null ? <span className="text-slate-300" title={r.entrants ? "no cohort in this cell has ended yet" : "nobody started"}>—</span> : <span title={`${n(r.maturedEntrants)} entrants in cohorts that have ended`}>{pct(r.completionRate)}</span>}</td><td className="px-2 py-1.5 text-right tabular-nums">{pct(r.withdrawalRate)}</td></>}
                   <td className="px-2 py-1.5 text-right tabular-nums">{f1(r.avgAge)}</td><td className="px-2 py-1.5 text-right tabular-nums">{r.avgGpa == null ? "—" : dec(r.avgGpa)}</td>
                 </tr>
               ))}

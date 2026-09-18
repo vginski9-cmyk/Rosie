@@ -13,6 +13,7 @@ import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohor
 import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
 import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
+import { goalTiming, infeasibleGoal, TIMING_SOURCE } from "@/lib/goaltiming";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the offerings
@@ -272,11 +273,9 @@ export function GoalPlanner({
   const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
   const router = useRouter();
 
-  /** Suggested start so the cohort lands its graduates in the selected year. */
-  const suggestStart = (m: ProgramOption): string => {
-    const spanYears = Math.max(1, Math.ceil((m.spanWeeks + 6) / 52));
-    return `${s.selectedYear - spanYears}-08-15`;
-  };
+  const todayIso = new Date().toISOString().slice(0, 10);
+  /** Suggested start: the latest a cohort may start and still have its graduates productive in the selected year (Phase 6). */
+  const suggestStart = (m: ProgramOption): string => goalTiming(s.selectedYear, m, todayIso).startBy;
   const stopDateOf = (startIso: string | null | undefined, m: ProgramOption): string | null => {
     if (!startIso) return null;
     const d = new Date(startIso + "T00:00:00Z");
@@ -358,6 +357,7 @@ export function GoalPlanner({
               const selected = year === s.selectedYear;
               const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
               const insts = offeringsByYear[year] ?? [];
+              const feas = infeasibleGoal(year, s.goalsByYear[String(year)] ?? 0, models, insts.length, todayIso);
               return (
                 <div key={year} role="button" tabIndex={0} onClick={() => selectYear(year)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectYear(year); }}
                   className={`relative cursor-pointer rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
@@ -372,11 +372,24 @@ export function GoalPlanner({
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
                   />
                   <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive workers</span>
+                  {feas.infeasible && <span className="mt-1 block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-rose-800" title={`No offering delivers ${year}, and a cohort starting today would not be productive before ${feas.earliestYear} (${TIMING_SOURCE}).`}>not feasible — earliest delivery {feas.earliestYear}</span>}
                 </div>
               );
             })}
           </div>
         </div>
+
+        {/* Working backward from the goal year (Phase 6): when a cohort must start to deliver it. */}
+        {models.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{s.selectedYear} — working backward from the goal <span className="font-normal normal-case text-slate-400" title={TIMING_SOURCE}>· {TIMING_SOURCE}</span></div>
+            <ul className="space-y-0.5 text-slate-600">
+              {models.map((m) => { const g = goalTiming(s.selectedYear, m, todayIso); return (
+                <li key={m.programId}><span className="font-medium text-slate-800">{m.name}</span> ({g.programWeeks} weeks incl. breaks): productive by {fmtMY(g.productiveBy)} → placed by {fmtMY(g.placedBy)} → licensed by {fmtMY(g.licensedBy)} → complete by {fmtMY(g.completeBy)} → <strong className={g.feasible ? "text-slate-800" : "text-rose-700"}>cohort must start by {fmtMY(g.startBy)}</strong>{g.feasible ? "" : ` — already past; the earliest a cohort starting today delivers is ${g.earliestYear}`}</li>
+              ); })}
+            </ul>
+          </div>
+        )}
 
         {/* The selected year's offerings — the ones delivering that goal. */}
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -574,7 +587,7 @@ export function GoalPlanner({
       <details className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
           Default health rates for new offerings <span className="font-normal text-slate-400">— every locked-in offering can set its own (⚙ pipeline targets); these are the starting point</span>
-          <button onClick={(e) => { e.preventDefault(); resetBenchmark(); }} className="ml-3 rounded-lg border border-slate-300 px-2 py-0.5 text-[11px] font-normal text-slate-500 hover:bg-slate-50">Reset to benchmark</button>
+          <button onClick={(e) => { e.preventDefault(); resetBenchmark(); }} className="ml-3 rounded-lg border border-slate-300 px-2 py-0.5 text-[11px] font-normal text-slate-500 hover:bg-slate-50" title="puts every rate back to the default assumptions: the institutions workbook's 2025 health-metric benchmarks (capacity 49 → 25 productive)">Reset to default assumptions (workbook 2025)</button>
         </summary>
       <div className="border-t border-slate-100 p-4">
       {/* Selected year's full pipeline — two tables */}
@@ -592,7 +605,7 @@ export function GoalPlanner({
                   <th className="px-4 py-2 text-left font-medium">Metric</th>
                   <th className="px-2 py-2 text-right font-medium">Goal</th>
                   <th className="px-2 py-2 text-right font-medium">Actual</th>
-                  <th className="px-3 py-2 text-right font-medium">Bench</th>
+                  <th className="px-3 py-2 text-right font-medium" title="default assumption — the institutions workbook's 2025 health-metric benchmark, not a measured figure">Default (workbook 2025)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

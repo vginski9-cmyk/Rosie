@@ -2669,15 +2669,18 @@ export async function getUtilizationExplorer(institutionId?: string) {
   const [ws, inst, events] = await Promise.all([
     getRoomsWorkspace(cal.institutionId),
     prisma.institution.findUnique({ where: { id: cal.institutionId }, select: { id: true, name: true, springStart: true, summerStart: true, fallStart: true } }),
-    prisma.academicEvent.findMany({ where: { institutionId: cal.institutionId, kind: { in: ["term_start", "term_end"] } }, orderBy: { date: "asc" }, select: { date: true, kind: true, season: true, label: true } }),
+    prisma.academicEvent.findMany({ where: { institutionId: cal.institutionId, kind: { in: ["term_start", "term_end", "holiday"] } }, orderBy: { date: "asc" }, select: { date: true, endDate: true, kind: true, season: true, label: true } }),
   ]);
   if (!inst) return null;
+  // Coded holidays and breaks, expanded to dates — not schedulable hours (Phase 6).
+  const holidays: string[] = [];
+  for (const e of events.filter((x) => x.kind === "holiday")) { const a = e.date.getTime(), b = (e.endDate ?? e.date).getTime(); for (let t = a; t <= b; t += 86400000) holidays.push(new Date(t).toISOString().slice(0, 10)); }
   const semesters = events.filter((e) => e.kind === "term_start").map((s) => { const end = events.find((e) => e.kind === "term_end" && e.date > s.date && e.season === s.season && e.date.getUTCFullYear() === s.date.getUTCFullYear()); return { iso: s.date.toISOString().slice(0, 10), endIso: end?.date.toISOString().slice(0, 10) ?? null, season: s.season }; });
   return {
     institution: { id: inst.id, name: inst.name },
     institutions: cal.institutions,
     anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
-    semesters,
+    semesters, holidays,
     rooms: ws.rooms.filter((r) => r.status === "active").map((r) => ({ id: r.id, name: r.name, kind: r.kind, capacity: r.capacity, buildingId: r.buildingId, building: r.building, campusId: r.campusId, campus: r.campus, hours: r.hours, closures: r.closures })),
     meetings: cal.meetings.map((m) => ({
       id: m.id, cohortId: m.cohortId, cohort: m.cohortName, programId: m.programId, program: m.programName,
@@ -2950,8 +2953,10 @@ export async function getOfferingLedger(cohortId: string) {
 }
 
 export async function getLearnerAnalytics() {
-  const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true } } } });
-  return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
+  const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true, cohortTerms: { select: { endDate: true } } } } } });
+  // The cohort's end (its last term's end date): a completion rate counts only cohorts that have ended (Phase 6).
+  const endOf = (c: { cohortTerms: { endDate: Date | null }[] } | null) => { const ends = (c?.cohortTerms ?? []).map((t) => t.endDate).filter((d): d is Date => !!d); return ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))).toISOString().slice(0, 10) : null; };
+  return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, cohortEnds: endOf(s.cohort), dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
 }
 
 /** The program a family's shared pages (clinical setup, goal) are shown under: its first template. */

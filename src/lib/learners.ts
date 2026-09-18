@@ -21,7 +21,15 @@ export interface LearnerLite {
   residency: string | null; priorEducation: string | null; employmentStatus: string | null;
   firstGeneration: boolean | null; veteran: boolean | null; pellEligible: boolean | null; disability: boolean | null;
   withdrawalReason: string | null; gpa: number | null;
+  /** The date the learner's cohort ends (its last term); null when unknown or no cohort. A completion
+   *  rate counts only learners whose cohort has ended — nobody can have completed a program still running (Phase 6). */
+  cohortEnds?: string | null;
 }
+
+/** Cells smaller than this show no rates: a rate of one or two people is noise, and can identify them (Phase 6). */
+export const SMALL_CELL = 5;
+/** The learner's cohort has ended by `today`, so completion is decidable. */
+export const matured = (l: { cohortEnds?: string | null }, today: string) => !!l.cohortEnds && l.cohortEnds <= today;
 
 /** Age in whole years on a date. */
 export function ageOn(dobIso: string | null, onIso: string): number | null {
@@ -59,7 +67,18 @@ export function dimensionValue(l: LearnerLite, dim: Dimension, today: string): s
 export const outcomeOf = (status: string): "in progress" | "completed" | "withdrawn" | "pre-enrollment" =>
   status === "withdrawn" ? "withdrawn" : ["completed", "licensed", "placed", "productive"].includes(status) ? "completed" : ["prospect", "applicant", "admitted"].includes(status) ? "pre-enrollment" : "in progress";
 
-export interface PivotRow { value: string; n: number; completed: number; withdrawn: number; inProgress: number; preEnrollment: number; completionRate: number | null; withdrawalRate: number | null; avgAge: number | null; avgGpa: number | null; share: number }
+export interface PivotRow {
+  value: string; n: number; completed: number; withdrawn: number; inProgress: number; preEnrollment: number;
+  /** completed ÷ entrants whose cohort has ended; null when none has, or the cell is small. */
+  completionRate: number | null;
+  /** withdrawn ÷ entrants; null when nobody started, or the cell is small. */
+  withdrawalRate: number | null;
+  /** Entrants (and entrants whose cohort has ended) — the rates' denominators. */
+  entrants: number; maturedEntrants: number;
+  /** Fewer than SMALL_CELL entrants: rates suppressed. */
+  smallCell: boolean;
+  avgAge: number | null; avgGpa: number | null; share: number;
+}
 
 /** Count learners by one dimension with outcome shares, average age and GPA. */
 export function pivot(learners: LearnerLite[], dim: Dimension, today: string): PivotRow[] {
@@ -71,11 +90,13 @@ export function pivot(learners: LearnerLite[], dim: Dimension, today: string): P
     const withdrawn = ls.filter((l) => outcomeOf(l.status) === "withdrawn").length;
     const inProgress = ls.filter((l) => outcomeOf(l.status) === "in progress").length;
     const pre = ls.length - completed - withdrawn - inProgress;
-    // Rates are of entrants (everyone who started), the same basis as outcomeStats — never "of decided".
-    const entrants = ls.filter((l) => ENTRANT_STATUSES.has(l.status)).length;
+    // Rates are of entrants (everyone who started), the same basis as outcomeStats — never "of decided";
+    // completion only over entrants whose cohort has ended; nothing for a small cell.
+    const o = outcomeStats(ls, today);
+    const smallCell = o.entrants > 0 && o.entrants < SMALL_CELL;
     const ages = ls.map((l) => ageOn(l.dob, today)).filter((a): a is number => a != null);
     const gpas = ls.map((l) => l.gpa).filter((g): g is number => g != null);
-    return { value, n: ls.length, completed, withdrawn, inProgress, preEnrollment: pre, completionRate: entrants ? completed / entrants : null, withdrawalRate: entrants ? withdrawn / entrants : null, avgAge: ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null, avgGpa: gpas.length ? gpas.reduce((a, b) => a + b, 0) / gpas.length : null, share: ls.length / total };
+    return { value, n: ls.length, completed, withdrawn, inProgress, preEnrollment: pre, completionRate: smallCell ? null : o.completionRate, withdrawalRate: smallCell ? null : o.withdrawalRate, entrants: o.entrants, maturedEntrants: o.maturedEntrants, smallCell, avgAge: ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null, avgGpa: gpas.length ? gpas.reduce((a, b) => a + b, 0) / gpas.length : null, share: ls.length / total };
   });
   return rows.sort((a, b) => b.n - a.n || a.value.localeCompare(b.value));
 }
@@ -93,14 +114,28 @@ export function crosstab(learners: LearnerLite[], rowDim: Dimension, colDim: Dim
  *  applicants and admits never started, so they are not in the denominator. */
 export const ENTRANT_STATUSES = new Set(["enrolled", "completed", "licensed", "placed", "productive", "withdrawn"]);
 export const COMPLETED_STATUSES = new Set(["completed", "licensed", "placed", "productive"]);
-export interface OutcomeStats { entrants: number; withdrawn: number; completed: number; inProgress: number; /** withdrawn ÷ entrants (null when nobody started). */ withdrawalRate: number | null; /** completed ÷ entrants (null when nobody started). */ completionRate: number | null }
-/** Withdrawal rate = withdrawn to date ÷ everyone who started (never "of decided", never of every record). */
-export function outcomeStats(learners: { status: string }[]): OutcomeStats {
-  let entrants = 0, withdrawn = 0, completed = 0, inProgress = 0;
+export interface OutcomeStats {
+  entrants: number; withdrawn: number; completed: number; inProgress: number;
+  /** withdrawn ÷ entrants (null when nobody started). */
+  withdrawalRate: number | null;
+  /** completed ÷ entrants whose cohort has ended (null when no cohort is old enough to complete). */
+  completionRate: number | null;
+  /** Entrants whose cohort has ended, and how many of them completed. */
+  maturedEntrants: number; maturedCompleted: number;
+  /** Entrants whose cohort is still running (or has no end date on record) — not in the completion denominator. */
+  unmaturedEntrants: number;
+}
+/** Withdrawal rate = withdrawn to date ÷ everyone who started (never "of decided", never of every record).
+ *  Completion rate = completed ÷ entrants whose cohort has ended by `today` (Phase 6) — a cohort still
+ *  running cannot have a completion rate. Without `today` (or cohort end dates) no completion rate is given. */
+export function outcomeStats(learners: { status: string; cohortEnds?: string | null }[], today?: string): OutcomeStats {
+  let entrants = 0, withdrawn = 0, completed = 0, inProgress = 0, maturedEntrants = 0, maturedCompleted = 0;
   for (const l of learners) {
     if (!ENTRANT_STATUSES.has(l.status)) continue;
     entrants++;
-    if (l.status === "withdrawn") withdrawn++; else if (COMPLETED_STATUSES.has(l.status)) completed++; else inProgress++;
+    const done = COMPLETED_STATUSES.has(l.status);
+    if (l.status === "withdrawn") withdrawn++; else if (done) completed++; else inProgress++;
+    if (today && matured(l, today)) { maturedEntrants++; if (done) maturedCompleted++; }
   }
-  return { entrants, withdrawn, completed, inProgress, withdrawalRate: entrants ? withdrawn / entrants : null, completionRate: entrants ? completed / entrants : null };
+  return { entrants, withdrawn, completed, inProgress, withdrawalRate: entrants ? withdrawn / entrants : null, completionRate: maturedEntrants ? maturedCompleted / maturedEntrants : null, maturedEntrants, maturedCompleted, unmaturedEntrants: entrants - maturedEntrants };
 }

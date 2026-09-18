@@ -122,6 +122,14 @@ export function datesBetween(from: string, to: string): string[] {
   for (let t = a; t <= b; t += DAY) out.push(isoOf(new Date(t)));
   return out;
 }
+/** The SCHEDULABLE dates of a window (Phase 6): weekdays inside a coded semester (any weekday when no
+ *  semester is coded), never a coded holiday or break. The default utilization denominator is the rooms'
+ *  open hours over these dates — every coded hour of every calendar day is the secondary, all-hours figure. */
+export function schedulableDates(from: string, to: string, semesters: SemesterWindow[] = [], holidays: Iterable<string> = []): string[] {
+  const off = new Set(holidays);
+  const inSemester = (iso: string) => semesters.length === 0 || semesters.some((s) => s.iso <= iso && (s.endIso ?? "9999") >= iso);
+  return datesBetween(from, to).filter((iso) => { const wd = dateOf(iso).getUTCDay(); return wd >= 1 && wd <= 5 && !off.has(iso) && inSemester(iso); });
+}
 
 export interface UtilRow {
   key: string; label: string; sub?: string;
@@ -173,7 +181,7 @@ const ROOM_GROUPS: UtilGroup[] = ["room", "building", "campus"];
 const TIME_GROUPS: UtilGroup[] = ["day", "week", "month", "semester", "year", "weekday"];
 
 /** Roll the atoms up by a grouping. `rooms` is the room scope (after filters) — its open hours are the denominator. */
-export function utilizationRollup(atoms: UtilAtom[], rooms: UtilRoom[], groupBy: UtilGroup, from: string, to: string, semesters: SemesterWindow[] = [], anchors?: SemesterAnchors): UtilRow[] {
+export function utilizationRollup(atoms: UtilAtom[], rooms: UtilRoom[], groupBy: UtilGroup, from: string, to: string, semesters: SemesterWindow[] = [], anchors?: SemesterAnchors, schedulable?: Iterable<string>): UtilRow[] {
   const acc = new Map<string, UtilRow & { _rooms: Set<string>; _dates: Set<string>; _capHours: number; _campusSeatHours: number }>();
   for (const x of atoms) {
     const k = keyOf(groupBy, x);
@@ -186,7 +194,8 @@ export function utilizationRollup(atoms: UtilAtom[], rooms: UtilRoom[], groupBy:
     acc.set(k.key, r);
   }
   const roomById = new Map(rooms.map((r) => [r.id, r]));
-  const windowDates = datesBetween(from, to);
+  // The denominator's dates: the schedulable ones when given (the default on screen), else every calendar day.
+  const windowDates = schedulable ? [...schedulable].filter((d) => d >= from && d <= to) : datesBetween(from, to);
   const rows = [...acc.values()].map(({ _rooms, _dates, _capHours, _campusSeatHours, ...r }) => {
     let openHours: number | null = null;
     if (ROOM_GROUPS.includes(groupBy)) {
@@ -210,10 +219,13 @@ export function utilizationRollup(atoms: UtilAtom[], rooms: UtilRoom[], groupBy:
   return rows.sort((a, b) => a.key.localeCompare(b.key));
 }
 
-/** Grand totals for the window: booked vs open room-hours across the room scope. */
-export function utilizationTotals(atoms: UtilAtom[], rooms: UtilRoom[], from: string, to: string) {
+/** Grand totals for the window: booked vs open room-hours across the room scope — over the schedulable
+ *  dates (the headline) and over every calendar day (the secondary, all-hours figure). */
+export function utilizationTotals(atoms: UtilAtom[], rooms: UtilRoom[], from: string, to: string, schedulable?: Iterable<string>) {
   const dates = datesBetween(from, to);
   const open = openRoomHours(rooms, dates);
+  const schedDates = schedulable ? [...schedulable].filter((d) => d >= from && d <= to) : dates;
+  const schedulableHours = schedulable ? openRoomHours(rooms, schedDates) : open;
   const campus = atoms.filter((a) => a.roomId);
   const hours = atoms.reduce((n, a) => n + a.hours, 0);
   const campusHours = campus.reduce((n, a) => n + a.hours, 0);
@@ -228,6 +240,8 @@ export function utilizationTotals(atoms: UtilAtom[], rooms: UtilRoom[], from: st
   return {
     bookings: atoms.length, hours, campusHours, clinicalHours: hours - campusHours, seatHours, byKind,
     openHours: open, utilization: open > 0 ? campusHours / open : null,
+    /** The headline (Phase 6): booked ÷ open hours on schedulable dates only. */
+    schedulableHours, schedulableDays: schedDates.length, utilizationSchedulable: schedulableHours > 0 ? campusHours / schedulableHours : null,
     fill: capHours > 0 ? campusSeatHours / capHours : null,
     roomsUsed: new Set(campus.map((a) => a.roomId)).size, roomsInScope: rooms.length, roomsWithHours: rooms.filter((r) => r.hours.length).length,
     days: dates.length, daysWithBookings: byDay.size,

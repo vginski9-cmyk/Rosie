@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { utilizationAtoms, utilizationRollup, utilizationTotals, hourHeat, groupKey, UTIL_GROUPS, DRILL_INTO, fmtMDY, type UtilGroup, type UtilRow, type UtilRoom, type UtilMeeting, type SemesterWindow } from "@/lib/utilization";
+import { utilizationAtoms, utilizationRollup, utilizationTotals, hourHeat, groupKey, schedulableDates, UTIL_GROUPS, DRILL_INTO, fmtMDY, type UtilGroup, type UtilRow, type UtilRoom, type UtilMeeting, type SemesterWindow } from "@/lib/utilization";
 import type { SemesterAnchors } from "@/lib/term";
 import { dec, fmt } from "@/lib/format";
 
@@ -22,9 +22,9 @@ const KIND_TONE: Record<string, string> = { CLASS: "text-sky-700", LAB: "text-vi
 const heatColor = (v: number, max: number) => (v <= 0 ? "transparent" : `rgba(225, 29, 72, ${0.12 + 0.75 * Math.min(1, v / max)})`);
 const utilBar = (u: number | null) => (u == null ? "bg-slate-200" : u >= 0.85 ? "bg-rose-500" : u >= 0.5 ? "bg-amber-500" : "bg-emerald-500");
 
-export function UtilizationExplorer({ institution, institutions, rooms, meetings, semesters, anchors, programs, from, to, preset, windowLabel }: {
+export function UtilizationExplorer({ institution, institutions, rooms, meetings, semesters, holidays = [], anchors, programs, from, to, preset, windowLabel }: {
   institution: { id: string; name: string }; institutions: { id: string; name: string }[];
-  rooms: UtilRoom[]; meetings: UtilMeeting[]; semesters: SemesterWindow[]; anchors: SemesterAnchors;
+  rooms: UtilRoom[]; meetings: UtilMeeting[]; semesters: SemesterWindow[]; holidays?: string[]; anchors: SemesterAnchors;
   programs: { id: string; name: string }[];
   from: string; to: string; preset: string; windowLabel: string;
 }) {
@@ -45,15 +45,22 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
   const scopeRooms = useMemo(() => rooms.filter((r) => (!buildingIds.length || (r.buildingId && buildingIds.includes(r.buildingId))) && (!roomIds.length || roomIds.includes(r.id))), [rooms, buildingIds, roomIds]);
 
   const filters = useMemo(() => ({ from, to, programIds, courseIds, cohortIds, kinds, weekdays, buildingIds, roomIds, where }), [from, to, programIds, courseIds, cohortIds, kinds, weekdays, buildingIds, roomIds, where]);
+  // The denominator (Phase 6): schedulable dates by default — weekdays inside a coded semester, never a
+  // holiday — so a summer or a Sunday does not read as empty rooms. All coded hours over every calendar day
+  // stay as the secondary figure.
+  const [denominator, setDenominator] = useState<"schedulable" | "all">("schedulable");
+  const schedulable = useMemo(() => new Set(schedulableDates(from, to, semesters, holidays)), [from, to, semesters, holidays]);
+  const denom = denominator === "schedulable" ? schedulable : undefined;
   const atoms = useMemo(() => utilizationAtoms(meetings, rooms, filters, semesters, anchors), [meetings, rooms, filters, semesters, anchors]);
-  const rows = useMemo(() => utilizationRollup(atoms, scopeRooms, groupBy, from, to, semesters, anchors), [atoms, scopeRooms, groupBy, from, to, semesters, anchors]);
-  const t = useMemo(() => utilizationTotals(atoms, scopeRooms, from, to), [atoms, scopeRooms, from, to]);
+  const rows = useMemo(() => utilizationRollup(atoms, scopeRooms, groupBy, from, to, semesters, anchors, denom), [atoms, scopeRooms, groupBy, from, to, semesters, anchors, denom]);
+  const t = useMemo(() => utilizationTotals(atoms, scopeRooms, from, to, schedulable), [atoms, scopeRooms, from, to, schedulable]);
+  const offeringsLoaded = useMemo(() => new Set(meetings.map((m) => m.cohortId)).size, [meetings]);
   const heat = useMemo(() => hourHeat(atoms), [atoms]);
   const heatMax = Math.max(0.001, ...Object.values(heat.grid).flat());
   const drillGroup = drill ? DRILL_INTO[groupBy] : null;
   const drillAtoms = useMemo(() => (drill ? atoms.filter((x) => groupKey(groupBy, x).key === drill.key) : []), [drill, atoms, groupBy]);
   const drillRooms = useMemo(() => (drill && drill.roomIds.length ? scopeRooms.filter((r) => drill.roomIds.includes(r.id)) : scopeRooms), [drill, scopeRooms]);
-  const drillRows = useMemo(() => (drill && drillGroup ? utilizationRollup(drillAtoms, drillRooms, drillGroup, drill.dates[0] ?? from, drill.dates[drill.dates.length - 1] ?? to, semesters, anchors) : []), [drill, drillGroup, drillAtoms, drillRooms, from, to, semesters, anchors]);
+  const drillRows = useMemo(() => (drill && drillGroup ? utilizationRollup(drillAtoms, drillRooms, drillGroup, drill.dates[0] ?? from, drill.dates[drill.dates.length - 1] ?? to, semesters, anchors, denom) : []), [drill, drillGroup, drillAtoms, drillRooms, from, to, semesters, anchors, denom]);
 
   const go = (p: string, f = customFrom, tt = customTo) => router.push(`/utilization?inst=${institution.id}&preset=${p}${p === "custom" ? `&from=${f}&to=${tt}` : ""}`);
   const toggle = <T,>(list: T[], set: (v: T[]) => void, v: T) => set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
@@ -76,7 +83,7 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
     </tr>
   );
   const Head = ({ first }: { first: string }) => (
-    <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">{first}</th><th className="px-2 py-1.5 text-right">Bookings</th><th className="px-2 py-1.5 text-right">Days</th><th className="px-2 py-1.5 text-right">Rooms</th><th className="px-2 py-1.5 text-right">Booked<br /><span className="font-normal normal-case">hours · by type</span></th><th className="px-2 py-1.5 text-right">Open<br /><span className="font-normal normal-case">room-hours</span></th><th className="px-2 py-1.5 text-right">Utilization</th><th className="px-2 py-1.5 text-right">Seat-hours</th><th className="px-2 py-1.5 text-right">Fill</th><th className="px-2 py-1.5 text-right" title="bookings outside the room's coded hours">Outside hrs</th></tr></thead>
+    <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left">{first}</th><th className="px-2 py-1.5 text-right">Bookings</th><th className="px-2 py-1.5 text-right">Days</th><th className="px-2 py-1.5 text-right">Rooms</th><th className="px-2 py-1.5 text-right">Booked<br /><span className="font-normal normal-case">hours · by type</span></th><th className="px-2 py-1.5 text-right">{denominator === "schedulable" ? "Schedulable" : "Open"}<br /><span className="font-normal normal-case">room-hours</span></th><th className="px-2 py-1.5 text-right">Utilization</th><th className="px-2 py-1.5 text-right">Seat-hours</th><th className="px-2 py-1.5 text-right">Fill</th><th className="px-2 py-1.5 text-right" title="bookings outside the room's coded hours">Outside hrs</th></tr></thead>
   );
 
   return (
@@ -107,9 +114,15 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
         </div>
       </div>
 
+      {/* Coverage: what these numbers include, and what they cannot see. */}
+      <div className="rounded-xl border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-900">
+        <strong>Coverage:</strong> includes only the {programs.length} program{programs.length === 1 ? "" : "s"} loaded in Rosie ({programs.map((p) => p.name).join(", ") || "none"}) — {n(offeringsLoaded)} offering{offeringsLoaded === 1 ? "" : "s"} with weekly bookings. Other institutional activity in these rooms (other programs, continuing education, events, maintenance) is not modeled, so a low figure means "unused by these programs", not "empty".
+        <span className="ml-2 inline-flex items-center gap-1">denominator: <button onClick={() => setDenominator("schedulable")} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${denominator === "schedulable" ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`} title="open room-hours on weekdays inside a coded semester, never a holiday">schedulable hours ({n(t.schedulableDays)} days)</button><button onClick={() => setDenominator("all")} className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${denominator === "all" ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`} title="every coded open hour of every calendar day in the window, weekends and breaks included">all coded hours ({n(t.days)} days)</button></span>
+      </div>
+
       {/* Totals */}
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
-        <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">Total utilization</div><div className="text-xl font-bold tabular-nums text-slate-900">{pct(t.utilization)}</div><div className="text-[11px] text-slate-500">{n(t.campusHours)} booked of {n(t.openHours)} open room-hours</div></div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">Utilization of schedulable hours</div><div className="text-xl font-bold tabular-nums text-slate-900">{pct(t.utilizationSchedulable)}</div><div className="text-[11px] text-slate-500">{n(t.campusHours)} booked of {n(t.schedulableHours)} open room-hours on {n(t.schedulableDays)} schedulable days · all coded hours over {n(t.days)} days: {pct(t.utilization)} of {n(t.openHours)} h</div></div>
         <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">Bookings</div><div className="text-xl font-bold tabular-nums text-slate-900">{n(t.bookings)}</div><div className="text-[11px] text-slate-500">{n(t.hours)} h · {KINDS.filter(([k]) => t.byKind[k]).map(([k, l]) => `${l} ${n(t.byKind[k])}`).join(" · ")}</div></div>
         <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">Rooms used</div><div className="text-xl font-bold tabular-nums text-slate-900">{t.roomsUsed} <span className="text-sm font-normal text-slate-400">/ {t.roomsInScope}</span></div><div className="text-[11px] text-slate-500">{t.roomsWithHours} with coded hours{t.roomsWithHours < t.roomsInScope ? ` · ${t.roomsInScope - t.roomsWithHours} without (not in the denominator)` : ""}</div></div>
         <div className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">Seat-hours</div><div className="text-xl font-bold tabular-nums text-slate-900">{n(t.seatHours)}</div><div className="text-[11px] text-slate-500">rooms run {pct(t.fill)} full when booked</div></div>
@@ -139,7 +152,7 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
             </tbody>
           </table>
         </div>
-        <p className="px-3 py-2 text-[11px] text-slate-400">Utilization = booked on-campus hours ÷ the open room-hours of the rooms in scope (a room with no coded hours is not counted; set hours under Rooms, buildings &amp; equipment). Fill = seat-hours ÷ booked hours × room capacity. Clinical bookings count in hours and seat-hours, never against room hours.</p>
+        <p className="px-3 py-2 text-[11px] text-slate-400">Utilization = booked on-campus hours ÷ the {denominator === "schedulable" ? "open room-hours of the rooms in scope on schedulable days (weekdays in a coded semester, never a holiday)" : "open room-hours of the rooms in scope over every calendar day"} (a room with no coded hours is not counted; set hours under Rooms, buildings &amp; equipment). Fill = seat-hours ÷ booked hours × room capacity. Clinical bookings count in hours and seat-hours, never against room hours.</p>
       </div>
 
       {/* Drill-in */}

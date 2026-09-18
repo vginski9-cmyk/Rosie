@@ -36,7 +36,9 @@ describe("withdrawal rate (audit §3)", () => {
     expect(o.withdrawn).toBe(9);
     expect(o.withdrawalRate).toBeCloseTo(0.15, 6);
     expect(o.completed).toBe(0);
-    expect(o.completionRate).toBe(0);
+    // No completion rate while no cohort has ended (Phase 6): the cohort is still running, so 0 % would be false.
+    expect(o.completionRate).toBeNull();
+    expect(o.unmaturedEntrants).toBe(60);
   });
   it("is null, not 100 %, when nobody has started", () => {
     expect(outcomeStats([{ status: "prospect" }, { status: "applicant" }]).withdrawalRate).toBeNull();

@@ -26,10 +26,10 @@ export default async function UtilizationPage({ searchParams }: { searchParams: 
         shows="The applied plan on the calendar — booked room-hours of every section booking and per-date move, against each room's open hours."
         population={`Room bookings of every planned and running offering at ${data.institution.name} — only the programs loaded in Rosie; other institutional activity in these rooms is not modeled`}
         window={win.label}
-        constraints={["room open hours", "closures", "per-date moves"]}
+        constraints={["room open hours", "closures", "per-date moves", "denominator: schedulable hours by default (weekdays in a coded semester, no holidays); all coded hours secondary"]}
         differs={[["Daily coverage", "/insights/coverage", "shows the same bookings by session and student, not by room-hour"], ["Asset supply", "/supply", "is the clinical sites' assets, not campus rooms"]]}
       />
-      <UtilizationExplorer institution={data.institution} institutions={data.institutions} rooms={data.rooms} meetings={data.meetings} semesters={data.semesters} anchors={data.anchors} programs={data.programs} from={win.from} to={win.to} preset={preset} windowLabel={win.label} />
+      <UtilizationExplorer institution={data.institution} institutions={data.institutions} rooms={data.rooms} meetings={data.meetings} semesters={data.semesters} holidays={data.holidays} anchors={data.anchors} programs={data.programs} from={win.from} to={win.to} preset={preset} windowLabel={win.label} />
     </div>
   );
 }
