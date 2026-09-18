@@ -19,7 +19,8 @@ describe("learners", () => {
     ], "sex", "2026-09-09");
     const f = rows.find((r) => r.value === "Female")!; const m = rows.find((r) => r.value === "Male")!;
     expect(f.n).toBe(3); expect(f.completed).toBe(1); expect(f.withdrawn).toBe(1); expect(f.inProgress).toBe(1);
-    expect(f.completionRate).toBeCloseTo(0.5, 10); expect(f.avgAge).toBe(26); expect(f.share).toBeCloseTo(0.75, 10);
+    // Rates are of entrants (everyone who started): 3 women started — 1 completed, 1 withdrew, 1 enrolled.
+    expect(f.completionRate).toBeCloseTo(1 / 3, 10); expect(f.withdrawalRate).toBeCloseTo(1 / 3, 10); expect(f.avgAge).toBe(26); expect(f.share).toBeCloseTo(0.75, 10);
     expect(m.completionRate).toBe(1); expect(m.avgAge).toBe(36); expect(m.avgGpa).toBeCloseTo(3.8, 10);
     expect(pivot([L({ firstGeneration: null })], "firstGeneration", "2026-09-09")[0].value).toBe("unknown");
     expect(pivot([L({ dob: "1975-01-01" })], "ageBand", "2026-09-09")[0].value).toBe("45–54");

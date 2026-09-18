@@ -1640,7 +1640,7 @@ export async function weekClinicalOccurrences(meetings: MasterMeeting[], mondayM
 }
 
 export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?: number }) {
-  const { detectConflicts, roomUtilization, seatStartsByGroup, toMin, toHHMM } = await import("./space");
+  const { roomUtilization, seatStartsByGroup, toMin, toHHMM } = await import("./space");
   const WEEK_MS = 7 * 24 * 3600 * 1000;
 
   const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
@@ -1658,7 +1658,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     }
     institutionId = institutionId ?? institutions[0]?.id;
   }
-  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], employers: [] as { id: string; name: string; setting: string | null }[], meetings: [] as MasterMeeting[], conflicts: [], weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 }, occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
+  if (!institutionId) return { institutions, institutionId: null, rooms: [], people: [] as { id: string; name: string; role: string }[], employers: [] as { id: string; name: string; setting: string | null }[], meetings: [] as MasterMeeting[], conflicts: [], conflictGroupCount: 0, weeks: [], currentWeekMs: null, programs: [] as { id: string; name: string }[], summary: { roomed: 0, unroomed: 0, clinical: 0, peakUtil: 0 }, occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
 
   const [rooms, calPeople, calEmployers, raw] = await Promise.all([
     prisma.facility.findMany({ where: { institutionId, status: "active" }, orderBy: [{ kind: "asc" }, { name: "asc" }], select: { id: true, name: true, kind: true, capacity: true, building: true } }),
@@ -1670,7 +1670,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         facility: { select: { id: true, name: true, kind: true } },
         employer: { select: { id: true, name: true } },
         staff: { select: { id: true, name: true } },
-        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { id: true, kind: true, week: true, number: true, title: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
+        course: { select: { id: true, code: true, name: true, term: { select: { index: true, startWeek: true, endWeek: true } }, sessions: { select: { id: true, kind: true, week: true, number: true, title: true, dayOfWeek: true, startTime: true, lengthHours: true, deliveryMode: true, location: true }, orderBy: [{ week: "asc" }, { number: "asc" }] } } },
         cohort: { select: { id: true, name: true, program: { select: { id: true, name: true, family: { select: { name: true } } } }, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } },
       },
     }),
@@ -1728,7 +1728,6 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     lengthHours: m.lengthHours, dayOfWeek: m.dayOfWeek as import("./space").Weekday, startMin: toMin(m.startTime),
     weekStartMs: m.weekStartMs, weekEndMs: m.weekEndMs, facilityId: m.facilityId, staffPersonId: m.staffPersonId,
   }));
-  const conflicts = detectConflicts(bookings);
   const roomUse = roomUtilization(bookings, rooms.map((r) => ({ id: r.id, name: r.name, kind: r.kind, capacity: r.capacity })));
   const roomsOut = roomUse.map((u) => ({ ...u, building: rooms.find((r) => r.id === u.facilityId)?.building ?? null }));
 
@@ -1756,7 +1755,55 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
 
   // The displayed week's clinical shifts as they actually happen (the plan, moves, staffing, students).
   const week = currentWeekMs != null ? await weekClinicalOccurrences(meetings, currentWeekMs) : { occurrences: [] as CalOccurrence[], roster: [] as CalRosterDay[] };
-  return { institutions, institutionId, rooms: roomsOut, people: calPeople, employers: calEmployers, meetings, conflicts, weeks, currentWeekMs, programs, summary, occurrences: week.occurrences, roster: week.roster };
+  // Conflicts on the dates things happen this week: each weekly booking's session on its resolved
+  // weekday (resolveSessionDay), after per-date moves — reported as pairs for highlighting and
+  // counted as groups (three sections in one room at 09:00 are one conflict).
+  const { detectDatedConflicts, conflictGroups } = await import("./space");
+  let conflicts: import("./space").DatedConflict[] = [];
+  let conflictGroupCount = 0;
+  if (currentWeekMs != null) {
+    const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const monday = new Date(currentWeekMs).toISOString().slice(0, 10);
+    const dateOfDay = (day: string) => new Date(currentWeekMs! + DOW.indexOf(day) * 86400000).toISOString().slice(0, 10);
+    const sunday = dateOfDay("Sun");
+    const cohortIds = [...new Set(raw.map((m) => m.cohortId))];
+    const moves = cohortIds.length ? await prisma.shiftMove.findMany({ where: { cohortId: { in: cohortIds }, OR: [{ fromDate: { gte: new Date(monday + "T00:00:00Z"), lte: new Date(sunday + "T00:00:00Z") } }, { toDate: { gte: new Date(monday + "T00:00:00Z"), lte: new Date(sunday + "T00:00:00Z") } }] }, select: { cohortId: true, sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, staffPersonId: true } }) : [];
+    const moveByKey = new Map(moves.map((m) => [`${m.cohortId}|${m.sessionId}|${m.sectionIndex}|${m.fromDate.toISOString().slice(0, 10)}`, m]));
+    const rawById = new Map(raw.map((m) => [m.id, m]));
+    const dated: import("./space").DatedBooking[] = [];
+    const seen = new Set<string>();
+    for (const m of meetings) {
+      if (!m.weekStartMs || !(m.weekStartMs <= currentWeekMs && currentWeekMs < m.weekEndMs)) continue;
+      const r = rawById.get(m.id); if (!r) continue;
+      const weekOfTerm = Math.floor((currentWeekMs - m.weekStartMs) / WEEK_MS) + 1;
+      const patterns = raw.filter((x) => x.cohortId === m.cohortId && x.courseId === m.courseId && x.kind === m.kind && x.sectionIndex === m.sectionIndex).map((x) => ({ dayOfWeek: x.dayOfWeek }));
+      const kindSessions = r.course.sessions.filter((x) => x.kind === m.kind);
+      const sessionDays = kindSessions.map((x) => x.dayOfWeek).filter((d): d is string => !!d);
+      for (const sess of kindSessions.filter((x) => (x.week ?? 1) === weekOfTerm)) {
+        const online = sess.deliveryMode === "Online" || sess.location === "Internet";
+        const day = resolveSessionDay(sess.dayOfWeek, online, patterns, sessionDays);
+        if (!day || day !== m.dayOfWeek) continue; // this booking hosts the session only on its own day
+        const originIso = dateOfDay(day);
+        const mv = moveByKey.get(`${m.cohortId}|${sess.id}|${m.sectionIndex}|${originIso}`);
+        const dateIso = mv ? mv.toDate.toISOString().slice(0, 10) : originIso;
+        if (dateIso < monday || dateIso > sunday) continue; // moved out of this week
+        const key = `${m.id}|${sess.id}`; if (seen.has(key)) continue; seen.add(key);
+        dated.push({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, seatStart: seatStarts.get(m.id), lengthHours: sess.lengthHours ?? m.lengthHours, dayOfWeek: DOW[(new Date(dateIso + "T00:00:00Z").getUTCDay() + 6) % 7] as import("./space").Weekday, startMin: toMin(mv?.startTime ?? sess.startTime ?? m.startTime), dateIso, facilityId: mv?.facilityId ?? m.facilityId, staffPersonId: mv?.staffPersonId ?? m.staffPersonId });
+      }
+    }
+    // Shifts moved INTO this week from another week.
+    for (const mv of moves) {
+      const toIso = mv.toDate.toISOString().slice(0, 10); const fromIso = mv.fromDate.toISOString().slice(0, 10);
+      if (toIso < monday || toIso > sunday || (fromIso >= monday && fromIso <= sunday)) continue;
+      const pattern = raw.find((x) => x.cohortId === mv.cohortId && x.sectionIndex === mv.sectionIndex && x.course.sessions.some((s) => s.id === mv.sessionId));
+      const sess = pattern?.course.sessions.find((s) => s.id === mv.sessionId); if (!pattern || !sess) continue;
+      const m = meetings.find((x) => x.id === pattern.id)!;
+      dated.push({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, seatStart: seatStarts.get(m.id), lengthHours: sess.lengthHours ?? m.lengthHours, dayOfWeek: DOW[(new Date(toIso + "T00:00:00Z").getUTCDay() + 6) % 7] as import("./space").Weekday, startMin: toMin(mv.startTime ?? sess.startTime ?? m.startTime), dateIso: toIso, facilityId: mv.facilityId ?? m.facilityId, staffPersonId: mv.staffPersonId ?? m.staffPersonId });
+    }
+    conflicts = detectDatedConflicts(dated);
+    conflictGroupCount = conflictGroups(conflicts).length;
+  }
+  return { institutions, institutionId, rooms: roomsOut, people: calPeople, employers: calEmployers, meetings, conflicts, conflictGroupCount, weeks, currentWeekMs, programs, summary, occurrences: week.occurrences, roster: week.roster };
 }
 
 /** One meeting's full editing context (for the move/reassign editor). */
@@ -3018,12 +3065,12 @@ export async function getOfferingsMap(): Promise<{ points: MapPoint[]; unlocated
 // roll-up and the by-setting grid read a second figure: the hours each course codes against a
 // setting (CourseClinicalRequirement — Sandhills' workbook "course allocation" table). When the
 // two disagree the difference is hours no setting claims; it must be shown, never hidden.
-export async function getFamilyClinicalHoursBridge(familyId: string): Promise<{ programs: { programId: string; program: string; sessionHours: number; codedHours: number; unmapped: { course: string; sessionHours: number; codedHours: number }[] }[] }> {
+export async function getFamilyClinicalHoursBridge(familyId: string): Promise<{ programs: import("./hoursbridge").BridgeProgram[] }> {
+  const { programHoursBridge } = await import("./hoursbridge");
   const programs = await prisma.program.findMany({ where: { familyId }, orderBy: { name: "asc" }, select: { id: true, name: true, terms: { select: { courses: { select: { code: true, name: true, sessions: { where: { kind: "CLINICAL" }, select: { lengthHours: true } }, clinicalRequirements: { select: { hoursPerStudent: true } } } } } } } });
   return {
-    programs: programs.map((p) => {
-      const courses = p.terms.flatMap((t) => t.courses).map((c) => ({ course: c.code ?? c.name, sessionHours: c.sessions.reduce((n, s) => n + s.lengthHours, 0), codedHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0) })).filter((c) => c.sessionHours > 0 || c.codedHours > 0);
-      return { programId: p.id, program: p.name, sessionHours: courses.reduce((n, c) => n + c.sessionHours, 0), codedHours: courses.reduce((n, c) => n + c.codedHours, 0), unmapped: courses.filter((c) => Math.abs(c.sessionHours - c.codedHours) > 0.01) };
-    }).filter((p) => p.sessionHours > 0 || p.codedHours > 0),
+    programs: programs
+      .map((p) => programHoursBridge(p.id, p.name, p.terms.flatMap((t) => t.courses).map((c) => ({ course: c.code ?? c.name, sessionHours: c.sessions.reduce((n, s) => n + s.lengthHours, 0), codedHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0) }))))
+      .filter((p) => p.sessionHours > 0 || p.codedHours > 0),
   };
 }

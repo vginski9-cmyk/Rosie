@@ -71,10 +71,11 @@ export function pivot(learners: LearnerLite[], dim: Dimension, today: string): P
     const withdrawn = ls.filter((l) => outcomeOf(l.status) === "withdrawn").length;
     const inProgress = ls.filter((l) => outcomeOf(l.status) === "in progress").length;
     const pre = ls.length - completed - withdrawn - inProgress;
-    const decided = completed + withdrawn;
+    // Rates are of entrants (everyone who started), the same basis as outcomeStats — never "of decided".
+    const entrants = ls.filter((l) => ENTRANT_STATUSES.has(l.status)).length;
     const ages = ls.map((l) => ageOn(l.dob, today)).filter((a): a is number => a != null);
     const gpas = ls.map((l) => l.gpa).filter((g): g is number => g != null);
-    return { value, n: ls.length, completed, withdrawn, inProgress, preEnrollment: pre, completionRate: decided ? completed / decided : null, withdrawalRate: decided ? withdrawn / decided : null, avgAge: ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null, avgGpa: gpas.length ? gpas.reduce((a, b) => a + b, 0) / gpas.length : null, share: ls.length / total };
+    return { value, n: ls.length, completed, withdrawn, inProgress, preEnrollment: pre, completionRate: entrants ? completed / entrants : null, withdrawalRate: entrants ? withdrawn / entrants : null, avgAge: ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null, avgGpa: gpas.length ? gpas.reduce((a, b) => a + b, 0) / gpas.length : null, share: ls.length / total };
   });
   return rows.sort((a, b) => b.n - a.n || a.value.localeCompare(b.value));
 }
@@ -85,4 +86,21 @@ export function crosstab(learners: LearnerLite[], rowDim: Dimension, colDim: Dim
   for (const l of learners) { const r = dimensionValue(l, rowDim, today), c = dimensionValue(l, colDim, today); cols.add(c); const m = rows.get(r) ?? new Map(); m.set(c, (m.get(c) ?? 0) + 1); rows.set(r, m); }
   const colList = [...cols].sort();
   return { cols: colList, rows: [...rows.entries()].map(([r, m]) => ({ value: r, cells: colList.map((c) => m.get(c) ?? 0), n: [...m.values()].reduce((a, b) => a + b, 0) })).sort((a, b) => b.n - a.n) };
+}
+
+// ── Withdrawal and completion, one way everywhere ─────────────────────────────────────────────
+/** Learners who started: enrolled or further along, and everyone who later withdrew. Prospects,
+ *  applicants and admits never started, so they are not in the denominator. */
+export const ENTRANT_STATUSES = new Set(["enrolled", "completed", "licensed", "placed", "productive", "withdrawn"]);
+export const COMPLETED_STATUSES = new Set(["completed", "licensed", "placed", "productive"]);
+export interface OutcomeStats { entrants: number; withdrawn: number; completed: number; inProgress: number; /** withdrawn ÷ entrants (null when nobody started). */ withdrawalRate: number | null; /** completed ÷ entrants (null when nobody started). */ completionRate: number | null }
+/** Withdrawal rate = withdrawn to date ÷ everyone who started (never "of decided", never of every record). */
+export function outcomeStats(learners: { status: string }[]): OutcomeStats {
+  let entrants = 0, withdrawn = 0, completed = 0, inProgress = 0;
+  for (const l of learners) {
+    if (!ENTRANT_STATUSES.has(l.status)) continue;
+    entrants++;
+    if (l.status === "withdrawn") withdrawn++; else if (COMPLETED_STATUSES.has(l.status)) completed++; else inProgress++;
+  }
+  return { entrants, withdrawn, completed, inProgress, withdrawalRate: entrants ? withdrawn / entrants : null, completionRate: entrants ? completed / entrants : null };
 }

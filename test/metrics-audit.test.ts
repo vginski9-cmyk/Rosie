@@ -67,3 +67,62 @@ describe("the format module's rules (audit §2.1)", () => {
     expect(fmt.pct(Number.NaN)).toBe("—");
   });
 });
+
+// ── Placed never exceeds what secured sites can host (audit §1.1 / §1.2) ─────────────────────
+import { recommendPlan, demandUnits, DEFAULT_POLICY } from "../src/lib/scheduler";
+import { assetSupply, assetDemand, assetMatch, settingVerdicts, type AssetLite } from "../src/lib/assetmap";
+import { detectDatedConflicts, conflictGroups, type DatedBooking } from "../src/lib/space";
+
+const assetOf = (o: Partial<AssetLite> & { id: string; employerId: string; facilityName: string }): AssetLite => ({
+  externalId: o.id, settingCode: "GEN", setting: "General", assetType: "Room", assetNumber: 1, operatingRule: "Weekday Day", days: "Mon,Tue,Wed,Thu,Fri", shiftBlocks: "Day", hoursPerShift: 8,
+  serves: null, learnersPerShift: 2, preceptorsPerShift: 1, dataSource: "VERIFIED", status: "active", agreementStatus: "secured", facilityStatus: "active", ring: "Core", county: "Moore", ...o,
+});
+const clinicalRow = (id: string, C: number, Y: number, maxStudents: number, dateIso: string): DatedInstance => ({
+  session: { id, kind: "CLINICAL", number: 1, title: null, lengthHours: 8, maxStudents, rotationType: "General Radiography", startTime: "07:00", preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", dayOfWeek: "Mon", week: 1, location: null, deliveryMode: null, notes: null, supportStaffNeeded: 0 },
+  computed: { C, Y }, cohortId: "co1", cohort: "Class of 2028", programId: "p1", program: "Rad", courseCode: "RAD-151", courseTitle: "Clin I", courseId: "c1",
+  termIndex: 1, termName: "Term 1", semester: "Fall", weekOfTerm: 1, monday: null, mondayIso: dateIso, date: null, dateIso, month: dateIso.slice(0, 7), holiday: null,
+} as unknown as DatedInstance);
+
+describe("under secured-only levers, placed ≤ hostable by secured sites", () => {
+  const rotations = [{ rotationType: "General Radiography", settingCode: "GEN" }];
+  it("holds when the only secured room seats 2 and the asked site would seat 5 more", () => {
+    // 5 learners in 5 one-seat sections on Monday 2027-08-23; one secured room (2 seats) and one asked room (5 seats).
+    const rows = [clinicalRow("s1", 5, 5, 1, "2027-08-23")];
+    const assets = [assetOf({ id: "sec", employerId: "e1", facilityName: "Moore", learnersPerShift: 2 }), assetOf({ id: "ask", employerId: "e2", facilityName: "Hoke", learnersPerShift: 5, agreementStatus: "asked" })];
+    const demand = demandUnits(rows, rotations, []);
+    const plan = recommendPlan({ demand, assets, overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], policy: { ...DEFAULT_POLICY, agreements: "secured", skipHolidays: false } });
+    const cells = assetMatch(assetDemand(rows, rotations), assetSupply(assets, [], "2027-08-23", "2027-08-23"), [], new Map(assets.map((a) => [a.id, a])));
+    const hostedSecured = settingVerdicts(cells, assets).reduce((n, v) => n + v.hostedSecured, 0);
+    expect(hostedSecured).toBe(2);
+    expect(plan.summary.placedSeats).toBeLessThanOrEqual(hostedSecured);
+    expect(plan.summary.placedSeats).toBe(2);
+    // With any agreement allowed, the asked site's seats count and everyone is placed.
+    const any = recommendPlan({ demand, assets, overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], policy: { ...DEFAULT_POLICY, agreements: "any", skipHolidays: false } });
+    expect(any.summary.placedSeats).toBe(5);
+  });
+});
+
+// ── Dated conflicts count groups, follow moves (audit §1.5) ──────────────────────────────────
+const booking = (o: Partial<DatedBooking> & { id: string }): DatedBooking => ({ cohortId: "co1", sectionIndex: 1, kind: "CLASS", seats: 20, lengthHours: 2, dayOfWeek: "Tue", startMin: 9 * 60, facilityId: "room-1", staffPersonId: null, dateIso: "2026-08-18", ...o });
+describe("conflicts on the dates things happen", () => {
+  it("counts three sections in one room at once as one conflict group (three pairs)", () => {
+    const c = detectDatedConflicts([booking({ id: "a", cohortId: "c1" }), booking({ id: "b", cohortId: "c2" }), booking({ id: "c", cohortId: "c3" })]);
+    expect(c).toHaveLength(3);
+    const g = conflictGroups(c);
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ kind: "room", key: "room-1", dateIso: "2026-08-18" });
+    expect(g[0].ids.sort()).toEqual(["a", "b", "c"]);
+  });
+  it("a shift moved to another date no longer collides on the old one, and collides where it landed", () => {
+    const stay = booking({ id: "a", cohortId: "c1" });
+    const movedAway = booking({ id: "b", cohortId: "c2", dateIso: "2026-08-20", dayOfWeek: "Thu" });
+    expect(detectDatedConflicts([stay, movedAway])).toHaveLength(0);
+    const alreadyThere = booking({ id: "c", cohortId: "c3", dateIso: "2026-08-20", dayOfWeek: "Thu" });
+    expect(conflictGroups(detectDatedConflicts([stay, movedAway, alreadyThere]))).toHaveLength(1);
+  });
+  it("separate rooms and non-overlapping times are not conflicts; the same cohort's students in two places are", () => {
+    expect(detectDatedConflicts([booking({ id: "a", cohortId: "c1" }), booking({ id: "b", cohortId: "c2", facilityId: "room-2" })])).toHaveLength(0);
+    expect(detectDatedConflicts([booking({ id: "a", cohortId: "c1" }), booking({ id: "b", cohortId: "c2", startMin: 11 * 60 })])).toHaveLength(0);
+    expect(detectDatedConflicts([booking({ id: "a" }), booking({ id: "b", facilityId: "room-2" })]).map((c) => c.kind)).toEqual(["section"]);
+  });
+});

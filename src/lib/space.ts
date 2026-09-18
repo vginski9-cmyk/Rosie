@@ -289,3 +289,55 @@ function mkBooking(r: PlaceReq): Booking {
     weekStartMs: r.weekStartMs, weekEndMs: r.weekEndMs, facilityId: null, staffPersonId: r.staffPersonId ?? null, seatStart: r.seatStart,
   };
 }
+
+// ── Dated conflicts ──────────────────────────────────────────────────────────
+// The master calendar checks the week it shows on the dates things actually happen: each
+// weekly booking's session on its resolved weekday, after per-date moves — so a shift moved
+// off a day no longer collides there, and one moved in does. Overlaps are reported as pairs
+// (for highlighting) and counted as GROUPS: three sections in one room at 09:00 are one
+// conflict, not three.
+
+/** A booking on one calendar date (a weekly pattern's occurrence, after moves). */
+export interface DatedBooking extends Omit<Booking, "weekStartMs" | "weekEndMs"> { dateIso: string }
+export interface DatedConflict extends Conflict { dateIso: string }
+/** One overlap group: every booking that touches the same room / person / students on one date at overlapping times. */
+export interface ConflictGroup { kind: ConflictKind; key: string; dateIso: string; ids: string[]; detail: string }
+
+function pairConflicts(a: DatedBooking, b: DatedBooking, day: Weekday, dateIso: string): DatedConflict[] {
+  const out: DatedConflict[] = [];
+  const aEnd = a.startMin + a.lengthHours * 60, bEnd = b.startMin + b.lengthHours * 60;
+  if (!timeOverlap(a.startMin, aEnd, b.startMin, bEnd)) return out;
+  if (a.facilityId && b.facilityId && a.facilityId === b.facilityId) out.push({ kind: "room", aId: a.id, bId: b.id, dayOfWeek: day, dateIso, key: a.facilityId, detail: `room double-booked ${day} ${toHHMM(a.startMin)}` });
+  if (a.staffPersonId && b.staffPersonId && a.staffPersonId === b.staffPersonId) out.push({ kind: "staff", aId: a.id, bId: b.id, dayOfWeek: day, dateIso, key: a.staffPersonId, detail: `staff double-booked ${day} ${toHHMM(a.startMin)}` });
+  if (a.cohortId === b.cohortId && seatsOverlap(a, b)) out.push({ kind: "section", aId: a.id, bId: b.id, dayOfWeek: day, dateIso, key: `${a.cohortId}#${a.sectionIndex}`, detail: `same students in two places ${day} ${toHHMM(a.startMin)}` });
+  return out;
+}
+
+/** Every hard conflict among bookings that share a date. */
+export function detectDatedConflicts(bookings: DatedBooking[]): DatedConflict[] {
+  const out: DatedConflict[] = [];
+  const byDate = new Map<string, DatedBooking[]>();
+  for (const b of bookings) byDate.set(b.dateIso, [...(byDate.get(b.dateIso) ?? []), b]);
+  for (const [dateIso, arr] of byDate) {
+    const day = arr[0].dayOfWeek;
+    for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) out.push(...pairConflicts(arr[i], arr[j], day, dateIso));
+  }
+  return out;
+}
+
+/** Pairs → groups: bookings linked by overlaps of one kind on one key and date are one group. */
+export function conflictGroups(conflicts: DatedConflict[]): ConflictGroup[] {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => { let r = x; while (parent.get(r) !== r) r = parent.get(r)!; let c = x; while (parent.get(c) !== r) { const n = parent.get(c)!; parent.set(c, r); c = n; } return r; };
+  const union = (a: string, b: string) => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  const scope = (c: DatedConflict, id: string) => `${c.kind}|${c.key}|${c.dateIso}|${id}`;
+  for (const c of conflicts) union(scope(c, c.aId), scope(c, c.bId));
+  const groups = new Map<string, ConflictGroup>();
+  for (const c of conflicts) {
+    const root = find(scope(c, c.aId));
+    const g = groups.get(root) ?? { kind: c.kind, key: c.key, dateIso: c.dateIso, ids: [], detail: c.detail };
+    for (const id of [c.aId, c.bId]) if (!g.ids.includes(id)) g.ids.push(id);
+    groups.set(root, g);
+  }
+  return [...groups.values()].sort((a, b) => a.dateIso.localeCompare(b.dateIso) || a.kind.localeCompare(b.kind));
+}

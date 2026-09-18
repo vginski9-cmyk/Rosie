@@ -11,6 +11,7 @@ import {
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, type OfferingTargets } from "@/components/OfferingTargetsEditor";
+import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
@@ -78,41 +79,6 @@ export interface DeliveryModel {
   /** Max cohort enrollment capacity — the gating criterion when splitting a goal. */
   maxCapacity: number | null;
   running: number;
-}
-
-/** One planned run of a delivery model inside an allocation. */
-interface OfferingSlot {
-  /** Planned first day (ISO date). Required to lock in. */
-  startDate: string | null;
-  /** THIS offering's share of the goal — fully-productive placements it covers. */
-  goal?: number;
-  /** THIS offering's per-term enrollment (index 0 = term 1); null = derived from its goal. */
-  termOverrides?: (number | null)[];
-  /** THIS offering's own health rates (only the keys that differ from the family defaults). */
-  rates?: Partial<LadderRates>;
-  /** Locked in: the real cohort this run became. */
-  locked?: boolean;
-  cohortId?: string | null;
-  cohortName?: string | null;
-}
-
-/** One slice of a year's goal, assigned to a delivery model. */
-interface Alloc {
-  programId: string;
-  /** Fully-productive workers this model is responsible for — the SUM of its offerings' goals (kept in sync). */
-  goal: number;
-  /** Legacy model-level per-term overrides — migrated onto the offerings. */
-  termOverrides?: (number | null)[];
-  /** User-chosen number of offerings — overrides the suggested count (add or
-   *  subtract runs and sequence them however they add up to the goal). */
-  offeringCount?: number;
-  /** The runs of this model that deliver the share — one per needed offering. */
-  offerings?: OfferingSlot[];
-  /** Legacy single-offering fields (migrated into offerings[0]). */
-  startDate?: string | null;
-  locked?: boolean;
-  cohortId?: string | null;
-  cohortName?: string | null;
 }
 
 interface Persisted {
@@ -245,23 +211,7 @@ export function GoalPlanner({
   // plan does not know about yet (an offering created on the program page or by the seed, never
   // locked in from here) as a locked slot of its model — so the total counts what actually runs,
   // instead of "0 allocated" beside a listed cohort.
-  const allocs: Alloc[] = useMemo(() => {
-    const saved: Alloc[] = s.allocationsByYear?.[yearKey] ?? [];
-    const known = new Set(saved.flatMap((a) => [a.cohortId, ...(a.offerings ?? []).map((o) => o.cohortId)]).filter((id): id is string => !!id));
-    const orphans = (instantiationsByYear[s.selectedYear] ?? []).filter((c) => !known.has(c.id));
-    if (!orphans.length) return saved;
-    const out = saved.map((a) => ({ ...a, offerings: a.offerings ? [...a.offerings] : a.offerings }));
-    for (const c of orphans) {
-      // The offering's own goal (its saved pipeline, else its productive target) is the slot's share.
-      let goal = c.goalProductive;
-      try { const saved = c.pipelineRates ? (JSON.parse(c.pipelineRates) as { goal?: number }) : null; if (saved?.goal != null) goal = saved.goal; } catch { /* productive target */ }
-      const slot: OfferingSlot = { startDate: null, goal, termOverrides: [], locked: true, cohortId: c.id, cohortName: c.name };
-      const a = out.find((x) => x.programId === c.programId);
-      if (a) { a.offerings = [...(a.offerings ?? (a.startDate != null || a.locked ? [{ startDate: a.startDate ?? null, locked: a.locked, cohortId: a.cohortId, cohortName: a.cohortName }] : [])), slot]; a.goal += goal; }
-      else out.push({ programId: c.programId, goal, offerings: [slot] });
-    }
-    return out;
-  }, [s.allocationsByYear, s.selectedYear, yearKey, instantiationsByYear]);
+  const allocs: Alloc[] = useMemo(() => yearAllocations(s.allocationsByYear?.[yearKey] ?? [], instantiationsByYear[s.selectedYear] ?? []), [s.allocationsByYear, s.selectedYear, yearKey, instantiationsByYear]);
   const yearGoal = Math.round(s.anchor === "northstar" ? (s.goalsByYear[yearKey] ?? 0) : productiveForYear(s.selectedYear));
   const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
   const addAlloc = (programId: string) => {

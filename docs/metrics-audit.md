@@ -48,6 +48,32 @@ Verdicts: 7,246 / placed / staffed — **label problem** (proposed scenario, sec
 seats-only default unlabeled). 360,856 — **label problem** (theoretical ceiling). 5,408 —
 **legitimate difference needing explanation** (different unit: booking rows vs learner-shifts).
 
+**Why "placed" fell from 7,041 to 4,420 at the same demand and ceiling (close-out, 2026-09-18).**
+The default levers never changed (`DEFAULT_POLICY` is byte-identical from a925d92 through today:
+secured only, exact shift and date, skip holidays). The solver's placement rules changed once:
+ead260c (2026-09-10) keeps a preceptor at their own employer and 770e08d keeps clinicals off class
+days; neither shows up in today's unmet reasons. What changed is the supply the default levers
+are allowed to use and the calendar:
+
+| Lever experiment on today's seed | Placed | Unmet reasons |
+|---|---|---|
+| default (secured only, skip holidays) | 4,420 (61 %) | full 2,044 · holiday 602 · closed that day 162 · no agreement 18 |
+| skip holidays off | 4,820 (67 %) | full 2,228 · closed 180 · no agreement 18 |
+| any agreement | 6,482 (89 %) | holiday 602 · closed 162 |
+| any agreement, holidays off | 7,066 (98 %) | closed 180 |
+| any agreement, holidays off, flexible shift ± 2 days | 7,246 (100 %) | — |
+
+So 2,062 of the 2,826 unplaced are **secured supply**: GEN places 3,082 of 5,586 and ORS 1,338 of
+1,642 at secured sites. That supply moved under the reviewers' feet in two seed commits: 42e5329
+(2026-09-09) took surgical technology off radiography's C-arms and onto operating-room suites
+(ORS), of which secured hospitals have far fewer, and 5a69087 / 3a1bdb9 (2026-09-08/09) rebuilt the
+site seed with agreement tiers per facility. The other 602 are the **real college holidays**
+imported on 2026-09-17 (ca88739); before that only the U.S. defaults were observed. The reviewers'
+97 % came from a seed where secured sites carried the demand and few holidays fell in the window,
+not from different defaults or a different solver. The invariant that always held — under secured
+only, placed can never exceed what secured sites can host per date — is now a test
+(`test/metrics-audit.test.ts`).
+
 ### 1.2 Clinical site capacity: hostable by secured sites, booked onto assets
 
 | Figure | Today | Computed in |
@@ -87,8 +113,10 @@ plan, with two window calculations). The duplicated window formula is a **bug** 
 - "Student-days" = rows with a date; "student-shifts" = all rows. Both are attendances, not
   distinct students.
 - Site load is the only one of the three views that reads what students are *actually assigned*
-  to; the other two read the template at target enrollment. So 7,528 > 7,246 is expected: rosters
-  carry 41 real seats where the target ladder says 36 by Term 5, and completed cohorts are in.
+  to; the other two read the template at target enrollment. So 7,528 > 7,246 is expected: the
+  roster rows belong to the 38 students enrolled today (the 3 withdrawn have none), assigned to
+  every clinical session the seed dated, while the scheduler's window and the target ladder (41
+  falling to 36 by Term 5) cut demand differently, and completed cohorts' rows are in.
 
 Verdict: **legitimate difference needing explanation** (roster rows vs template demand; includes
 completed cohorts and undated rows).
@@ -123,8 +151,12 @@ The calendar filters the list to the displayed week by the patterns' week ranges
 2026-08-17 shows no conflict banner on the current seed, so the 24 could not be reproduced; the
 definition is clear and consistent with what the calendar shows.
 
-Verdict: **could not reproduce** (seed changed); definition documented. Note it double-counts a
-three-way overlap as three conflicts (pairwise).
+Verdict (revised at close-out): **bug**. The detector ran on weekly patterns, so (a) a shift moved
+off a day still counted there and one moved in did not, (b) a pattern counted in weeks where no
+session of its kind meets, and (c) a three-way overlap counted as three conflicts. It now runs on
+the displayed week's dated occurrences — each booking's session on its resolved weekday
+(`resolveSessionDay`), after per-date moves — and the calendar counts overlap groups
+(`detectDatedConflicts`, `conflictGroups` in `src/lib/space.ts`), listing the pairs beneath.
 
 ### 1.6 Daily coverage: 101 "students" on Aug 17, 2026 (41 + 41 + 19)
 
@@ -194,10 +226,12 @@ first thing a reader sees is "29 uncovered" for a year that has no offering by d
 - **36** = `enrollmentByTerm[5]` from `deriveCohortTargets` (`src/lib/pipeline.ts:102-117`):
   linear attrition from the Term 1 target (41) to the completing target (36 = 29 ÷ productivity
   ÷ placement ÷ licensure), per term.
-- **35** = live count of roster students not withdrawn (38 today, 3 withdrawn).
+- **35** = the reviewers' seed; today the roster holds 41, of whom 38 are enrolled and 3 withdrawn.
+  Site load (§1.3) and the offering page agree on 38: the shift rows belong to exactly those 38
+  students. The "enrolled now" figure reads that same count (`ledger.students` not withdrawn).
 
-Target vs actual, both correct. Verdict: **label problem** — show "target 36 · enrolled now 35 ·
-at risk" (Phase 6.4).
+Target vs actual, both correct. Verdict: **label problem** — show "target 41 · enrolled now 38 —
+at risk" on the current term (Phase 6.4).
 
 ## 2. The four questions
 
@@ -312,7 +346,29 @@ and the missing pending state a **label problem** (Phase 5.3).
 | Coverage vs calendar overrides | bug (weekly-pattern moves ignored when the template session has a fixed day) |
 | Preceptor lever recompute | could not reproduce; recompute works but freezes the page ~4 s with no pending state |
 
-## 5. Notes for the owner before Phase 1
+## 5. Remaining readers of the legacy supply fields (listed, not fixed)
+
+`Employer.wblSlots` — a per-site slot count typed by hand, not derived from assets or agreements:
+
+| Reader | Use |
+|---|---|
+| `src/lib/queries.ts:881-884` (`getProgramPlanData`) | supply for the retired launch-cadence plan (`plan.ts`) — no page reads it now |
+| `src/lib/queries.ts:1224` (`getEmployersLite`) and `:2284` (`capacityModelFor` → `clinicalSites`) | shipped to the capacity board's *sites* view |
+| `src/components/CapacityBoard.tsx:72, 1094, 1113, 1194-1195` | the "what each setting needs to host" view sums `wblSlots` as site supply and shows a share of it |
+| `src/components/CapacityWorkbench.tsx:77` | "WBL / clinical slots" stat |
+| `src/components/EmployerDirectory.tsx:256`, `src/lib/actions.ts:1028, 1052` | the field's own form and save |
+| `src/lib/clinicalsupply.ts:24` | type only |
+| `src/lib/capacity.ts:74-154`, `src/lib/plan.ts:44-250` | a *demand-side* `wblSlots` (clinical sections) — a name collision, not the site field |
+| `prisma/seed-roster.ts:107-115` | seeds the values |
+
+`ProgramAssignment.fteCommitment` — a staff-to-program FTE the seed no longer fills:
+
+| Reader | Use |
+|---|---|
+| `src/lib/queries.ts:867-868` (`getProgramPlanData`) | faculty and preceptor supply for the retired plan |
+| `src/lib/actions.ts:1872` | the assignment form's save |
+
+## 6a. Notes for the owner before Phase 1
 
 - Two items in the brief cut against changes made at the owner's request on 2026-09-18: the home
   page is now the North Star goals page (Phase 7 wants an exception queue above it), and the CMS
@@ -345,3 +401,15 @@ and the missing pending state a **label problem** (Phase 5.3).
 | 24 conflicts | no change — definition documented in §1.5 | — |
 
 Tests: `test/metrics-audit.test.ts` (weekday resolver, 60-distinct-students fixture, formatter rules).
+
+### Close-out additions (2026-09-18)
+
+| Item | Outcome |
+|---|---|
+| Placed 7,041 → 4,420 | explained in §1.1: secured supply (ORS split, site seed tiers) and the imported holidays; defaults and solver unchanged. Test: under secured-only, placed ≤ hostable by secured sites |
+| 35 vs 38 | 38 is right today (41 on roster, 3 withdrawn); §1.3 and §1.11 corrected; the at-risk label reads the same count site load does |
+| Conflicts | §1.5 reclassified as a bug and fixed: dated occurrences after moves, resolved weekdays, groups not pairs; tests |
+| Goal allocation | `yearAllocations` in `src/lib/goalalloc.ts`; test: an offering the plan already references is never counted twice |
+| Withdrawal rate | one function, `outcomeStats` in `src/lib/learners.ts`, used by the analytics tiles, the pivot rows and the offering page; test: 9 of 60 entrants = 15 %, prospects excluded, null when nobody started |
+| Hours bridge | `programHoursBridge` in `src/lib/hoursbridge.ts`; test: RAD-171 54 h unassigned |
+| Legacy readers | listed in §5, not fixed |

@@ -42,10 +42,10 @@ const fmtTime = (t: string) => { const [h, m] = t.split(":").map(Number); const 
 const KIND_LABEL: Record<string, string> = { CLASS: "Lecture", LAB: "Lab", CLINICAL: "Clinical" };
 
 export function MasterCalendar({
-  institutions, institutionId, rooms, people = [], employers = [], meetings, conflicts, weeks, currentWeekMs, programs, summary, occurrences = [], roster = [],
+  institutions, institutionId, rooms, people = [], employers = [], meetings, conflicts, conflictGroupCount, weeks, currentWeekMs, programs, summary, occurrences = [], roster = [],
 }: {
   institutions: { id: string; name: string }[]; institutionId: string;
-  rooms: CalRoom[]; people?: CalPerson[]; employers?: CalEmployer[]; meetings: CalMeeting[]; conflicts: CalConflict[];
+  rooms: CalRoom[]; people?: CalPerson[]; employers?: CalEmployer[]; meetings: CalMeeting[]; conflicts: CalConflict[]; /** Overlap groups this week (three sections in one room at once = one). */ conflictGroupCount?: number;
   weeks: { ms: number; label: string }[]; currentWeekMs: number | null;
   programs: { id: string; name: string }[]; summary: { roomed: number; unroomed: number; clinical: number; peakUtil: number };
   /** The displayed week's clinical shifts as they actually happen, and who is where each day. */
@@ -165,7 +165,9 @@ export function MasterCalendar({
   const dayDate = (day: string) => { const i = ALL_DAYS.indexOf(day); const d = new Date(weekMs + i * 24 * 3600 * 1000); return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }); };
 
   const gridHeight = (END_HOUR - START_HOUR) * HOUR_PX;
-  const conflictsForWeek = conflicts.filter((c) => { const a = meetings.find((m) => m.id === c.aId); return a && a.weekStartMs <= weekMs && weekMs < a.weekEndMs; });
+  // Conflicts arrive computed for the displayed week, on the dates things happen (after moves).
+  const conflictsForWeek = conflicts;
+  const conflictCount = conflictGroupCount ?? conflictsForWeek.length;
 
   const save = (patch: Parameters<typeof moveMeeting>[1]) => {
     if (!editing) return;
@@ -238,7 +240,7 @@ export function MasterCalendar({
         {clinical.some((m) => m.occ) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">{new Set(clinical.filter((m) => m.occ?.employerId).map((m) => m.occ!.employerId)).size} sites hosting · {new Set(clinical.flatMap((m) => m.occ?.preceptors ?? [])).size} preceptors named</span>}
         {summary.unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{summary.unroomed} unroomed — needs space</span>}
         {conflictsForWeek.length > 0
-          ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictsForWeek.length} conflicts this week</span>
+          ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictCount} conflict{conflictCount === 1 ? "" : "s"} this week</span>
           : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">no conflicts this week</span>}
         {pending && <span className="text-slate-400">saving…</span>}
         {moveError && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700">{moveError}</span>}
@@ -353,7 +355,7 @@ export function MasterCalendar({
       {/* Conflicts panel */}
       {conflictsForWeek.length > 0 && (
         <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4">
-          <h3 className="text-sm font-semibold text-rose-700">{conflictsForWeek.length} scheduling conflicts this week</h3>
+          <h3 className="text-sm font-semibold text-rose-700">{conflictCount} scheduling conflict{conflictCount === 1 ? "" : "s"} this week <span className="font-normal text-rose-500">— {conflictsForWeek.length} overlapping pair{conflictsForWeek.length === 1 ? "" : "s"}, on the dates things happen after moves</span></h3>
           <div className="mt-2 space-y-1">
             {conflictsForWeek.slice(0, 30).map((c, i) => {
               const a = meetings.find((m) => m.id === c.aId), b = meetings.find((m) => m.id === c.bId);

@@ -24,6 +24,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { i
           employers={data.employers}
           meetings={data.meetings}
           conflicts={data.conflicts}
+          conflictGroupCount={data.conflictGroupCount}
           weeks={data.weeks}
           currentWeekMs={data.currentWeekMs}
           programs={data.programs}

@@ -10,6 +10,7 @@ import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { fmt, dec } from "@/lib/format";
+import { outcomeStats } from "@/lib/learners";
 import type { StageKey } from "@/lib/funnel";
 import { computeCohortTiming, calendarWeeksBetween, seasonOfTerm, type TimingTerm } from "@/lib/term";
 import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
@@ -152,7 +153,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Tile label="Current term" value={timing.phase === "in-program" ? (timing.currentTermName ?? "—") : "—"} sub={timing.phase === "in-program" ? `week ${(timing.weeksElapsed ?? 0) + 1} of ${timing.totalWeeks}` : PHASE_LABEL[timing.phase].toLowerCase()} />
         <Tile label="Expected end" value={exactDate(lastDay ?? timing.endDate)} sub="last class / lab / clinical / exam" />
         <Tile label="Scheduled terms" value={`${offering.cohortTerms.length} / ${program.terms.length}`} sub="dated of template" />
-        <Tile label="Students" value={fmt.num(ledger ? ledger.students.filter((s) => s.status !== "withdrawn").length : offering._count.students)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? `${ledger.students.filter((s) => s.status === "withdrawn").length} withdrawn` : undefined} />
+        <Tile label="Students" value={fmt.num(ledger ? ledger.students.filter((s) => s.status !== "withdrawn").length : offering._count.students)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? (() => { const o = outcomeStats(ledger.students); return `${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`; })() : undefined} />
       </div>
 
       {/* This run's funnel — right under the timing tiles */}
