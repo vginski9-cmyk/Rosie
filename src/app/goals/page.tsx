@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { getInstitutionsHome, getInstitutionsLite } from "@/lib/queries";
+import { getInstitutionsHome, getInstitutionsLite, getFamiliesClinical, getCalendarProvenance } from "@/lib/queries";
+import { CoverageHeadline, UnverifiedStandard } from "@/components/Evidence";
+import { provisionalVerdict } from "@/lib/evidence";
 import { deleteNorthStarGoal } from "@/lib/actions";
 import { NewGoalForm } from "@/components/NewGoalForm";
 import { fmt } from "@/lib/format";
@@ -18,7 +20,9 @@ const TERM_LABEL: Record<string, string> = { FALL: "Fall", SPRING: "Spring", SUM
 const entryOf = (launchTerms: string) => launchTerms.split(",").map((t) => TERM_LABEL[t.trim()] ?? t.trim()).filter(Boolean).join(" · ");
 
 export default async function HomePage() {
-  const [institutions, lite] = await Promise.all([getInstitutionsHome(), getInstitutionsLite()]);
+  const [institutions, lite, clinical, provenance] = await Promise.all([getInstitutionsHome(), getInstitutionsLite(), getFamiliesClinical(), getCalendarProvenance()]);
+  const clinicalOf = new Map(clinical.map((c) => [c.id, c]));
+  const datesOf = new Map(provenance.institutions.map((i) => [i.id, provisionalVerdict(i)]));
   const thisYear = new Date().getUTCFullYear();
   const totals = {
     families: institutions.reduce((n, i) => n + i.families.length, 0),
@@ -113,6 +117,22 @@ export default async function HomePage() {
                         </div>
                       ))}
                     </div>
+                    {/* Evidence (Phase 3): how well this program's clinical network is known, and where its dates come from — each linking to where it gets fixed. */}
+                    {(() => {
+                      const cl = clinicalOf.get(f.id); const dates = datesOf.get(inst.id); const pid = f.programs[0]?.id;
+                      if (!cl && !dates) return null;
+                      return (
+                        <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+                          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Evidence — what is confirmed, what is only inferred</div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            {cl?.score ? <CoverageHeadline score={cl.score} href={pid ? `/programs/${pid}/clinical` : `/families/${f.id}/clinical`} unverifiedStandard={!!cl.requirements && !cl.requirements.verified} /> : cl?.requirements ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no clinical site scored yet</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no requirement set loaded</span>}
+                            {cl && <Link href={pid ? `/programs/${pid}/clinical#sites` : `/families/${f.id}/clinical#sites`} className="rounded-full bg-white px-2 py-0.5 text-slate-600 ring-1 ring-slate-200 hover:ring-rose-300">{cl.sites} sites · {cl.secured} secured{cl.score && cl.score.unverified ? ` · ${cl.score.unverified} experiences rest on inference` : ""}</Link>}
+                            {dates && <Link href={`/scheduler?inst=${inst.id}`} className={`rounded-full px-2 py-0.5 ring-1 ${dates.level === "provisional" ? "bg-amber-50 text-amber-800 ring-amber-200" : dates.level === "hand-set" ? "bg-white text-slate-600 ring-slate-200" : "bg-white text-emerald-700 ring-emerald-200"}`} title={dates.text}>{dates.level === "provisional" ? "dates provisional — no college calendar" : dates.level === "hand-set" ? "some term dates set by hand" : "dates from the college calendar"}</Link>}
+                            {cl?.requirements && !cl.requirements.verified && !cl.score && <UnverifiedStandard verified={false} size="xs" />}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
