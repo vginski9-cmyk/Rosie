@@ -196,10 +196,10 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         </div>
       </Collapse>
 
-      {/* 7 · Sections & placements */}
-      <Collapse title="Booked here" sub="Clinical sections on the calendar at this site, and the students placed here" summary={<>{e.meetings.length} section{e.meetings.length === 1 ? "" : "s"} · {e.placements.length} placement{e.placements.length === 1 ? "" : "s"} · {secured} secured</>}>
+      {/* 7 · Section bookings & work-based learning placements */}
+      <Collapse title="Booked here" sub="Clinical section bookings on the calendar at this site, and the students on work-based learning placements here" summary={<>{e.meetings.length} section booking{e.meetings.length === 1 ? "" : "s"} · {e.placements.length} work-based learning placement{e.placements.length === 1 ? "" : "s"} · {secured} secured</>}>
         <div className="space-y-4">
-          {e.meetings.length === 0 ? <p className="text-sm text-slate-400">No clinical section is booked here yet.</p> : (
+          {e.meetings.length === 0 ? <p className="text-sm text-slate-400">No clinical section booking here yet.</p> : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <table className="min-w-full text-xs">
                 <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>

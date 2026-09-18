@@ -30,7 +30,7 @@ export function AutoAssignButton({ cohortId, programId, meetings, staffedShifts,
         <div>
           <div className="text-sm font-semibold text-slate-800">Auto-assign this offering</div>
           <div className="text-xs text-slate-500">
-            One click: rooms, days &amp; times for every section · every clinical section placed on a partner asset on its date and shift ·
+            One click: rooms, days &amp; times for every section · every clinical shift placed on a partner asset on its date and shift block ·
             faculty, support staff and preceptors on every shift under their workload policies · every learner in a section and on their clinical shifts.
             Fills gaps only — anything already assigned by hand stays. Now: {n(meetings)} bookings · {n(staffedShifts)} staffed shifts · {n(students)} learners with {n(studentShifts)} clinical shifts.
           </div>
@@ -48,11 +48,11 @@ export function AutoAssignButton({ cohortId, programId, meetings, staffedShifts,
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Clinical placement</div>
             {result.plan ? (
               <div className="mt-0.5 text-slate-800">
-                <strong>{n(result.plan.placedShifts)}</strong> of {n(result.plan.demandShifts)} section-shifts placed ({pct(result.plan.placedShare)}) on {n(result.plan.sitesUsed)} sites · {n(result.plan.bookings)} asset bookings · {result.plan.agreements}
+                <strong>{n(result.plan.placedShifts)}</strong> of {n(result.plan.demandShifts)} clinical shifts placed ({pct(result.plan.placedShare)}) on {n(result.plan.sitesUsed)} sites · {n(result.plan.bookings)} asset bookings · {result.plan.agreements}
                 {result.plan.unmet.length > 0 && <ul className="mt-1 space-y-0.5 text-amber-800">{result.plan.unmet.map((u) => <li key={u.reason}>⚠ {n(u.shifts)} — {u.reason}{u.fixes.length ? <span className="text-slate-500"> · fix: {u.fixes.join("; ")}</span> : null}</li>)}</ul>}
                 <Link href="/scheduler" className="mt-1 inline-block text-rose-700 hover:underline">open the clinical scheduler ↦</Link>
               </div>
-            ) : <div className="mt-0.5 text-slate-500">No dated clinical sections to place.</div>}
+            ) : <div className="mt-0.5 text-slate-500">No dated clinical shifts to place.</div>}
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-2.5">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Staffing</div>

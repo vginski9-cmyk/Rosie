@@ -68,15 +68,15 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
     <div className="space-y-4">
       {/* ── The verdict, in a sentence ── */}
       <section className="rounded-xl border border-rose-200 bg-gradient-to-br from-rose-50/60 to-white p-4">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">For placement coordinators, deans &amp; health-system partners</div>
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">For clinical placement coordinators, deans &amp; health-system partners</div>
         <p className="mt-1 text-base text-slate-800">
           {demand.length === 0 ? (
-            <>No dated clinical demand yet — lock in an instantiation and its clinical sections land here.</>
+            <>No dated clinical demand yet — lock in an offering and its clinical section bookings land here.</>
           ) : (
             <>
               <strong>{n0(sites.length)} sites</strong> in the asset map, <strong className="text-emerald-700">{n0(securedSites)} secured</strong>{askedSites > 0 && <>, {n0(askedSites)} asked</>}.
               {" "}Across the period, <strong className={totalShort > 0 ? "text-rose-700" : "text-emerald-700"}>{n0(totalShort)} date-blocks</strong> exceed what secured sites can host
-              {unassigned > 0 && <>, and <strong className="text-amber-700">{n0(unassigned)} clinical sections</strong> have no site assigned</>}.
+              {unassigned > 0 && <>, and <strong className="text-amber-700">{n0(unassigned)} clinical section bookings</strong> have no site assigned</>}.
               {unmapped.length > 0 && <> <span className="text-rose-700">Unmapped rotation types: {unmapped.join(", ")} — map them below or their demand can&apos;t be matched.</span></>}
             </>
           )}
@@ -210,7 +210,7 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
                   </tr>
                 );
               })}
-              {sections.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-slate-400">No clinical sections booked yet — lock in an instantiation.</td></tr>}
+              {sections.length === 0 && <tr><td colSpan={6} className="px-3 py-4 text-slate-400">No clinical section bookings yet — lock in an offering.</td></tr>}
             </tbody>
           </table>
         </section>

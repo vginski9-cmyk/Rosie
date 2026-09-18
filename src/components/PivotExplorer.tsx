@@ -86,7 +86,7 @@ export function PivotExplorer({
     return () => { cancelled = true; };
   }, [drill, singleCohort]);
 
-  const measureNote = group === "All" ? "mixing metric groups — totals are illustrative only" : group === "Delivery" ? "delivery requirement (FTE / hours / sections)" : "pipeline count (people)";
+  const measureNote = group === "All" ? "mixing metric groups — totals are illustrative only" : group === "Delivery" ? "delivery requirement (FTE / hours / shifts)" : "pipeline count (people)";
 
   return (
     <div className="space-y-4">

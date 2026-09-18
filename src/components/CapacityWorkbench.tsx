@@ -71,9 +71,9 @@ export function CapacityWorkbench({ terms, defaultEnrollment }: Props) {
       </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Total sections" value={fmt.num(t.sections)} sub="class + lab + clinical" />
-        <Stat label="Class sections" value={fmt.num(t.classSections)} />
-        <Stat label="Lab sections" value={fmt.num(t.labSections)} />
+        <Stat label="Total shifts" value={fmt.num(t.sections)} sub="class + lab + clinical — each session run as many times as its capacity needs" />
+        <Stat label="Class shifts" value={fmt.num(t.classSections)} />
+        <Stat label="Lab shifts" value={fmt.num(t.labSections)} />
         <Stat label="WBL / clinical slots" value={fmt.num(t.wblSlots)} accent />
         <Stat label="Faculty FTE" value={fmt.fte(t.facultyFTE)} sub="concurrent across terms" />
         <Stat label="Preceptor slots" value={fmt.num(t.preceptorInstances)} />

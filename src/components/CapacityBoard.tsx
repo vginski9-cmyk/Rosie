@@ -751,7 +751,7 @@ function StaffingDrill({ label, r, hasAssignments, onClose }: { label: string; r
       )}
       {hasAssignments && r.uncovered.length > 0 && (
         <details className="mt-2 text-xs"><summary className="cursor-pointer font-medium text-rose-700">{r.uncovered.length} session{r.uncovered.length === 1 ? "" : "s"} with nobody assigned ▸</summary>
-          <ul className="mt-1 space-y-0.5 text-slate-600">{r.uncovered.slice(0, 30).map((u, i) => <li key={i}>{u.dateIso ? fmtDay(u.dateIso) : "undated"} · {u.courseCode ?? ""} {u.title ?? ""} · {u.kind.toLowerCase()} · {n0(u.sections)} section{u.sections === 1 ? "" : "s"} · {u.cohort}</li>)}{r.uncovered.length > 30 && <li className="text-slate-400">+{r.uncovered.length - 30} more</li>}</ul>
+          <ul className="mt-1 space-y-0.5 text-slate-600">{r.uncovered.slice(0, 30).map((u, i) => <li key={i}>{u.dateIso ? fmtDay(u.dateIso) : "undated"} · {u.courseCode ?? ""} {u.title ?? ""} · {u.kind.toLowerCase()} · {n0(u.sections)} shift{u.sections === 1 ? "" : "s"} · {u.cohort}</li>)}{r.uncovered.length > 30 && <li className="text-slate-400">+{r.uncovered.length - 30} more</li>}</ul>
         </details>
       )}
     </div>
@@ -920,7 +920,7 @@ function SitesView({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite
   if (!clinical.length) {
     return (
       <div className="space-y-6">
-        <p className="text-sm text-slate-400">No clinical demand in this slice yet — lock in an instantiation (its clinical sessions land on the calendar), or widen the filters. The supply side below fills in as you add partner sites.</p>
+        <p className="text-sm text-slate-400">No clinical demand in this slice yet — lock in an offering (its clinical sessions land on the calendar), or widen the filters. The supply side below fills in as you add partner sites.</p>
         <SupplyVsDemand rows={clinical} sites={sites} />
       </div>
     );
@@ -939,7 +939,7 @@ function SitesView({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite
         <Peak k="Settings needing hosts" v={String(asks.length)} d={asks.map((a) => a.setting).join(" · ")} />
         <Peak k="Peak preceptor week" v={peak ? `${n1(peak.value)} FTE` : "—"} d={peak ? `week of ${fmtDateM(peak.key as string)}` : ""} />
         <Peak k="Total preceptor hours" v={n0(asks.reduce((s, a) => s + a.preceptorHours, 0))} d="across the slice" />
-        <Peak k="Clinical shifts (sections)" v={n0(asks.reduce((s, a) => s + a.sectionsTotal, 0))} d="each is one hosted group" />
+        <Peak k="Clinical shifts" v={n0(asks.reduce((s, a) => s + a.sectionsTotal, 0))} d="one section on one date — each is one hosted group" />
       </div>
 
       {/* Supply vs demand — can the sites in supply absorb this? */}
@@ -960,7 +960,7 @@ function SitesView({ rows, sites }: { rows: DatedInstance[]; sites: ClinicalSite
               </div>
               <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div><dt className="text-slate-400">Students on peak day</dt><dd className="font-mono font-semibold text-slate-800">{n0(a.studentPeakDay)}</dd></div>
-                <div><dt className="text-slate-400">Hosted shifts (sections)</dt><dd className="font-mono font-semibold text-slate-800">{n0(a.sectionsTotal)}</dd></div>
+                <div><dt className="text-slate-400">Hosted shifts</dt><dd className="font-mono font-semibold text-slate-800">{n0(a.sectionsTotal)}</dd></div>
                 <div><dt className="text-slate-400">Preceptor hours total</dt><dd className="font-mono font-semibold text-slate-800">{n0(a.preceptorHours)}</dd></div>
                 <div><dt className="text-slate-400">Weeks of demand</dt><dd className="font-mono font-semibold text-slate-800">{a.weeks}</dd></div>
                 <div className="col-span-2"><dt className="text-slate-400">Window</dt><dd className="text-slate-700">{a.firstIso ? `${fmtDateM(a.firstIso)} → ${a.lastIso ? fmtDateM(a.lastIso) : ""}` : "—"}</dd></div>

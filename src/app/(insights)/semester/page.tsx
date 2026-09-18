@@ -62,7 +62,7 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
             <Stat label="Offerings in session" value={String(offerings.length)} />
             <Stat label="Seats" value={fmt.num(totals.seats)} />
             <Stat label="Faculty FTE" value={dec(totals.fac)} hint="combined across all programs" />
-            <Stat label="Preceptor FTE" value={dec(totals.prec)} hint={`${totals.sections} sections`} />
+            <Stat label="Preceptor FTE" value={dec(totals.prec)} hint={`${totals.sections} shifts`} />
           </div>
 
           {/* Offerings grouped by institution → family */}
@@ -103,7 +103,7 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
                             ))}
                           </div>
                           <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                            <span>{o.sections} sections · {fmt.num(o.spaceHours)} space hrs</span>
+                            <span>{o.sections} shifts · {fmt.num(o.spaceHours)} space hrs</span>
                             <Link href={`/programs/${o.programId}/offerings/${o.cohortId}`} className="text-rose-600 hover:underline">offering →</Link>
                           </div>
                         </div>

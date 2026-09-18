@@ -267,7 +267,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           {(view === "month" || view === "week") && (
             <p className="border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-xs text-slate-500">
               One chip per session on a date — its students, sections and sites inside it (a precepted clinical is one student per
-              preceptor, so 18 students are 18 placements on one chip). <strong>Drag a chip onto another day</strong> and that
+              preceptor, so 18 students are 18 clinical placements on one chip). <strong>Drag a chip onto another day</strong> and that
               session, every section of it, moves to that date. Open the <strong>Day</strong> view for each section&apos;s date, time,
               site or room and staff (or to put it back on its weekly pattern).
             </p>
@@ -318,7 +318,7 @@ export function occurrencesOf(list: Shift[]): Occurrence[] {
   }).sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99") || a.first.courseTitle.localeCompare(b.first.courseTitle));
 }
 const occLabel = (o: Occurrence) => `${fmtT(o.time)} ${o.first.courseCode ?? o.first.courseTitle}${o.sections === 1 && o.of > 1 ? ` §${o.first.section}` : ""}`;
-const occDetail = (o: Occurrence) => `${n0(o.students)} stu${o.of > 1 ? ` · ${n0(o.sections)}${o.sections < o.of ? ` of ${n0(o.of)}` : ""} ${o.first.kind === "CLINICAL" ? "placements" : "sections"}` : ""}${o.first.kind === "CLINICAL" ? (o.locs.length > 1 ? ` @ ${o.locs.length} sites` : o.locs[0] ? ` ${o.locs[0]}` : o.first.setting ? ` @ ${o.first.setting}` : "") : o.locs.length ? ` · ${o.locs.join(", ")}` : ""}`;
+const occDetail = (o: Occurrence) => `${n0(o.students)} stu${o.of > 1 ? ` · ${n0(o.sections)}${o.sections < o.of ? ` of ${n0(o.of)}` : ""} ${o.first.kind === "CLINICAL" ? "clinical placements" : "sections"}` : ""}${o.first.kind === "CLINICAL" ? (o.locs.length > 1 ? ` @ ${o.locs.length} sites` : o.locs[0] ? ` ${o.locs[0]}` : o.first.setting ? ` @ ${o.first.setting}` : "") : o.locs.length ? ` · ${o.locs.join(", ")}` : ""}`;
 
 function ShiftChipEl({ occ, size, tone }: { occ: Occurrence; size: "sm" | "md"; tone?: LocTone | null }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: occ.key, data: { occ } });
@@ -520,16 +520,16 @@ function DayView({ dateIso, shifts, rooms, people, sites, onSaved }: {
       {/* The day's numbers — with the math spelled out */}
       <div className="rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-          <Stat v={n0(groups.length)} k={groups.length === 1 ? "session" : "sessions"} d={`${n0(shifts.length)} section${shifts.length === 1 ? "" : "s"} across them (a precepted clinical = one student per section)`} />
+          <Stat v={n0(groups.length)} k={groups.length === 1 ? "session" : "sessions"} d={`${n0(shifts.length)} shift${shifts.length === 1 ? "" : "s"} across them — one section on this date each (a precepted clinical = one student per shift)`} />
           <Stat v={n0(students)} k="students" d="each counted once — the same students rotate through the day's sessions" />
-          {instructorSections > 0 && <Stat v={n0(instructorSections)} k="instructor-led sections" d="one instructor per class/lab section-meeting" />}
+          {instructorSections > 0 && <Stat v={n0(instructorSections)} k="instructor-led shifts" d="one instructor per class or lab shift" />}
           {preceptors > 0 && <Stat v={n0(preceptors)} k="preceptors on site" d="1 per precepted student group" />}
         </div>
         {holiday && <p className="mt-2 text-sm font-medium text-rose-700">⚠ {holiday} — consider moving these shifts.</p>}
         <p className="mt-2 text-xs leading-relaxed text-slate-500">
           How to read this: {groups.length === 1 ? "one session runs" : `${groups.length} sessions run`} today for {cohorts.join(" · ")}.
           {" "}Each session splits its cohort into sections (groups) — e.g. {groups[0][0].of} section{groups[0][0].of === 1 ? "" : "s"} of {n0(groups[0][0].seats)} students —
-          and every section-meeting is one <strong>shift</strong> needing a room{preceptors > 0 ? " or clinical site" : ""} and a person to run it.
+          and every section on a date is one <strong>shift</strong> needing a room{preceptors > 0 ? " or clinical site" : ""} and a person to run it.
           Students are counted once even when they attend several sessions.
         </p>
       </div>

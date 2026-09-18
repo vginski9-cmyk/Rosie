@@ -426,3 +426,18 @@ Tests: `test/metrics-audit.test.ts` (weekday resolver, 60-distinct-students fixt
 | The twelve known offenders | crawled every page after the change: no figure with three or more decimals renders anywhere (the one match, "42 CFR §483.152", is a citation) |
 
 Tests: `test/format.test.ts` (phrase, hover title, signed percent, minutes, timestamp), `test/format-lint.test.ts` (the static check, with a fixture proving what it catches).
+
+## 8. Phase 2 — units, labels, glossary (2026-09-18)
+
+| Item | Outcome |
+|---|---|
+| Glossary | `src/lib/glossary.ts` is the source (24 terms in five groups); `docs/glossary.md` is generated from it (`npm run glossary`) and the site has it at `/glossary` (nav: Glossary). A test fails if the doc drifts from the source or a retired synonym reappears in a page or component |
+| Students vs attendances | daily coverage shows distinct students with student-attendances beside it (Phase 0); the glossary defines both; test: Aug 17 fixture = 60 |
+| "Sections" | one meaning each: **course section** (a group of students), **section booking** (its weekly slot), **shift** (a section on one date), **learner-shift** (a seat on a date), **asset booking**. Dated occurrences no longer read "sections": scheduler levers, tiles, bottlenecks and plan; coverage day view; staffing drill; clinical analytics; the semester and capacity workbench totals; the auto-assign notice. Weekly patterns read "section bookings" on the employer directory, the site page and the supply board |
+| FTE time basis | cumulative semester-FTE vs peak concurrent, faculty apart from preceptors (Phase 0); the glossary defines the basis |
+| "Placement" | always qualified: **clinical placement** (scheduler, coverage chips, master calendar, supply board), **employment placement** (the funnel's "retained & placed in a regional job"), **work-based learning placement** (student page, site page). The goal is "fully productive workers", not "placements" |
+| One term each | **offering** (retired: instantiation, class) and **cohort** for its students; **program** (retired: delivery model, model) and **program family**. The goal planner, supply board, capacity board and home page were reworded; the goal planner's types are `OfferingSummary` and `ProgramOption` |
+| Date overrides in coverage | honored through the shared weekday resolver (Phase 0) |
+| Imported course content | seventeen workbook typos fixed in the template packs (Clnical, Sctions, onine ×32, follws ×48, Contnued, immobilaztion, interactins, administation, compentency, manangerial, oriwntation, paient, pratical, rdview, facilitie, Finl, "12:20m"); the seed no longer writes the placeholder "<title> — imported from <workbook>" as a course description (37 courses now have none; a course with genuinely extra workbook coding keeps that note) |
+
+Tests: `test/glossary.test.ts` (term set, doc in sync, retired synonyms absent), `test/metrics-audit.test.ts` (60 distinct students on Aug 17).

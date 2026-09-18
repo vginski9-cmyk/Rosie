@@ -145,7 +145,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
 
       {d.sections.length > 0 && (
         <details className="rounded-xl border border-slate-200 bg-white p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-800">{d.sections.length} {fam.name} section{d.sections.length === 1 ? "" : "s"} booked here</summary>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800">{d.sections.length} {fam.name} section booking{d.sections.length === 1 ? "" : "s"} here</summary>
           <div className="mt-2 overflow-x-auto"><table className="min-w-full text-xs"><thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>
             <tbody className="divide-y divide-slate-100">{d.sections.map((m) => <tr key={m.id}><td className="px-3 py-1.5"><Link href={`/programs/${m.cohort.programId}/offerings/${m.cohort.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{m.cohort.name}</Link></td><td className="px-3 py-1.5">{m.course.code ?? m.course.name} §{m.sectionIndex}/{m.sectionCount}</td><td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {dec(m.lengthHours)} h</td><td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td><td className={`px-3 py-1.5 ${m.staff ? "" : "text-amber-600"}`}>{m.staff ?? "unassigned"}</td></tr>)}</tbody></table></div>
         </details>

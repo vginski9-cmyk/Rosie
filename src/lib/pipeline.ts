@@ -62,7 +62,7 @@ export const PIPELINE_METRICS: PipelineMetricDef[] = [
   { key: "term", label: "Term enrollment", source: "linear attrition from term 1 to completing" },
   { key: "completing", label: "Students completing on time", source: "licensed ÷ licensure pass rate" },
   { key: "licensed", label: "Students passing licensure (first time)", source: "placed ÷ placement rate" },
-  { key: "placed", label: "Credentialed graduates retained & placed regionally", source: "productive ÷ productivity rate" },
+  { key: "placed", label: "Credentialed graduates retained & placed in a regional job", source: "productive ÷ productivity rate" },
   { key: "productive", label: "Retained, placed graduates reaching full productivity", source: "the North-Star goal (input)" },
 ];
 
@@ -118,7 +118,7 @@ export function deriveCohortTargets(productiveGoal: number, rates: LadderRates, 
 
   const chain: DerivedStep[] = [
     { key: "productive", label: "Reaching full productivity", value: productive, formula: "the North-Star goal for this cohort (input)" },
-    { key: "placed", label: "Retained & placed regionally", value: placed, formula: `= ${r1(productive)} ÷ ${rates.productivityRate} (productivity rate)` },
+    { key: "placed", label: "Retained & placed in a regional job", value: placed, formula: `= ${r1(productive)} ÷ ${rates.productivityRate} (productivity rate)` },
     { key: "licensed", label: "Passing licensure (1st time)", value: licensed, formula: `= ${r1(placed)} ÷ ${rates.placementRate} (placement rate)` },
     { key: "completing", label: "Completing on time", value: completing, formula: `= ${r1(licensed)} ÷ ${rates.licensureRate} (licensure pass rate)` },
     { key: "term", label: "Term 1 enrollment", value: term1, formula: `= ${r1(completing)} ÷ ${rates.completionRate} (completion rate)` },
@@ -218,7 +218,7 @@ export function cohortFacts(input: CohortFactInput, rates: LadderRates): Pipelin
   facts.push(
     row("completing", "Students completing on time", t.completing, a.completing, step("completing")),
     row("licensed", "Students passing licensure (first time)", t.licensed, a.licensed, step("licensed")),
-    row("placed", "Credentialed graduates retained & placed regionally", t.placed, a.placed, step("placed")),
+    row("placed", "Credentialed graduates retained & placed in a regional job", t.placed, a.placed, step("placed")),
     row("productive", "Retained, placed graduates reaching full productivity", t.productive, a.productive, step("productive")),
   );
   return facts;

@@ -28,7 +28,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
 
   const today = new Date();
   const nowYear = today.getUTCFullYear();
-  const instantiationsByYear: Record<number, import("@/components/GoalPlanner").Instantiation[]> = {};
+  const offeringsByYear: Record<number, import("@/components/GoalPlanner").OfferingSummary[]> = {};
   const actualByYear: Record<number, import("@/components/GoalPlanner").ActualFunnel> = {};
   for (const p of family.programs) {
     const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
@@ -47,7 +47,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
       const tm = computeCohortTiming(co.startDate, timingTerms, today, orderedTerms.map((t) => ctById.get(t.id) ?? null));
-      (instantiationsByYear[gy] ??= []).push({
+      (offeringsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
         pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length,
@@ -60,12 +60,12 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Goal &amp; pipeline <span className="text-sm font-normal text-slate-400">— {family.occupation?.title ?? family.name}: placements per year, and the offerings that deliver them</span></h2>
+        <h2 className="text-lg font-semibold">Goal &amp; pipeline <span className="text-sm font-normal text-slate-400">— {family.occupation?.title ?? family.name}: fully productive workers per year, and the offerings that deliver them</span></h2>
         <p className="text-sm text-slate-500">Set the goal for each year, then say which offering delivers it; every rate in the ladder recomputes live.</p>
       </div>
       <GoalPlanner
         familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={goalByYear}
-        savedPlan={family.goalPlan ?? null} instantiationsByYear={instantiationsByYear} actualByYear={actualByYear} nowYear={nowYear}
+        savedPlan={family.goalPlan ?? null} offeringsByYear={offeringsByYear} actualByYear={actualByYear} nowYear={nowYear}
         models={family.programs.map((p) => ({
           programId: p.id, name: p.name, credential: p.credential, terms: p.terms.length,
           spanWeeks: p.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0),

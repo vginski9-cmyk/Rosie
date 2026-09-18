@@ -154,7 +154,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
         </form>
       </Collapse>
 
-      <Collapse title="Placements" sub="Work-based learning placements at partner sites" summary={<>{student.placements.length} placement{student.placements.length === 1 ? "" : "s"}</>}>
+      <Collapse title="Work-based learning placements" sub="Employment-style placements at partner sites — not the clinical shifts above" summary={<>{student.placements.length} work-based learning placement{student.placements.length === 1 ? "" : "s"}</>}>
         <div className="space-y-1.5">
           {student.placements.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[13px]">
@@ -176,7 +176,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
             <label className="block"><span className={lbl}>Start</span><input name="startDate" type="date" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
             <label className="block"><span className={lbl}>End</span><input name="endDate" type="date" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
             <label className="block"><span className={lbl}>Modality</span><input name="modality" placeholder="CT" className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
-            <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Add placement</button>
+            <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Add work-based learning placement</button>
           </form>
         )}
       </Collapse>

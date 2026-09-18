@@ -19,7 +19,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Clinical scheduler</h1>
-        <p className="text-sm text-slate-500">Every dated clinical section (demand) placed onto every site&apos;s assets (supply), with the reason for each placement and what would fix each gap. Nothing is written until you apply the plan.</p>
+        <p className="text-sm text-slate-500">Every dated clinical shift (demand) placed onto every site&apos;s assets (supply), with the reason for each clinical placement and what would fix each gap. Nothing is written until you apply the plan.</p>
       </div>
       <ScopeStrip
         shows="A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load."

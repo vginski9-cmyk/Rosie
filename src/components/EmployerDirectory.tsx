@@ -157,7 +157,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span><span className="font-medium text-slate-700">{filtered.length}</span> partners</span>
         <span className="text-slate-300">·</span>
-        <span>Hosting ({periodLabel}): <span className="font-medium text-slate-700 tabular-nums">{totals.sections}</span> clinical sections · <span className="font-medium text-slate-700 tabular-nums">{totals.students}</span> student placements at <span className="font-medium text-slate-700 tabular-nums">{totals.hosting}</span> sites</span>
+        <span>Hosting ({periodLabel}): <span className="font-medium text-slate-700 tabular-nums">{totals.sections}</span> clinical section bookings · <span className="font-medium text-slate-700 tabular-nums">{totals.students}</span> student clinical placements at <span className="font-medium text-slate-700 tabular-nums">{totals.hosting}</span> sites</span>
         <span className="text-slate-300">·</span>
         <span><span className="font-medium text-slate-700 tabular-nums">{totals.secured}</span> with a secured agreement</span>
         {unsecuredHosting > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-700">⚠ {unsecuredHosting} site{unsecuredHosting === 1 ? "" : "s"} on the calendar without a secured agreement</span>}
@@ -173,7 +173,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
               <th className="px-3 py-2 text-right font-semibold">Beds / ORs</th>
               <th className="px-3 py-2 text-left font-semibold">Units · students / shift</th>
               <th className="px-3 py-2 text-left font-semibold">Agreement</th>
-              <th className="px-3 py-2 text-left font-semibold">Hosting · sections / students</th>
+              <th className="px-3 py-2 text-left font-semibold">Hosting · section bookings / students</th>
               <th className="px-3 py-2 text-left font-semibold">Status</th>
             </tr>
           </thead>

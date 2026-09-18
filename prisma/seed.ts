@@ -250,7 +250,8 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
           termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
           weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
           semesterOffered: t.semester ?? "All", courseType: "CORE",
-          description: `${c.title} — imported from ${pack.sourceWorkbook}.${c.alsoCoded?.length ? ` Some workbook rows are coded ${c.alsoCoded.join(", ")}.` : ""}`,
+          // No placeholder text: the workbook gives no course description, and the title already names the course.
+          description: c.alsoCoded?.length ? `Some workbook rows are coded ${c.alsoCoded.join(", ")}.` : null,
           sessions: {
             create: c.sessions.map((x) => ({
               kind: x.kind, number: x.number, title: x.title,
@@ -1268,7 +1269,7 @@ export async function createCnaProgram(institutionId: string, occupationId: stri
           termId: term.id, code: c.code, name: c.title, sequenceOrder: i,
           weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
           creditHours: 6, semesterOffered: t.semester ?? "All", courseType: "CORE",
-          description: `${c.title} (${tpl.label}) — imported from ${tpl.sourceWorkbook}.`,
+          description: null, // the workbook gives no course description; no placeholder
           sessions: { create: sessionRows(c.sessions) },
         },
       });

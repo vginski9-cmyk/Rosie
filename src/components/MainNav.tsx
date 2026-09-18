@@ -14,6 +14,7 @@ const ITEMS: { label: string; href: string; match: (p: string) => boolean }[] = 
   { label: "Calendar", href: "/calendar", match: (p) => p.startsWith("/calendar") },
   { label: "Insights", href: "/insights/staffing-need", match: (p) => p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") },
   { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") },
+  { label: "Glossary", href: "/glossary", match: (p) => p.startsWith("/glossary") },
 ];
 
 export function MainNav() {

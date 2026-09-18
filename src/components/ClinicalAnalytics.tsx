@@ -1,7 +1,7 @@
 "use client";
 
 // Clinical analytics block for a design & sequence page — template or
-// instantiation. Top line first (one sentence, then four tiles), then the
+// offering. Top line first (one sentence, then four tiles), then the
 // breakdowns (settings · modes · shifts · days · delivery), then the specifics:
 // a course × setting hours matrix and a per-course table. Everything is read
 // from the session rows on the page, at the enrollment the page is using.
@@ -22,7 +22,7 @@ export function ClinicalAnalytics({ subject, courses, enrollment, sites = [], ac
   subject: string;
   courses: AnalyticsCourse[];
   enrollment: number;
-  /** Instantiation only: which partner sites host each course's clinical sections. */
+  /** Offering only: which partner sites host each course's clinical sections. */
   sites?: AnalyticsSite[];
   accent?: "rose" | "sky";
 }) {
@@ -49,7 +49,7 @@ export function ClinicalAnalytics({ subject, courses, enrollment, sites = [], ac
         <Tile label="Clinical sessions" v={n0(all.clinicalSessions)} sub={`${all.weeksWithClinical} clinical weeks · peak ${n1(all.peakWeekHours)}h${all.peakWeek ? ` (${all.peakWeek})` : ""}`} />
         <Tile label="Settings" v={n0(all.settings.filter((s) => s.key !== NOT_SET).length)} sub={all.settings.filter((s) => s.key !== NOT_SET).slice(0, 3).map((s) => s.key).join(" · ") || "none set"} />
         <Tile label="Shift length" v={`${n1(all.avgShiftHours)}h avg`} sub={all.clinicalSessions ? `${n1(all.shortestShiftHours)}–${n1(all.longestShiftHours)}h · ${all.shifts.filter((s) => s.key !== NOT_SET).map((s) => `${s.key} ${pct(s.share)}`).join(" · ") || "no start times"}` : "—"} />
-        <Tile label={`Student-hours @ ${n0(enrollment)}`} v={n0(all.studentHoursAtEnrollment)} sub={`${n0(all.sectionsAtEnrollment)} clinical sections`} />
+        <Tile label={`Student-hours @ ${n0(enrollment)}`} v={n0(all.studentHoursAtEnrollment)} sub={`${n0(all.sectionsAtEnrollment)} clinical shifts (section × date)`} />
         <Tile label={`Preceptor-shifts @ ${n0(enrollment)}`} v={n0(all.preceptorShiftsAtEnrollment)} sub={`${n1(all.facultyShiftsAtEnrollment)} faculty-shifts`} />
       </div>
 

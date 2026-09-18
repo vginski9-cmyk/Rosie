@@ -16,7 +16,7 @@ import { coverageOf, type RoleFamily } from "@/lib/workload";
 import { weekMonday, calendarWeeksBetween } from "@/lib/term";
 import { dec } from "@/lib/format";
 
-// Design & sequence for ONE instantiation — the EXACT same Raw Data &
+// Design & sequence for ONE offering — the EXACT same Raw Data &
 // Calculations schema as the template's sheet (columns A–AE, same headers,
 // same blue-input / green-formula cells), except column C (Enrollment) is
 // THIS offering's per-term enrollment target from its pipeline, and every
@@ -292,7 +292,7 @@ export function OfferingDesign({
     <div className="space-y-6">
       {pending && <div className="text-xs text-slate-400">saving…</div>}
 
-      {/* ── Whole-instantiation analytics ─────────────────────────────────── */}
+      {/* ── Whole-offering analytics ─────────────────────────────────── */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Design at a glance — what a student sits through, and what this run needs at its enrollment targets</div>
         <div className="overflow-x-auto">

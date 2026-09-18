@@ -15,13 +15,13 @@ import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc"
 import { dec, fmt, numInput } from "@/lib/format";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
-// stairstep up / hold / shrink. Under each year sit the instantiations (cohorts)
+// stairstep up / hold / shrink. Under each year sit the offerings
 // graduating that year, with the goal already set and the ACTUAL sourced live from
 // the student database. Click a year to plan its full pipeline below.
 
 type Anchor = "northstar" | "capacity";
 
-export interface Instantiation {
+export interface OfferingSummary {
   id: string;
   name: string;
   programId: string;
@@ -34,7 +34,7 @@ export interface Instantiation {
   status: string;
   /** Cohort-specific pipeline plan JSON ({ goal, rates, termOverrides }) — null = family defaults. */
   pipelineRates?: string | null;
-  /** Number of terms in this instantiation's template. */
+  /** Number of terms in this offering's program. */
   terms?: number;
   phase: string;              // recruiting | in-program | graduated | unscheduled
   currentTerm: string | null; // current term name (when in-program)
@@ -69,7 +69,7 @@ function actualRateOf(key: keyof LadderRates, a: ActualFunnel, cap: number): num
   }
 }
 
-export interface DeliveryModel {
+export interface ProgramOption {
   programId: string;
   name: string;
   credential: string | null;
@@ -104,17 +104,17 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, instantiationsByYear = {}, actualByYear = {}, nowYear, models = [],
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, offeringsByYear = {}, actualByYear = {}, nowYear, models = [],
 }: {
   familyId: string;
   familyName: string;
   seedYears: number[];
   seedGoalsByYear: Record<number, number>;
   savedPlan: string | null;
-  instantiationsByYear?: Record<number, Instantiation[]>;
+  offeringsByYear?: Record<number, OfferingSummary[]>;
   actualByYear?: Record<number, ActualFunnel>;
   nowYear: number;
-  models?: DeliveryModel[];
+  models?: ProgramOption[];
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -126,7 +126,7 @@ export function GoalPlanner({
     // Open on the latest year an offering delivers (else the latest with live student data, else the
     // last) — a year with no offering would open on "N uncovered" for a goal nothing was ever meant to cover.
     const withData = years.filter((y) => (actualByYear[y]?.interested ?? 0) > 0);
-    const withCohorts = years.filter((y) => (instantiationsByYear[y]?.length ?? 0) > 0);
+    const withCohorts = years.filter((y) => (offeringsByYear[y]?.length ?? 0) > 0);
     const pool = withCohorts.length ? withCohorts : withData;
     const defaultYear = pool.length ? pool[pool.length - 1] : years[years.length - 1];
     const base: Persisted = {
@@ -144,12 +144,12 @@ export function GoalPlanner({
         };
         if (!merged.years.includes(merged.selectedYear)) merged.selectedYear = merged.years[merged.years.length - 1];
         // A saved year with neither an offering nor student data (the seed's default) yields to the year that has them.
-        if (!(instantiationsByYear[merged.selectedYear]?.length) && !(actualByYear[merged.selectedYear]?.interested) && pool.length) merged.selectedYear = defaultYear;
+        if (!(offeringsByYear[merged.selectedYear]?.length) && !(actualByYear[merged.selectedYear]?.interested) && pool.length) merged.selectedYear = defaultYear;
         return merged;
       } catch { /* fall through */ }
     }
     return base;
-  }, [seedYears, seedGoalsByYear, savedPlan, instantiationsByYear, actualByYear]);
+  }, [seedYears, seedGoalsByYear, savedPlan, offeringsByYear, actualByYear]);
 
   const [s, setS] = useState<Persisted>(initial);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
@@ -204,13 +204,13 @@ export function GoalPlanner({
   const resetBenchmark = () => setS((p) => ({ ...p, goal: { ...BENCHMARK_RATES } }));
   const attain = (g: number, a: number | null) => (a != null && g > 0 ? a / g : null);
 
-  // --- Goal breakdown: delivery models → instantiations responsible for it ---
+  // --- Goal breakdown: programs → offerings responsible for it ---
   const yearKey = String(s.selectedYear);
   // The year's allocations: the saved plan, plus every real offering delivering this year that the
   // plan does not know about yet (an offering created on the program page or by the seed, never
   // locked in from here) as a locked slot of its model — so the total counts what actually runs,
   // instead of "0 allocated" beside a listed cohort.
-  const allocs: Alloc[] = useMemo(() => yearAllocations(s.allocationsByYear?.[yearKey] ?? [], instantiationsByYear[s.selectedYear] ?? []), [s.allocationsByYear, s.selectedYear, yearKey, instantiationsByYear]);
+  const allocs: Alloc[] = useMemo(() => yearAllocations(s.allocationsByYear?.[yearKey] ?? [], offeringsByYear[s.selectedYear] ?? []), [s.allocationsByYear, s.selectedYear, yearKey, offeringsByYear]);
   const yearGoal = Math.round(s.anchor === "northstar" ? (s.goalsByYear[yearKey] ?? 0) : productiveForYear(s.selectedYear));
   const setAllocs = (next: Alloc[]) => setS((p) => ({ ...p, allocationsByYear: { ...(p.allocationsByYear ?? {}), [yearKey]: next } }));
   const addAlloc = (programId: string) => {
@@ -233,7 +233,7 @@ export function GoalPlanner({
     const out = [...legacy];
     while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null), goal: 0, termOverrides: [] });
     while (out.length > target && !out[out.length - 1].locked) out.pop();
-    // Legacy plans kept ONE goal and ONE set of term overrides per delivery model —
+    // Legacy plans kept ONE goal and ONE set of term overrides per program —
     // split them evenly so every offering owns its own numbers from here on.
     if (out.some((o) => o.goal == null)) {
       const missing = out.filter((o) => o.goal == null).length;
@@ -269,15 +269,15 @@ export function GoalPlanner({
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
-  const allInsts = useMemo(() => Object.values(instantiationsByYear).flat(), [instantiationsByYear]);
+  const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
   const router = useRouter();
 
   /** Suggested start so the cohort lands its graduates in the selected year. */
-  const suggestStart = (m: DeliveryModel): string => {
+  const suggestStart = (m: ProgramOption): string => {
     const spanYears = Math.max(1, Math.ceil((m.spanWeeks + 6) / 52));
     return `${s.selectedYear - spanYears}-08-15`;
   };
-  const stopDateOf = (startIso: string | null | undefined, m: DeliveryModel): string | null => {
+  const stopDateOf = (startIso: string | null | undefined, m: ProgramOption): string | null => {
     if (!startIso) return null;
     const d = new Date(startIso + "T00:00:00Z");
     if (isNaN(d.getTime())) return null;
@@ -287,13 +287,13 @@ export function GoalPlanner({
   };
   const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 
-  /** Undo a lock-in: deletes the instantiation (confirmed), slot returns to a
+  /** Undo a lock-in: deletes the offering (confirmed), slot returns to a
    *  plannable start date. Students are detached, never deleted. */
   const unlock = async (ai: number, oi: number, slots: OfferingSlot[]) => {
     const a = allocs[ai];
     const slot = slots[oi];
     if (!slot?.locked) return;
-    if (!window.confirm(`Unlock ${slot.cohortName ?? "this offering"}?\n\nThe instantiation is deleted — its schedule, bookings, session overrides and pipeline targets go with it. Enrolled students are kept but detached. The slot returns to a plannable start date.`)) return;
+    if (!window.confirm(`Unlock ${slot.cohortName ?? "this offering"}?\n\nThe offering is deleted — its schedule, bookings, session overrides and pipeline targets go with it. Enrolled students are kept but detached. The slot returns to a plannable start date.`)) return;
     setUnlockingId(`${a.programId}:${oi}`);
     try {
       if (slot.cohortId) await unlockInstantiation(slot.cohortId);
@@ -330,7 +330,7 @@ export function GoalPlanner({
     { label: "Enrollment capacity", g: goalLadder.enrolled, a: af?.enrolled ?? null, strong: true },
     { label: "Completing on time", g: goalLadder.completing, a: af?.completing ?? null },
     { label: "Passing licensure (first time)", g: goalLadder.licensed, a: af?.licensed ?? null },
-    { label: "Retained & placed regionally", g: goalLadder.placed, a: af?.placed ?? null },
+    { label: "Retained & placed in a regional job", g: goalLadder.placed, a: af?.placed ?? null },
     { label: "Reaching full productivity", g: goalLadder.productive, a: af?.productive ?? null, strong: true },
   ];
 
@@ -341,10 +341,10 @@ export function GoalPlanner({
         <span className="text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
       </div>
 
-      {/* Multi-year goals — clean numbers, instantiations under each year */}
+      {/* Multi-year goals — clean numbers, offerings under each year */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-400">The goal: fully-productive placements in the region, per year. Click a year to say who delivers it.</p>
+          <p className="text-xs text-slate-400">The goal: fully productive workers in regional jobs, per year. Click a year to say who delivers it.</p>
           <div className="flex items-center gap-1">
             <button onClick={() => addYear(-1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[0] - 1} before the first year`}>+ {s.years[0] - 1}</button>
             <button onClick={() => addYear(1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[s.years.length - 1] + 1} after the last year`}>+ {s.years[s.years.length - 1] + 1}</button>
@@ -357,7 +357,7 @@ export function GoalPlanner({
             {s.years.map((year) => {
               const selected = year === s.selectedYear;
               const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
-              const insts = instantiationsByYear[year] ?? [];
+              const insts = offeringsByYear[year] ?? [];
               return (
                 <div key={year} role="button" tabIndex={0} onClick={() => selectYear(year)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectYear(year); }}
                   className={`relative cursor-pointer rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
@@ -371,23 +371,23 @@ export function GoalPlanner({
                     onChange={(e) => setYearValue(year, Number(e.target.value) || 0)}
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
                   />
-                  <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive placements</span>
+                  <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive workers</span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        {/* The selected year's instantiations — the classes delivering that goal. */}
+        {/* The selected year's offerings — the ones delivering that goal. */}
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{s.selectedYear} — instantiations delivering this goal</div>
-          {(instantiationsByYear[s.selectedYear] ?? []).length === 0 ? (
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{s.selectedYear} — offerings delivering this goal</div>
+          {(offeringsByYear[s.selectedYear] ?? []).length === 0 ? (
             <p className="text-xs text-slate-300">
-              {s.selectedYear < nowYear ? `No instantiations graduated in ${s.selectedYear}.` : s.selectedYear === nowYear ? `No instantiations graduating in ${s.selectedYear}.` : `No instantiations planned for ${s.selectedYear} yet.`}
+              {s.selectedYear < nowYear ? `No offerings graduated in ${s.selectedYear}.` : s.selectedYear === nowYear ? `No offerings graduating in ${s.selectedYear}.` : `No offerings planned for ${s.selectedYear} yet.`}
             </p>
           ) : (
             <div className="space-y-1.5">
-              {(instantiationsByYear[s.selectedYear] ?? []).map((c) => (
+              {(offeringsByYear[s.selectedYear] ?? []).map((c) => (
                 <div key={c.id} className="flex items-stretch gap-2">
                 <Link href={`/programs/${c.programId}/offerings/${c.id}`} className="flex-1 rounded-lg border border-slate-100 bg-slate-50/50 px-3 py-2 text-[13px] hover:border-rose-200 hover:bg-rose-50/40 block">
                   <span className="flex flex-wrap items-center justify-between gap-2">
@@ -418,7 +418,7 @@ export function GoalPlanner({
         </div>
       </div>
 
-      {/* Break the goal down: drag delivery models into the box that owns it */}
+      {/* Break the goal down: drag programs into the box that owns it */}
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-sm font-semibold text-slate-700">{s.selectedYear} — who delivers this goal</h3>
@@ -428,14 +428,14 @@ export function GoalPlanner({
           </span>
         </div>
         <p className="mb-3 text-[11px] text-slate-400">
-          Drag a delivery model into the box (or click +) and split the {yearGoal || "—"} fully-productive workers across
-          the instantiations responsible for delivering them. Each model&apos;s <strong>max cohort enrollment capacity</strong> is
+          Drag a program into the box (or click +) and split the {yearGoal || "—"} fully-productive workers across
+          the offerings responsible for delivering them. Each program&apos;s <strong>max cohort enrollment capacity</strong> is
           the gating criterion — if the pipeline math needs more seats than a cohort can hold, the box flags it.
         </p>
         <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
-          {/* Delivery-model cards (drag sources) */}
+          {/* Program cards (drag sources) */}
           <div className="space-y-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery models</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Programs</div>
             {models.map((m) => {
               const used = allocs.some((a) => a.programId === m.programId);
               return (
@@ -457,10 +457,10 @@ export function GoalPlanner({
                 </div>
               );
             })}
-            {models.length === 0 && <p className="text-[11px] text-slate-300">No delivery models yet — create one on the design page.</p>}
+            {models.length === 0 && <p className="text-[11px] text-slate-300">No programs yet — create one on the design page.</p>}
           </div>
 
-          {/* Drop zone: the instantiation plan */}
+          {/* Drop zone: the offering plan */}
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -468,7 +468,7 @@ export function GoalPlanner({
             className={`rounded-xl border-2 border-dashed p-3 transition-colors ${dragOver ? "border-rose-400 bg-rose-50/50" : "border-slate-200 bg-slate-50/40"}`}>
             {allocs.length === 0 ? (
               <div className="flex h-full min-h-[120px] items-center justify-center text-center text-xs text-slate-400">
-                Drop delivery models here — the instantiations responsible for delivering the {s.selectedYear} goal.
+                Drop programs here — the offerings responsible for delivering the {s.selectedYear} goal.
               </div>
             ) : (
               <div className="space-y-3">
@@ -535,7 +535,7 @@ export function GoalPlanner({
                                     <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
                                     {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
                                     <span className="text-[10px] text-slate-400">edits below save to this offering</span>
-                                    <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the instantiation (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
+                                    <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the offering (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
                                   </>
                                 ) : (
                                   <>
@@ -545,7 +545,7 @@ export function GoalPlanner({
                                     </label>
                                     <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
                                     <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}</span>
-                                    <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className="ml-auto rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real instantiation with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
+                                    <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className="ml-auto rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real offering with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
                                     {slots.length > 1 && <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>}
                                   </>
                                 )}
@@ -557,8 +557,8 @@ export function GoalPlanner({
                           );
                         })}
                         <p className="text-[10px] text-slate-400">
-                          Every offering has its own goal, its own enrollment for each term, and (if you want) its own health rates — the delivery model is just the sum of them.
-                          Lock in creates the real instantiation with exactly these numbers; after that, editing here saves to the offering itself, and the offering page shows the same editor.
+                          Every offering has its own goal, its own enrollment for each term, and (if you want) its own health rates — the program is just the sum of them.
+                          Lock in creates the real offering with exactly these numbers; after that, editing here saves to the offering itself, and the offering page shows the same editor.
                         </p>
                       </div>
                     </div>

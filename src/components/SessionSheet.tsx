@@ -174,7 +174,7 @@ function Meaning({ row, enrollment, assumptions, rows }: { row: SheetSession; en
         {m.roles.filter((x) => x.ratio > 0).map((x) => (
           <li key={x.role}>
             <span className="font-semibold capitalize">{x.role}:</span> {x.text}
-            <span className="mt-0.5 block text-[11px] text-slate-500">per section per occurrence {hm(x.perSectionShift)} · per student: {hm(x.perStudentShift)} a shift, {hm(x.perStudentWeek)} a week, {hm(x.perStudentTerm)} a term · cohort: {hm(x.perCohortShift)} an occurrence, {hm(x.perCohortWeek)} a week, {hm(x.perCohortTerm)} a term · {dec(x.fteWeek)} FTE · {x.headsAtOnce} on duty at once</span>
+            <span className="mt-0.5 block text-[11px] text-slate-500">per shift (one section, one date) {hm(x.perSectionShift)} · per student: {hm(x.perStudentShift)} a shift, {hm(x.perStudentWeek)} a week, {hm(x.perStudentTerm)} a term · cohort: {hm(x.perCohortShift)} an occurrence, {hm(x.perCohortWeek)} a week, {hm(x.perCohortTerm)} a term · {dec(x.fteWeek)} FTE · {x.headsAtOnce} on duty at once</span>
           </li>
         ))}
         {m.roles.every((x) => x.ratio <= 0) && <li className="text-slate-500">No instructor, preceptor or support ratio is coded on this row.</li>}

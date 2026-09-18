@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 // The home page reads by INSTITUTION: each college or university, then the
 // jobs it is working toward (each with its North-Star goal), then the
-// programs — the delivery models — that deliver toward each job.
+// programs that deliver toward each job.
 
 const CRED_BADGE: Record<string, string> = {
   AAS: "bg-rose-100 text-rose-700", BSN: "bg-fuchsia-100 text-fuchsia-700", Diploma: "bg-violet-100 text-violet-700",
@@ -34,7 +34,7 @@ export default async function HomePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">North Star goals</h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-500">
-            {totals.families} target jobs · {totals.programs} programs · {fmt.num(totals.goal)} fully-productive placements as the {thisYear} goal · {totals.running} offerings running.
+            {totals.families} target jobs · {totals.programs} programs · {fmt.num(totals.goal)} fully productive workers as the {thisYear} goal · {totals.running} offerings running.
           </p>
         </div>
         <NewGoalForm institutions={lite} />
@@ -86,11 +86,11 @@ export default async function HomePage() {
                           <div className={`text-[10px] ${y === thisYear ? "text-slate-300" : "text-slate-400"}`}>{y}</div>
                         </div>
                       ))}
-                      <div className="pb-1 pl-1 text-[10px] uppercase tracking-wide text-slate-400">fully productive placements</div>
+                      <div className="pb-1 pl-1 text-[10px] uppercase tracking-wide text-slate-400">fully productive workers</div>
                     </div>
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{thisYear} placed so far</span>
+                        <span className="text-slate-500">{thisYear} placed in jobs so far</span>
                         <span className={f.progress == null ? "text-slate-400" : onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>{f.progress != null ? `${fmt.pct(f.progress)} of the ${thisYear} goal` : "no goal set"}</span>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${f.progress != null ? Math.min(100, f.progress * 100) : 0}%` }} /></div>
@@ -98,10 +98,10 @@ export default async function HomePage() {
                     {f.programs[0] && <Link href={`/programs/${f.programs[0].id}/goal`} className="mt-2 inline-block text-xs text-rose-600 hover:underline">open the goal planner →</Link>}
                   </div>
 
-                  {/* The programs (delivery models) under this job */}
+                  {/* The programs under this job */}
                   <div>
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Programs delivering toward it · {f.running} offering{f.running === 1 ? "" : "s"} running{f.students ? ` · ${fmt.num(f.students)} students` : ""}</div>
-                    {f.programs.length === 0 && <p className="text-xs text-slate-400">No program templates yet.</p>}
+                    {f.programs.length === 0 && <p className="text-xs text-slate-400">No programs yet.</p>}
                     <div className="divide-y divide-slate-100 rounded-lg border border-slate-100">
                       {f.programs.map((p) => (
                         <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm">

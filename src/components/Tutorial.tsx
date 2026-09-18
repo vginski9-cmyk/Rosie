@@ -30,7 +30,7 @@ const TOURS: Tour[] = [
     { h: "The template, run for real", b: "Real dates, targets and people. Each section opens: pipeline, term dates, sequence, staffing, completion requirements, rotations, students and the calendar. Design & sequence — this offering edits every session for this run." },
   ] },
   { key: "employer", match: /^\/employers\/[^/]+$/, title: "An organization", steps: [
-    { h: "What the site is, regardless of program", b: "Address and drive time, every asset with its shift structure, closures, units, people and placements. What it means to a program is set on that program's clinical pages." },
+    { h: "What the site is, regardless of program", b: "Address and drive time, every asset with its shift structure, closures, units, people and work-based learning placements. What it means to a program is set on that program's clinical pages." },
   ] },
   { key: "insights", match: /^\/(insights|scheduler|supply|utilization|semester)/, title: "Insights", steps: [
     { h: "Every analysis is a tab", b: "Instructors and preceptors needed, daily coverage, the clinical scheduler, clinical site capacity, room utilization, the semester view and the explorer all read the same offerings." },

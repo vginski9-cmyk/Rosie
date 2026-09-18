@@ -108,10 +108,10 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one.">
             <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>
           </Lever>
-          <Lever label="Shift" hint="May a section land on a different shift block (day / evening / night) than its session says?">
+          <Lever label="Shift" hint="May a clinical shift land on a different shift block (day / evening / night) than its session says?">
             <select value={String(policy.flexibleShift)} onChange={(e) => setPolicy({ ...policy, flexibleShift: e.target.value === "true" })} className={sel}><option value="false">exact shift only</option><option value="true">any shift the asset runs</option></select>
           </Lever>
-          <Lever label="Day" hint="May a section move inside its week to a day the asset is open?">
+          <Lever label="Day" hint="May a clinical shift move inside its week to a day the asset is open?">
             <select value={String(policy.flexibleDays)} onChange={(e) => setPolicy({ ...policy, flexibleDays: Number(e.target.value) as Policy["flexibleDays"] })} className={sel}><option value="0">exact date</option><option value="1">± 1 day in the week</option><option value="2">± 2 days in the week</option></select>
           </Lever>
           <Lever label="Drive ring" hint="Farthest ring a site may be in.">
@@ -123,7 +123,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Lever label="Balance" hint="Prefer the least-loaded site over the closest / most secured one.">
             <select value={String(policy.spread)} onChange={(e) => setPolicy({ ...policy, spread: e.target.value === "true" })} className={sel}><option value="false">closest & most secured first</option><option value="true">spread load across sites</option></select>
           </Lever>
-          <Lever label="Preceptors" hint="Only place a section where a free preceptor person exists at that site on that shift.">
+          <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
             <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory — a shift can be placed with nobody to precept it)</option><option value="true">require a free preceptor</option></select>
           </Lever>
           <Lever label="Split sections" hint="When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 with a preceptor anyway); an instructor-led group travels together.">
@@ -209,7 +209,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-xs">
               <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · sections</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Placed</th><th className="px-3 py-2 text-right font-semibold">Unplaced</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
+                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Placed</th><th className="px-3 py-2 text-right font-semibold">Unplaced</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {plan.balance.map((b) => (
@@ -285,7 +285,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             <div key={b.key} className={`rounded-xl border bg-white p-4 ${showWhy === `${b.settingCode}|${b.weekMonday}` ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-200"}`}>
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div className="text-sm font-semibold text-slate-800"><span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-white">{b.settingCode}</span> {settingName(b.settingCode)} · week of {fmtW(b.weekMonday)}{b.block !== "any" ? ` · ${b.block} shift` : ""}</div>
-                <div className="text-xs tabular-nums text-rose-700"><strong>{n0(b.seats)} learner-shifts</strong> in {n0(b.shifts)} section{b.shifts === 1 ? "" : "s"} unplaced · {b.cohorts.join(", ")}</div>
+                <div className="text-xs tabular-nums text-rose-700"><strong>{n0(b.seats)} learner-shifts</strong> in {n0(b.shifts)} shift{b.shifts === 1 ? "" : "s"} unplaced · {b.cohorts.join(", ")}</div>
               </div>
               <div className="mt-1 text-xs text-slate-700">Why: <strong>{REASON_LABEL[b.reason]}</strong></div>
               <div className="mt-1.5 text-xs text-slate-700">What would fix it:</div>
@@ -294,7 +294,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           ))}
           {plan.unmet.length > 0 && (
             <details className="rounded-xl border border-slate-200 bg-white p-4 text-xs">
-              <summary className="cursor-pointer font-medium text-slate-700">Every unplaced section ({plan.unmet.length})</summary>
+              <summary className="cursor-pointer font-medium text-slate-700">Every unplaced shift ({plan.unmet.length})</summary>
               <div className="mt-2 overflow-x-auto"><table className="min-w-full"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-2 py-1">Date</th><th className="px-2 py-1">Shift</th><th className="px-2 py-1">Offering</th><th className="px-2 py-1">Course</th><th className="px-2 py-1">Section</th><th className="px-2 py-1">Setting</th><th className="px-2 py-1 text-right">Seats</th><th className="px-2 py-1">Reason</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">{plan.unmet.map((x) => <tr key={x.unit.id}><td className="whitespace-nowrap px-2 py-1">{fmtD(x.unit.date)}{x.unit.holiday ? <span className="ml-1 text-amber-700">({x.unit.holiday})</span> : null}</td><td className="px-2 py-1">{x.unit.block}</td><td className="px-2 py-1">{x.unit.cohort}</td><td className="px-2 py-1">{x.unit.courseCode}</td><td className="px-2 py-1">{x.unit.sectionIndex}/{x.unit.sectionCount}</td><td className="px-2 py-1">{x.unit.settingCode ?? <span className="text-amber-700">{x.unit.rotationType} (unmapped)</span>}</td><td className="px-2 py-1 text-right">{x.unit.seats}</td><td className="px-2 py-1 text-slate-500">{REASON_LABEL[x.reason].split(" — ")[0]}</td></tr>)}</tbody></table></div>
             </details>
@@ -335,7 +335,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             <select value={planFilter.setting} onChange={(e) => setPlanFilter({ ...planFilter, setting: e.target.value })} className="rounded border border-slate-300 px-2 py-1"><option value="">every setting</option>{settingCodes.map((x) => <option key={x} value={x}>{x} · {settingName(x)}</option>)}</select>
             <select value={planFilter.cohort} onChange={(e) => setPlanFilter({ ...planFilter, cohort: e.target.value })} className="rounded border border-slate-300 px-2 py-1"><option value="">every offering</option>{cohortsInDemand.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}</select>
             <input value={planFilter.q} onChange={(e) => setPlanFilter({ ...planFilter, q: e.target.value })} placeholder="course, preceptor, instructor, asset id…" className="w-64 rounded border border-slate-300 px-2 py-1" />
-            <span className="text-slate-400">{n0(filteredPlan.length)} of {n0(plan.assignments.length)} placed sections</span>
+            <span className="text-slate-400">{n0(filteredPlan.length)} of {n0(plan.assignments.length)} placed shifts</span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-xs">

@@ -54,7 +54,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : "—");
   const exactDate = (d: Date | null) => (d ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 
-  // ── Real end date + holiday collisions for THIS instantiation (same engine
+  // ── Real end date + holiday collisions for THIS offering (same engine
   //    as the Insights tabs; the full breakdown lives in the sections below). ──
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === offering.id) ?? null;
   const sites = capModel?.clinicalSites ?? [];
@@ -382,7 +382,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         );
       })()}
 
-      {/* ── THE calendar for this instantiation: exact dates, times, locations ── */}
+      {/* ── THE calendar for this offering: exact dates, times, locations ── */}
       {capCohort && (
         <Collapse
           title="Calendar"

@@ -33,7 +33,7 @@ export const STAGES: StageDef[] = [
   { key: "enrolled", label: "Enrolled (Term 1)", conversionInto: "% who accept & enroll", color: "#22c55e" },
   { key: "completing", label: "Completing on time", conversionInto: "% completing on time", color: "#84cc16" },
   { key: "licensed", label: "Passing licensure (1st)", conversionInto: "% passing licensure", color: "#eab308" },
-  { key: "placed", label: "Retained & placed regionally", conversionInto: "% retained & placed", color: "#f97316" },
+  { key: "placed", label: "Retained & placed in a regional job", conversionInto: "% retained & placed in a job", color: "#f97316" },
   { key: "productive", label: "Fully productive in region", conversionInto: "% reaching productivity", color: "#ef4444" },
 ];
 
