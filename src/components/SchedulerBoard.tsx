@@ -6,14 +6,16 @@
 // sites, the ranked bottlenecks (each with what would fix it), and finally the
 // plan itself — by shift, and by student. The levers on top re-run everything.
 
-import { useDeferredValue, useMemo, useState, useTransition } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment } from "@/lib/scheduler";
+import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment, type SiteCapacityLite, type ConfirmedSetting } from "@/lib/scheduler";
 import { schedulerModel, filterDemand, planFor } from "@/lib/schedulerplan";
 import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
-import { applySchedulerLevers, clearSchedulerPlan } from "@/lib/actions";
+import { applySchedulerLevers, clearSchedulerPlan, previewSchedulerApply, undoChangeSet, type SchedulerPreview } from "@/lib/actions";
+import type { ChangeSetRow } from "@/lib/changesets";
+import { ChangeHistory } from "@/components/ChangeHistory";
 import { dec, fmt } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
@@ -34,10 +36,17 @@ const VARIETY: { key: string; label: string; set: Pick<Policy, "varietySites" | 
 ];
 const varietyKey = (p: Policy) => (p.varietySystems ? "all" : p.varietyFacilityTypes ? "types" : p.varietySites ? "sites" : "none");
 const min = (v: number | null) => fmt.minutes(v);
+/** Lever names for the "this lever changed nothing" note. */
+const LEVER_NAMES: Record<keyof Policy, string> = {
+  agreements: "Sites that count", flexibleShift: "Shift", flexibleDays: "Day", maxRing: "Drive ring", continuity: "Continuity", spread: "Balance", requirePreceptor: "Preceptors", skipHolidays: "Holidays", split: "Split sections",
+  maxStudentDriveMin: "Drive cap from home", preferCloserToStudent: "Nearer home", rotateSitesEveryWeeks: "Rotate sites", varietySites: "Variety", varietyFacilityTypes: "Variety", varietySystems: "Variety",
+  preceptorStint: "Keep the same preceptor", varietyPreceptors: "New preceptors", maxPreceptorShiftsPerWeek: "Weekly ceiling", studentsPerPreceptor: "Students per preceptor",
+};
+const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, from, to }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
-  preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; from: string; to: string;
+  preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -46,9 +55,13 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
   const [planFilter, setPlanFilter] = useState<{ site: string; setting: string; cohort: string; q: string }>({ site: "", setting: "", cohort: "", q: "" });
-  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number; offSite: number } | null>(null);
+  const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number; offSite: number; changeSetId: string | null } | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [showWhy, setShowWhy] = useState<string | null>(null);
+  // Phase 5: preview → confirm (blockers gate the confirm; an override is recorded) → undo.
+  const [preview, setPreview] = useState<SchedulerPreview | null>(null);
+  const [override, setOverride] = useState(false);
+  const [noChange, setNoChange] = useState<string | null>(null);
 
   // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
   // so what is on screen is what gets written.
@@ -56,7 +69,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const demandAll = model.demand;
   const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: [...cohortFilter] }), [policy, window, cohortFilter]);
   const demand = useMemo(() => filterDemand(demandAll, levers), [demandAll, levers]);
-  const supply = useMemo(() => ({ assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements }), [assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements]);
+  const supply = useMemo(() => ({ assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings }), [assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings]);
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
   const autoBookings = useMemo(() => bookings.filter((b) => b.note === AUTO_PLAN_NOTE), [bookings]);
 
@@ -68,6 +81,21 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus), [builtDemand, supply, builtLevers.policy, model.campus]);
   const recomputing = builtLevers !== levers;
   const s = plan.summary;
+  const rd = s.readiness;
+  const blocking = plan.blockers.filter((b) => b.blocking);
+  // A lever that changes nothing says so, instead of leaving the room to guess.
+  const prevRef = useRef<{ policy: Policy; sig: string } | null>(null);
+  useEffect(() => {
+    const sig = sigOf(plan);
+    const prev = prevRef.current;
+    if (prev && prev.policy !== builtLevers.policy) {
+      const changed = [...new Set((Object.keys(builtLevers.policy) as (keyof Policy)[]).filter((k) => prev.policy[k] !== builtLevers.policy[k]).map((k) => LEVER_NAMES[k]))];
+      if (changed.length && sig === prev.sig) setNoChange(`Changing ${changed.join(" and ")} did not change the plan — the same ${n0(plan.summary.placedSeats)} learner-shifts placed, ${n0(plan.summary.readiness.ready)} ready. This lever has no bearing on what binds here${plan.bottlenecks[0] ? `; the biggest bottleneck is that ${REASON_LABEL[plan.bottlenecks[0].reason].split(" — ")[0]}` : ""}.`);
+      else if (changed.length) setNoChange(null);
+    } else if (prev && sig !== prev.sig) setNoChange(null);
+    prevRef.current = { policy: builtLevers.policy, sig };
+  }, [plan, builtLevers.policy]);
+  useEffect(() => { setPreview(null); setOverride(false); }, [levers]);
   const settingName = (code: string) => plan.balance.find((b) => b.settingCode === code)?.setting ?? code;
   const weekMondays = useMemo(() => [...new Set(plan.weeks.map((w) => w.weekMonday))].sort(), [plan]);
   const settingCodes = useMemo(() => plan.balance.filter((b) => b.demandShifts > 0).map((b) => b.settingCode), [plan]);
@@ -76,10 +104,21 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const filteredPlan = useMemo(() => plan.assignments.filter((x) => (!planFilter.site || x.siteName === planFilter.site) && (!planFilter.setting || x.unit.settingCode === planFilter.setting) && (!planFilter.cohort || x.unit.cohortId === planFilter.cohort) && (!planFilter.q || `${x.unit.courseCode} ${x.unit.courseTitle} ${x.preceptorNames.join(" ")} ${x.instructorName ?? ""} ${x.asset.externalId ?? ""}`.toLowerCase().includes(planFilter.q.toLowerCase()))), [plan, planFilter]);
   const cohortIdsInPlan = useMemo(() => [...new Set(plan.assignments.map((x) => x.unit.cohortId))], [plan]);
 
-  // Apply sends the LEVERS, not the plan: the server rebuilds the same plan and writes it.
-  const apply = () => startTransition(async () => {
+  // Apply sends the LEVERS, not the plan: the server rebuilds the same plan, previews what it would
+  // write, and writes it only on confirm — refusing while a blocking blocker stands, unless overridden.
+  const doPreview = () => startTransition(async () => {
+    setApplyError(null); setApplied(null);
+    try { setPreview(await previewSchedulerApply(institutionId, levers)); }
+    catch (e) { setApplyError(e instanceof Error ? e.message : String(e)); }
+  });
+  const confirmApply = () => startTransition(async () => {
     setApplyError(null);
-    try { const r = await applySchedulerLevers(institutionId, levers); setApplied(r); router.refresh(); }
+    try { const r = await applySchedulerLevers(institutionId, levers, { override: override ? blocking.map((b) => b.kind) : [] }); setApplied(r); setPreview(null); setOverride(false); router.refresh(); }
+    catch (e) { setApplyError(e instanceof Error ? e.message : String(e)); }
+  });
+  const undo = (id: string) => startTransition(async () => {
+    setApplyError(null);
+    try { await undoChangeSet(id); setApplied(null); router.refresh(); }
     catch (e) { setApplyError(e instanceof Error ? e.message : String(e)); }
   });
   const clear = () => startTransition(async () => {
@@ -104,18 +143,39 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— the rules the plan is built under; everything below recomputes as you change them</span>{recomputing && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">recomputing under the new levers… the numbers below are the previous plan&apos;s</span>}</div>
           <button onClick={() => setPolicy(DEFAULT_POLICY)} className="text-[11px] text-slate-500 hover:text-rose-700">reset levers</button>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one.">
+        {noChange && <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">{noChange}</p>}
+        {/* Hard constraints: the plan never breaks these. Preferences: the plan works toward them when it can. */}
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Hard constraints <span className="font-normal normal-case text-slate-400">— never broken; loosening one is a policy decision</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one; an agreement that has ended does not count after its end date.">
             <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>
           </Lever>
+          <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
+            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory)</option><option value="true">require a free preceptor</option></select>
+          </Lever>
+          <Lever label="Holidays" hint="Sessions that land on an observed holiday are left unplaced so someone moves them, or placed anyway (a blocker until moved).">
+            <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
+          </Lever>
+          <Lever label="Drive ring" hint="Farthest ring a site may be in.">
+            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">Core only</option><option value="Ring 1">up to Ring 1</option><option value="Ring 2">up to Ring 2</option><option value="any">any distance</option></select>
+          </Lever>
+          <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
+            <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
+          </Lever>
+          <Lever label="Students per preceptor" hint="How many students one preceptor may take on a shift. Default: whatever the session says it needs.">
+            <select value={policy.studentsPerPreceptor ?? ""} onChange={(e) => setPolicy({ ...policy, studentsPerPreceptor: numOrNull(e.target.value) })} className={sel}><option value="">as the session says</option>{[1, 2, 3].map((n) => <option key={n} value={n}>{n === 1 ? "one to one" : `up to ${n} students`}</option>)}</select>
+          </Lever>
+          <Lever label="Weekly ceiling" hint="The most student shifts one preceptor takes in a week.">
+            <select value={policy.maxPreceptorShiftsPerWeek ?? ""} onChange={(e) => setPolicy({ ...policy, maxPreceptorShiftsPerWeek: numOrNull(e.target.value) })} className={sel}><option value="">no ceiling</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} shift{n === 1 ? "" : "s"} a week</option>)}</select>
+          </Lever>
+        </div>
+        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preferences <span className="font-normal normal-case text-slate-400">— what the plan works toward when the constraints leave room</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           <Lever label="Shift" hint="May a clinical shift land on a different shift block (day / evening / night) than its session says?">
             <select value={String(policy.flexibleShift)} onChange={(e) => setPolicy({ ...policy, flexibleShift: e.target.value === "true" })} className={sel}><option value="false">exact shift only</option><option value="true">any shift the asset runs</option></select>
           </Lever>
           <Lever label="Day" hint="May a clinical shift move inside its week to a day the asset is open?">
             <select value={String(policy.flexibleDays)} onChange={(e) => setPolicy({ ...policy, flexibleDays: Number(e.target.value) as Policy["flexibleDays"] })} className={sel}><option value="0">exact date</option><option value="1">± 1 day in the week</option><option value="2">± 2 days in the week</option></select>
-          </Lever>
-          <Lever label="Drive ring" hint="Farthest ring a site may be in.">
-            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">Core only</option><option value="Ring 1">up to Ring 1</option><option value="Ring 2">up to Ring 2</option><option value="any">any distance</option></select>
           </Lever>
           <Lever label="Continuity" hint="Keep a section at the same site for the whole course wherever possible.">
             <select value={String(policy.continuity)} onChange={(e) => setPolicy({ ...policy, continuity: e.target.value === "true" })} className={sel}><option value="true">keep each section at one site</option><option value="false">any site each shift</option></select>
@@ -123,21 +183,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Lever label="Balance" hint="Prefer the least-loaded site over the closest / most secured one.">
             <select value={String(policy.spread)} onChange={(e) => setPolicy({ ...policy, spread: e.target.value === "true" })} className={sel}><option value="false">closest & most secured first</option><option value="true">spread load across sites</option></select>
           </Lever>
-          <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
-            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory — a shift can be placed with nobody to precept it)</option><option value="true">require a free preceptor</option></select>
-          </Lever>
           <Lever label="Split sections" hint="When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 with a preceptor anyway); an instructor-led group travels together.">
             <select value={policy.split} onChange={(e) => setPolicy({ ...policy, split: e.target.value as Policy["split"] })} className={sel}><option value="preceptor-led">preceptor-led may split</option><option value="none">never split a section</option><option value="any">any section may split</option></select>
-          </Lever>
-          <Lever label="Holidays" hint="Sessions that land on an observed holiday are left unplaced so someone moves them, or placed anyway.">
-            <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
-          </Lever>
-        </div>
-        {/* Students and preceptors: where each student can go, the breadth of what they see, and how preceptors are kept and loaded. */}
-        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Students <span className="font-normal normal-case text-slate-400">— each student's own drive from home, and the breadth of what they see</span></div>
-        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
-            <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
           </Lever>
           <Lever label="Nearer home" hint="Prefer sites nearer each student's home over sites nearer campus.">
             <select value={String(policy.preferCloserToStudent)} onChange={(e) => setPolicy({ ...policy, preferCloserToStudent: e.target.value === "true" })} className={sel}><option value="true">prefer sites near the student</option><option value="false">campus distance only</option></select>
@@ -148,20 +195,11 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Lever label="Variety" hint="What the plan works to give every student over the course: sites they haven't been to, kinds of facility they haven't seen (hospital, imaging center, clinic), health systems they haven't been in.">
             <select value={varietyKey(policy)} onChange={(e) => setPolicy({ ...policy, ...VARIETY.find((v) => v.key === e.target.value)!.set })} className={sel}>{VARIETY.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}</select>
           </Lever>
-        </div>
-        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preceptors <span className="font-normal normal-case text-slate-400">— always at their own employer; how long they keep a student and how much they carry</span></div>
-        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Lever label="Keep the same preceptor" hint="Shifts in a row a student keeps the same preceptor before rotating to another at the site. Evaluations need a stretch; variety needs a change.">
             <select value={policy.preceptorStint ?? ""} onChange={(e) => setPolicy({ ...policy, preceptorStint: numOrNull(e.target.value) })} className={sel}><option value="">as long as possible</option><option value="1">rotate every shift</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>for {n} shifts, then rotate</option>)}</select>
           </Lever>
           <Lever label="New preceptors" hint="When several preceptors are free, prefer one the student has not had yet.">
             <select value={String(policy.varietyPreceptors)} onChange={(e) => setPolicy({ ...policy, varietyPreceptors: e.target.value === "true" })} className={sel}><option value="false">least-loaded first</option><option value="true">prefer one the student hasn't had</option></select>
-          </Lever>
-          <Lever label="Weekly ceiling" hint="The most student shifts one preceptor takes in a week.">
-            <select value={policy.maxPreceptorShiftsPerWeek ?? ""} onChange={(e) => setPolicy({ ...policy, maxPreceptorShiftsPerWeek: numOrNull(e.target.value) })} className={sel}><option value="">no ceiling</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} shift{n === 1 ? "" : "s"} a week</option>)}</select>
-          </Lever>
-          <Lever label="Students per preceptor" hint="How many students one preceptor may take on a shift. Default: whatever the session says it needs.">
-            <select value={policy.studentsPerPreceptor ?? ""} onChange={(e) => setPolicy({ ...policy, studentsPerPreceptor: numOrNull(e.target.value) })} className={sel}><option value="">as the session says</option>{[1, 2, 3].map((n) => <option key={n} value={n}>{n === 1 ? "one to one" : `up to ${n} students`}</option>)}</select>
           </Lever>
         </div>
         <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
@@ -175,26 +213,79 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
         </div>
       </div>
 
-      {/* ── The statement + six numbers ──────────────────────────────────── */}
+      {/* ── The statement, the readiness funnel and the apply flow ────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-base leading-relaxed text-slate-800">{s.statement}</p>
-        <p className="mt-1 text-xs text-slate-500">A <strong>proposed scenario</strong> under the levers above — nothing is written until you apply it. Demand is every dated clinical shift (session × section) at each term&apos;s enrollment target, not the roster. {!policy.requirePreceptor && <span className="text-amber-700">Seats only: a shift counts as placed with nobody to precept it; switch the Preceptors lever to see what is actually staffable.</span>}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <p className="mt-1 text-xs text-slate-500">A <strong>proposed scenario</strong> under the levers above — nothing is written until you apply it. Demand is every dated clinical shift (session × section) at each term&apos;s enrollment target, not the roster. The headline is <strong>ready</strong>: placed at a secured site, staffed by name, at a site that has confirmed the experience, with no conflicts. {!policy.requirePreceptor && <span className="text-amber-700">Seats only (exploratory): a shift counts as placed with nobody to precept it; the readiness funnel shows what is actually staffable.</span>}</p>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           <Tile label="Demand" v={`${n0(s.demandSeats)} learner-shifts`} sub={`${n0(s.demandShifts)} shifts (section × date) · ${n0(s.demandHours)} learner-hours`} />
-          <Tile label="Theoretical ceiling" v={`${n0(s.supplySeatsAllowed)} seats`} sub={`every asset-shift in the window at allowed sites × learners per shift — not usable capacity (${n0(s.supplySeatsPhysical)} asset-shifts at all sites)`} />
-          <Tile label="Placed" v={pct(s.placedShare)} sub={`${n0(s.placedSeats)} learner-shifts at ${s.sitesUsed} sites${policy.requirePreceptor ? "" : " · seats only"}`} strong />
+          <Tile label="Ready to run" v={pct(rd.readyShare)} sub={`${n0(rd.ready)} learner-shifts pass every check`} strong />
+          <Tile label={policy.requirePreceptor ? "Placed" : "Placed (seats only)"} v={pct(s.placedShare)} sub={`${n0(s.placedSeats)} learner-shifts at ${s.sitesUsed} sites${policy.requirePreceptor ? "" : " · exploratory — nobody need be free to precept"}`} />
           <Tile label="Unplaced" v={n0(s.unmetShifts)} sub={s.unmetShifts ? `shifts — see bottlenecks` : "nothing left over"} tone={s.unmetShifts ? "rose" : "emerald"} />
+          <Tile label="Blockers" v={n0(blocking.reduce((n, b) => n + b.shifts, 0))} sub={blocking.length ? `shifts that stop an apply: ${blocking.map((b) => b.kind.replace(/-/g, " ")).join(", ")}` : "nothing stops an apply"} tone={blocking.length ? "rose" : "emerald"} />
           <Tile label="Preceptors" v={`${n0(s.preceptorsAssigned)} / ${n0(s.preceptorShifts)}`} sub={`preceptor-shifts staffed by name${s.preceptorShifts > s.preceptorsAssigned ? ` · ${n0(s.preceptorShifts - s.preceptorsAssigned)} placed with nobody to precept` : ""}`} tone={s.preceptorShifts > 0 && s.preceptorsAssigned < s.preceptorShifts ? "amber" : undefined} />
           <Tile label="Instructors" v={`${n0(s.instructorsAssigned)} / ${n0(s.instructorShifts)}`} sub="instructor-led shifts staffed" tone={s.instructorShifts > 0 && s.instructorsAssigned < s.instructorShifts ? "amber" : undefined} />
         </div>
+        {/* The readiness funnel: each rung keeps only what passed every rung before it. */}
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Readiness funnel <span className="font-normal normal-case text-slate-400">— learner-shifts that pass each check and every check before it; the theoretical ceiling is {n0(s.supplySeatsAllowed)} seats (every asset-shift at allowed sites), not usable capacity</span></div>
+          <div className="grid gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
+            {([["Location assigned", rd.locationAssigned, "placed on a real asset on a date"], ["Agreement eligible", rd.agreementEligible, "the site's agreement for this program is secured on that date"], ["Staffed by name", rd.staffedByName, "a named preceptor (and instructor where the session needs one)"], ["Experience supported", rd.experienceSupported, "the site has confirmed it provides this setting — inferred does not count"], ["Conflict-free", rd.conflictFree, "under the site's students-at-once, not on a holiday, students not in two places"], ["Ready", rd.ready, "every check above"]] as [string, number, string][]).map(([label, v, why], i) => (
+              <div key={label} className={`rounded-lg px-2.5 py-2 ${i === 5 ? "bg-slate-800 text-white" : "bg-white ring-1 ring-slate-200"}`} title={why}>
+                <div className={`text-[10px] uppercase tracking-wide ${i === 5 ? "text-slate-300" : "text-slate-400"}`}>{label}</div>
+                <div className="text-lg font-bold leading-tight tabular-nums">{n0(v)} <span className={`text-xs font-normal ${i === 5 ? "text-slate-300" : "text-slate-400"}`}>{pct(s.demandSeats > 0 ? v / s.demandSeats : 0)}</span></div>
+                <div className={`mt-1 h-1 rounded ${i === 5 ? "bg-slate-600" : "bg-slate-100"}`}><div className={`h-1 rounded ${i === 5 ? "bg-emerald-400" : "bg-slate-500"}`} style={{ width: `${Math.min(100, (s.demandSeats > 0 ? v / s.demandSeats : 0) * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Blockers: what stops an apply, and the non-blocking warnings beside them. */}
+        {plan.blockers.length > 0 && (
+          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-rose-800">Blockers <span className="font-normal normal-case text-slate-500">— a blocking one stops the apply until it is fixed or overridden on purpose; the override is recorded with the change</span></div>
+            <ul className="space-y-1 text-xs">
+              {plan.blockers.map((b) => (
+                <li key={b.kind} className="flex flex-wrap items-baseline gap-x-2 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-rose-100">
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${b.blocking ? "bg-rose-600 text-white" : "bg-amber-100 text-amber-800"}`}>{b.blocking ? "blocks apply" : "warning"}</span>
+                  <span className="font-medium text-slate-800">{b.label}</span>
+                  <span className="tabular-nums text-slate-600">{n0(b.shifts)} shifts · {n0(b.seats)} learner-shifts</span>
+                  {b.examples.length > 0 && <span className="basis-full text-[11px] text-slate-500">e.g. {b.examples.join(" · ")}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <button onClick={apply} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Apply this plan — book ${n0(plan.assignments.length)} shifts`}</button>
+          {!preview && <button onClick={doPreview} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Preview apply — ${n0(plan.assignments.length)} shifts`}</button>}
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
+          {applied?.changeSetId && <button onClick={() => undo(applied.changeSetId!)} disabled={pending} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100">Undo this apply</button>}
           <span className="text-slate-500">
-            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied: {n0(applied.sections)} shifts as {n0(applied.bookings)} asset bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} asset bookings (one per shift × asset, not learner-shifts) from an earlier applied plan are on the books — they will be replaced.` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched."}
+            {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied and recorded: {n0(applied.sections)} shifts as {n0(applied.bookings)} asset bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} asset bookings (one per shift × asset, not learner-shifts) from an earlier applied plan are on the books — they will be replaced.` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched. Preview first; the change is recorded and can be undone."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
         </div>
+        {preview && (
+          <div className="mt-3 rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">What applying would write</div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200"><div className="text-[10px] uppercase tracking-wide text-emerald-700">Created</div><ul className="mt-0.5 space-y-0.5 text-slate-700"><li>{n0(preview.bookings)} asset bookings for {n0(preview.sections)} shifts on {n0(preview.sitesUsed)} sites</li><li>{n0(preview.preceptorAssignments)} preceptor and {n0(preview.instructorAssignments)} instructor shift assignments</li><li>student placements and pinned shifts for {n0(preview.studentsPinned)} enrolled students</li></ul></div>
+              <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200"><div className="text-[10px] uppercase tracking-wide text-amber-700">Changed</div><ul className="mt-0.5 space-y-0.5 text-slate-700"><li>each clinical section&apos;s meeting pattern → its main site and lead preceptor</li><li>{n0(preview.movedShifts)} shifts moved to another day or shift block on the calendar</li></ul></div>
+              <div className="rounded-lg bg-white p-2 ring-1 ring-slate-200"><div className="text-[10px] uppercase tracking-wide text-rose-700">Removed (replaced)</div><ul className="mt-0.5 space-y-0.5 text-slate-700"><li>{n0(preview.replacing.bookings)} earlier plan bookings · {n0(preview.replacing.moves)} moves · {n0(preview.replacing.staff)} staff rows · {n0(preview.replacing.placements)} placements</li><li>hand-made rows are never removed</li></ul></div>
+            </div>
+            <div className="mt-2 text-slate-600">Ready after apply: <strong>{n0(preview.readiness.ready)}</strong> of {n0(preview.demandSeats)} learner-shifts ({pct(preview.readiness.readyShare)}).</div>
+            {preview.blockers.filter((b) => b.blocking).length > 0 && (
+              <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 p-2">
+                <div className="font-medium text-rose-800">Blocked: {preview.blockers.filter((b) => b.blocking).map((b) => `${b.label} (${n0(b.shifts)} shifts)`).join("; ")}.</div>
+                <label className="mt-1 flex items-start gap-2 text-slate-700"><input type="checkbox" checked={override} onChange={(e) => setOverride(e.target.checked)} className="mt-0.5" /><span>I understand — apply anyway. The override and the blockers it waved through are recorded on the change.</span></label>
+              </div>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button onClick={confirmApply} disabled={pending || (preview.blockers.some((b) => b.blocking) && !override)} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : "Confirm and apply"}</button>
+              <button onClick={() => { setPreview(null); setOverride(false); }} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-white">Cancel</button>
+            </div>
+          </div>
+        )}
+        <ChangeHistory changes={changes} onUndo={undo} pending={pending} />
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
@@ -288,6 +379,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
                 <div className="text-xs tabular-nums text-rose-700"><strong>{n0(b.seats)} learner-shifts</strong> in {n0(b.shifts)} shift{b.shifts === 1 ? "" : "s"} unplaced · {b.cohorts.join(", ")}</div>
               </div>
               <div className="mt-1 text-xs text-slate-700">Why: <strong>{REASON_LABEL[b.reason]}</strong></div>
+              {(() => { const ex = plan.unmet.find((u) => u.reason === b.reason && u.unit.settingCode === b.settingCode && u.unit.weekMonday === b.weekMonday); return ex ? <div className="mt-1 text-xs text-slate-600">For example: {ex.detail}</div> : null; })()}
               <div className="mt-1.5 text-xs text-slate-700">What would fix it:</div>
               <ul className="mt-0.5 list-disc space-y-0.5 pl-5 text-xs text-slate-600">{b.fixes.map((f) => <li key={f}>{f}</li>)}</ul>
             </div>
@@ -295,8 +387,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           {plan.unmet.length > 0 && (
             <details className="rounded-xl border border-slate-200 bg-white p-4 text-xs">
               <summary className="cursor-pointer font-medium text-slate-700">Every unplaced shift ({plan.unmet.length})</summary>
-              <div className="mt-2 overflow-x-auto"><table className="min-w-full"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-2 py-1">Date</th><th className="px-2 py-1">Shift</th><th className="px-2 py-1">Offering</th><th className="px-2 py-1">Course</th><th className="px-2 py-1">Section</th><th className="px-2 py-1">Setting</th><th className="px-2 py-1 text-right">Seats</th><th className="px-2 py-1">Reason</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">{plan.unmet.map((x) => <tr key={x.unit.id}><td className="whitespace-nowrap px-2 py-1">{fmtD(x.unit.date)}{x.unit.holiday ? <span className="ml-1 text-amber-700">({x.unit.holiday})</span> : null}</td><td className="px-2 py-1">{x.unit.block}</td><td className="px-2 py-1">{x.unit.cohort}</td><td className="px-2 py-1">{x.unit.courseCode}</td><td className="px-2 py-1">{x.unit.sectionIndex}/{x.unit.sectionCount}</td><td className="px-2 py-1">{x.unit.settingCode ?? <span className="text-amber-700">{x.unit.rotationType} (unmapped)</span>}</td><td className="px-2 py-1 text-right">{x.unit.seats}</td><td className="px-2 py-1 text-slate-500">{REASON_LABEL[x.reason].split(" — ")[0]}</td></tr>)}</tbody></table></div>
+              <div className="mt-2 overflow-x-auto"><table className="min-w-full"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-2 py-1">Date</th><th className="px-2 py-1">Shift</th><th className="px-2 py-1">Offering</th><th className="px-2 py-1">Course</th><th className="px-2 py-1">Section</th><th className="px-2 py-1">Setting</th><th className="px-2 py-1 text-right">Seats</th><th className="px-2 py-1">Why, specifically</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">{plan.unmet.map((x) => <tr key={x.unit.id}><td className="whitespace-nowrap px-2 py-1">{fmtD(x.unit.date)}{x.unit.holiday ? <span className="ml-1 text-amber-700">({x.unit.holiday})</span> : null}</td><td className="px-2 py-1">{x.unit.block}</td><td className="px-2 py-1">{x.unit.cohort}</td><td className="px-2 py-1">{x.unit.courseCode}</td><td className="px-2 py-1">{x.unit.sectionIndex}/{x.unit.sectionCount}</td><td className="px-2 py-1">{x.unit.settingCode ?? <span className="text-amber-700">{x.unit.rotationType} (unmapped)</span>}</td><td className="px-2 py-1 text-right">{x.unit.seats}</td><td className="px-2 py-1 text-slate-600">{x.detail}</td></tr>)}</tbody></table></div>
             </details>
           )}
         </div>
@@ -339,7 +431,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-xs">
-              <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-2 font-semibold">Date</th><th className="px-2 py-2 font-semibold">Shift</th><th className="px-2 py-2 font-semibold">Offering</th><th className="px-2 py-2 font-semibold">Course · section</th><th className="px-2 py-2 font-semibold">Setting</th><th className="px-2 py-2 text-right font-semibold">Seats</th><th className="px-2 py-2 font-semibold">Site · asset</th><th className="px-2 py-2 font-semibold">Preceptor(s)</th><th className="px-2 py-2 font-semibold">Instructor</th><th className="px-2 py-2 text-right font-semibold">Hours</th><th className="px-2 py-2 font-semibold">Why here</th></tr></thead>
+              <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-2 font-semibold">Date</th><th className="px-2 py-2 font-semibold">Shift</th><th className="px-2 py-2 font-semibold">Offering</th><th className="px-2 py-2 font-semibold">Course · section</th><th className="px-2 py-2 font-semibold">Setting</th><th className="px-2 py-2 text-right font-semibold">Seats</th><th className="px-2 py-2 font-semibold">Site · asset</th><th className="px-2 py-2 font-semibold">Preceptor(s)</th><th className="px-2 py-2 font-semibold">Instructor</th><th className="px-2 py-2 text-right font-semibold">Hours</th><th className="px-2 py-2 font-semibold">Ready?</th><th className="px-2 py-2 font-semibold">Why here</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredPlan.slice(0, 600).map((x) => <PlanRow key={`${x.unit.id}|${x.employerId}|${x.seatOffset}`} x={x} />)}
               </tbody>
@@ -426,6 +518,7 @@ function PlanRow({ x }: { x: Assignment }) {
       <td className="px-2 py-1">{x.preceptorNames.length ? x.preceptorNames.join(", ") : x.unit.preceptorsNeeded > 0 ? <span className="text-amber-700">none free</span> : <span className="text-slate-300">—</span>}</td>
       <td className="px-2 py-1">{x.instructorName ?? (x.unit.facultyNeeded >= 1 ? <span className="text-amber-700">none free</span> : <span className="text-slate-300" title={`${x.unit.facultyNeeded} FTE oversight, not a whole person`}>oversight</span>)}</td>
       <td className="px-2 py-1 text-right tabular-nums">{n0(x.hours)}</td>
+      <td className="px-2 py-1">{x.readiness?.ready ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">ready</span> : <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800" title={x.readiness?.issues.join("; ")}>{x.readiness?.issues[0] ?? "not ready"}</span>}</td>
       <td className="px-2 py-1 text-[10px] text-slate-500">{x.reason}</td>
     </tr>
   );

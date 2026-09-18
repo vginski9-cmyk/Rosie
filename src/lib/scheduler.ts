@@ -19,7 +19,7 @@
 
 import type { DatedInstance } from "./capacitymodel";
 import { clinicalDemandRows } from "./clinicaldemand";
-import { blocksOn, overrideIndex, overrideKey, shiftHours, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
+import { blocksOn, overrideIndex, overrideKey, shiftHours, shiftSpan, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
 import { dec } from "./format";
 
@@ -103,11 +103,21 @@ export interface StudentLite {
   /** Estimated drive minutes from the student's home to each site (employerId → minutes); absent when the home is unknown. */
   driveTo?: Record<string, number>;
 }
-export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string }
+export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string; /** ISO date the agreement ends; a placement after it is not agreement-eligible (Phase 5). */ agreementEnds?: string | null }
+/** What a site may hold at once for a family (null = unknown, never unlimited) and which settings it has CONFIRMED it provides (Phase 5). */
+export interface SiteCapacityLite { employerId: string; familyId: string | null; studentsAtOnce: number | null; approvedCapacity: number | null }
+export interface ConfirmedSetting { employerId: string; settingCode: string }
+/** The readiness funnel (Phase 5): every rung must hold for a placed shift to be ready. */
+export interface Readiness { locationAssigned: boolean; agreementEligible: boolean; staffedByName: boolean; experienceSupported: boolean; conflictFree: boolean; ready: boolean; issues: string[] }
+export type BlockerKind = "unsecured-site" | "holiday" | "over-capacity" | "unprecepted" | "student-overlap" | "experience-unconfirmed";
+export interface Blocker { kind: BlockerKind; label: string; shifts: number; seats: number; blocking: boolean; examples: string[] }
 /** One campus class or lab occurrence: the cohort's students are on campus then, so no clinical can land on them. */
 export interface CampusBlock { cohortId: string; date: string; startMin: number; endMin: number; label: string }
 
 export interface SchedulerInput {
+  /** Site caps and confirmed settings (Phase 5); optional so exploratory runs and tests can omit them. */
+  siteCaps?: SiteCapacityLite[];
+  confirmedSettings?: ConfirmedSetting[];
   demand: DemandUnit[];
   /** Campus classes and labs, dated — a clinical never moves onto a day the cohort is in class, and never overlaps one on its own day. */
   campus?: CampusBlock[];
@@ -149,8 +159,10 @@ export interface Assignment {
   movedDays: number; changedBlock: boolean;
   preceptorIds: string[]; preceptorNames: string[]; instructorId: string | null; instructorName: string | null;
   score: number; reason: string;
+  /** Filled by analyze(): the readiness funnel for this placed shift. */
+  readiness?: Readiness;
 }
-export interface Unmet { unit: DemandUnit; reason: UnmetReason; fixes: string[] }
+export interface Unmet { unit: DemandUnit; reason: UnmetReason; fixes: string[]; /** The specific sentence (Phase 5): "6 students unplaced Tue Aug 18 Day: remaining eligible sites (A, B) have no free preceptor 07:00–15:00". */ detail: string }
 
 export interface SettingBalance {
   settingCode: string; setting: string; rotationTypes: string[];
@@ -186,7 +198,11 @@ export interface Plan {
   rosters: StudentRoster[];
   studentStats: StudentStat[];
   preceptorStats: PreceptorStat[];
-  summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string };
+  summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string;
+    /** The readiness funnel in learner-shifts (Phase 5): location assigned → agreement eligible → staffed by name → experience supported → conflict-free → ready. The headline is `ready`. */
+    readiness: { locationAssigned: number; agreementEligible: number; staffedByName: number; experienceSupported: number; conflictFree: number; ready: number; readyShare: number } };
+  /** What would block applying this plan (Phase 5): placements at unsecured sites, on holidays, over a site's cap, unprecepted. */
+  blockers: Blocker[];
 }
 
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
@@ -247,7 +263,14 @@ export function recommendPlan(input: SchedulerInput): Plan {
   const ov = overrideIndex(overrides);
   const live = assets.filter((a) => a.status !== "archived" && a.facilityStatus !== "archived");
   const famAgreement = new Map(input.familyAgreements.map((f) => [`${f.familyId}|${f.employerId}`, f.agreementStatus]));
-  const agreementFor = (a: AssetLite, familyId: string | null) => (familyId && famAgreement.get(`${familyId}|${a.employerId}`)) || a.agreementStatus || "none";
+  const famEnds = new Map(input.familyAgreements.filter((f) => f.agreementEnds).map((f) => [`${f.familyId}|${f.employerId}`, f.agreementEnds as string]));
+  /** The agreement that governs a site for a family on a date: the family's own wins over the institution's; one that has ended counts as none (Phase 5). */
+  const agreementFor = (a: AssetLite, familyId: string | null, date?: string) => {
+    const k = familyId ? `${familyId}|${a.employerId}` : null;
+    const ends = k ? famEnds.get(k) : undefined;
+    if (date && ends && date > ends) return "none";
+    return (k && famAgreement.get(k)) || a.agreementStatus || "none";
+  };
 
   // Seats already taken by bookings outside this plan.
   const slots = new Map<string, Slot>();
@@ -312,27 +335,34 @@ export function recommendPlan(input: SchedulerInput): Plan {
   interface Cand { pool: Pool; movedDays: number; changedBlock: boolean; score: number; reason: string }
   /** Candidates for a unit, plus the stage at which everything was eliminated (the unmet reason).
    *  A section is placed at ONE site on ONE shift, but may spread across that site's rooms. */
-  const candidates = (u: DemandUnit, pol: Policy): { cands: Cand[]; partial: Cand[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null } => {
-    if (pol.skipHolidays && u.holiday) return { cands: [], partial: [], reason: "holiday", biggest: null };
-    if (!u.settingCode) return { cands: [], partial: [], reason: "unmapped-setting", biggest: null };
+  type CandResult = { cands: Cand[]; partial: Cand[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null; /** Sites still eligible at the stage everything was eliminated (Phase 5). */ eligible: string[] };
+  const sitesOf = (pool: AssetLite[]) => [...new Set(pool.map((a) => a.facilityName))].sort();
+  const candidates = (u: DemandUnit, pol: Policy): CandResult => {
+    const none = (reason: UnmetReason, eligible: string[] = []): CandResult => ({ cands: [], partial: [], reason, biggest: null, eligible });
+    if (pol.skipHolidays && u.holiday) return none("holiday");
+    if (!u.settingCode) return none("unmapped-setting");
     let pool = live.filter((a) => a.settingCode === u.settingCode);
-    if (!pool.length) return { cands: [], partial: [], reason: "no-asset-for-setting", biggest: null };
-    pool = pool.filter((a) => agreementOk(agreementFor(a, u.familyId), pol.agreements));
-    if (!pool.length) return { cands: [], partial: [], reason: "no-agreement", biggest: null };
+    if (!pool.length) return none("no-asset-for-setting");
+    let before = sitesOf(pool);
+    pool = pool.filter((a) => agreementOk(agreementFor(a, u.familyId, u.date), pol.agreements));
+    if (!pool.length) return none("no-agreement", before);
+    before = sitesOf(pool);
     pool = pool.filter((a) => ringOk(a.ring, pol.maxRing));
-    if (!pool.length) return { cands: [], partial: [], reason: "ring", biggest: null };
+    if (!pool.length) return none("ring", before);
     const stu = studentsOf(u);
     if (pol.maxStudentDriveMin != null && stu.length) {
       const cap = pol.maxStudentDriveMin;
+      before = sitesOf(pool);
       pool = pool.filter((a) => driveOf(stu, a.employerId).every((m) => m <= cap));
-      if (!pool.length) return { cands: [], partial: [], reason: "drive", biggest: null };
+      if (!pool.length) return none("drive", before);
     }
+    const eligibleSites = sitesOf(pool);
     const dates: { date: string; movedDays: number }[] = [{ date: u.date, movedDays: 0 }];
     for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday) dates.push({ date, movedDays: sign * d }); }
     const blocks = pol.flexibleShift ? [u.block, ...BLOCKS.filter((b) => b !== u.block)] : [u.block];
     // Every date × block the cohort is free for: never a moved date the cohort is on campus, never an overlap on its own day.
     const free = dates.flatMap((d) => blocks.filter((b) => !campusClash(u, d.date, b, d.movedDays !== 0)).map((b) => ({ ...d, block: b })));
-    if (!free.length) return { cands: [], partial: [], reason: "class-day", biggest: null };
+    if (!free.length) return none("class-day", eligibleSites);
     const pools = new Map<string, Pool>();
     for (const a of pool) for (const { date, movedDays, block: b } of free) {
       const d = { date, movedDays };
@@ -343,7 +373,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
       P.assets.push({ a, slot }); P.free += slot.free; P.used += slot.used;
       pools.set(k, P);
     }
-    if (!pools.size) return { cands: [], partial: [], reason: "closed-that-day", biggest: null };
+    if (!pools.size) return none("closed-that-day", eligibleSites);
     // Structural ceiling: the most seats any one site has of this setting on one of these shifts, ignoring what is booked.
     const biggest = [...pools.values()].map((P) => ({ site: P.siteName, seats: P.assets.reduce((n, x) => n + x.a.learnersPerShift, 0) })).sort((a, b) => b.seats - a.seats)[0] ?? null;
     const staffedOk = (P: Pool) => !(pol.requirePreceptor && u.preceptorsNeeded > 0) || freePreceptors(P.employerId, P.date, P.block).length >= Math.ceil(u.preceptorsNeeded);
@@ -353,7 +383,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
     const prevWeeks = homeWeeks.get(sectionKey(u));
     const scoreOf = (P: Pool): Cand => {
       const lead = P.assets[0].a;
-      const agreement = agreementFor(lead, u.familyId);
+      const agreement = agreementFor(lead, u.familyId, P.date);
       const why: string[] = [];
       let score = 0;
       const cont = prev?.get(P.employerId) ?? 0;
@@ -384,12 +414,12 @@ export function recommendPlan(input: SchedulerInput): Plan {
       return { pool: P, movedDays: P.movedDays, changedBlock: P.block !== u.block, score, reason: why.join(" · ") };
     };
     const partial = partialPools.map(scoreOf).sort((x, y) => y.score - x.score || x.pool.siteName.localeCompare(y.pool.siteName));
-    if (!withRoom.length) return { cands: [], partial, reason: biggest && biggest.seats < u.seats ? "too-big" : "full", biggest };
+    if (!withRoom.length) return { cands: [], partial, reason: biggest && biggest.seats < u.seats ? "too-big" : "full", biggest, eligible: [...new Set([...pools.values()].map((P) => P.siteName))].sort() };
     const staffed = withRoom.filter(staffedOk);
-    if (!staffed.length) return { cands: [], partial, reason: "no-preceptor", biggest };
+    if (!staffed.length) return { cands: [], partial, reason: "no-preceptor", biggest, eligible: [...new Set(withRoom.map((P) => P.siteName))].sort() };
     const cands: Cand[] = staffed.map(scoreOf);
     cands.sort((x, y) => y.score - x.score || x.pool.siteName.localeCompare(y.pool.siteName));
-    return { cands, partial, reason: null, biggest };
+    return { cands, partial, reason: null, biggest, eligible: [...new Set(staffed.map((P) => P.siteName))].sort() };
   };
 
   // Constrained-first: fewest candidates first, then earliest date.
@@ -462,7 +492,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
   };
 
   for (const u of order) {
-    const { cands, partial, reason } = candidates(u, policy);
+    const { cands, partial, reason, eligible } = candidates(u, policy);
     if (cands.length) { placeAt(u, cands[0], u.seats, 0, 1); continue; }
     // No single site can take the whole section — split it across sites if the policy allows.
     if ((reason === "full" || reason === "too-big") && mayEverSplit(u) && partial.length) {
@@ -470,15 +500,36 @@ export function recommendPlan(input: SchedulerInput): Plan {
       const pieces: { cand: Cand; seats: number }[] = [];
       for (const c of partial) { if (left <= 0) break; const take = Math.min(left, c.pool.free); if (take > 0) { pieces.push({ cand: c, seats: take }); left -= take; } }
       for (const pc of pieces) { placeAt(u, pc.cand, pc.seats, offset, pieces.length + (left > 0 ? 1 : 0)); offset += pc.seats; }
-      if (left > 0) unmet.push({ unit: { ...u, seats: left, id: `${u.id}|rest` }, reason: "full", fixes: fixesFor({ ...u, seats: left }, "full", candidates) });
+      if (left > 0) { const rest = { ...u, seats: left, id: `${u.id}|rest` }; unmet.push({ unit: rest, reason: "full", fixes: fixesFor(rest, "full", candidates), detail: unmetDetail(rest, "full", eligible, live) }); }
       continue;
     }
-    unmet.push({ unit: u, reason: reason ?? "full", fixes: fixesFor(u, reason ?? "full", candidates) });
+    unmet.push({ unit: u, reason: reason ?? "full", fixes: fixesFor(u, reason ?? "full", candidates), detail: unmetDetail(u, reason ?? "full", eligible, live) });
   }
   assignments.sort((a, b) => a.date.localeCompare(b.date) || BLOCKS.indexOf(a.block) - BLOCKS.indexOf(b.block) || a.unit.cohort.localeCompare(b.unit.cohort) || a.unit.sectionIndex - b.unit.sectionIndex);
   unmet.sort((a, b) => a.unit.date.localeCompare(b.unit.date) || a.unit.cohort.localeCompare(b.unit.cohort));
 
   return analyze(input, live, assignments, unmet);
+}
+
+/** The specific sentence for an unplaced shift (Phase 5): who, when, and what the remaining eligible sites lack. */
+function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], live: AssetLite[]): string {
+  const when = `${weekdayOfIso(u.date)} ${u.date}${u.block ? ` ${u.block}` : ""}`;
+  const span = (() => { const a = live.find((x) => x.settingCode === u.settingCode); return a ? shiftSpan(a, u.block) : null; })();
+  const who = `${num(u.seats)} student${u.seats === 1 ? "" : "s"} of ${u.cohort} (${u.courseCode ?? u.courseTitle} §${u.sectionIndex}) unplaced ${when}`;
+  const sites = eligible.length ? `${eligible.length === 1 ? "the remaining eligible site" : `the ${eligible.length} remaining eligible sites`} (${eligible.slice(0, 4).join(", ")}${eligible.length > 4 ? ", …" : ""})` : "no eligible site";
+  switch (reason) {
+    case "no-preceptor": return `${who}: ${sites} ${eligible.length === 1 ? "has" : "have"} no confirmed supervision free${span ? ` ${span}` : ""}.`;
+    case "full": return `${who}: ${sites} ${eligible.length === 1 ? "is" : "are"} already full that shift${span ? ` (${span})` : ""}.`;
+    case "too-big": return `${who}: ${sites} cannot seat a section of ${num(u.seats)} on one shift.`;
+    case "closed-that-day": return `${who}: ${sites} run no ${u.settingCode} asset on that shift.`;
+    case "no-agreement": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are not under an allowed agreement on that date.`;
+    case "ring": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are beyond the allowed drive ring.`;
+    case "drive": return `${who}: every allowed site is farther than the students' drive cap from home.`;
+    case "class-day": return `${who}: the cohort is in class or lab during that shift.`;
+    case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving.`;
+    case "unmapped-setting": return `${who}: rotation type "${u.rotationType}" is not mapped to an asset setting.`;
+    case "no-asset-for-setting": return `${who}: no partner reports an asset of setting ${u.settingCode}.`;
+  }
 }
 
 /** What would place this unit: try each relaxation of the policy in turn. */
@@ -518,6 +569,13 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const { policy } = input;
   const ov = overrideIndex(input.overrides);
   const famAgreement = new Map(input.familyAgreements.map((f) => [`${f.familyId}|${f.employerId}`, f.agreementStatus]));
+  const famEnds = new Map(input.familyAgreements.filter((f) => f.agreementEnds).map((f) => [`${f.familyId}|${f.employerId}`, f.agreementEnds as string]));
+  const agreementFor = (a: AssetLite, familyId: string | null, date?: string) => {
+    const k = familyId ? `${familyId}|${a.employerId}` : null;
+    const ends = k ? famEnds.get(k) : undefined;
+    if (date && ends && date > ends) return "none";
+    return (k && famAgreement.get(k)) || a.agreementStatus || "none";
+  };
   const dates = [...new Set(input.demand.map((u) => u.date))].sort();
   const from = dates[0], to = dates[dates.length - 1];
   const allowedAsset = (a: AssetLite, familyId: string | null) => agreementOk((familyId && famAgreement.get(`${familyId}|${a.employerId}`)) || a.agreementStatus || "none", policy.agreements) && ringOk(a.ring, policy.maxRing);
@@ -641,6 +699,47 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   }
   const preceptorStats: PreceptorStat[] = [...pMap.values()].map(({ weeks, studentIds, siteIds, ...s }) => ({ ...s, peakWeek: Math.max(0, ...weeks.values()), students: studentIds.size, sites: siteIds.size, overCapWeeks: policy.maxPreceptorShiftsPerWeek != null ? [...weeks.values()].filter((n) => n > policy.maxPreceptorShiftsPerWeek!).length : 0 })).sort((a, b) => b.shifts - a.shifts || a.name.localeCompare(b.name));
 
+  // ── Readiness funnel and blockers (Phase 5) — every rung must hold; the headline is "ready", not "placed". ──
+  const capOf = new Map((input.siteCaps ?? []).map((c) => [`${c.familyId ?? ""}|${c.employerId}`, c]));
+  const siteCapFor = (employerId: string, familyId: string | null) => capOf.get(`${familyId ?? ""}|${employerId}`) ?? capOf.get(`|${employerId}`) ?? null;
+  const confirmed = new Set((input.confirmedSettings ?? []).map((c) => `${c.employerId}|${c.settingCode}`));
+  const confirmedKnown = input.confirmedSettings != null;
+  const atOnce = new Map<string, number>(); // employerId|date|block → seats placed
+  for (const x of assignments) { const k = `${x.employerId}|${x.date}|${x.block}`; atOnce.set(k, (atOnce.get(k) ?? 0) + x.seats); }
+  const sectionAt = new Map<string, number>(); // cohort|section|date|block → placements (a section in two places at once is a student overlap)
+  for (const x of assignments) { const k = `${x.unit.cohortId}|${x.unit.sectionIndex}|${x.date}|${x.block}`; sectionAt.set(k, (sectionAt.get(k) ?? 0) + 1); }
+  const blk = new Map<BlockerKind, Blocker>();
+  const addBlocker = (kind: BlockerKind, label: string, blocking: boolean, x: Assignment, example: string) => { const b = blk.get(kind) ?? { kind, label, shifts: 0, seats: 0, blocking, examples: [] }; b.shifts++; b.seats += x.seats; if (b.examples.length < 3 && !b.examples.includes(example)) b.examples.push(example); blk.set(kind, b); };
+  for (const x of assignments) {
+    const issues: string[] = [];
+    const agreement = agreementFor(x.asset, x.unit.familyId, x.date);
+    const agreementEligible = agreement === "secured";
+    if (!agreementEligible) { issues.push(`site agreement is ${agreement}`); addBlocker("unsecured-site", "placed at a site without a secured agreement", true, x, `${x.siteName} (${agreement}) on ${x.date}`); }
+    const needP = Math.ceil(x.unit.preceptorsNeeded), needI = x.unit.facultyNeeded >= 1 ? 1 : 0;
+    const staffedByName = x.preceptorIds.length >= needP && (needI === 0 || !!x.instructorId);
+    if (!staffedByName) { issues.push(needP > x.preceptorIds.length ? "no preceptor by name" : "no instructor by name"); addBlocker("unprecepted", "placed with nobody named to precept or instruct", true, x, `${x.unit.cohort} ${x.unit.courseCode ?? ""} §${x.unit.sectionIndex} at ${x.siteName} on ${x.date}`); }
+    const experienceSupported = confirmedKnown && !!x.unit.settingCode && confirmed.has(`${x.employerId}|${x.unit.settingCode}`);
+    if (!experienceSupported) { issues.push(confirmedKnown ? `${x.siteName} has not confirmed it provides ${x.unit.settingCode ?? "this"} experiences` : "experience support unknown"); addBlocker("experience-unconfirmed", "the site has not confirmed the experience (inferred only)", false, x, `${x.siteName} · ${x.unit.settingCode ?? "?"}`); }
+    const cap = siteCapFor(x.employerId, x.unit.familyId);
+    const capN = cap ? (cap.studentsAtOnce ?? cap.approvedCapacity) : null;
+    const here = atOnce.get(`${x.employerId}|${x.date}|${x.block}`) ?? 0;
+    let conflictFree = true;
+    if (capN != null && here > capN) { conflictFree = false; issues.push(`${num(here)} students at ${x.siteName} at once vs ${num(capN)} approved`); addBlocker("over-capacity", "a site over its approved students-at-once", true, x, `${x.siteName}: ${num(here)} vs ${num(capN)} approved on ${x.date} ${x.block}`); }
+    if (x.unit.holiday && !x.movedDays) { conflictFree = false; issues.push(`on ${x.unit.holiday}`); addBlocker("holiday", "a shift placed on an observed holiday", true, x, `${x.unit.holiday} ${x.date}`); }
+    if ((sectionAt.get(`${x.unit.cohortId}|${x.unit.sectionIndex}|${x.date}|${x.block}`) ?? 0) > 1 && x.splitOf <= 1) { conflictFree = false; issues.push("the same students are placed in two places at once"); addBlocker("student-overlap", "students placed in two places at once", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.date} ${x.block}`); }
+    x.readiness = { locationAssigned: true, agreementEligible, staffedByName, experienceSupported, conflictFree, ready: agreementEligible && staffedByName && experienceSupported && conflictFree, issues };
+  }
+  const seatsWhere = (f: (r: Readiness) => boolean) => assignments.reduce((n, x) => n + (x.readiness && f(x.readiness) ? x.seats : 0), 0);
+  const readiness = {
+    locationAssigned: assignments.reduce((n, x) => n + x.seats, 0),
+    agreementEligible: seatsWhere((r) => r.agreementEligible),
+    staffedByName: seatsWhere((r) => r.agreementEligible && r.staffedByName),
+    experienceSupported: seatsWhere((r) => r.agreementEligible && r.staffedByName && r.experienceSupported),
+    conflictFree: seatsWhere((r) => r.agreementEligible && r.staffedByName && r.experienceSupported && r.conflictFree),
+    ready: seatsWhere((r) => r.ready), readyShare: 0,
+  };
+  const blockers = [...blk.values()].sort((a, b) => Number(b.blocking) - Number(a.blocking) || b.seats - a.seats);
+
   const demandShifts = input.demand.length, demandSeats = input.demand.reduce((n, u) => n + u.seats, 0), demandHours = input.demand.reduce((n, u) => n + u.hours * u.seats, 0);
   const placedShifts = new Set(assignments.map((x) => x.unit.id)).size, placedSeats = assignments.reduce((n, x) => n + x.seats, 0), placedHours = assignments.reduce((n, x) => n + x.hours * x.seats, 0);
   const preceptorShifts = assignments.reduce((n, x) => n + Math.ceil(x.unit.preceptorsNeeded), 0);
@@ -658,7 +757,9 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     : `${from === to ? `On ${from}` : `From ${from} to ${to}`}, ${num(demandShifts)} clinical shifts — a section on a date — (${num(demandSeats)} learner-shifts, ${num(demandHours)} learner-hours) need a home in ${balance.filter((b) => b.demandShifts > 0).length} settings. ` +
       `Under the current levers the plan places ${pct(placedShare)} of them — ${num(placedSeats)} learner-shifts across ${sitesUsed} site${sitesUsed === 1 ? "" : "s"}, ${num(preceptorsAssigned)} of ${num(preceptorShifts)} preceptor-shifts staffed by name` +
       (unmet.length ? `, and ${num(unmet.length)} shifts (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} because ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
-      (shortSettings.length ? ` Short settings: ${shortSettings.join(", ")}.` : "");
+      (shortSettings.length ? ` Short settings: ${shortSettings.join(", ")}.` : "") +
+      (placedSeats > 0 ? ` Ready to run: ${pct(demandSeats > 0 ? readiness.ready / demandSeats : 0)} — ${num(readiness.ready)} learner-shifts pass every check (secured agreement, named staff, confirmed experience, no conflicts).` : "");
 
-  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement } };
+  readiness.readyShare = demandSeats > 0 ? readiness.ready / demandSeats : 0;
+  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
 }

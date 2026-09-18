@@ -2411,9 +2411,23 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     getAssetMap(institutionId, from, to),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
     prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
-    prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true } }),
+    prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true, agreementEnds: true, studentsAtOnce: true, approvedCapacity: true } }),
     prisma.employer.findMany({ where: { institutionId, lat: { not: null }, lng: { not: null } }, select: { id: true, lat: true, lng: true } }),
   ]);
+  // Settings each site has CONFIRMED it provides (Phase 5): a VERIFIED provision of a requirement item
+  // that names asset settings. Estimated or inferred provisions do not count — those placements read "unverified".
+  const provisions = await prisma.siteRequirementProvision.findMany({
+    where: { employer: { institutionId }, source: "VERIFIED", status: { in: ["provides", "limited"] } },
+    select: { employerId: true, item: { select: { settingCodes: true } } },
+  });
+  const confirmedSettings: { employerId: string; settingCode: string }[] = [];
+  const seenSetting = new Set<string>();
+  for (const p of provisions) for (const code of p.item.settingCodes.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const k = `${p.employerId}|${code}`;
+    if (seenSetting.has(k)) continue;
+    seenSetting.add(k);
+    confirmedSettings.push({ employerId: p.employerId, settingCode: code });
+  }
   // Each student's drive to each site, from the town they live in (the built-in gazetteer — no network needed).
   const driveFrom = (city: string | null, state: string | null) => {
     const home = city ? geocodeOffline({ city, state: state ?? "NC" }) : null;
@@ -2425,7 +2439,9 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     preceptors: people.filter((p) => p.role === "preceptor").map((p) => ({ id: p.id, name: p.name, employerId: p.employerId, role: p.role })),
     instructors: people.filter((p) => p.role === "instructor").map((p) => ({ id: p.id, name: p.name, role: p.role })),
     students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex, homeLabel: s.city, driveTo: driveFrom(s.city, s.state) })),
-    familyAgreements: familySites,
+    familyAgreements: familySites.map((f) => ({ familyId: f.familyId, employerId: f.employerId, agreementStatus: f.agreementStatus, agreementEnds: f.agreementEnds ? f.agreementEnds.toISOString().slice(0, 10) : null })),
+    siteCaps: familySites.map((f) => ({ employerId: f.employerId, familyId: f.familyId, studentsAtOnce: f.studentsAtOnce, approvedCapacity: f.approvedCapacity })),
+    confirmedSettings,
   };
 }
 

@@ -966,6 +966,8 @@ model FamilySite {
   employerId      String
   employer        Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
   agreementStatus String  @default("none") // none | prospect | asked | secured | declined
+  /// Phase 5: when the affiliation agreement ends — placements after this date are not agreement-eligible.
+  agreementEnds   DateTime?
   contactName     String?
   contactEmail    String?
   notes           String?
@@ -1923,4 +1925,24 @@ model SiteRequirementProvision {
 
   @@unique([employerId, itemId])
   @@index([itemId])
+}
+
+/// A bulk change written by one action (an applied scheduler plan, an auto-assign, a re-align), with what it
+/// created, changed and removed, and enough to undo it (Phase 5). Undo restores the snapshot; a change that was
+/// undone keeps its record with `undoneAt`.
+model ChangeSet {
+  id            String   @id @default(cuid())
+  kind          String   // scheduler-apply | auto-assign | realign
+  label         String
+  institutionId String?
+  cohortIds     String   @default("[]") // JSON string[]
+  /// JSON counts: { created: {...}, changed: {...}, removed: {...}, conflictsAdded, conflictsResolved, blockers }
+  summary       String   @default("{}")
+  /// JSON snapshot the undo handler needs (ids created, prior rows for restore).
+  undo          String   @default("{}")
+  overridden    String?  // the blockers the user overrode to apply, if any (JSON)
+  createdAt     DateTime @default(now())
+  undoneAt      DateTime?
+
+  @@index([institutionId, createdAt])
 }

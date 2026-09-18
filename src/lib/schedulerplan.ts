@@ -5,7 +5,7 @@
 // the levers, never the thousands of placed sections themselves.
 
 import { buildInstances, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
-import { demandUnits, recommendPlan, AUTO_PLAN_NOTE, type Policy, type Plan, type DemandUnit, type CampusBlock, type Assignment, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement } from "./scheduler";
+import { demandUnits, recommendPlan, AUTO_PLAN_NOTE, type Policy, type Plan, type DemandUnit, type CampusBlock, type Assignment, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type SiteCapacityLite, type ConfirmedSetting } from "./scheduler";
 import { shiftStart, type AssetLite, type AssetDayOverride, type AssetBookingLite } from "./assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
@@ -14,6 +14,8 @@ import type { PlanAssignmentInput } from "./actions";
 export interface SchedulerSupply {
   assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[];
+  /** Phase 5: what each site may hold at once and which settings it has confirmed — the readiness funnel's inputs. */
+  siteCaps?: SiteCapacityLite[]; confirmedSettings?: ConfirmedSetting[];
 }
 
 /** What the board sends to be applied: the levers, the date window and which offerings — a few hundred bytes. */
@@ -61,7 +63,7 @@ export function filterDemand(demand: DemandUnit[], levers: Pick<SchedulerLevers,
 /** The recommended plan for this demand against this supply under these levers. Hand-made bookings take seats; an earlier applied plan does not (it is about to be replaced). */
 export function planFor(demand: DemandUnit[], supply: SchedulerSupply, policy: Policy, campus: CampusBlock[] = []): Plan {
   const manualBookings = supply.bookings.filter((b) => b.note !== AUTO_PLAN_NOTE);
-  return recommendPlan({ demand, campus, assets: supply.assets, overrides: supply.overrides, existingBookings: manualBookings, preceptors: supply.preceptors, instructors: supply.instructors, students: supply.students, familyAgreements: supply.familyAgreements, policy });
+  return recommendPlan({ demand, campus, assets: supply.assets, overrides: supply.overrides, existingBookings: manualBookings, preceptors: supply.preceptors, instructors: supply.instructors, students: supply.students, familyAgreements: supply.familyAgreements, siteCaps: supply.siteCaps, confirmedSettings: supply.confirmedSettings, policy });
 }
 
 /** The whole path in one call, for the server: offerings + supply + levers → the plan. */

@@ -192,7 +192,7 @@ export interface AlignSummary { offerings: number; termsMoved: number; courseWin
 /** Put ONE offering's term dates (start and end) and course windows on the
  *  institution's coded academic calendar from its chosen first day. Terms typed
  *  by hand stay put unless `resetManual`; course windows typed by hand stay put. */
-export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean } = {}): Promise<AlignReport | null> {
+export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignReport | null> {
   const { alignOffering, endYearOf } = await import("./termalign");
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
@@ -222,6 +222,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     const cur = cohort.cohortTerms.find((ct) => ct.termId === t.termId);
     const fromStart = isoOf(cur?.startDate), fromEnd = isoOf(cur?.endDate);
     if (fromStart !== t.startIso || fromEnd !== t.endIso) changed.push({ term: t.name, fromStart, toStart: t.startIso, fromEnd, toEnd: t.endIso, startSource: t.startSource, endSource: t.endSource });
+    if (opts.dryRun) continue;
     await prisma.cohortTerm.upsert({
       where: { cohortId_termId: { cohortId, termId: t.termId } },
       update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] },
@@ -229,11 +230,12 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     });
   }
   // Course windows: rewrite the auto ones, leave typed ones alone.
-  await prisma.cohortCourseDates.deleteMany({ where: { cohortId, auto: true, courseId: { notIn: a.courses.map((c) => c.courseId) } } });
+  if (!opts.dryRun) await prisma.cohortCourseDates.deleteMany({ where: { cohortId, auto: true, courseId: { notIn: a.courses.map((c) => c.courseId) } } });
   let courseWindows = 0;
   for (const c of a.courses) {
     const cur = cohort.courseDates.find((cd) => cd.courseId === c.courseId);
     if (cur && !cur.auto) continue;
+    if (opts.dryRun) { courseWindows++; continue; }
     await prisma.cohortCourseDates.upsert({
       where: { cohortId_courseId: { cohortId, courseId: c.courseId } },
       update: { startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true },
@@ -243,7 +245,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   }
   // The offering's own first day follows term 1 when it snapped onto the coded semester start.
   const first = a.terms[0];
-  if (first?.movedFrom) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
+  if (first?.movedFrom && !opts.dryRun) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
   // "Class of YYYY" tracks the year the last term actually ends.
   let renamed: string | null = null;
   const endYear = endYearOf(a.terms);
@@ -252,9 +254,10 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     let newName = `Class of ${endYear}${m[2]}`;
     const others = cohort.program.cohorts.filter((c) => c.id !== cohortId);
     if (others.some((c) => c.name === newName)) { let n = 2; while (others.some((c) => c.name === `Class of ${endYear} (${n})`)) n++; newName = `Class of ${endYear} (${n})`; }
-    await prisma.cohort.update({ where: { id: cohortId }, data: { name: newName } });
+    if (!opts.dryRun) await prisma.cohort.update({ where: { id: cohortId }, data: { name: newName } });
     renamed = newName;
   }
+  if (opts.dryRun) return { cohortId, name: cohort.name, program: cohort.program.name, changed, terms: a.terms.length, courseWindows, warnings: a.warnings, renamed };
   revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}`);
   revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}/design`);
   revalidatePath(`/programs/${cohort.program.id}`);
@@ -265,11 +268,35 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
 
 /** Re-align EVERY planned / active offering at an institution (after a calendar
  *  import, a pattern change, or on demand). */
-export async function alignInstitutionOfferings(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary> {
+export async function alignInstitutionOfferings(institutionId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignSummary> {
   const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true }, orderBy: { startDate: "asc" } });
   const reports: AlignReport[] = [];
   for (const c of cohorts) { const r = await alignOfferingToCalendar(c.id, opts); if (r) reports.push(r); }
   return { offerings: reports.length, termsMoved: reports.reduce((n, r) => n + r.changed.length, 0), courseWindows: reports.reduce((n, r) => n + r.courseWindows, 0), reports };
+}
+
+/** What a re-align would change, without changing it (Phase 5). */
+export async function previewRealign(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary> {
+  return alignInstitutionOfferings(institutionId, { ...opts, dryRun: true });
+}
+
+/** Re-align on purpose: snapshot every offering's dates first, align, record the change (undoable). */
+export async function confirmRealign(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary & { changeSetId: string | null }> {
+  const { snapshotRealign, recordChange } = await import("./changesets");
+  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true } });
+  const before = await snapshotRealign(cohorts.map((c) => c.id));
+  const res = await alignInstitutionOfferings(institutionId, opts);
+  const moved = res.reports.filter((r) => r.changed.length || r.renamed);
+  const changeSetId = await recordChange({
+    kind: "realign", label: `Re-aligned ${res.offerings} offerings to the calendar${opts.resetManual ? " (typed dates reset)" : ""}`, institutionId, cohortIds: cohorts.map((c) => c.id),
+    summary: {
+      created: {}, changed: { "term dates moved": res.termsMoved, "course windows rewritten": res.courseWindows, "offerings renamed": res.reports.filter((r) => r.renamed).length, "offerings touched": moved.length }, removed: {},
+      notes: res.reports.flatMap((r) => r.warnings.map((w) => `${r.name}: ${w}`)).slice(0, 20),
+    },
+    undo: before,
+  });
+  revalidatePath("/", "layout");
+  return { ...res, changeSetId };
 }
 
 /** Persist the family's North-Star goal plan (a JSON blob from the goal planner). */
@@ -2271,28 +2298,111 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
  *  same offerings and supply the board loaded, by the same pure steps, so it
  *  matches what was on screen — and a 5,000-section plan never has to travel
  *  as a request body (Next.js caps server-action bodies at 1 MB). */
-export async function applySchedulerLevers(institutionId: string, levers: import("./schedulerplan").SchedulerLevers): Promise<AppliedPlan & { sections: number }> {
+export async function applySchedulerLevers(institutionId: string, levers: import("./schedulerplan").SchedulerLevers, opts: { override?: import("./scheduler").BlockerKind[] } = {}): Promise<AppliedPlan & { sections: number; changeSetId: string | null }> {
   const { getCapacityModel, getSchedulerData } = await import("./queries");
   const { buildSchedulerPlan, planInputs, schedulerWindow } = await import("./schedulerplan");
+  const { snapshotPlan, recordChange } = await import("./changesets");
   const data = await getCapacityModel({ institutionId });
-  if (!data) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0, sections: 0 };
+  if (!data) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0, sections: 0, changeSetId: null };
   const base = schedulerWindow(data.cohorts);
   const supply = await getSchedulerData(data.institution.id, base.from, base.to);
   const plan = buildSchedulerPlan(data.cohorts, supply, levers);
+  // Blocking blockers stop the apply unless each kind was overridden on purpose (the override is recorded).
+  const override = new Set(opts.override ?? []);
+  const blocking = plan.blockers.filter((b) => b.blocking && !override.has(b.kind));
+  if (blocking.length) throw new Error(`Blocked: ${blocking.map((b) => `${b.label} (${b.shifts} shifts)`).join("; ")}. Fix these or tick the override to apply anyway.`);
+  const cohortIds = [...new Set(plan.assignments.map((x) => x.unit.cohortId))];
+  const before = await snapshotPlan(cohortIds);
   const r = await applySchedulerPlan(data.institution.id, planInputs(plan.assignments));
-  return { ...r, sections: plan.assignments.length };
+  const changeSetId = cohortIds.length ? await recordChange({
+    kind: "scheduler-apply", label: `Scheduler plan applied — ${plan.assignments.length} shifts on ${plan.summary.sitesUsed} sites`, institutionId: data.institution.id, cohortIds,
+    summary: {
+      created: { "asset bookings": r.bookings, "student placements": r.placements, "staff shift assignments": r.staffed, "student shifts pinned": r.shifts },
+      changed: { "section meeting patterns": r.meetings, "shifts moved on the calendar": r.moves },
+      removed: { "earlier plan bookings replaced": before.bookings.length, "earlier plan moves replaced": before.moves.length, "off-site preceptor assignments": r.offSite },
+      blockers: plan.blockers.map(({ kind, label, shifts, seats, blocking }) => ({ kind, label, shifts, seats, blocking })),
+      notes: [`${plan.summary.readiness.ready} of ${plan.summary.demandSeats} learner-shifts ready to run at apply time`],
+    },
+    undo: before, overridden: [...override].filter((k) => plan.blockers.some((b) => b.kind === k && b.blocking)),
+  }) : null;
+  return { ...r, sections: plan.assignments.length, changeSetId };
+}
+
+/** What applying the plan under these levers would write, before it is written (Phase 5). */
+export interface SchedulerPreview {
+  sections: number; bookings: number; sitesUsed: number; movedShifts: number; preceptorAssignments: number; instructorAssignments: number; studentsPinned: number;
+  replacing: { bookings: number; placements: number; moves: number; staff: number };
+  blockers: import("./scheduler").Blocker[];
+  readiness: import("./scheduler").Plan["summary"]["readiness"]; demandSeats: number;
+}
+export async function previewSchedulerApply(institutionId: string, levers: import("./schedulerplan").SchedulerLevers): Promise<SchedulerPreview | null> {
+  const { getCapacityModel, getSchedulerData } = await import("./queries");
+  const { buildSchedulerPlan, schedulerWindow } = await import("./schedulerplan");
+  const data = await getCapacityModel({ institutionId });
+  if (!data) return null;
+  const base = schedulerWindow(data.cohorts);
+  const supply = await getSchedulerData(data.institution.id, base.from, base.to);
+  const plan = buildSchedulerPlan(data.cohorts, supply, levers);
+  const cohortIds = [...new Set(plan.assignments.map((x) => x.unit.cohortId))];
+  const [bookings, placements, moves, staff, students] = cohortIds.length ? await Promise.all([
+    prisma.assetBooking.count({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } }),
+    prisma.wblPlacement.count({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } }),
+    prisma.shiftMove.count({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } }),
+    prisma.sessionInstructor.count({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } }),
+    prisma.student.count({ where: { cohortId: { in: cohortIds }, status: { in: ["enrolled", "admitted"] } } }),
+  ]) : [0, 0, 0, 0, 0];
+  return {
+    sections: plan.assignments.length, bookings: plan.assignments.reduce((n, x) => n + Math.max(1, x.parts.length), 0), sitesUsed: plan.summary.sitesUsed,
+    movedShifts: plan.assignments.filter((x) => x.movedDays || x.changedBlock).length,
+    preceptorAssignments: plan.summary.preceptorsAssigned, instructorAssignments: plan.summary.instructorsAssigned, studentsPinned: students,
+    replacing: { bookings, placements, moves, staff }, blockers: plan.blockers, readiness: plan.summary.readiness, demandSeats: plan.summary.demandSeats,
+  };
+}
+
+/** Undo one recorded change (Phase 5): restores its snapshot and marks the record undone. */
+export async function undoChangeSet(id: string): Promise<import("./changesets").ChangeSetRow | null> {
+  const { undoChange } = await import("./changesets");
+  const r = await undoChange(id);
+  revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/students"); revalidatePath("/people");
+  revalidatePath("/insights/clinical-sites"); revalidatePath("/insights/coverage"); revalidatePath("/insights/site-load"); revalidatePath("/insights/staffing-need");
+  revalidatePath("/", "layout");
+  return r;
 }
 
 /** AUTO-ASSIGN one offering end to end: calendarize, place every clinical
  *  section on partner assets, staff every shift under workload policies, and
  *  put every learner in sections and on their clinical shifts. Fills gaps only. */
-export async function autoAssignOffering(cohortId: string, programId: string): Promise<import("./autoassign").AutoAssignSummary | null> {
+export async function autoAssignOffering(cohortId: string, programId: string): Promise<(import("./autoassign").AutoAssignSummary & { changeSetId: string | null }) | null> {
   const { autoAssignOffering: run } = await import("./autoassign");
-  const summary = await run(cohortId);
+  const { snapshotAutoAssign, diffAutoAssign, recordChange } = await import("./changesets");
+  const head = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { name: true, program: { select: { institutionId: true } } } });
+  const before = await snapshotAutoAssign(cohortId);
+  const result = await run(cohortId);
+  if (!result) return null;
+  const after = await diffAutoAssign(before);
+  const c = after.created!;
+  const changeSetId = await recordChange({
+    kind: "auto-assign", label: `Auto-assigned ${head?.name ?? "offering"}`, institutionId: head?.program.institutionId ?? null, cohortIds: [cohortId],
+    summary: {
+      created: { "weekly bookings": c.meetings.length, "staff shift assignments": c.staff.length, "student section seats": c.sections.length, "student clinical shifts": c.shifts.length, "asset bookings": result.plan?.bookings ?? 0 },
+      changed: { "student shifts pinned to an asset": result.learners.shiftsOnAssets },
+      removed: { "earlier plan bookings replaced": before.plan.bookings.length },
+      blockers: result.plan?.blockers ?? [],
+      notes: [...result.notes, ...result.staff.uncovered.map((u) => `${u.shifts} ${u.kind} shifts uncovered — ${u.why}`)],
+    },
+    undo: after,
+  });
+  const summary = { ...result, changeSetId };
   revalidateStaffing(programId, cohortId);
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`); revalidatePath(`/programs/${programId}/offerings/${cohortId}/design`);
   revalidatePath("/calendar"); revalidatePath("/scheduler"); revalidatePath("/students"); revalidatePath("/people"); revalidatePath("/supply"); revalidatePath("/utilization");
   return summary;
+}
+
+/** What auto-assign would do for one offering, without doing it (Phase 5). */
+export async function previewAutoAssign(cohortId: string): Promise<import("./autoassign").AutoAssignPreview | null> {
+  const { autoAssignPreview } = await import("./autoassign");
+  return autoAssignPreview(cohortId);
 }
 
 /** Remove everything a plan wrote for these offerings: bookings, placements, moves, shift staffing,

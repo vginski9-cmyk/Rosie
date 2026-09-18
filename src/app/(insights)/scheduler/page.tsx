@@ -2,6 +2,7 @@ import { getCapacityModel, getSchedulerData, getCalendarProvenance, getCapacityB
 import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
+import { listChangeSets } from "@/lib/changesets";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   const sched = await getSchedulerData(data.institution.id, from, to);
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
   const bridge = await getCapacityBridge(data.institution.id, from, to);
+  const changes = await listChangeSets(data.institution.id);
   return (
     <div className="space-y-6">
       <div>
@@ -29,7 +31,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         shows="A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load."
         population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
         window={`${from} → ${to} (adjustable in the levers)`}
-        constraints={["agreement tier", "asset seats per shift", "holidays", "site continuity", "travel ring", "preceptors only when the Preceptors lever requires one"]}
+        constraints={["agreement tier (and agreement end dates)", "asset seats per shift", "holidays", "site continuity", "travel ring", "preceptors only when the Preceptors lever requires one", "readiness: secured agreement · named staff · confirmed experience · site students-at-once · no overlaps"]}
         differs={[["Clinical site capacity", "/insights/clinical-sites", "is the per-date ceiling these shifts are placed within — no levers, so it is always at or above “placed”"], ["Clinical site load", "/insights/site-load", "counts the roster's actual student-shifts, including completed cohorts"]]}
       />
       <SchedulerBoard
@@ -43,6 +45,9 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         instructors={sched.instructors}
         students={sched.students}
         familyAgreements={sched.familyAgreements}
+        siteCaps={sched.siteCaps}
+        confirmedSettings={sched.confirmedSettings}
+        changes={changes}
         from={from}
         to={to}
       />

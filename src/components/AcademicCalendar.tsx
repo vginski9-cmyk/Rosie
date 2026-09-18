@@ -11,7 +11,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Collapse } from "@/components/Collapse";
 import { parseAcademicCalendar, anchorsFromEvents, KIND_LABEL, type CalendarEvent, type EventKind, type Season } from "@/lib/academiccalendar";
-import { importAcademicCalendar, deleteAcademicEvent, clearAcademicCalendar, updateInstitutionCalendar, alignInstitutionOfferings, type AlignSummary } from "@/lib/actions";
+import { importAcademicCalendar, deleteAcademicEvent, clearAcademicCalendar, updateInstitutionCalendar, previewRealign, confirmRealign, undoChangeSet, type AlignSummary } from "@/lib/actions";
 
 export interface CodedEvent { id: string; iso: string; endIso: string | null; label: string; kind: string; season: string | null }
 
@@ -55,6 +55,9 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
   const [edits, setEdits] = useState<Record<number, Partial<Pick<CalendarEvent, "kind" | "season">>>>({});
   const [saved, setSaved] = useState<string | null>(null);
   const [aligned, setAligned] = useState<AlignSummary | null>(null);
+  // Phase 5: re-align previews first (a dry run), confirms on purpose, and can be undone.
+  const [alignPreview, setAlignPreview] = useState<(AlignSummary & { resetManual: boolean }) | null>(null);
+  const [alignChangeId, setAlignChangeId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const parsed = useMemo(() => parseAcademicCalendar(text), [text]);
@@ -103,9 +106,20 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
     setText(""); setEdits({}); setFileNote(null);
     router.refresh();
   });
-  const realign = (resetManual: boolean) => startTransition(async () => {
-    const res = await alignInstitutionOfferings(institutionId, { resetManual });
-    setSaved(null); setAligned(res);
+  const realignPreview = (resetManual: boolean) => startTransition(async () => {
+    const res = await previewRealign(institutionId, { resetManual });
+    setSaved(null); setAligned(null); setAlignChangeId(null); setAlignPreview({ ...res, resetManual });
+  });
+  const realignConfirm = () => startTransition(async () => {
+    if (!alignPreview) return;
+    const res = await confirmRealign(institutionId, { resetManual: alignPreview.resetManual });
+    setAlignPreview(null); setAligned(res); setAlignChangeId(res.changeSetId);
+    router.refresh();
+  });
+  const realignUndo = () => startTransition(async () => {
+    if (!alignChangeId) return;
+    await undoChangeSet(alignChangeId);
+    setAlignChangeId(null); setAligned(null);
     router.refresh();
   });
   const fmtAny = (isoDate: string | null) => (isoDate ? fmtShort(isoDate) : "—");
@@ -188,10 +202,33 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
             </div>
           )}
           {saved && <p className="text-sm font-medium text-emerald-700">{saved}</p>}
+          {alignPreview && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-slate-700">
+              <div className="text-sm font-semibold text-amber-900">Preview — nothing has changed yet{alignPreview.resetManual ? " (typed term dates would be replaced too)" : ""}</div>
+              <div className="mt-0.5">{alignPreview.offerings} offering{alignPreview.offerings === 1 ? "" : "s"} · <strong>{alignPreview.termsMoved}</strong> term date{alignPreview.termsMoved === 1 ? "" : "s"} would move · {alignPreview.courseWindows} course window{alignPreview.courseWindows === 1 ? "" : "s"} would be rewritten · {alignPreview.reports.filter((r) => r.renamed).length} offering{alignPreview.reports.filter((r) => r.renamed).length === 1 ? "" : "s"} would be renamed</div>
+              <ul className="mt-1.5 max-h-56 space-y-1 overflow-y-auto">
+                {alignPreview.reports.filter((r) => r.changed.length || r.renamed || r.warnings.length).map((r) => (
+                  <li key={r.cohortId}>
+                    <span className="font-medium text-slate-800">{r.program} · {r.name}</span>{r.renamed ? <span className="ml-1 text-amber-700">→ {r.renamed}</span> : null}
+                    {r.changed.length > 0 && <span className="ml-1 text-slate-600">{r.changed.map((c) => `${c.term}: ${fmtAny(c.fromStart)} → ${fmtAny(c.toStart)}${c.fromEnd !== c.toEnd ? ` (ends ${fmtAny(c.toEnd)})` : ""}`).join(" · ")}</span>}
+                    {r.warnings.map((w, i) => <div key={i} className="ml-3 text-amber-800">⚠ {w}</div>)}
+                  </li>
+                ))}
+                {alignPreview.reports.every((r) => !r.changed.length && !r.renamed) && <li className="text-slate-500">Every offering is already on the calendar — confirming would change nothing.</li>}
+              </ul>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={realignConfirm} disabled={pending || alignPreview.termsMoved === 0 && !alignPreview.reports.some((r) => r.renamed)} className="rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Aligning…" : "Confirm re-align"}</button>
+                <button onClick={() => setAlignPreview(null)} disabled={pending} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-slate-700 hover:bg-slate-50">Cancel</button>
+              </div>
+            </div>
+          )}
           {aligned && (
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-xs text-slate-700">
-              <div className="text-sm font-semibold text-emerald-800">
-                {aligned.offerings} offering{aligned.offerings === 1 ? "" : "s"} aligned · {aligned.termsMoved} term date{aligned.termsMoved === 1 ? "" : "s"} {aligned.termsMoved === 1 ? "changed" : "changed"} · {aligned.courseWindows} course window{aligned.courseWindows === 1 ? "" : "s"} set
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-emerald-800">
+                  {aligned.offerings} offering{aligned.offerings === 1 ? "" : "s"} aligned · {aligned.termsMoved} term date{aligned.termsMoved === 1 ? "" : "s"} changed · {aligned.courseWindows} course window{aligned.courseWindows === 1 ? "" : "s"} set
+                </div>
+                {alignChangeId && <button onClick={realignUndo} disabled={pending} className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50">Undo this re-align</button>}
               </div>
               <ul className="mt-1.5 space-y-1">
                 {aligned.reports.map((r) => (
@@ -214,8 +251,8 @@ export function AcademicCalendar({ institutionId, institutionName, familyId, anc
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-semibold text-slate-800">What every offering follows now</div>
               <span className="flex gap-1.5">
-                <button onClick={() => realign(false)} disabled={pending} className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50" title="put every planned and active offering's term dates, term ends and course windows on this calendar (terms typed by hand are left alone)">{pending ? "Aligning…" : "Re-align every offering now"}</button>
-                <button onClick={() => { if (confirm("Also drop every term date typed by hand and put those back on the calendar?")) realign(true); }} disabled={pending} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50" title="same, but typed term dates are replaced too">incl. typed</button>
+                <button onClick={() => realignPreview(false)} disabled={pending} className="rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50" title="preview putting every planned and active offering's term dates, term ends and course windows on this calendar (terms typed by hand are left alone); nothing changes until you confirm">{pending ? "Working…" : "Preview re-align"}</button>
+                <button onClick={() => realignPreview(true)} disabled={pending} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] text-slate-600 hover:bg-slate-50 disabled:opacity-50" title="same preview, but typed term dates would be replaced too">incl. typed</button>
               </span>
             </div>
             <dl className="mt-2 grid grid-cols-3 gap-2 text-center">

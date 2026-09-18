@@ -24,7 +24,7 @@
 import { prisma } from "./db";
 import { planMeetings } from "./calendarize";
 import { buildInstances, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
-import { demandUnits, recommendPlan, DEFAULT_POLICY, REASON_LABEL, type Policy, type Assignment as PlanAssignment, type UnmetReason } from "./scheduler";
+import { demandUnits, recommendPlan, DEFAULT_POLICY, REASON_LABEL, type Policy, type Plan, type Assignment as PlanAssignment, type UnmetReason, type Blocker } from "./scheduler";
 import { resolvePolicy, familyOfRole, type PolicyLite, type PersonLite, type RoleFamily } from "./workload";
 import { getCapacityModel, getSchedulerData, getWorkloadPolicies, datedStaffAssignments } from "./queries";
 import { applySchedulerPlan } from "./actions";
@@ -32,7 +32,9 @@ import { clinicalHostsFor } from "./hosts";
 
 export interface AutoAssignSummary {
   calendarized: boolean; meetings: number;
-  plan: { demandShifts: number; placedShifts: number; placedShare: number; bookings: number; sitesUsed: number; agreements: string; unmet: { reason: string; shifts: number; fixes: string[] }[] } | null;
+  plan: { demandShifts: number; placedShifts: number; placedShare: number; bookings: number; sitesUsed: number; agreements: string; unmet: { reason: string; shifts: number; fixes: string[] }[];
+    /** Phase 5: what would block the plan and how much of it is ready to run. */
+    blockers: Pick<Blocker, "kind" | "label" | "shifts" | "seats" | "blocking">[]; readySeats: number; demandSeats: number } | null;
   staff: { facultyShifts: number; supportShifts: number; preceptorShifts: number; clinicalFacultyShifts: number; alreadyCovered: number; uncovered: { kind: string; shifts: number; why: string }[]; overCap: number; people: number };
   learners: { students: number; sections: number; shifts: number; shiftsOnAssets: number };
   notes: string[];
@@ -43,10 +45,10 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const mondayOf = (isoDate: string) => { const d = new Date(isoDate + "T00:00:00Z"); return iso(new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * DAY)); };
 const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
 
-/** Calendarize an offering that has no weekly bookings yet (idempotent). */
-export async function calendarizeCore(cohortId: string): Promise<number> {
+/** The weekly bookings calendarizing an offering would create (none when it already has some). */
+export async function calendarizeRows(cohortId: string) {
   const existing = await prisma.meetingPattern.count({ where: { cohortId } });
-  if (existing > 0) return 0;
+  if (existing > 0) return [];
   const co = await prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
@@ -54,7 +56,7 @@ export async function calendarizeCore(cohortId: string): Promise<number> {
       program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
     },
   });
-  if (!co) return 0;
+  if (!co) return [];
   const rooms = await prisma.facility.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
   const { hosts: siteHosts, rotations } = await clinicalHostsFor(co.program.institutionId, co.program.familyId);
   const hosts = await prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active", OR: [{ agreementStatus: "secured" }, { setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] }, select: { id: true, agreementStatus: true } });
@@ -65,8 +67,115 @@ export async function calendarizeCore(cohortId: string): Promise<number> {
     terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctById.get(t.id)?.startDate?.getTime() ?? null, endMs: ctById.get(t.id)?.endDate?.getTime() ?? null, courses: t.courses })),
     rooms, hostIds: hosts.map((h) => h.id), hosts: siteHosts, rotations,
   });
+  return rows;
+}
+
+/** Calendarize an offering that has no weekly bookings yet (idempotent). */
+export async function calendarizeCore(cohortId: string): Promise<number> {
+  const rows = await calendarizeRows(cohortId);
   for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
   return rows.length;
+}
+
+/** The plan tiers auto-assign tries, widest last: secured only, then secured + asked, then any partner. */
+const TIERS: { label: string; policy: Policy }[] = [
+  { label: "secured agreements", policy: { ...DEFAULT_POLICY, agreements: "secured" } },
+  { label: "secured + asked agreements", policy: { ...DEFAULT_POLICY, agreements: "secured+asked" } },
+  { label: "any partner (agreement still to secure)", policy: { ...DEFAULT_POLICY, agreements: "any", flexibleShift: true, flexibleDays: 1 } },
+];
+
+/** The dated model and the best plan for one offering, without writing anything (shared by the preview and the run). */
+async function planOffering(cohortId: string) {
+  const cap = await getCapacityModel({ cohortId });
+  const cc = cap?.cohorts.find((c) => c.cohortId === cohortId) ?? null;
+  const rows: DatedInstance[] = cc ? buildInstances({
+    cohortId: cc.cohortId, cohort: cc.cohort, programId: cc.programId, program: cc.program, enrollmentByTerm: cc.enrollmentByTerm,
+    termStartByIndex: Object.fromEntries(Object.entries(cc.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
+    termEndByIndex: cc.termEndByIndex, termWeeksByIndex: cc.termWeeksByIndex, holidays: cc.holidays, courses: cc.courses,
+  } as CohortCalendarInput, cc.assumptions) : [];
+  const dated = rows.filter((r) => r.dateIso);
+  const from = dated.map((r) => r.dateIso!).sort()[0] ?? iso(new Date());
+  const to = dated.map((r) => r.dateIso!).sort().at(-1) ?? from;
+  let best: Plan | null = null, bestLabel = TIERS[0].label;
+  if (cc && dated.length) {
+    const institutionId = cap!.institution.id;
+    const sched = await getSchedulerData(institutionId, from, to);
+    const demand = demandUnits(dated, sched.rotations, (cc.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })), { [cohortId]: cc.familyId ?? null });
+    if (demand.length) {
+      // Other offerings' bookings (hand-made or planned) consume seats; this offering's own auto-plan is replaced.
+      const existingBookings = sched.bookings.filter((b) => b.cohortId !== cohortId || (b as { note?: string | null }).note !== "auto-plan");
+      const base = { demand, assets: sched.assets, overrides: sched.overrides, existingBookings, preceptors: sched.preceptors, instructors: sched.instructors, students: sched.students, familyAgreements: sched.familyAgreements, siteCaps: sched.siteCaps, confirmedSettings: sched.confirmedSettings };
+      best = recommendPlan({ ...base, policy: TIERS[0].policy });
+      for (const t of TIERS.slice(1)) {
+        if (best.summary.placedShare >= 0.999) break;
+        const p = recommendPlan({ ...base, policy: t.policy });
+        if (p.summary.placedShifts > best.summary.placedShifts) { best = p; bestLabel = t.label; }
+      }
+    }
+  }
+  return { cc, dated, best, bestLabel };
+}
+const planSummaryOf = (best: Plan, bookings: number, agreements: string): NonNullable<AutoAssignSummary["plan"]> => {
+  const byReason = new Map<UnmetReason, { shifts: number; fixes: Set<string> }>();
+  for (const u of best.unmet) { const b = byReason.get(u.reason) ?? { shifts: 0, fixes: new Set<string>() }; b.shifts++; u.fixes.forEach((f) => b.fixes.add(f)); byReason.set(u.reason, b); }
+  return {
+    demandShifts: best.summary.demandShifts, placedShifts: best.summary.placedShifts, placedShare: best.summary.placedShare, bookings, sitesUsed: best.summary.sitesUsed, agreements,
+    unmet: [...byReason.entries()].map(([reason, b]) => ({ reason: REASON_LABEL[reason], shifts: b.shifts, fixes: [...b.fixes].slice(0, 4) })).sort((a, b) => b.shifts - a.shifts),
+    blockers: best.blockers.map(({ kind, label, shifts, seats, blocking }) => ({ kind, label, shifts, seats, blocking })), readySeats: best.summary.readiness.ready, demandSeats: best.summary.demandSeats,
+  };
+};
+
+/** What auto-assign would do for this offering, before it does it (Phase 5): the same plan the run
+ *  would write, plus how much staffing and how many learner rows are missing today. */
+export interface AutoAssignPreview {
+  offering: string; calendarize: number; meetingsNow: number;
+  plan: AutoAssignSummary["plan"];
+  staffing: { shiftsNeedingStaff: number; alreadyStaffed: number };
+  learners: { students: number; sectionSeatsMissing: number; shiftsMissing: number; unpinnedShifts: number };
+  notes: string[];
+}
+export async function autoAssignPreview(cohortId: string): Promise<AutoAssignPreview | null> {
+  const head = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, programId: true, plannedSeats: true, _count: { select: { students: true, meetings: true } } } });
+  if (!head) return null;
+  const notes: string[] = [];
+  const toCalendarize = (await calendarizeRows(cohortId)).length;
+  const { dated, best, bestLabel } = await planOffering(cohortId);
+  if (best && bestLabel !== TIERS[0].label) notes.push(`Clinical placement would widen to ${bestLabel} to place more sections — secure those agreements.`);
+  if (!best && dated.length === 0) notes.push("No dated clinical sections to place (no clinical sessions, or the offering's terms are undated).");
+  const plan = best ? planSummaryOf(best, best.assignments.reduce((n, x) => n + Math.max(1, x.parts.length), 0), bestLabel) : null;
+  // Staffing: shifts (session × section) whose need is not yet met by hand-made or earlier rows.
+  const [sessions, staffed, students, courses, existingSections, existingShifts, unpinned] = await Promise.all([
+    prisma.session.findMany({ where: { course: { term: { programId: head.programId } } }, select: { id: true, kind: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, supportStaffNeeded: true, lengthHours: true } }),
+    prisma.sessionInstructor.findMany({ where: { cohortId }, select: { sessionId: true, sectionIndex: true, contactHours: true } }),
+    prisma.student.count({ where: { cohortId, status: { in: ["enrolled", "admitted"] } } }),
+    prisma.course.findMany({ where: { term: { programId: head.programId } }, select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } }),
+    prisma.studentSection.count({ where: { cohortId } }),
+    prisma.studentShift.count({ where: { cohortId } }),
+    prisma.studentShift.count({ where: { cohortId, assetId: null } }),
+  ]);
+  const enrolled = Math.max(head._count.students, head.plannedSeats ?? 0, 1);
+  const hours = new Map<string, number>();
+  for (const r of staffed) { const k = `${r.sessionId}|${r.sectionIndex}`; hours.set(k, (hours.get(k) ?? 0) + r.contactHours); }
+  let shiftsNeedingStaff = 0, alreadyStaffed = 0;
+  for (const s of sessions) {
+    const need = s.facultyNeeded + s.supportStaffNeeded + (s.kind === "CLINICAL" ? s.preceptorsNeeded : 0);
+    if (need <= 0) continue;
+    const sections = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
+    for (let sec = 1; sec <= sections; sec++) { if ((hours.get(`${s.id}|${sec}`) ?? 0) + 1e-9 >= need * s.lengthHours) alreadyStaffed++; else shiftsNeedingStaff++; }
+  }
+  // Learners: one section seat per student per (course, kind) and one shift per student per clinical session.
+  let seatsWanted = 0, shiftsWanted = 0;
+  for (const c of courses) {
+    const kinds = new Set(c.sessions.map((s) => s.kind));
+    seatsWanted += kinds.size * students;
+    shiftsWanted += c.sessions.filter((s) => s.kind === "CLINICAL").length * students;
+  }
+  return {
+    offering: head.name, calendarize: toCalendarize, meetingsNow: head._count.meetings, plan,
+    staffing: { shiftsNeedingStaff, alreadyStaffed },
+    learners: { students, sectionSeatsMissing: Math.max(0, seatsWanted - existingSections), shiftsMissing: Math.max(0, shiftsWanted - existingShifts), unpinnedShifts: unpinned },
+    notes,
+  };
 }
 
 /** The whole placement job for one offering. */
@@ -81,58 +190,26 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
   const calendarized = made > 0;
   if (calendarized) notes.push(`Calendarized: ${made} weekly bookings (rooms, days, times; clinical sections at partner sites).`);
 
-  // The dated model of THIS offering (every session instance with its date & sections).
-  const cap = await getCapacityModel({ cohortId });
-  const cc = cap?.cohorts.find((c) => c.cohortId === cohortId) ?? null;
-  const rows: DatedInstance[] = cc ? buildInstances({
-    cohortId: cc.cohortId, cohort: cc.cohort, programId: cc.programId, program: cc.program, enrollmentByTerm: cc.enrollmentByTerm,
-    termStartByIndex: Object.fromEntries(Object.entries(cc.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-    termEndByIndex: cc.termEndByIndex, termWeeksByIndex: cc.termWeeksByIndex, holidays: cc.holidays, courses: cc.courses,
-  } as CohortCalendarInput, cc.assumptions) : [];
-  const dated = rows.filter((r) => r.dateIso);
+  // The dated model of THIS offering and the best plan for it (the same steps the preview ran).
+  const { dated, best, bestLabel } = await planOffering(cohortId);
   const dateOfSession = new Map(dated.map((r) => [r.session.id, r.dateIso!]));
-  const from = dated.map((r) => r.dateIso!).sort()[0] ?? iso(new Date());
-  const to = dated.map((r) => r.dateIso!).sort().at(-1) ?? from;
 
   // 2 · Clinical placement under the widest-needed agreement policy.
   let planSummary: AutoAssignSummary["plan"] = null;
   const planPreceptorBySection = new Map<string, string[]>(); // `${sessionId}|${sec}` → preceptor ids
   const planInstructorBySection = new Map<string, string>();
   const assetBySection = new Map<string, string>();
-  if (cc && dated.length) {
-    const sched = await getSchedulerData(institutionId, from, to);
-    const demand = demandUnits(dated, sched.rotations, (cc.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })), { [cohortId]: cc.familyId ?? null });
-    if (demand.length) {
-      // Other offerings' bookings (hand-made or planned) consume seats; this offering's own auto-plan is replaced.
-      const existingBookings = sched.bookings.filter((b) => b.cohortId !== cohortId || (b as { note?: string | null }).note !== "auto-plan");
-      const base = { demand, assets: sched.assets, overrides: sched.overrides, existingBookings, preceptors: sched.preceptors, instructors: sched.instructors, students: sched.students, familyAgreements: sched.familyAgreements };
-      const tiers: { label: string; policy: Policy }[] = [
-        { label: "secured agreements", policy: { ...DEFAULT_POLICY, agreements: "secured" } },
-        { label: "secured + asked agreements", policy: { ...DEFAULT_POLICY, agreements: "secured+asked" } },
-        { label: "any partner (agreement still to secure)", policy: { ...DEFAULT_POLICY, agreements: "any", flexibleShift: true, flexibleDays: 1 } },
-      ];
-      let best = recommendPlan({ ...base, policy: tiers[0].policy }); let bestLabel = tiers[0].label;
-      for (const t of tiers.slice(1)) {
-        if (best.summary.placedShare >= 0.999) break;
-        const p = recommendPlan({ ...base, policy: t.policy });
-        if (p.summary.placedShifts > best.summary.placedShifts) { best = p; bestLabel = t.label; }
-      }
-      if (bestLabel !== tiers[0].label) notes.push(`Clinical placement widened to ${bestLabel} to place more sections — secure those agreements.`);
-      const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset })));
-      for (const x of best.assignments) {
-        const k = `${x.unit.sessionId}|${x.unit.sectionIndex}`;
-        if (!planPreceptorBySection.has(k)) planPreceptorBySection.set(k, x.preceptorIds);
-        if (x.instructorId && !planInstructorBySection.has(k)) planInstructorBySection.set(k, x.instructorId);
-        if (!assetBySection.has(k)) assetBySection.set(k, x.assetId);
-      }
-      const byReason = new Map<UnmetReason, { shifts: number; fixes: Set<string> }>();
-      for (const u of best.unmet) { const b = byReason.get(u.reason) ?? { shifts: 0, fixes: new Set<string>() }; b.shifts++; u.fixes.forEach((f) => b.fixes.add(f)); byReason.set(u.reason, b); }
-      planSummary = {
-        demandShifts: best.summary.demandShifts, placedShifts: best.summary.placedShifts, placedShare: best.summary.placedShare, bookings: applied.bookings, sitesUsed: best.summary.sitesUsed, agreements: bestLabel,
-        unmet: [...byReason.entries()].map(([reason, b]) => ({ reason: REASON_LABEL[reason], shifts: b.shifts, fixes: [...b.fixes].slice(0, 4) })).sort((a, b) => b.shifts - a.shifts),
-      };
-    } else notes.push("No dated clinical sections to place (no clinical sessions, or the offering's terms are undated).");
-  }
+  if (best) {
+    if (bestLabel !== TIERS[0].label) notes.push(`Clinical placement widened to ${bestLabel} to place more sections — secure those agreements.`);
+    const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset })));
+    for (const x of best.assignments) {
+      const k = `${x.unit.sessionId}|${x.unit.sectionIndex}`;
+      if (!planPreceptorBySection.has(k)) planPreceptorBySection.set(k, x.preceptorIds);
+      if (x.instructorId && !planInstructorBySection.has(k)) planInstructorBySection.set(k, x.instructorId);
+      if (!assetBySection.has(k)) assetBySection.set(k, x.assetId);
+    }
+    planSummary = planSummaryOf(best, applied.bookings, bestLabel);
+  } else notes.push("No dated clinical sections to place (no clinical sessions, or the offering's terms are undated).");
 
   // 3 · Staffing — fill every shift's remaining need under workload policies.
   const [sessions, people, policies, roleRows, existing, programAssignments, meetings] = await Promise.all([
