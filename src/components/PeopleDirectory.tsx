@@ -63,7 +63,8 @@ const dayLabel = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateStrin
 const monthYear = (d: string | Date | null): string | null => {
   if (!d) return null;
   const dt = typeof d === "string" ? new Date(d) : d;
-  return Number.isNaN(dt.getTime()) ? null : dt.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  // A fixed locale and zone: the server and the browser must render the same text (hydration).
+  return Number.isNaN(dt.getTime()) ? null : dt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 };
 
 export function PeopleDirectory({ people, institutions, employers, roles = [], assets = [] }: { people: DirPerson[]; institutions: InstLite[]; employers: EmpLite[]; roles?: RoleLite[]; assets?: AssetLiteRow[] }) {
@@ -255,7 +256,7 @@ export function PeopleDirectory({ people, institutions, employers, roles = [], a
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => setEditing(p.id)} className="text-xs text-rose-600 hover:underline">edit</button>
+                    <button onClick={() => setEditing(p.id)} aria-label={`Edit ${p.name}`} className="text-xs text-rose-600 hover:underline">edit</button>
                   </td>
                 </tr>
               );
@@ -367,7 +368,7 @@ function PersonForm({ institutions, employers, roles = [], assets = [], person, 
         Currently with the org
       </label>
       <div className="flex items-end gap-2">
-        <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">{person ? "Save" : "Add"}</button>
+        <button aria-label={person ? `Save ${person.name}` : "Add person"} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">{person ? "Save" : "Add"}</button>
         <button type="button" onClick={onDone} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-white">Cancel</button>
         {person && (
           <button formAction={async () => { await deletePerson(person.id); onDone(); }} className="rounded-lg px-2 py-2 text-xs text-slate-300 hover:text-rose-600" title="delete">✕</button>

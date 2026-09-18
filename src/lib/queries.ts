@@ -1,4 +1,7 @@
 import { prisma } from "./db";
+import * as React from "react";
+/** Per-request memo (React `cache`) where the server runtime has it; a plain call elsewhere (tests, scripts). */
+const cache = ((React as unknown as { cache?: <F>(fn: F) => F }).cache ?? ((fn) => fn)) as <F>(fn: F) => F;
 import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 import { resolveSessionDay } from "./capacitymodel";
@@ -2163,7 +2166,9 @@ export async function getCohortPlacements(cohortId: string) {
 /** The id the Insights pages use for every college at once. */
 export const ALL_INSTITUTIONS = "all";
 
-export async function getCapacityModel(opts?: { institutionId?: string; cohortId?: string }) {
+/** The capacity model is read several times per request (a page and its scope bridge): one computation per request (Phase 8). */
+export const getCapacityModel = cache((opts?: { institutionId?: string; cohortId?: string }) => getCapacityModelUncached(opts));
+async function getCapacityModelUncached(opts?: { institutionId?: string; cohortId?: string }) {
   // Which institution: the one asked for, the one an offering belongs to, or —
   // with no hint — the one that actually has offerings running (not the
   // alphabetically first college in the workspace). "all" reads every college together.

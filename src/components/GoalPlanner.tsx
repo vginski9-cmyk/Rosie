@@ -284,7 +284,8 @@ export function GoalPlanner({
     d.setUTCDate(d.getUTCDate() + (m.spanWeeks + Math.max(0, m.terms - 1) * 2) * 7);
     return d.toISOString().slice(0, 10);
   };
-  const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+  // A fixed locale: the server and the browser must render the same text or React reports a hydration mismatch (418/423/425).
+  const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
 
   /** Undo a lock-in: deletes the offering (confirmed), slot returns to a
    *  plannable start date. Students are detached, never deleted. */

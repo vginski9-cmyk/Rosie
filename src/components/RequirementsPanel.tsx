@@ -3,6 +3,7 @@ import { updateRequirementSet, updateRequirementItem } from "@/lib/actions";
 import type { getFamilyRequirements } from "@/lib/queries";
 import { dec, fmt } from "@/lib/format";
 import { CoverageHeadline, UnverifiedStandard } from "@/components/Evidence";
+import { Reveal } from "@/components/Reveal";
 
 // WHAT COMPLETION REQUIRES for a job family — the credentialing / accrediting body's
 // rules and every item on its list — scored ITEM BY ITEM against the sites in the
@@ -117,9 +118,9 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                                         <span className={i.mandatory ? "text-slate-800" : "text-slate-500"}>{i.name}</span>
                                         <span className="ml-1 text-[10px] text-slate-400">{i.mandatory ? "required" : `elective${i.electiveGroup ? ` · ${i.electiveGroup}` : ""}`}{i.role ? ` · ${i.role}` : ""}{i.minCount != null && i.minCount > 0 ? ` · min ${i.minCount}` : ""}</span>
                                         {!compact && (
-                                          <details className="mt-0.5"><summary className="cursor-pointer text-[9px] text-slate-300 hover:text-slate-500">edit</summary>
-                                            <form action={updateRequirementItem.bind(null, i.id)} className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px]"><label className="flex items-center gap-0.5 text-slate-500"><input name="mandatory" type="checkbox" defaultChecked={i.mandatory} />required</label><input name="settingCodes" defaultValue={i.settingCodes} className={inp + " w-28"} title="asset settings that supply it (csv)" />{set.kind === "cases" && <input name="minCount" type="number" min="0" step="1" defaultValue={i.minCount ?? ""} placeholder="min" className={inp + " w-14"} />}{set.kind === "cases" && <input name="role" defaultValue={i.role ?? ""} placeholder="role" className={inp + " w-24"} />}<input name="notes" defaultValue={i.notes ?? ""} placeholder="notes" className={inp + " w-32"} /><button className="rounded bg-slate-200 px-1 text-slate-700">save</button></form>
-                                          </details>
+                                          <Reveal label="edit" name={i.name} className="mt-0.5">
+                                            <form action={updateRequirementItem.bind(null, i.id)} className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px]"><label className="flex items-center gap-0.5 text-slate-500"><input name="mandatory" type="checkbox" defaultChecked={i.mandatory} />required</label><input name="settingCodes" defaultValue={i.settingCodes} aria-label={`Asset settings that supply ${i.name} (comma-separated)`} className={inp + " w-28"} title="asset settings that supply it (csv)" />{set.kind === "cases" && <input name="minCount" type="number" min="0" step="1" defaultValue={i.minCount ?? ""} placeholder="min" aria-label={`Minimum count for ${i.name}`} className={inp + " w-14"} />}{set.kind === "cases" && <input name="role" defaultValue={i.role ?? ""} placeholder="role" aria-label={`Student role for ${i.name}`} className={inp + " w-24"} />}<input name="notes" defaultValue={i.notes ?? ""} placeholder="notes" aria-label={`Notes for ${i.name}`} className={inp + " w-32"} /><button aria-label={`Save ${i.name}`} className="rounded bg-slate-200 px-1 text-slate-700">save</button></form>
+                                          </Reveal>
                                         )}
                                       </td>
                                       <td className="py-1 pr-2 text-[11px]">
@@ -152,7 +153,7 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
             </div>
 
             {!compact && (
-              <details><summary className="cursor-pointer text-[11px] text-slate-500 hover:text-rose-600">edition, source and verification ▸</summary>
+              <Reveal label="edition, source and verification" name={set.name} buttonClassName="text-[11px] text-slate-600 hover:text-rose-600">
               <form action={updateRequirementSet.bind(null, set.id)} className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2 text-xs">
                 <label className="flex items-center gap-1"><input name="verified" type="checkbox" defaultChecked={set.verified} /> verified against the current edition</label>
                 <label className="block min-w-[12rem]"><span className="block text-[9px] font-semibold uppercase text-slate-500">Verified by</span><input name="verifiedBy" defaultValue={set.verifiedBy ?? ""} placeholder="who checked it" className={inp + " w-full"} /></label>
@@ -161,16 +162,16 @@ export function RequirementsPanel({ req, compact = false, siteHref }: { req: Req
                 <label className="block min-w-[14rem]"><span className="block text-[9px] font-semibold uppercase text-slate-500">Source URL</span><input name="sourceUrl" defaultValue={set.sourceUrl ?? ""} className={inp + " w-full"} /></label>
                 <label className="block min-w-[16rem] flex-1"><span className="block text-[9px] font-semibold uppercase text-slate-500">Program notes</span><input name="notes" defaultValue={set.notes ?? ""} placeholder="how this program logs and verifies (Trajecsys, paper logs, sign-off by …)" className={inp + " w-full"} /></label>
                 <input type="hidden" name="summary" value={set.summary ?? ""} />
-                <button className="rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white">Save</button>
-                <span className="text-[10px] text-slate-400">ticking &quot;verified&quot; records the name and today&apos;s date</span>
+                <button aria-label={`Save ${set.name} edition and verification`} className="rounded bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-white">Save</button>
+                <span className="text-[10px] text-slate-500">ticking &quot;verified&quot; records the name and today&apos;s date</span>
               </form>
-              </details>
+              </Reveal>
             )}
             {!set.verified && <div><UnverifiedStandard verified={false} size="xs" what="standard — every figure above is provisional until the list is verified" /></div>}
           </div>
         );
       })}
-      {!compact && <p className="text-[11px] text-slate-400"><span className="text-emerald-700">✓</span> confirmed with the site · <span className="text-amber-700">≈</span> estimate · <span className="text-amber-600">?</span> inferred from assets only, or a service line the asset does not imply — confirm on the site&apos;s page. Only confirmed evidence reads as success.</p>}
+      {!compact && <p className="text-[11px] text-slate-500"><strong>Saving:</strong> every row and every form here saves on its own Save button, writes only that row, and nothing else on the page changes until you press it. <span className="text-emerald-700">✓</span> confirmed with the site · <span className="text-amber-700">≈</span> estimate · <span className="text-amber-600">?</span> inferred from assets only, or a service line the asset does not imply — confirm on the site&apos;s page. Only confirmed evidence reads as success.</p>}
     </div>
   );
 }

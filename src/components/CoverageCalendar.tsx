@@ -242,9 +242,9 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
               ))}
             </div>
             <div className="flex items-center gap-2">
-              {view !== "semester" && <button onClick={() => step(-1)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">←</button>}
+              {view !== "semester" && <button onClick={() => step(-1)} aria-label="Earlier" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">←</button>}
               <span className="min-w-[14rem] text-center text-base font-semibold text-slate-800">{windowLabel}</span>
-              {view !== "semester" && <button onClick={() => step(1)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">→</button>}
+              {view !== "semester" && <button onClick={() => step(1)} aria-label="Later" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">→</button>}
               {firstIso && cur !== firstIso && view !== "semester" && (
                 <button onClick={() => setAnchor(firstIso)} className="text-xs text-slate-400 hover:text-rose-600">jump to first scheduled</button>
               )}

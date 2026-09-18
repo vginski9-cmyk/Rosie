@@ -7,7 +7,7 @@
 // (click a day to close it), the rotation-type → setting join, and the partner
 // workbook in and out.
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { buildInstances, type DatedInstance, type CohortCalendarInput } from "@/lib/capacitymodel";
 import {
@@ -34,18 +34,23 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
   const [pending, startTransition] = useTransition();
   const [tab, setTab] = useState<Tab>("verdict");
   const [sel, setSel] = useState<{ iso: string; block: ShiftBlock; settingCode: string } | null>(null);
+  // Phase 8: the 365-day match is computed in the browser only — on the server it cost ~4 s per request before the first byte.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
 
-  const rows: DatedInstance[] = useMemo(() => cohorts.flatMap((c) => buildInstances({
+  const rows: DatedInstance[] = useMemo(() => (!hydrated ? [] : cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])), termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
-  } as CohortCalendarInput, c.assumptions).filter((i) => i.mondayIso != null)), [cohorts]);
+  } as CohortCalendarInput, c.assumptions).filter((i) => i.mondayIso != null))), [cohorts, hydrated]);
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const supply = useMemo(() => assetSupply(assets, overrides, from, to), [assets, overrides, from, to]);
+  // The 365-day supply and totals are the other server-side cost — computed once the page is in the browser.
+  const liveAssets = hydrated ? assets : [];
+  const supply = useMemo(() => assetSupply(liveAssets, overrides, from, to), [liveAssets, overrides, from, to]);
   const demand = useMemo(() => assetDemand(rows, rotations), [rows, rotations]);
   const cells = useMemo(() => assetMatch(demand, supply, bookings, assetById), [demand, supply, bookings, assetById]);
   const verdicts = useMemo(() => settingVerdicts(cells, assets), [cells, assets]);
-  const totalsWindow = useMemo(() => assetTotals(assets, overrides, from, to), [assets, overrides, from, to]);
-  const totalsYear = useMemo(() => assetTotals(assets, overrides, `${year}-01-01`, `${year}-12-31`), [assets, overrides, year]);
+  const totalsWindow = useMemo(() => assetTotals(liveAssets, overrides, from, to), [liveAssets, overrides, from, to]);
+  const totalsYear = useMemo(() => assetTotals(liveAssets, overrides, `${year}-01-01`, `${year}-12-31`), [liveAssets, overrides, year]);
   const unmapped = useMemo(() => [...new Set(demand.filter((d) => !d.settingCode).map((d) => d.rotationType))], [demand]);
   const settingCodes = useMemo(() => [...new Set(assets.map((a) => a.settingCode))].sort(), [assets]);
   const settingName = (code: string) => assets.find((a) => a.settingCode === code)?.setting ?? code;
@@ -73,6 +78,7 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
         </div>
       </div>
 
+      {!hydrated && <div role="status" aria-live="polite" className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />Matching every date, shift and setting against the assets in your browser…</div>}
       {tab === "verdict" && (
         <div className="space-y-4">
           <p className="text-base text-slate-800">

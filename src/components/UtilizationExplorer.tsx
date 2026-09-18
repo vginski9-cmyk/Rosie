@@ -91,7 +91,7 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
       {/* Window & filters */}
       <div className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <select value={institution.id} onChange={(e) => router.push(`/utilization?inst=${e.target.value}&preset=${preset}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">{institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select>
+          <select aria-label="College" value={institution.id} onChange={(e) => router.push(`/utilization?inst=${e.target.value}&preset=${preset}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">{institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select>
           <span className="text-xs text-slate-400">window:</span>
           {PRESETS.map((p) => <Chip key={p.key} on={preset === p.key} label={p.label} onClick={() => go(p.key)} />)}
           {preset === "custom" && <span className="flex items-center gap-1 text-xs"><input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="rounded border border-slate-300 px-1.5 py-0.5" /> → <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="rounded border border-slate-300 px-1.5 py-0.5" /><button onClick={() => go("custom")} className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white">go</button></span>}
@@ -103,12 +103,12 @@ export function UtilizationExplorer({ institution, institutions, rooms, meetings
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">programs</span>{programs.map((p) => <Chip key={p.id} on={programIds.includes(p.id)} label={p.name} onClick={() => { toggle(programIds, setProgramIds, p.id); setCourseIds([]); setCohortIds([]); }} />)}</div>
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">buildings</span>{buildings.map(([id, name]) => <Chip key={id} on={buildingIds.includes(id)} label={name} onClick={() => { toggle(buildingIds, setBuildingIds, id); setRoomIds([]); }} />)}</div>
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">courses</span>
-            <select multiple value={courseIds} onChange={(e) => setCourseIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[16rem] rounded border border-slate-300 px-1 text-xs">{courseOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
+            <select multiple aria-label="Courses (choose several)" value={courseIds} onChange={(e) => setCourseIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[16rem] rounded border border-slate-300 px-1 text-xs">{courseOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
             <span className="w-14 text-slate-400">cohorts</span>
-            <select multiple value={cohortIds} onChange={(e) => setCohortIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[14rem] rounded border border-slate-300 px-1 text-xs">{cohortOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
+            <select multiple aria-label="Cohorts (choose several)" value={cohortIds} onChange={(e) => setCohortIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[14rem] rounded border border-slate-300 px-1 text-xs">{cohortOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select>
           </div>
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">rooms</span>
-            <select multiple value={roomIds} onChange={(e) => setRoomIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[18rem] rounded border border-slate-300 px-1 text-xs">{roomOptions.map((r) => <option key={r.id} value={r.id}>{r.name}{r.building ? ` · ${r.building}` : ""}</option>)}</select>
+            <select multiple aria-label="Rooms (choose several)" value={roomIds} onChange={(e) => setRoomIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[18rem] rounded border border-slate-300 px-1 text-xs">{roomOptions.map((r) => <option key={r.id} value={r.id}>{r.name}{r.building ? ` · ${r.building}` : ""}</option>)}</select>
             {anyFilter ? <button onClick={() => { setProgramIds([]); setCourseIds([]); setCohortIds([]); setKinds([]); setWeekdays([]); setBuildingIds([]); setRoomIds([]); setWhere(undefined); }} className="text-rose-600 hover:underline">clear filters</button> : null}
           </div>
         </div>

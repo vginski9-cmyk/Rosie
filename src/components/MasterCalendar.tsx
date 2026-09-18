@@ -187,7 +187,7 @@ export function MasterCalendar({
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Institution</span>
-          <select value={institutionId} onChange={(e) => router.push(`/calendar?inst=${e.target.value}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+          <select value={institutionId} aria-label="College" onChange={(e) => router.push(`/calendar?inst=${e.target.value}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
             {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
           </select>
         </label>
@@ -224,11 +224,11 @@ export function MasterCalendar({
           </div>
         </label>
         <div className="ml-auto flex items-center gap-2">
-          <button disabled={weekIdx <= 0 || navPending} onClick={() => goWeek(weeks[weekIdx - 1].ms)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">←</button>
-          <select value={weekMs} disabled={navPending} onChange={(e) => goWeek(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+          <button disabled={weekIdx <= 0 || navPending} onClick={() => goWeek(weeks[weekIdx - 1].ms)} aria-label="Previous week" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">←</button>
+          <select value={weekMs} disabled={navPending} aria-label="Week" onChange={(e) => goWeek(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
             {weeks.map((w) => <option key={w.ms} value={w.ms}>Week of {w.label}</option>)}
           </select>
-          <button disabled={weekIdx >= weeks.length - 1 || navPending} onClick={() => goWeek(weeks[weekIdx + 1].ms)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">→</button>
+          <button disabled={weekIdx >= weeks.length - 1 || navPending} onClick={() => goWeek(weeks[weekIdx + 1].ms)} aria-label="Next week" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">→</button>
           {navPending && <span className="text-xs text-slate-400">loading…</span>}
         </div>
       </div>

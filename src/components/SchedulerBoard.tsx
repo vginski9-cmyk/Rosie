@@ -62,6 +62,11 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [preview, setPreview] = useState<SchedulerPreview | null>(null);
   const [override, setOverride] = useState(false);
   const [noChange, setNoChange] = useState<string | null>(null);
+  // Phase 8: the plan is built in the browser only. Rendering it on the server spent ~5 s per request
+  // before a byte reached the reader; now the page paints at once and says it is building the plan.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => { setHydrated(true); }, []);
+  const [showLevers, setShowLevers] = useState(false);
 
   // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
   // so what is on screen is what gets written.
@@ -77,9 +82,10 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   // under are deferred, so the page can say "recomputing…" (and keep the old numbers visibly
   // stale) while the new plan is built, instead of freezing with the old numbers.
   const builtLevers = useDeferredValue(levers);
-  const builtDemand = useMemo(() => filterDemand(demandAll, builtLevers), [demandAll, builtLevers]);
+  const builtDemand = useMemo(() => (hydrated ? filterDemand(demandAll, builtLevers) : []), [demandAll, builtLevers, hydrated]);
   const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus), [builtDemand, supply, builtLevers.policy, model.campus]);
   const recomputing = builtLevers !== levers;
+  const computing = !hydrated || recomputing;
   const s = plan.summary;
   const rd = s.readiness;
   const blocking = plan.blockers.filter((b) => b.blocking);
@@ -129,7 +135,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
   const Lever = ({ label, children, hint }: { label: string; children: React.ReactNode; hint: string }) => (
     <label className="block rounded-lg border border-slate-200 bg-white px-2.5 py-1.5" title={hint}>
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
       {children}
     </label>
   );
@@ -137,85 +143,10 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
   return (
     <section className="space-y-4">
-      {/* ── Levers ────────────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— the rules the plan is built under; everything below recomputes as you change them</span>{recomputing && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">recomputing under the new levers… the numbers below are the previous plan&apos;s</span>}</div>
-          <button onClick={() => setPolicy(DEFAULT_POLICY)} className="text-[11px] text-slate-500 hover:text-rose-700">reset levers</button>
-        </div>
-        {noChange && <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">{noChange}</p>}
-        {/* Hard constraints: the plan never breaks these. Preferences: the plan works toward them when it can. */}
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Hard constraints <span className="font-normal normal-case text-slate-400">— never broken; loosening one is a policy decision</span></div>
-        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-          <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one; an agreement that has ended does not count after its end date.">
-            <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>
-          </Lever>
-          <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
-            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory)</option><option value="true">require a free preceptor</option></select>
-          </Lever>
-          <Lever label="Holidays" hint="Sessions that land on an observed holiday are left unplaced so someone moves them, or placed anyway (a blocker until moved).">
-            <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
-          </Lever>
-          <Lever label="Drive ring" hint="Farthest ring a site may be in.">
-            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">Core only</option><option value="Ring 1">up to Ring 1</option><option value="Ring 2">up to Ring 2</option><option value="any">any distance</option></select>
-          </Lever>
-          <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
-            <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
-          </Lever>
-          <Lever label="Students per preceptor" hint="How many students one preceptor may take on a shift. Default: whatever the session says it needs.">
-            <select value={policy.studentsPerPreceptor ?? ""} onChange={(e) => setPolicy({ ...policy, studentsPerPreceptor: numOrNull(e.target.value) })} className={sel}><option value="">as the session says</option>{[1, 2, 3].map((n) => <option key={n} value={n}>{n === 1 ? "one to one" : `up to ${n} students`}</option>)}</select>
-          </Lever>
-          <Lever label="Weekly ceiling" hint="The most student shifts one preceptor takes in a week.">
-            <select value={policy.maxPreceptorShiftsPerWeek ?? ""} onChange={(e) => setPolicy({ ...policy, maxPreceptorShiftsPerWeek: numOrNull(e.target.value) })} className={sel}><option value="">no ceiling</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} shift{n === 1 ? "" : "s"} a week</option>)}</select>
-          </Lever>
-        </div>
-        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preferences <span className="font-normal normal-case text-slate-400">— what the plan works toward when the constraints leave room</span></div>
-        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <Lever label="Shift" hint="May a clinical shift land on a different shift block (day / evening / night) than its session says?">
-            <select value={String(policy.flexibleShift)} onChange={(e) => setPolicy({ ...policy, flexibleShift: e.target.value === "true" })} className={sel}><option value="false">exact shift only</option><option value="true">any shift the asset runs</option></select>
-          </Lever>
-          <Lever label="Day" hint="May a clinical shift move inside its week to a day the asset is open?">
-            <select value={String(policy.flexibleDays)} onChange={(e) => setPolicy({ ...policy, flexibleDays: Number(e.target.value) as Policy["flexibleDays"] })} className={sel}><option value="0">exact date</option><option value="1">± 1 day in the week</option><option value="2">± 2 days in the week</option></select>
-          </Lever>
-          <Lever label="Continuity" hint="Keep a section at the same site for the whole course wherever possible.">
-            <select value={String(policy.continuity)} onChange={(e) => setPolicy({ ...policy, continuity: e.target.value === "true" })} className={sel}><option value="true">keep each section at one site</option><option value="false">any site each shift</option></select>
-          </Lever>
-          <Lever label="Balance" hint="Prefer the least-loaded site over the closest / most secured one.">
-            <select value={String(policy.spread)} onChange={(e) => setPolicy({ ...policy, spread: e.target.value === "true" })} className={sel}><option value="false">closest & most secured first</option><option value="true">spread load across sites</option></select>
-          </Lever>
-          <Lever label="Split sections" hint="When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 with a preceptor anyway); an instructor-led group travels together.">
-            <select value={policy.split} onChange={(e) => setPolicy({ ...policy, split: e.target.value as Policy["split"] })} className={sel}><option value="preceptor-led">preceptor-led may split</option><option value="none">never split a section</option><option value="any">any section may split</option></select>
-          </Lever>
-          <Lever label="Nearer home" hint="Prefer sites nearer each student's home over sites nearer campus.">
-            <select value={String(policy.preferCloserToStudent)} onChange={(e) => setPolicy({ ...policy, preferCloserToStudent: e.target.value === "true" })} className={sel}><option value="true">prefer sites near the student</option><option value="false">campus distance only</option></select>
-          </Lever>
-          <Lever label="Rotate sites" hint="With continuity on: how long a student stays at one site before the plan looks for a different one.">
-            <select value={policy.rotateSitesEveryWeeks ?? ""} onChange={(e) => setPolicy({ ...policy, rotateSitesEveryWeeks: numOrNull(e.target.value) })} className={sel}><option value="">whole course at one site</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>every {n} weeks</option>)}</select>
-          </Lever>
-          <Lever label="Variety" hint="What the plan works to give every student over the course: sites they haven't been to, kinds of facility they haven't seen (hospital, imaging center, clinic), health systems they haven't been in.">
-            <select value={varietyKey(policy)} onChange={(e) => setPolicy({ ...policy, ...VARIETY.find((v) => v.key === e.target.value)!.set })} className={sel}>{VARIETY.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}</select>
-          </Lever>
-          <Lever label="Keep the same preceptor" hint="Shifts in a row a student keeps the same preceptor before rotating to another at the site. Evaluations need a stretch; variety needs a change.">
-            <select value={policy.preceptorStint ?? ""} onChange={(e) => setPolicy({ ...policy, preceptorStint: numOrNull(e.target.value) })} className={sel}><option value="">as long as possible</option><option value="1">rotate every shift</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>for {n} shifts, then rotate</option>)}</select>
-          </Lever>
-          <Lever label="New preceptors" hint="When several preceptors are free, prefer one the student has not had yet.">
-            <select value={String(policy.varietyPreceptors)} onChange={(e) => setPolicy({ ...policy, varietyPreceptors: e.target.value === "true" })} className={sel}><option value="false">least-loaded first</option><option value="true">prefer one the student hasn't had</option></select>
-          </Lever>
-        </div>
-        <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
-          <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
-          <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[10px] text-slate-400">Offerings:</span>
-            <button onClick={() => setCohortFilter(new Set())} className={`rounded-full px-2 py-0.5 ${cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>all {cohortsInDemand.length}</button>
-            {cohortsInDemand.map((c) => <button key={c.id} onClick={() => setCohortFilter((f) => { const n = new Set(f); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} className={`rounded-full px-2 py-0.5 ${cohortFilter.has(c.id) ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.label}</button>)}
-          </div>
-        </div>
-      </div>
-
       {/* ── The statement, the readiness funnel and the apply flow ────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-base leading-relaxed text-slate-800">{s.statement}</p>
+        {computing && <div role="status" aria-live="polite" className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />{hydrated ? "Recomputing the plan under the new levers — the numbers below are the previous plan's." : `Building the plan for ${n0(demand.length)} clinical shifts in your browser…`}</div>}
+        <p className="text-base leading-relaxed text-slate-800">{hydrated ? s.statement : `${n0(demand.length)} clinical shifts (${n0(demand.reduce((n, u) => n + u.seats, 0))} learner-shifts) between ${window.from} and ${window.to} are being placed — the readiness funnel appears in a moment.`}</p>
         <p className="mt-1 text-xs text-slate-500">A <strong>proposed scenario</strong> under the levers above — nothing is written until you apply it. Demand is every dated clinical shift (session × section) at each term&apos;s enrollment target, not the roster. The headline is <strong>ready</strong>: placed at a secured site, staffed by name, at a site that has confirmed the experience, with no conflicts. {!policy.requirePreceptor && <span className="text-amber-700">Seats only (exploratory): a shift counts as placed with nobody to precept it; the readiness funnel shows what is actually staffable.</span>}</p>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
           <Tile label="Demand" v={`${n0(s.demandSeats)} learner-shifts`} sub={`${n0(s.demandShifts)} shifts (section × date) · ${n0(s.demandHours)} learner-hours`} />
@@ -286,6 +217,88 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           </div>
         )}
         <ChangeHistory changes={changes} onUndo={undo} pending={pending} />
+      </div>
+
+      {/* ── Levers (Phase 8: results first; the levers fold away under a one-line summary of what is set) ── */}
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/40">
+        <button type="button" onClick={() => setShowLevers((v) => !v)} aria-expanded={showLevers} className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-left text-sm hover:bg-rose-50">
+          <span><span className="font-semibold text-slate-800">Levers</span> <span className="text-slate-600">— {policy.agreements === "secured" ? "secured sites only" : policy.agreements === "secured+asked" ? "secured + asked sites" : "any partner"} · {policy.requirePreceptor ? "preceptor required" : "seats only (exploratory)"} · holidays {policy.skipHolidays ? "left for moving" : "placed anyway"} · {policy.maxRing === "any" ? "any distance" : `up to ${policy.maxRing}`} · {policy.flexibleShift ? "any shift" : "exact shift"} · {policy.flexibleDays ? `± ${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact date"} · {cohortFilter.size === 0 ? `all ${cohortsInDemand.length} offerings` : `${cohortFilter.size} offerings`} · {window.from} → {window.to}</span></span>
+          <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-medium text-rose-700 ring-1 ring-rose-200">{showLevers ? "hide the levers" : "change the levers"}</span>
+        </button>
+        {showLevers && <div className="border-t border-rose-100 p-4">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— the rules the plan is built under; everything below recomputes as you change them</span></div>
+          <button onClick={() => setPolicy(DEFAULT_POLICY)} className="text-[11px] text-slate-500 hover:text-rose-700">reset levers</button>
+        </div>
+        {noChange && <p className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">{noChange}</p>}
+        {/* Hard constraints: the plan never breaks these. Preferences: the plan works toward them when it can. */}
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">Hard constraints <span className="font-normal normal-case text-slate-400">— never broken; loosening one is a policy decision</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+          <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one; an agreement that has ended does not count after its end date.">
+            <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>
+          </Lever>
+          <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
+            <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only (exploratory)</option><option value="true">require a free preceptor</option></select>
+          </Lever>
+          <Lever label="Holidays" hint="Sessions that land on an observed holiday are left unplaced so someone moves them, or placed anyway (a blocker until moved).">
+            <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
+          </Lever>
+          <Lever label="Drive ring" hint="Farthest ring a site may be in.">
+            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">Core only</option><option value="Ring 1">up to Ring 1</option><option value="Ring 2">up to Ring 2</option><option value="any">any distance</option></select>
+          </Lever>
+          <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
+            <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
+          </Lever>
+          <Lever label="Students per preceptor" hint="How many students one preceptor may take on a shift. Default: whatever the session says it needs.">
+            <select value={policy.studentsPerPreceptor ?? ""} onChange={(e) => setPolicy({ ...policy, studentsPerPreceptor: numOrNull(e.target.value) })} className={sel}><option value="">as the session says</option>{[1, 2, 3].map((n) => <option key={n} value={n}>{n === 1 ? "one to one" : `up to ${n} students`}</option>)}</select>
+          </Lever>
+          <Lever label="Weekly ceiling" hint="The most student shifts one preceptor takes in a week.">
+            <select value={policy.maxPreceptorShiftsPerWeek ?? ""} onChange={(e) => setPolicy({ ...policy, maxPreceptorShiftsPerWeek: numOrNull(e.target.value) })} className={sel}><option value="">no ceiling</option>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} shift{n === 1 ? "" : "s"} a week</option>)}</select>
+          </Lever>
+        </div>
+        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preferences <span className="font-normal normal-case text-slate-400">— what the plan works toward when the constraints leave room</span></div>
+        <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <Lever label="Shift" hint="May a clinical shift land on a different shift block (day / evening / night) than its session says?">
+            <select value={String(policy.flexibleShift)} onChange={(e) => setPolicy({ ...policy, flexibleShift: e.target.value === "true" })} className={sel}><option value="false">exact shift only</option><option value="true">any shift the asset runs</option></select>
+          </Lever>
+          <Lever label="Day" hint="May a clinical shift move inside its week to a day the asset is open?">
+            <select value={String(policy.flexibleDays)} onChange={(e) => setPolicy({ ...policy, flexibleDays: Number(e.target.value) as Policy["flexibleDays"] })} className={sel}><option value="0">exact date</option><option value="1">± 1 day in the week</option><option value="2">± 2 days in the week</option></select>
+          </Lever>
+          <Lever label="Continuity" hint="Keep a section at the same site for the whole course wherever possible.">
+            <select value={String(policy.continuity)} onChange={(e) => setPolicy({ ...policy, continuity: e.target.value === "true" })} className={sel}><option value="true">keep each section at one site</option><option value="false">any site each shift</option></select>
+          </Lever>
+          <Lever label="Balance" hint="Prefer the least-loaded site over the closest / most secured one.">
+            <select value={String(policy.spread)} onChange={(e) => setPolicy({ ...policy, spread: e.target.value === "true" })} className={sel}><option value="false">closest & most secured first</option><option value="true">spread load across sites</option></select>
+          </Lever>
+          <Lever label="Split sections" hint="When no single site can seat a whole section on one shift, may it split across sites? Preceptor-led sections can (students are 1:1 with a preceptor anyway); an instructor-led group travels together.">
+            <select value={policy.split} onChange={(e) => setPolicy({ ...policy, split: e.target.value as Policy["split"] })} className={sel}><option value="preceptor-led">preceptor-led may split</option><option value="none">never split a section</option><option value="any">any section may split</option></select>
+          </Lever>
+          <Lever label="Nearer home" hint="Prefer sites nearer each student's home over sites nearer campus.">
+            <select value={String(policy.preferCloserToStudent)} onChange={(e) => setPolicy({ ...policy, preferCloserToStudent: e.target.value === "true" })} className={sel}><option value="true">prefer sites near the student</option><option value="false">campus distance only</option></select>
+          </Lever>
+          <Lever label="Rotate sites" hint="With continuity on: how long a student stays at one site before the plan looks for a different one.">
+            <select value={policy.rotateSitesEveryWeeks ?? ""} onChange={(e) => setPolicy({ ...policy, rotateSitesEveryWeeks: numOrNull(e.target.value) })} className={sel}><option value="">whole course at one site</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>every {n} weeks</option>)}</select>
+          </Lever>
+          <Lever label="Variety" hint="What the plan works to give every student over the course: sites they haven't been to, kinds of facility they haven't seen (hospital, imaging center, clinic), health systems they haven't been in.">
+            <select value={varietyKey(policy)} onChange={(e) => setPolicy({ ...policy, ...VARIETY.find((v) => v.key === e.target.value)!.set })} className={sel}>{VARIETY.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}</select>
+          </Lever>
+          <Lever label="Keep the same preceptor" hint="Shifts in a row a student keeps the same preceptor before rotating to another at the site. Evaluations need a stretch; variety needs a change.">
+            <select value={policy.preceptorStint ?? ""} onChange={(e) => setPolicy({ ...policy, preceptorStint: numOrNull(e.target.value) })} className={sel}><option value="">as long as possible</option><option value="1">rotate every shift</option>{[2, 3, 4, 6, 8].map((n) => <option key={n} value={n}>for {n} shifts, then rotate</option>)}</select>
+          </Lever>
+          <Lever label="New preceptors" hint="When several preceptors are free, prefer one the student has not had yet.">
+            <select value={String(policy.varietyPreceptors)} onChange={(e) => setPolicy({ ...policy, varietyPreceptors: e.target.value === "true" })} className={sel}><option value="false">least-loaded first</option><option value="true">prefer one the student hasn't had</option></select>
+          </Lever>
+        </div>
+        <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
+          <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
+          <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-[10px] text-slate-400">Offerings:</span>
+            <button onClick={() => setCohortFilter(new Set())} className={`rounded-full px-2 py-0.5 ${cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>all {cohortsInDemand.length}</button>
+            {cohortsInDemand.map((c) => <button key={c.id} onClick={() => setCohortFilter((f) => { const n = new Set(f); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} className={`rounded-full px-2 py-0.5 ${cohortFilter.has(c.id) ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.label}</button>)}
+          </div>
+        </div>
+              </div>}
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
@@ -530,7 +543,7 @@ function Tile({ label, v, sub, strong, tone }: { label: string; v: string; sub?:
     <div className={`rounded-lg p-2.5 ${bg}`}>
       <div className={`text-[10px] uppercase tracking-wide ${strong ? "text-slate-300" : "opacity-70"}`}>{label}</div>
       <div className="text-xl font-bold leading-tight tabular-nums">{v}</div>
-      {sub && <div className={`truncate text-[10px] ${strong ? "text-slate-300" : "opacity-70"}`} title={sub}>{sub}</div>}
+      {sub && <div className={`truncate text-[10px] ${strong ? "text-slate-200" : "opacity-90"}`} title={sub}>{sub}</div>}
     </div>
   );
 }

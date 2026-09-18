@@ -78,7 +78,7 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
 
       {/* Cross-tab */}
       <div className="rounded-xl border border-slate-200 bg-white">
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs"><span className="text-slate-400">cross-tab {DIMENSIONS.find((d) => d.key === dim)?.label} ×</span><select value={colDim} onChange={(e) => setColDim(e.target.value as Dimension)} className="rounded border border-slate-300 px-1.5 py-0.5 text-xs">{DIMENSIONS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 text-xs"><span className="text-slate-400">cross-tab {DIMENSIONS.find((d) => d.key === dim)?.label} ×</span><select aria-label="Cross-tab column dimension" value={colDim} onChange={(e) => setColDim(e.target.value as Dimension)} className="rounded border border-slate-300 px-1.5 py-0.5 text-xs">{DIMENSIONS.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}</select></div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-1.5 text-left"></th>{ct.cols.map((c) => <th key={c} className="px-2 py-1.5 text-right">{c}</th>)}<th className="px-2 py-1.5 text-right">Total</th></tr></thead>

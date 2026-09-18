@@ -120,7 +120,7 @@ export function PivotExplorer({
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-slate-400">Filters:</span>
           {adHocChips.map(({ d, v }) => (
-            <button key={d + v} onClick={() => toggleFilter(d, v)} className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 font-medium text-rose-700">
+            <button key={d + v} onClick={() => toggleFilter(d, v)} aria-label={`Remove filter ${DIMS.find((x) => x.key === d)?.label}: ${v}`} className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 font-medium text-rose-700">
               {DIMS.find((x) => x.key === d)?.label}: {v} <span className="opacity-70">✕</span>
             </button>
           ))}
@@ -175,7 +175,7 @@ export function PivotExplorer({
           <div className="relative z-10 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="text-sm font-semibold">{drill.row} · {drill.col}</div>
-              <button onClick={() => setDrill(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+              <button onClick={() => setDrill(null)} aria-label="Close the drill-down" className="text-slate-500 hover:text-slate-700">✕</button>
             </div>
             <p className="mt-2 text-xs text-slate-500">{drillFacts.length} facts behind this cell{singleCohort ? ` · ${singleCohort.cohort}` : ""}</p>
 

@@ -55,7 +55,7 @@ export function SupplyExplorer({ institution, institutions, assets, overrides, b
       {/* Window & filters */}
       <div className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
-          <select value={institution.id} onChange={(e) => router.push(`/supply?inst=${e.target.value}&preset=${preset}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">{institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select>
+          <select aria-label="College" value={institution.id} onChange={(e) => router.push(`/supply?inst=${e.target.value}&preset=${preset}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">{institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}</select>
           <span className="text-xs text-slate-400">window:</span>
           {PRESETS.map((p) => <Chip key={p.key} on={preset === p.key} label={p.label} onClick={() => (p.key === "custom" ? go("custom") : go(p.key))} />)}
           {preset === "custom" && <span className="flex items-center gap-1 text-xs"><input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="rounded border border-slate-300 px-1.5 py-0.5" /> → <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="rounded border border-slate-300 px-1.5 py-0.5" /><button onClick={() => go("custom")} className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-white">go</button></span>}
@@ -66,9 +66,9 @@ export function SupplyExplorer({ institution, institutions, assets, overrides, b
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">agreement</span>{["secured", "asked", "prospect", "none"].map((a) => <Chip key={a} on={agreement.includes(a)} label={a} onClick={() => toggle(agreement, setAgreement, a)} />)}</div>
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">settings</span>{settingOptions.map(([code, name]) => <Chip key={code} on={settings.includes(code)} label={`${code} · ${name}`} onClick={() => toggle(settings, setSettings, code)} />)}</div>
           <div className="flex flex-wrap items-center gap-1"><span className="w-16 text-slate-400">sites</span>
-            <select multiple value={sites} onChange={(e) => setSites([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[16rem] rounded border border-slate-300 px-1 text-xs">{siteOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
+            <select multiple aria-label="Sites (choose several)" value={sites} onChange={(e) => setSites([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[16rem] rounded border border-slate-300 px-1 text-xs">{siteOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
             <span className="w-14 text-slate-400">assets</span>
-            <select multiple value={assetIds} onChange={(e) => setAssetIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[18rem] rounded border border-slate-300 px-1 text-xs">{assetOptions.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
+            <select multiple aria-label="Assets (choose several)" value={assetIds} onChange={(e) => setAssetIds([...e.target.selectedOptions].map((o) => o.value))} className="h-16 min-w-[18rem] rounded border border-slate-300 px-1 text-xs">{assetOptions.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</select>
             {(sites.length || settings.length || assetIds.length || weekdays.length || blocks.length || agreement.length) ? <button onClick={() => { setSites([]); setSettings([]); setAssetIds([]); setWeekdays([]); setBlocks([]); setAgreement([]); }} className="text-rose-600 hover:underline">clear filters</button> : null}
           </div>
         </div>

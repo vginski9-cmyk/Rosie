@@ -37,6 +37,10 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
   const router = useRouter();
   const [pending, start] = useTransition();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  // Phase 8: rows read as text until the reader asks to edit one — 54 assets are 54 rows, not 650 controls.
+  const [editing, setEditing] = useState<Set<string>>(new Set());
+  const openRow = (id: string) => setEditing((e) => new Set(e).add(id));
+  const closeRow = (id: string) => setEditing((e) => { const n = new Set(e); n.delete(id); return n; });
   const [add, setAdd] = useState({ settingCode: settings[0]?.code ?? "", assetType: settings[0]?.assetType ?? "", count: 1, preset: "wd", learners: 1, preceptors: 1, source: "ESTIMATE" });
   const refresh = () => router.refresh();
   const draftOf = (a: RosterAsset) => drafts[a.id] ?? toDraft(a);
@@ -87,20 +91,35 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
               {[...bySetting.entries()].map(([code, list]) => (
                 <Fragment key={code}>
                   <tr className="bg-slate-50/70"><td colSpan={11} className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600"><span className="mr-1 rounded bg-slate-800 px-1 font-mono text-white">{code}</span>{settingName(code)} <span className="font-normal normal-case text-slate-400">— {list.length}</span></td></tr>
-                  {list.map((a) => { const d = draftOf(a); const dirty = !same(d, toDraft(a)); const wk = d.days.length * BLOCKS.filter((b) => d.blocks[b].on).length * d.learnersPerShift; return (
-                    <tr key={a.id} className={`border-t border-slate-100 ${dirty ? "bg-amber-50/40" : ""}`}>
-                      <td className="px-2 py-1 whitespace-nowrap text-slate-500">{a.assetNumber}{a.externalId ? <span className="block font-mono text-[9px] text-slate-400">{a.externalId}</span> : null}</td>
-                      <td className="px-2 py-1"><input value={d.assetType} onChange={(e) => setDraft(a, { assetType: e.target.value })} className={inp + " w-36"} /></td>
-                      <td className="px-2 py-1 whitespace-nowrap">{DAYS.map((day) => { const on = d.days.includes(day); return <button key={day} type="button" onClick={() => setDraft(a, { days: on ? d.days.filter((x) => x !== day) : DAYS.filter((x) => d.days.includes(x) || x === day) })} className={`mr-0.5 rounded px-1 py-0.5 text-[10px] ${on ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-400"}`}>{day[0]}</button>; })}</td>
-                      {BLOCKS.map((b) => <td key={b} className="px-2 py-1 whitespace-nowrap"><label className="inline-flex items-center gap-1"><input type="checkbox" checked={d.blocks[b].on} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], on: e.target.checked } } })} /><input type="time" value={d.blocks[b].start} disabled={!d.blocks[b].on} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], start: e.target.value } } })} className={inp + " w-[5.6rem] disabled:opacity-40"} /><input type="number" step="any" min={1} max={24} value={d.blocks[b].hours} disabled={!d.blocks[b].on} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], hours: Number(e.target.value) } } })} className={inp + " w-12 text-right disabled:opacity-40"} /></label></td>)}
-                      <td className="px-2 py-1 text-right"><input type="number" min={0} value={d.learnersPerShift} onChange={(e) => setDraft(a, { learnersPerShift: Number(e.target.value) })} className={inp + " w-12 text-right"} /></td>
-                      <td className="px-2 py-1 text-right"><input type="number" min={0} value={d.preceptorsPerShift} onChange={(e) => setDraft(a, { preceptorsPerShift: Number(e.target.value) })} className={inp + " w-12 text-right"} /></td>
-                      <td className="px-2 py-1"><select value={d.dataSource} onChange={(e) => setDraft(a, { dataSource: e.target.value })} className={inp}><option value="VERIFIED">confirmed</option><option value="ESTIMATE">estimate</option><option value="GAP">gap</option></select></td>
+                  {list.map((a) => { const d = draftOf(a); const dirty = !same(d, toDraft(a)); const wk = d.days.length * BLOCKS.filter((b) => d.blocks[b].on).length * d.learnersPerShift; const label = `${a.setting} #${a.assetNumber}`; const isEditing = editing.has(a.id) || dirty;
+                  if (!isEditing) return (
+                    <tr key={a.id} className="border-t border-slate-100">
+                      <td className="px-2 py-1 whitespace-nowrap text-slate-500">{a.assetNumber}{a.externalId ? <span className="block font-mono text-[9px] text-slate-500">{a.externalId}</span> : null}</td>
+                      <td className="px-2 py-1 text-slate-800">{d.assetType}</td>
+                      <td className="px-2 py-1 whitespace-nowrap text-slate-700">{DAYS.map((day) => <span key={day} className={`mr-0.5 inline-block w-3 text-center text-[10px] ${d.days.includes(day) ? "font-semibold text-slate-800" : "text-slate-300"}`} aria-hidden="true">{day[0]}</span>)}<span className="sr-only">{d.days.join(", ") || "no days"}</span></td>
+                      {BLOCKS.map((b) => <td key={b} className="px-2 py-1 whitespace-nowrap text-slate-700">{d.blocks[b].on ? `${d.blocks[b].start} · ${d.blocks[b].hours} h` : <span className="text-slate-300">off</span>}</td>)}
+                      <td className="px-2 py-1 text-right tabular-nums text-slate-800">{d.learnersPerShift}</td>
+                      <td className="px-2 py-1 text-right tabular-nums text-slate-800">{d.preceptorsPerShift}</td>
+                      <td className="px-2 py-1"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${d.dataSource === "VERIFIED" ? "bg-emerald-100 text-emerald-800" : d.dataSource === "GAP" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>{d.dataSource === "VERIFIED" ? "confirmed" : d.dataSource === "GAP" ? "gap" : "estimate"}</span></td>
+                      <td className="px-2 py-1 text-right tabular-nums text-slate-600">{dec(wk)}{a.exceptions ? <span className="block text-[9px] text-amber-700">{a.exceptions} exception{a.exceptions === 1 ? "" : "s"}</span> : null}</td>
+                      <td className="px-2 py-1 whitespace-nowrap text-right"><button type="button" onClick={() => openRow(a.id)} aria-label={`Edit ${label}`} className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-50">edit</button></td>
+                    </tr>
+                  );
+                  return (
+                    <tr key={a.id} className={`border-t border-slate-100 ${dirty ? "bg-amber-50/40" : "bg-sky-50/30"}`}>
+                      <td className="px-2 py-1 whitespace-nowrap text-slate-500">{a.assetNumber}{a.externalId ? <span className="block font-mono text-[9px] text-slate-500">{a.externalId}</span> : null}</td>
+                      <td className="px-2 py-1"><input value={d.assetType} onChange={(e) => setDraft(a, { assetType: e.target.value })} aria-label={`What ${label} is`} className={inp + " w-36"} /></td>
+                      <td className="px-2 py-1 whitespace-nowrap">{DAYS.map((day) => { const on = d.days.includes(day); return <button key={day} type="button" aria-pressed={on} aria-label={`${day} — ${label}`} onClick={() => setDraft(a, { days: on ? d.days.filter((x) => x !== day) : DAYS.filter((x) => d.days.includes(x) || x === day) })} className={`mr-0.5 rounded px-1 py-0.5 text-[10px] ${on ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-500"}`}>{day[0]}</button>; })}</td>
+                      {BLOCKS.map((b) => <td key={b} className="px-2 py-1 whitespace-nowrap"><span className="inline-flex items-center gap-1"><input type="checkbox" checked={d.blocks[b].on} aria-label={`${b} shift on — ${label}`} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], on: e.target.checked } } })} /><input type="time" value={d.blocks[b].start} disabled={!d.blocks[b].on} aria-label={`${b} shift start — ${label}`} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], start: e.target.value } } })} className={inp + " w-[5.6rem] disabled:opacity-40"} /><input type="number" step="any" min={1} max={24} value={d.blocks[b].hours} disabled={!d.blocks[b].on} aria-label={`${b} shift hours — ${label}`} onChange={(e) => setDraft(a, { blocks: { ...d.blocks, [b]: { ...d.blocks[b], hours: Number(e.target.value) } } })} className={inp + " w-12 text-right disabled:opacity-40"} /></span></td>)}
+                      <td className="px-2 py-1 text-right"><input type="number" min={0} value={d.learnersPerShift} aria-label={`Learners per shift — ${label}`} onChange={(e) => setDraft(a, { learnersPerShift: Number(e.target.value) })} className={inp + " w-12 text-right"} /></td>
+                      <td className="px-2 py-1 text-right"><input type="number" min={0} value={d.preceptorsPerShift} aria-label={`Preceptors per shift — ${label}`} onChange={(e) => setDraft(a, { preceptorsPerShift: Number(e.target.value) })} className={inp + " w-12 text-right"} /></td>
+                      <td className="px-2 py-1"><select value={d.dataSource} aria-label={`Data source — ${label}`} onChange={(e) => setDraft(a, { dataSource: e.target.value })} className={inp}><option value="VERIFIED">confirmed</option><option value="ESTIMATE">estimate</option><option value="GAP">gap</option></select></td>
                       <td className="px-2 py-1 text-right tabular-nums text-slate-600">{dec(wk)}{a.exceptions ? <span className="block text-[9px] text-amber-600">{a.exceptions} exception{a.exceptions === 1 ? "" : "s"}</span> : null}</td>
                       <td className="px-2 py-1 whitespace-nowrap text-right">
-                        {dirty ? <><button disabled={pending} onClick={() => start(async () => { await saveClinicalAsset(employerId, a.id, toInput(a, d)); setDrafts((m) => { const c = { ...m }; delete c[a.id]; return c; }); refresh(); })} className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white">save</button><button onClick={() => setDrafts((m) => { const c = { ...m }; delete c[a.id]; return c; })} className="ml-1 text-[10px] text-slate-400 hover:text-slate-700">undo</button></> : <>
-                          <button disabled={pending} onClick={() => { const n = Number(prompt("How many more like this?", "1")); if (n > 0) start(async () => { await duplicateClinicalAsset(a.id, n); refresh(); }); }} className="text-[10px] text-slate-500 hover:text-rose-700" title="add more like this">+ like this</button>
-                          <button disabled={pending} onClick={() => { if (confirm(`Remove ${a.setting} #${a.assetNumber}?`)) start(async () => { await deleteClinicalAsset(a.id, employerId); refresh(); }); }} className="ml-2 text-slate-300 hover:text-rose-600" title="remove">✕</button>
+                        {dirty ? <><button disabled={pending} aria-label={`Save ${label}`} onClick={() => start(async () => { await saveClinicalAsset(employerId, a.id, toInput(a, d)); setDrafts((m) => { const c = { ...m }; delete c[a.id]; return c; }); closeRow(a.id); refresh(); })} className="rounded bg-rose-600 px-2 py-0.5 text-[10px] font-medium text-white">save</button><button aria-label={`Undo changes to ${label}`} onClick={() => { setDrafts((m) => { const c = { ...m }; delete c[a.id]; return c; }); closeRow(a.id); }} className="ml-1 text-[10px] text-slate-500 hover:text-slate-700">undo</button></> : <>
+                          <button type="button" onClick={() => closeRow(a.id)} aria-label={`Done editing ${label}`} className="rounded border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-white">done</button>
+                          <button disabled={pending} onClick={() => { const n = Number(prompt("How many more like this?", "1")); if (n > 0) start(async () => { await duplicateClinicalAsset(a.id, n); refresh(); }); }} aria-label={`Add more like ${label}`} className="ml-2 text-[10px] text-slate-600 hover:text-rose-700" title="add more like this">+ like this</button>
+                          <button disabled={pending} onClick={() => { if (confirm(`Remove ${a.setting} #${a.assetNumber}?`)) start(async () => { await deleteClinicalAsset(a.id, employerId); refresh(); }); }} aria-label={`Remove ${label}`} className="ml-2 text-slate-500 hover:text-rose-600" title="remove">✕</button>
                         </>}
                       </td>
                     </tr>
@@ -111,7 +130,7 @@ export function AssetRoster({ employerId, siteName, siteExternalId, assets, sett
           </table>
         </div>
       )}
-      <p className="text-[11px] text-slate-400">Closures and other day-by-day exceptions are set on the <Link href={organizationHref} className="text-rose-600 hover:underline">organization record</Link>.</p>
+      <p className="text-[11px] text-slate-500">Rows read as text; press <em>edit</em> on a row to change it, then <em>save</em> — each row saves on its own and closes. Closures and other day-by-day exceptions are set on the <Link href={organizationHref} className="text-rose-600 hover:underline">organization record</Link>.</p>
     </div>
   );
 }
