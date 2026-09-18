@@ -7,10 +7,11 @@ import { coverageHeadline, HEADLINE_TONE, EVIDENCE_LABEL, EVIDENCE_TONE, provisi
 
 /** "Potential coverage identified for 42/42. Confirmed: 0/42." — green only when every required
  *  experience is confirmed with a site; amber while any rests on inference; rose while any has no provider. */
-export function CoverageHeadline({ score, href, unverifiedStandard = false, className = "" }: { score: CoverageScore; href?: string; unverifiedStandard?: boolean; className?: string }) {
+export function CoverageHeadline({ score, href, unverifiedStandard = false, blocked = 0, className = "" }: { score: CoverageScore; href?: string; unverifiedStandard?: boolean; /** Unresolved blockers for the same program (Phase 7): the badge never reads green while any stands. */ blocked?: number; className?: string }) {
   const h = coverageHeadline(score);
-  const cls = `inline-flex flex-wrap items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${HEADLINE_TONE[h.tone]} ${className}`;
-  const body = <>{h.text}{unverifiedStandard && <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-300">based on unverified standard</span>}</>;
+  const tone = blocked > 0 && h.tone === "success" ? "potential" : h.tone;
+  const cls = `inline-flex flex-wrap items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium ${HEADLINE_TONE[tone]} ${className}`;
+  const body = <>{h.text}{blocked > 0 && <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-rose-800 ring-1 ring-rose-300" title="a coverage figure cannot be green while a blocker for this program stands">{blocked} blocker{blocked === 1 ? "" : "s"} first</span>}{unverifiedStandard && <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-amber-300">based on unverified standard</span>}</>;
   return href ? <Link href={href} className={cls}>{body}</Link> : <span className={cls}>{body}</span>;
 }
 

@@ -5,12 +5,15 @@ import { provisionalVerdict } from "@/lib/evidence";
 import { deleteNorthStarGoal } from "@/lib/actions";
 import { NewGoalForm } from "@/components/NewGoalForm";
 import { fmt } from "@/lib/format";
+import { getExceptionQueue, blockedFamilies } from "@/lib/exceptions";
+import { ExceptionQueue } from "@/components/ExceptionQueue";
 
 export const dynamic = "force-dynamic";
 
-// The home page reads by INSTITUTION: each college or university, then the
-// jobs it is working toward (each with its North-Star goal), then the
-// programs that deliver toward each job.
+// The home page (Phase 7) leads with the exception queue — the most consequential unresolved
+// problems, each linking to where it gets fixed — then reads by INSTITUTION: each college, the
+// jobs it is working toward (each with its North-Star goal), the programs that deliver toward
+// each job; setup and the analytics directory sit at the bottom.
 
 const CRED_BADGE: Record<string, string> = {
   AAS: "bg-rose-100 text-rose-700", BSN: "bg-fuchsia-100 text-fuchsia-700", Diploma: "bg-violet-100 text-violet-700",
@@ -20,8 +23,9 @@ const TERM_LABEL: Record<string, string> = { FALL: "Fall", SPRING: "Spring", SUM
 const entryOf = (launchTerms: string) => launchTerms.split(",").map((t) => TERM_LABEL[t.trim()] ?? t.trim()).filter(Boolean).join(" · ");
 
 export default async function HomePage() {
-  const [institutions, lite, clinical, provenance] = await Promise.all([getInstitutionsHome(), getInstitutionsLite(), getFamiliesClinical(), getCalendarProvenance()]);
+  const [institutions, lite, clinical, provenance, exceptions] = await Promise.all([getInstitutionsHome(), getInstitutionsLite(), getFamiliesClinical(), getCalendarProvenance(), getExceptionQueue()]);
   const clinicalOf = new Map(clinical.map((c) => [c.id, c]));
+  const blocked = blockedFamilies(exceptions);
   const datesOf = new Map(provenance.institutions.map((i) => [i.id, provisionalVerdict(i)]));
   const thisYear = new Date().getUTCFullYear();
   const totals = {
@@ -44,9 +48,13 @@ export default async function HomePage() {
         <NewGoalForm institutions={lite} />
       </div>
 
+      {/* Exceptions first (Phase 7): what is wrong, worst first, each with the screen that fixes it. */}
+      <ExceptionQueue items={exceptions} />
+
       {/* Jump list */}
       <div className="flex flex-wrap gap-1.5 text-xs">
         {institutions.map((i) => <a key={i.id} href={`#inst-${i.id}`} className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">{i.shortName ?? i.name}</a>)}
+        <a href="#directory" className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600 hover:bg-rose-100 hover:text-rose-700">Setup &amp; analytics</a>
       </div>
 
       {institutions.map((inst) => (
@@ -125,7 +133,8 @@ export default async function HomePage() {
                         <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
                           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Evidence — what is confirmed, what is only inferred</div>
                           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                            {cl?.score ? <CoverageHeadline score={cl.score} href={pid ? `/programs/${pid}/clinical` : `/families/${f.id}/clinical`} unverifiedStandard={!!cl.requirements && !cl.requirements.verified} /> : cl?.requirements ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no clinical site scored yet</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no requirement set loaded</span>}
+                            {(blocked.get(f.id) ?? 0) > 0 && <a href="#exceptions" className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white hover:bg-rose-700" title="unresolved blockers for this program — listed in the exception queue above">⛔ {blocked.get(f.id)} blocker{blocked.get(f.id) === 1 ? "" : "s"} — fix first ↑</a>}
+                            {cl?.score ? <CoverageHeadline score={cl.score} href={pid ? `/programs/${pid}/clinical` : `/families/${f.id}/clinical`} unverifiedStandard={!!cl.requirements && !cl.requirements.verified} blocked={blocked.get(f.id) ?? 0} /> : cl?.requirements ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no clinical site scored yet</span> : <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-500">no requirement set loaded</span>}
                             {cl && <Link href={pid ? `/programs/${pid}/clinical#sites` : `/families/${f.id}/clinical#sites`} className="rounded-full bg-white px-2 py-0.5 text-slate-600 ring-1 ring-slate-200 hover:ring-rose-300">{cl.sites} sites · {cl.secured} secured{cl.score && cl.score.unverified ? ` · ${cl.score.unverified} experiences rest on inference` : ""}</Link>}
                             {dates && <Link href={`/scheduler?inst=${inst.id}`} className={`rounded-full px-2 py-0.5 ring-1 ${dates.level === "provisional" ? "bg-amber-50 text-amber-800 ring-amber-200" : dates.level === "hand-set" ? "bg-white text-slate-600 ring-slate-200" : "bg-white text-emerald-700 ring-emerald-200"}`} title={dates.text}>{dates.level === "provisional" ? "dates provisional — no college calendar" : dates.level === "hand-set" ? "some term dates set by hand" : "dates from the college calendar"}</Link>}
                             {cl?.requirements && !cl.requirements.verified && !cl.score && <UnverifiedStandard verified={false} size="xs" />}
@@ -140,6 +149,25 @@ export default async function HomePage() {
           </div>
         </section>
       ))}
+
+      {/* Setup and the analytics directory — below the goals (Phase 7). */}
+      <section id="directory" className="scroll-mt-16 rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+        <h2 className="text-sm font-semibold text-slate-700">Setup &amp; analytics</h2>
+        <div className="mt-2 grid gap-4 md:grid-cols-2">
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Setup, by college</div>
+            <ul className="space-y-1 text-xs">
+              {institutions.map((i) => <li key={i.id}><Link href={`/orgs/${i.id}`} className="font-medium text-rose-700 hover:underline">{i.name} →</Link> <span className="text-slate-500">{i.families.length} target job{i.families.length === 1 ? "" : "s"} · {i.programs} program{i.programs === 1 ? "" : "s"} · {fmt.num(i.sites)} clinical sites · {datesOf.get(i.id)?.level === "ok" ? "dates from the college calendar" : datesOf.get(i.id)?.level === "hand-set" ? "some term dates set by hand" : "no college calendar — dates provisional"}</span></li>)}
+            </ul>
+          </div>
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Analytics</div>
+            <ul className="flex flex-wrap gap-1.5 text-xs">
+              {([["Clinical scheduler", "/scheduler"], ["Daily coverage", "/insights/coverage"], ["Clinical site capacity", "/insights/clinical-sites"], ["Clinical site load", "/insights/site-load"], ["Staffing need", "/insights/staffing-need"], ["Room utilization", "/utilization"], ["Asset supply", "/supply"], ["Learner analytics", "/students/analytics"], ["Calendar", "/calendar"], ["Glossary", "/glossary"]] as [string, string][]).map(([l, h]) => <li key={h}><Link href={h} className="rounded-full bg-white px-2.5 py-1 font-medium text-slate-600 ring-1 ring-slate-200 hover:text-rose-700 hover:ring-rose-300">{l}</Link></li>)}
+            </ul>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

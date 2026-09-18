@@ -3022,7 +3022,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
     const fam = co.program.family;
     const settingSet = fam ? familySettingSet(fam, { sets: fam.requirementSets }) : new Set<string>();
     const agreementBy = new Map((fam?.familySites ?? []).map((f) => [f.employerId, f.agreementStatus]));
-    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
+    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, preceptorsNeeded: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
     for (const s of shifts) {
       const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
       const employerId = s.asset?.employerId ?? m?.employerId ?? null;
@@ -3040,7 +3040,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
         setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
         preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,
         agreement: employerId ? agreementBy.get(employerId) ?? e?.agreementStatus ?? "none" : "none",
-        studentStatus: s.student.status, keepAssignments: s.student.keepAssignments,
+        studentStatus: s.student.status, keepAssignments: s.student.keepAssignments, preceptorsNeeded: s.session.preceptorsNeeded ?? 0,
       });
     }
   }

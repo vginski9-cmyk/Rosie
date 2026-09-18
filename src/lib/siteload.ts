@@ -17,6 +17,8 @@ export interface LoadRow {
   agreement: string;
   /** The student's lifecycle status today, and whether their future assignments are deliberately kept (Phase 4). */
   studentStatus: string; keepAssignments: boolean;
+  /** Preceptors the session needs (0 = instructor-led) — the exception queue reads an unnamed preceptor as a gap only when one is needed (Phase 7). */
+  preceptorsNeeded?: number;
 }
 
 /** Withdrawn students leave FUTURE operational demand unless explicitly kept (Phase 4): their past shifts stay
