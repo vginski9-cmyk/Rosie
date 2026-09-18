@@ -1,4 +1,4 @@
-import { getCapacityModel, getSchedulerData } from "@/lib/queries";
+import { getCapacityModel, getSchedulerData, getCalendarProvenance } from "@/lib/queries";
 import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
@@ -15,6 +15,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   // The same window the apply action rebuilds the plan in — see lib/schedulerplan.
   const { from, to } = schedulerWindow(data.cohorts);
   const sched = await getSchedulerData(data.institution.id, from, to);
+  const provenance = (await getCalendarProvenance(data.institution.id)).all;
   return (
     <div className="space-y-6">
       <div>
@@ -22,6 +23,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         <p className="text-sm text-slate-500">Every dated clinical shift (demand) placed onto every site&apos;s assets (supply), with the reason for each clinical placement and what would fix each gap. Nothing is written until you apply the plan.</p>
       </div>
       <ScopeStrip
+        provisional={provenance}
         shows="A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load."
         population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
         window={`${from} → ${to} (adjustable in the levers)`}

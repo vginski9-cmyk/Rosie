@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getProgramFull, getProgramOfferings } from "@/lib/queries";
 import { duplicateProgram, deleteProgram, createOffering } from "@/lib/actions";
 import { fmt } from "@/lib/format";
+import { ProvisionalDatesBanner } from "@/components/Evidence";
+import { getCalendarProvenance } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +13,14 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const program = await getProgramFull(params.id);
   if (!program) notFound();
   const offerings = await getProgramOfferings(params.id);
+  const provenance = (await getCalendarProvenance(program.institutionId)).all;
   const northStar = program.yearTargets.find((t) => t.credentialTarget != null);
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? northStar?.cohortCapacity ?? 40);
   const STATUS: Record<string, string> = { active: "bg-emerald-100 text-emerald-700", planned: "bg-sky-100 text-sky-700", completed: "bg-slate-200 text-slate-600", archived: "bg-slate-100 text-slate-400" };
 
   return (
     <div className="space-y-6">
+      <ProvisionalDatesBanner provenance={provenance} />
       {/* Offerings */}
       <section className="card card-pad space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">

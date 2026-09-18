@@ -371,6 +371,8 @@ async function loadRadAssetMap(institutionId: string) {
         employerId, externalId: a.assetId, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber,
         operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, serves: a.serves,
         learnersPerShift: 1, preceptorsPerShift: 1, dataSource: "VERIFIED",
+        // Provenance: the room list is the college's own master asset map; nobody at the site has verified it in Rosie.
+        evidenceSource: "Sandhills master asset & shift map (workbook)", verifiedAt: null,
       },
     });
     assetIds.set(a.assetId, row.id);
@@ -656,6 +658,7 @@ async function loadClinicalModels(institutionId: string) {
         const capacity = Math.min(cap.physical, staff);
         await prisma.familySite.update({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, data: {
           qualifiedStaffOnShift: staff, staffCountSource: "ESTIMATE", studentHoursWindow: "07:00–15:30",
+          evidenceSource: "seeded estimate from the asset map — not confirmed with the site", verifiedAt: null,
           accreditorStatus: status === "secured" && capacity > 0 ? "recognized" : status === "asked" && capacity > 0 ? "requested" : "none",
           approvedCapacity: status === "secured" && capacity > 0 ? capacity : null, requestedCapacity: status === "asked" && capacity > 0 ? capacity : null,
           accreditorNotes: status === "secured" ? "Seeded as recognized at today's resources — replace with the capacity on the JRCERT recognition letter." : null, capacityUpdatedAt: new Date(),

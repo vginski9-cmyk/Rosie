@@ -16,6 +16,7 @@ import { computeCohortTiming, calendarWeeksBetween, seasonOfTerm, type TimingTer
 import { buildInstances, lastSessionDate, weeklyNeedByKind, type CohortCalendarInput } from "@/lib/capacitymodel";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { Collapse } from "@/components/Collapse";
+import { ProvisionalDatesBanner, UnverifiedStandard } from "@/components/Evidence";
 import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
 import { BENCHMARK_RATES, type LadderRates } from "@/lib/northstar";
 import { alignOffering, SOURCE_LABEL, type DateSource } from "@/lib/termalign";
@@ -146,6 +147,15 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           <p className="mt-1 text-sm text-slate-500">Ran {exactDate(offering.startDate ?? timing.startDate)} – {exactDate(lastDay ?? timing.endDate)} · completed</p>
         )}
       </div>
+
+      {/* Where this offering's dates come from (Phase 3): provisional until the college calendar is imported and the terms are taken from it. */}
+      <ProvisionalDatesBanner provenance={{
+        calendarImported: (program.institution?.academicEvents ?? []).some((e) => e.kind === "term_start"),
+        termsTotal: offering.cohortTerms.length,
+        termsFromCalendar: offering.cohortTerms.filter((ct) => ct.source === "calendar").length,
+        termsHandSet: offering.cohortTerms.filter((ct) => ct.source === "chosen" || ct.source === "manual").length,
+        termsPattern: offering.cohortTerms.filter((ct) => !ct.source || ct.source === "pattern" || ct.source === "template").length,
+      }} />
 
       {/* Counts + timing */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -343,7 +353,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           <Collapse
             title="Completion requirements — the credentialing body's list"
             sub={`${reqProgress.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")}: every student's standing, what the cohort still needs, and which sites provide it`}
-            summary={<>{reqProgress.sets.map((x) => `${x.complete} of ${reqProgress.students} complete`).join(" · ")}</>}
+            summary={<>{reqProgress.sets.map((x) => `${x.complete} of ${reqProgress.students} complete`).join(" · ")}{reqProgress.sets.some((x) => !x.verified) && <> <UnverifiedStandard verified={false} size="xs" /></>}</>}
             defaultOpen
           >
             <CohortRequirementProgress data={reqProgress} base={`/programs/${program.id}/offerings/${params.cohortId}`} />

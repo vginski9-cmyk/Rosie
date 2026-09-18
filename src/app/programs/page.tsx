@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getInstitutionsHome, getFamiliesClinical } from "@/lib/queries";
 import { fmt } from "@/lib/format";
+import { CoverageHeadline } from "@/components/Evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -54,8 +55,8 @@ export default async function ProgramsPage() {
               {cl && (
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">{cl.sites} clinical sites · <span className="text-emerald-700">{cl.secured} secured</span></span>
-                  {cl.score && <span className={`rounded-full px-2 py-0.5 font-medium ${cl.score.requiredCovered === cl.score.required ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{cl.score.requiredCovered} of {cl.score.required} required experiences covered</span>}
-                  {cl.requirements && !cl.requirements.verified && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">requirement list unverified</span>}
+                  {cl.score && <CoverageHeadline score={cl.score} unverifiedStandard={!!cl.requirements && !cl.requirements.verified} />}
+                  {!cl.score && cl.requirements && !cl.requirements.verified && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">requirement list unverified</span>}
                 </div>
               )}
             </section>

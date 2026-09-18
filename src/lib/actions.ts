@@ -581,7 +581,9 @@ export async function saveCourseRequirements(courseId: string, familyId: string,
 }
 
 export async function upsertFamilySite(familyId: string, employerId: string, formData: FormData): Promise<void> {
-  const data = { agreementStatus: str(formData.get("agreementStatus")) || "none", contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, notes: str(formData.get("notes")) || null };
+  const verifiedRaw = str(formData.get("verifiedAt")), reviewRaw = str(formData.get("reviewBy"));
+  // Provenance (Phase 3): where the agreement and figures came from, who owns them, when verified, when to review.
+  const data = { agreementStatus: str(formData.get("agreementStatus")) || "none", contactName: str(formData.get("contactName")) || null, contactEmail: str(formData.get("contactEmail")) || null, notes: str(formData.get("notes")) || null, evidenceSource: str(formData.get("evidenceSource")) || null, evidenceOwner: str(formData.get("evidenceOwner")) || null, verifiedAt: verifiedRaw ? new Date(verifiedRaw + "T00:00:00Z") : null, reviewBy: reviewRaw ? new Date(reviewRaw + "T00:00:00Z") : null };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
   revalidateFamilySite(familyId, employerId);
 }
@@ -599,24 +601,19 @@ export async function addSiteToProgram(familyId: string, formData: FormData): Pr
  *  `note_<id>`. */
 export async function saveSiteProvisions(familyId: string, employerId: string, formData: FormData): Promise<void> {
   const ids = [...formData.keys()].filter((k) => k.startsWith("st_")).map((k) => k.slice(3));
+  const confirmedBy = str(formData.get("confirmedBy")), reviewRaw = str(formData.get("reviewBy"));
+  const reviewBy = reviewRaw ? new Date(reviewRaw + "T00:00:00Z") : null;
+  const now = new Date();
   for (const itemId of ids) {
     const st = str(formData.get(`st_${itemId}`));
     if (st === "assets" || st === "") { await prisma.siteRequirementProvision.deleteMany({ where: { employerId, itemId } }); continue; }
     if (!["provides", "limited", "none"].includes(st)) continue;
     const vol = str(formData.get(`vol_${itemId}`));
-    const data = { status: st, annualVolume: vol === "" ? null : Math.max(0, Math.round(numOr(vol, 0))), studentRole: joinScrubRoles(SCRUB_ROLES.filter((r) => !!formData.get(`role_${itemId}_${r.replace(/ /g, "_")}`))), source: str(formData.get(`src_${itemId}`)) === "ESTIMATE" ? "ESTIMATE" : "VERIFIED", notes: str(formData.get(`note_${itemId}`)) || null };
+    const source = str(formData.get(`src_${itemId}`)) === "ESTIMATE" ? "ESTIMATE" : "VERIFIED";
+    // Provenance (Phase 3): a VERIFIED row records who confirmed it with the site and when; an estimate records neither.
+    const data = { status: st, annualVolume: vol === "" ? null : Math.max(0, Math.round(numOr(vol, 0))), studentRole: joinScrubRoles(SCRUB_ROLES.filter((r) => !!formData.get(`role_${itemId}_${r.replace(/ /g, "_")}`))), source, notes: str(formData.get(`note_${itemId}`)) || null, evidenceOwner: source === "VERIFIED" ? (confirmedBy || null) : null, verifiedAt: source === "VERIFIED" ? now : null, reviewBy };
     await prisma.siteRequirementProvision.upsert({ where: { employerId_itemId: { employerId, itemId } }, update: data, create: { employerId, itemId, ...data } });
   }
-  revalidateFamilySite(familyId, employerId);
-}
-/** Confirm every experience the asset map only infers at this site as verified-provided (the site said yes to the list). */
-export async function confirmInferredProvisions(familyId: string, employerId: string, setId: string): Promise<void> {
-  const { siteFit } = await import("./requirements");
-  const { getFamilyRequirements } = await import("./queries");
-  const req = await getFamilyRequirements(familyId);
-  const set = req?.sets.find((x) => x.id === setId); const site = req?.sites.find((x) => x.employerId === employerId);
-  if (!set || !site) return;
-  for (const f of siteFit(site, set.items, set.provisions)) if (f.basis === "inferred") await prisma.siteRequirementProvision.upsert({ where: { employerId_itemId: { employerId, itemId: f.item.id } }, update: { status: "provides", source: "VERIFIED" }, create: { employerId, itemId: f.item.id, status: "provides", source: "VERIFIED" } });
   revalidateFamilySite(familyId, employerId);
 }
 export async function removeFamilySite(familyId: string, employerId: string): Promise<void> {
@@ -707,8 +704,9 @@ const assetRowFrom = (d: AssetInput) => {
     days: (days.length ? days : ["Mon", "Tue", "Wed", "Thu", "Fri"]).join(","), shiftBlocks: (blocks.length ? blocks : ["Day"]).join(","),
     dayStart: b("Day")?.start || "07:00", dayHours: b("Day")?.hours || 8, eveningStart: b("Evening")?.start || "15:00", eveningHours: b("Evening")?.hours || 8, nightStart: b("Night")?.start || "23:00", nightHours: b("Night")?.hours || 8,
     hoursPerShift: b("Day")?.hours || b("Evening")?.hours || b("Night")?.hours || 8,
-    serves: d.serves?.trim() || null, learnersPerShift: Math.max(0, Math.round(d.learnersPerShift ?? 1)), preceptorsPerShift: Math.max(0, Math.round(d.preceptorsPerShift ?? 1)),
-    dataSource: d.dataSource || "ESTIMATE", notes: d.notes?.trim() || null,
+    // Missing is not one seat (Phase 3): with no learners-per-shift figure the asset hosts 0 and is a GAP until someone fills it in.
+    serves: d.serves?.trim() || null, learnersPerShift: d.learnersPerShift == null ? 0 : Math.max(0, Math.round(d.learnersPerShift)), preceptorsPerShift: Math.max(0, Math.round(d.preceptorsPerShift ?? 1)),
+    dataSource: d.learnersPerShift == null ? "GAP" : (d.dataSource || "ESTIMATE"), notes: d.notes?.trim() || null,
     accreditorClass: d.accreditorClass || null,
   };
 };
@@ -882,7 +880,11 @@ export async function saveCourseRequirementPlan(courseId: string, programId: str
 
 // ── Requirement sets (what completion requires) ───────────────────────────────
 export async function updateRequirementSet(setId: string, formData: FormData): Promise<void> {
-  const set = await prisma.clinicalRequirementSet.update({ where: { id: setId }, data: { verified: formData.get("verified") != null, edition: str(formData.get("edition")) || null, summary: str(formData.get("summary")) || null, notes: str(formData.get("notes")) || null, sourceUrl: str(formData.get("sourceUrl")) || null }, select: { familyId: true } });
+  const verified = formData.get("verified") != null;
+  const before = await prisma.clinicalRequirementSet.findUnique({ where: { id: setId }, select: { verified: true, verifiedAt: true } });
+  const reviewRaw = str(formData.get("reviewBy"));
+  // Provenance (Phase 3): marking the list verified records who and when; unticking clears both.
+  const set = await prisma.clinicalRequirementSet.update({ where: { id: setId }, data: { verified, verifiedBy: verified ? (str(formData.get("verifiedBy")) || null) : null, verifiedAt: verified ? (before?.verified && before.verifiedAt ? before.verifiedAt : new Date()) : null, reviewBy: reviewRaw ? new Date(reviewRaw + "T00:00:00Z") : null, edition: str(formData.get("edition")) || null, summary: str(formData.get("summary")) || null, notes: str(formData.get("notes")) || null, sourceUrl: str(formData.get("sourceUrl")) || null }, select: { familyId: true } });
   revalidatePath(`/families/${set.familyId}/clinical`);
 }
 export async function updateRequirementItem(itemId: string, formData: FormData): Promise<void> {

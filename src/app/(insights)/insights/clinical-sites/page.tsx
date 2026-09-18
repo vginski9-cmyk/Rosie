@@ -1,4 +1,4 @@
-import { getCapacityModel, getClinicalSupply, getAssetMap } from "@/lib/queries";
+import { getCapacityModel, getClinicalSupply, getAssetMap, getCalendarProvenance } from "@/lib/queries";
 import { schedulerWindow } from "@/lib/schedulerplan";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { CapacityBoard } from "@/components/CapacityBoard";
@@ -17,6 +17,7 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
   const { from, to } = schedulerWindow(data.cohorts);
   const year = Number(from.slice(0, 4)) + 1;
   const map = await getAssetMap(data.institution.id, from, to);
+  const provenance = (await getCalendarProvenance(data.institution.id)).all;
   return (
     <div className="space-y-6">
       <div>
@@ -24,6 +25,7 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
         <p className="text-sm text-slate-500">Every asset on every calendar day against the learners booked on it — can the sites absorb the cohorts?</p>
       </div>
       <ScopeStrip
+        provisional={provenance}
         shows="Requirements against a physical ceiling — each date × shift × setting: the learner-shifts the offerings need against what the assets could host. No plan, no preceptors, no holidays, no travel: the ceiling the scheduler places within."
         population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
         window={`${from} → ${to}`}

@@ -281,7 +281,7 @@ export async function loadSandhillsSites(prisma: PrismaClient, institutionId: st
       if (!e.assets.some((a) => codes.includes(a.settingCode))) continue;
       const h = hash(`${f.id}|${e.id}`) % 100;
       const status = e.agreementStatus === "secured" ? (h < 80 ? "secured" : "asked") : e.agreementStatus === "asked" ? (h < 60 ? "asked" : h < 80 ? "secured" : "prospect") : h < 25 ? "asked" : h < 40 ? "secured" : "prospect";
-      await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: f.id, employerId: e.id } }, update: {}, create: { familyId: f.id, employerId: e.id, agreementStatus: status } });
+      await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: f.id, employerId: e.id } }, update: {}, create: { familyId: f.id, employerId: e.id, agreementStatus: status, evidenceSource: "seeded agreement tier — not confirmed with the site", verifiedAt: null } });
       agreements++;
     }
   }
@@ -303,6 +303,7 @@ async function addKit(prisma: PrismaClient, employerId: string, ext: string, kit
         operatingRule: r.operatingRule, days: r.days, shiftBlocks: hours >= 12 ? r.blocks.split(",").filter((b) => b !== "Evening").join(",") : r.blocks, hoursPerShift: hours,
         dayStart: "07:00", dayHours: hours, eveningStart: hours >= 12 ? "19:00" : "15:00", eveningHours: hours >= 12 ? 12 : 8, nightStart: hours >= 12 ? "19:00" : "23:00", nightHours: hours >= 12 ? 12 : 8,
         serves: k.serves ?? null, learnersPerShift: k.learners, preceptorsPerShift: k.preceptors ?? 1, dataSource,
+        evidenceSource: dataSource === "VERIFIED" ? "state licensure / SMFP facility record" : "seeded estimate from the facility type — not confirmed with the site", verifiedAt: null,
       } });
       existing.push({ settingCode: k.code, assetNumber: num });
       n++;

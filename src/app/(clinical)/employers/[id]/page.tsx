@@ -7,6 +7,7 @@ import { dec, fmt } from "@/lib/format";
 import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
 import { Collapse } from "@/components/Collapse";
+import { UnverifiedStandard } from "@/components/Evidence";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
 import { caseVolumeLine } from "@/lib/surgvolume";
 
@@ -73,9 +74,9 @@ export default async function EmployerPage({ params }: { params: { id: string } 
                     <span className="text-base font-semibold text-slate-900">{f.family.name}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${f.agreement === "secured" ? "bg-emerald-100 text-emerald-800" : f.agreement === "asked" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-500"}`}>{f.inFamily ? f.agreement : "not in this program"}</span>
                   </div>
-                  <div className="mt-2 flex items-baseline justify-between text-xs"><span className="text-slate-600">Required experiences provided here</span><span className={`font-semibold tabular-nums ${pct >= 1 ? "text-emerald-700" : pct > 0 ? "text-amber-700" : "text-slate-500"}`}>{set.requiredProvided} of {set.requiredItems}</span></div>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-400" : "bg-rose-400"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
-                  <div className="mt-1 text-[11px] text-slate-500">{set.missingMandatory.length ? `missing: ${set.missingMandatory.slice(0, 3).join(", ")}${set.missingMandatory.length > 3 ? ` +${set.missingMandatory.length - 3}` : ""}` : "every required experience"}{set.unverified ? ` · ${set.unverified} unconfirmed` : ""}</div>
+                  <div className="mt-2 flex flex-wrap items-baseline justify-between gap-1 text-xs"><span className="text-slate-600">Required experiences here</span><span className={`font-semibold tabular-nums ${set.requiredConfirmed >= set.requiredItems && set.requiredItems > 0 ? "text-emerald-700" : pct > 0 ? "text-amber-700" : "text-slate-500"}`} title="confirmed with the site / reachable (inferred included) / required">{set.requiredConfirmed} confirmed · {set.requiredProvided} of {set.requiredItems}</span></div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className="flex h-full"><div className="h-full bg-emerald-500" style={{ width: `${Math.round((set.requiredItems ? set.requiredConfirmed / set.requiredItems : 0) * 100)}%` }} /><div className="h-full bg-amber-400" style={{ width: `${Math.round(Math.max(0, pct - (set.requiredItems ? set.requiredConfirmed / set.requiredItems : 0)) * 100)}%` }} /></div></div>
+                  <div className="mt-1 text-[11px] text-slate-500">{set.missingMandatory.length ? `missing: ${set.missingMandatory.slice(0, 3).join(", ")}${set.missingMandatory.length > 3 ? ` +${set.missingMandatory.length - 3}` : ""}` : set.requiredConfirmed >= set.requiredItems ? "every required experience confirmed" : "every required experience reachable — none confirmed beyond inference"}{set.unverified ? ` · ${set.unverified} inferred only` : ""} {!set.verified && <UnverifiedStandard verified={false} size="xs" />}</div>
                   <div className="mt-2 text-[11px] font-medium text-rose-700">Set up for {f.family.name} →</div>
                 </Link>
               );

@@ -41,15 +41,17 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
   const otherAssets = d.assets.filter((a) => !a.inFamily);
   const settingOptions = d.settings.map((code) => ({ code, name: SETTING_PRESETS.find((p) => p[0] === code)?.[1] ?? d.areas.find((a) => csv(a.settingCodes).includes(code))?.name ?? code, assetType: SETTING_PRESETS.find((p) => p[0] === code)?.[2] }));
   const preceptors = d.people.filter((p) => p.precepts), others = d.people.filter((p) => p.otherDiscipline);
-  const score = d.sets.reduce((a, s) => ({ requiredProvided: a.requiredProvided + s.score.requiredProvided, required: a.required + s.score.required, unverified: a.unverified + s.score.unverified, unknown: a.unknown + s.score.unknown }), { requiredProvided: 0, required: 0, unverified: 0, unknown: 0 });
-  const steps: { key: string; label: string; done: boolean; href: string }[] = [
+  const score = d.sets.reduce((a, s) => ({ requiredProvided: a.requiredProvided + s.score.requiredProvided, requiredConfirmed: a.requiredConfirmed + s.score.requiredConfirmed, required: a.required + s.score.required, unverified: a.unverified + s.score.unverified, unknown: a.unknown + s.score.unknown }), { requiredProvided: 0, requiredConfirmed: 0, required: 0, unverified: 0, unknown: 0 });
+  const liveAssets = familyAssets.filter((a) => a.status !== "archived");
+  // A step is done only on confirmed evidence (Phase 3): estimates, inference and unknowns do not complete it.
+  const steps: { key: string; label: string; done: boolean; href: string; why?: string }[] = [
     { key: "location", label: "located", done: site.lat != null && !!site.address, href: "#location" },
     { key: "agreement", label: "agreement secured", done: fs?.agreementStatus === "secured", href: "#agreement" },
     ...(fam.accreditor ? [{ key: "accreditor", label: `${fam.accreditor} recognized`, done: fs?.accreditorStatus === "recognized", href: "#accreditor" }] : []),
     { key: "availability", label: "availability agreed", done: !!(fs?.studentsAtOnce || fs?.casesPerDay || fs?.daysAllowed || fs?.blocksAllowed), href: "#availability" },
-    { key: "assets", label: "assets mapped", done: familyAssets.length > 0, href: "#assets" },
-    { key: "staff", label: "qualified staff", done: d.preceptorsInDiscipline > 0 || (fs?.qualifiedStaffOnShift ?? 0) > 0, href: "#staff" },
-    { key: "provides", label: "experiences confirmed", done: score.required > 0 && score.unverified === 0 && score.unknown === 0, href: "#provides" },
+    { key: "assets", label: "assets confirmed", done: liveAssets.length > 0 && liveAssets.every((a) => a.dataSource === "VERIFIED"), href: "#assets", why: liveAssets.length ? `${liveAssets.filter((a) => a.dataSource !== "VERIFIED").length} of ${liveAssets.length} assets are estimates or gaps` : "no assets mapped" },
+    { key: "staff", label: "qualified staff confirmed", done: d.preceptorsInDiscipline > 0 || ((fs?.qualifiedStaffOnShift ?? 0) > 0 && fs?.staffCountSource === "VERIFIED"), href: "#staff", why: fs?.qualifiedStaffOnShift != null && fs.staffCountSource !== "VERIFIED" ? "the staff count is an estimate" : "no named preceptor and no verified count" },
+    { key: "provides", label: "experiences confirmed", done: score.required > 0 && score.requiredConfirmed === score.required && score.unknown === 0, href: "#provides", why: `${score.requiredConfirmed} of ${score.required} required experiences confirmed${score.unknown ? `, ${score.unknown} unknown` : ""}` },
   ];
   const days = csv(fs?.daysAllowed), blocks = csv(fs?.blocksAllowed);
   const impliedCases = fs?.casesPerDay ?? avgCasesPerDay(site, fam.caseDaysPerYear ?? 250);
@@ -72,7 +74,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {steps.map((s, i) => <a key={s.key} href={s.href} className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${s.done ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-rose-300"}`}>{s.done ? "✓" : `${i + 1}`} {s.label}</a>)}
+          {steps.map((s, i) => <a key={s.key} href={s.href} title={s.done ? undefined : s.why} className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${s.done ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:ring-rose-300"}`}>{s.done ? "✓" : `${i + 1}`} {s.label}</a>)}
           <span className="self-center text-[11px] text-slate-400">{steps.filter((s) => s.done).length} of {steps.length} done</span>
         </div>
       </div>
@@ -92,6 +94,12 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
           <label className="block"><span className={lbl}>Clinical contact</span><input name="contactName" defaultValue={fs?.contactName ?? site.contactName ?? ""} className={inp + " w-full"} /></label>
           <label className="block"><span className={lbl}>Contact email</span><input name="contactEmail" type="email" defaultValue={fs?.contactEmail ?? site.contactEmail ?? ""} className={inp + " w-full"} /></label>
           <label className="block lg:col-span-2"><span className={lbl}>Terms &amp; notes</span><input name="notes" defaultValue={fs?.notes ?? ""} placeholder="who signed, when, renewal, orientation, badge lead time" className={inp + " w-full"} /></label>
+          {/* Provenance (Phase 3): where this record's agreement, capacity and staff figures came from and who stands behind them. */}
+          <label className="block lg:col-span-2"><span className={lbl}>Source of this record</span><input name="evidenceSource" defaultValue={fs?.evidenceSource ?? ""} placeholder="signed affiliation agreement · site email · seeded estimate" className={inp + " w-full"} /></label>
+          <label className="block"><span className={lbl}>Owner</span><input name="evidenceOwner" defaultValue={fs?.evidenceOwner ?? ""} placeholder="who keeps it current" className={inp + " w-full"} /></label>
+          <label className="block"><span className={lbl}>Verified on</span><input name="verifiedAt" type="date" defaultValue={fs?.verifiedAt ? fs.verifiedAt.toISOString().slice(0, 10) : ""} className={inp + " w-full"} /></label>
+          <label className="block"><span className={lbl}>Review by</span><input name="reviewBy" type="date" defaultValue={fs?.reviewBy ? fs.reviewBy.toISOString().slice(0, 10) : ""} className={inp + " w-full"} /></label>
+          <p className="text-[11px] text-slate-500 lg:col-span-5">{fs?.verifiedAt ? <>Verified {fs.evidenceOwner ? `by ${fs.evidenceOwner} ` : ""}on {fs.verifiedAt.toISOString().slice(0, 10)}{fs.reviewBy ? `; review by ${fs.reviewBy.toISOString().slice(0, 10)}` : ""}.</> : <span className="text-amber-700">Not verified with the site{fs?.evidenceSource ? ` — ${fs.evidenceSource}` : ""}.</span>}</p>
           <div className="flex items-center gap-3 lg:col-span-5"><button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">{fs ? "Save agreement" : `Add to ${fam.name}`}</button>{fs && <button formAction={removeFamilySite.bind(null, fam.id, site.id)} className="text-[11px] text-slate-400 hover:text-rose-600">Remove from {fam.name}</button>}</div>
         </form>
       </Section>
@@ -133,11 +141,11 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
       </Section>
 
       <section id="provides" className="scroll-mt-16 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-800">{next()} · What this site provides toward completion <span className="font-normal text-slate-400">— inferred from its assets until confirmed; what is missing here must come from another site</span></h2>
+        <h2 className="text-sm font-semibold text-slate-800">{next()} · What this site provides toward completion <span className="font-normal text-slate-400">— only &quot;possible&quot; from its assets until the site confirms each line; what is missing here must come from another site</span></h2>
         {d.sets.length === 0 && <p className="text-xs text-amber-700">No requirement set is loaded for {fam.name}.</p>}
         {d.sets.map((set) => (
           <div key={set.id} className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="mb-2 text-sm font-semibold text-slate-800">{set.name} <span className="font-normal text-slate-500">— {set.authority}</span>{!set.verified && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">starter content — verify the list</span>}</div>
+            <div className="mb-2 text-sm font-semibold text-slate-800">{set.name} <span className="font-normal text-slate-500">— {set.authority}</span>{!set.verified && <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">starter content — verify the list; every figure below is based on an unverified standard</span>}</div>
             <SiteProvisionChecklist familyId={fam.id} employerId={site.id} siteName={site.name} set={set} kind={set.kind} />
           </div>
         ))}

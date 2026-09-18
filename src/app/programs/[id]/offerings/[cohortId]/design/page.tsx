@@ -6,6 +6,8 @@ import { calendarizeCohort } from "@/lib/actions";
 import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/components/OfferingDesign";
 import { holidayMap } from "@/lib/academiccalendar";
 import { SheetImport } from "@/components/SheetImport";
+import { ProvisionalDatesBanner } from "@/components/Evidence";
+import { getCalendarProvenance } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   // This offering's per-term enrollment targets + workload assumptions —
   // they drive column C and every formula column on the sheet below.
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === cohort.id) ?? null;
+  const provenance = (await getCalendarProvenance(program.institutionId)).all;
 
   const ctByTerm = new Map(cohort.cohortTerms.map((ct) => [ct.termId, ct]));
   const terms: DsTerm[] = [...program.terms].sort((a, b) => a.index - b.index).map((t) => ({

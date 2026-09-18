@@ -1091,14 +1091,16 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
   }
   const peak = peakOf(byDate);
   const active = sites.filter((x) => x.status === "active");
-  const supply = active.reduce((n, x) => n + (x.wblSlots ?? 0), 0);
+  // Missing is not zero (Phase 3): a site with no students/day on record is unknown — left out of the sum and named.
+  const known = active.filter((x) => x.wblSlots != null), unknownSites = active.length - known.length;
+  const supply = known.reduce((n, x) => n + (x.wblSlots ?? 0), 0);
   const gap = peak ? supply - peak.value : supply;
   const verdict = !peak
     ? { cls: "bg-slate-100 text-slate-500", label: "no dated clinical demand in the slice" }
     : supply === 0
-      ? { cls: "bg-rose-100 text-rose-700", label: "no active supply — every clinical day is uncovered" }
+      ? { cls: "bg-rose-100 text-rose-700", label: unknownSites ? `no known supply — ${n0(unknownSites)} active site${unknownSites === 1 ? "" : "s"} with students/day unknown` : "no active supply — every clinical day is uncovered" }
       : gap >= 0
-        ? { cls: "bg-emerald-100 text-emerald-700", label: `fits — ${n0(gap)} student-slots of headroom on the peak day` }
+        ? (unknownSites ? { cls: "bg-amber-100 text-amber-800", label: `fits at the ${n0(known.length)} sites with a known capacity — ${n0(gap)} student-slots of headroom; ${n0(unknownSites)} site${unknownSites === 1 ? "" : "s"} unknown` } : { cls: "bg-emerald-100 text-emerald-700", label: `fits — ${n0(gap)} student-slots of headroom on the peak day` })
         : { cls: "bg-rose-100 text-rose-700", label: `short by ${n0(-gap)} students on the peak day — add sites or capacity` };
 
   // Per-setting: match demand (rotation type) against the sites declaring that
@@ -1132,7 +1134,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
       </div>
       <div className="grid gap-3 p-4 sm:grid-cols-3">
         <Peak k="Peak-day demand" v={peak ? `${n0(peak.value)} students` : "—"} d={peak ? `on ${fmtDate(peak.key as string)}` : "no dated clinical sessions"} />
-        <Peak k="Daily supply" v={`${n0(supply)} student-slots`} d={`${active.length} active site${active.length === 1 ? "" : "s"}`} />
+        <Peak k="Daily supply" v={`${n0(supply)} student-slots`} d={`${n0(known.length)} active site${known.length === 1 ? "" : "s"} with a known capacity${unknownSites ? ` · ${n0(unknownSites)} unknown, not counted` : ""}`} />
         <Peak k="Headroom on peak day" v={peak ? `${gap >= 0 ? "+" : ""}${n0(gap)}` : "—"} d={gap >= 0 ? "capacity to spare" : "uncovered students"} />
       </div>
       {settingRows.length > 0 && (
@@ -1191,7 +1193,7 @@ function SupplyVsDemand({ rows, sites }: { rows: DatedInstance[]; sites: Clinica
                   <td className="px-4 py-1.5 font-medium">{x.name}</td>
                   <td className="px-4 py-1.5">{x.setting ?? "—"}</td>
                   <td className="px-4 py-1.5">{x.city ?? "—"}</td>
-                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.wblSlots != null ? n0(x.wblSlots) : "not set"}</td>
+                  <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.wblSlots != null ? n0(x.wblSlots) : <span className="text-amber-700">unknown</span>}</td>
                   <td className="px-4 py-1.5 text-right font-mono tabular-nums">{x.status === "active" && supply > 0 && x.wblSlots ? fmt.pct(x.wblSlots / supply) : "—"}</td>
                   <td className="px-4 py-1.5">{x.status}</td>
                 </tr>

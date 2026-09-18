@@ -166,9 +166,16 @@ The supply ceiling is every asset-shift × learners per shift in the window — 
 
 ### Requirement set, item and provision
 
-The credentialing body's list for a family (ARRT competencies, AST case categories, CMS hours): the set, its items (each with a category, mandatory or elective, and the settings that can provide it), and a provision — whether a given site provides an item, confirmed with the site, estimated, or only inferred from its assets.
+The credentialing body's list for a family (ARRT competencies, AST case categories, CMS hours): the set, its items (each with a category, mandatory or elective, and the settings that can provide it), and a provision — whether a given site provides an item, confirmed with the site, estimated, or only inferred from its assets. A case-log standard's rules (total volume, the First Scrub role, a spread of specialties) are scored as requirement lines beside the items.
 
 - **Where:** The clinical hub's requirements panel, a site's provision checklist, the student's requirement log
+
+### Evidence status
+
+How well a site-experience capability is known, on one ladder: inferred (the asset map implies it, or someone entered an estimate), confirmed (the site said so — a VERIFIED record with who and when), committed (confirmed, with a secured agreement, accreditor recognition where required, and a capacity figure on record), scheduled (a booking exists), verified complete (a preceptor-verified student log). Every headline is computed from the weakest required input: "Potential coverage identified for 42/42. Confirmed: 0/42." Only confirmed and above may read as success. Unknown (no asset, no answer) is neither zero nor available, and a service line a generic asset does not imply reads "possible" until the site confirms it.
+
+- **Retired:** covered (as a success word for an inferred provider)
+- **Where:** Every coverage headline, the requirements panel, a site's setup steps and provision checklist
 
 ### Scope strip
 

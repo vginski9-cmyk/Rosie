@@ -2,6 +2,9 @@ import Link from "next/link";
 import { getSemesterView } from "@/lib/queries";
 import { fmt, dec } from "@/lib/format";
 
+import { ProvisionalDatesBanner } from "@/components/Evidence";
+import { getCalendarProvenance } from "@/lib/queries";
+
 export const dynamic = "force-dynamic";
 
 const SEM_BADGE: Record<string, string> = {
@@ -13,6 +16,7 @@ const md = (d: Date | null) => (d ? new Date(d).toLocaleDateString(undefined, { 
 
 export default async function SemesterPage({ searchParams }: { searchParams: { sem?: string; year?: string } }) {
   const { options, selected, offerings } = await getSemesterView(searchParams.sem, searchParams.year ? Number(searchParams.year) : undefined);
+  const provenance = (await getCalendarProvenance()).all;
 
   // Group the selected semester's offerings by institution → family.
   const byInst = new Map<string, Map<string, typeof offerings>>();
@@ -36,6 +40,7 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
         <p className="text-sm text-slate-500">Every offering in session in one term, side by side, with seats and the combined staffing footprint.</p>
       </div>
 
+      <ProvisionalDatesBanner provenance={provenance} />
       {/* Semester selector */}
       <div className="flex flex-wrap gap-1.5">
         {options.length === 0 && <p className="text-sm text-slate-400">No dated offerings yet.</p>}

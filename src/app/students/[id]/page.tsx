@@ -5,6 +5,7 @@ import { updateStudentEnrollment, createPlacement, updatePlacementStatus, delete
 import { StudentAssignments } from "@/components/StudentAssignments";
 import { RequirementLog } from "@/components/RequirementLog";
 import { Collapse } from "@/components/Collapse";
+import { UnverifiedStandard } from "@/components/Evidence";
 import { SEX, RACE_ETHNICITY, RESIDENCY, PRIOR_EDUCATION, EMPLOYMENT_STATUS, WITHDRAWAL_REASON, NC_COUNTIES, ageOn } from "@/lib/learners";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { fmt, dec } from "@/lib/format";
@@ -38,6 +39,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
   const clinicalShifts = assignments.shifts.length;
   const completedShifts = assignments.shifts.filter((s) => s.status === "completed").length;
   const reqSummary = requirements?.sets.map((s) => (s.progress.complete ? `${s.authority.split(" · ")[0]} complete` : `${fmt.pct(s.progress.pct)} of ${s.authority.split(" · ")[0]}`)).join(" · ");
+  const reqUnverified = !!requirements?.sets.some((s) => !s.verified);
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -50,7 +52,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
         <div className="mt-1 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{student.name}</h1>
-            <p className="text-sm text-slate-500">{student.program.name}{student.cohort ? ` · ${student.cohort.name}` : ""}{student.email ? ` · ${student.email}` : ""}{reqSummary ? ` · ${reqSummary}` : ""}</p>
+            <p className="text-sm text-slate-500">{student.program.name}{student.cohort ? ` · ${student.cohort.name}` : ""}{student.email ? ` · ${student.email}` : ""}{reqSummary ? ` · ${reqSummary}` : ""}{reqSummary && reqUnverified ? <> <UnverifiedStandard verified={false} size="xs" /></> : null}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {stage && <span className="rounded-full px-3 py-1 text-xs font-medium text-white" style={{ background: stage.color }}>{stage.label}</span>}

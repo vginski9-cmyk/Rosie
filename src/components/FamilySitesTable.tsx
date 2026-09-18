@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { getFamilyClinicalSetup } from "@/lib/queries";
 import { addSiteToProgram } from "@/lib/actions";
 import { dec, fmt } from "@/lib/format";
+import { UnverifiedStandard } from "@/components/Evidence";
 
 // THE SITES THAT SERVE ONE PROGRAM — one row each with its setup state and what it
 // contributes, and a folded-away form that adds a site. Server component.
@@ -17,9 +18,11 @@ export function FamilySitesTable({ setup, siteHref }: { setup: Setup; siteHref: 
   const fam = setup.family;
   const inFamily = setup.sites.filter((s) => s.inFamily);
   const candidates = setup.sites.filter((s) => !s.inFamily);
+  const unverifiedStandard = !!setup.req?.sets.some((x) => !x.verified);
   const Row = ({ s }: { s: Setup["sites"][number] }) => {
     const href = siteHref(s.employerId);
     const pct = s.fit.required ? s.fit.requiredProvided / s.fit.required : 0;
+    const pctConfirmed = s.fit.required ? s.fit.requiredConfirmed / s.fit.required : 0;
     const cap = s.studentsAtOnce ?? s.approvedCapacity;
     return (
       <tr className="hover:bg-slate-50/60">
@@ -30,12 +33,13 @@ export function FamilySitesTable({ setup, siteHref }: { setup: Setup; siteHref: 
         <td className="px-2 py-2 align-top whitespace-nowrap">{s.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span> : <span className="text-[10px] text-amber-600">not located</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
         <td className="px-2 py-2 align-top"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT[s.agreementStatus] ?? ""}`}>{s.agreementStatus}</span>{fam.accreditor && <span className={`block text-[10px] ${s.accreditorStatus === "recognized" ? "text-emerald-700" : s.accreditorStatus === "requested" ? "text-amber-700" : "text-slate-400"}`}>{fam.accreditor} {s.accreditorStatus}</span>}</td>
         <td className="px-2 py-2 align-top text-slate-700">{s.assets ? <>{s.assets} · <span className="tabular-nums">{s.seats}</span> seats<span className="block text-[10px] text-slate-400">{Object.entries(s.seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ")}</span></> : <span className="text-amber-600">none</span>}</td>
-        <td className="px-2 py-2 align-top tabular-nums text-slate-700">{s.preceptors}{s.qualifiedStaffOnShift != null && <span className="block text-[10px] text-slate-400">{s.qualifiedStaffOnShift} on shift</span>}</td>
-        <td className="px-2 py-2 align-top whitespace-nowrap text-slate-600">{cap != null ? `${cap} at once` : <span className="text-slate-300">no cap</span>}{fam.capacityBasis === "cases" && <span className="block text-[10px] text-slate-500">{s.casesPerDay != null ? `≈ ${dec(s.casesPerDay, 1)} cases/day${s.annualSurgicalCases != null ? ` · ${fmt.num(s.annualSurgicalCases)}/yr` : ""}` : "no case volume"}</span>}{(s.daysAllowed || s.blocksAllowed) && <span className="block text-[10px] text-slate-400">{[s.daysAllowed, s.blocksAllowed].filter(Boolean).join(" · ")}</span>}</td>
+        <td className="px-2 py-2 align-top tabular-nums text-slate-700">{s.preceptors}{s.qualifiedStaffOnShift != null ? <span className="block text-[10px] text-slate-400">{s.qualifiedStaffOnShift} on shift{s.staffCountSource === "VERIFIED" ? "" : " (estimate)"}</span> : <span className="block text-[10px] text-slate-400">staff on shift unknown</span>}</td>
+        <td className="px-2 py-2 align-top whitespace-nowrap text-slate-600">{cap != null ? `${cap} at once` : <span className="text-slate-400" title="no students-at-once or approved capacity on record — unknown, not unlimited">cap unknown</span>}{fam.capacityBasis === "cases" && <span className="block text-[10px] text-slate-500">{s.casesPerDay != null ? `≈ ${dec(s.casesPerDay, 1)} cases/day${s.casesPerDaySource === "estimated from annual cases" ? " (estimate)" : ""}${s.annualSurgicalCases != null ? ` · ${fmt.num(s.annualSurgicalCases)}/yr` : ""}` : "no case volume — unknown"}</span>}{(s.daysAllowed || s.blocksAllowed) && <span className="block text-[10px] text-slate-400">{[s.daysAllowed, s.blocksAllowed].filter(Boolean).join(" · ")}</span>}</td>
         <td className="px-2 py-2 align-top">
           {s.fit.required > 0 ? <>
-            <div className="flex items-center gap-2"><div className="h-1.5 w-16 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-400" : "bg-rose-400"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div><span className="tabular-nums text-slate-700">{s.fit.requiredProvided} / {s.fit.required}</span></div>
-            <span className="block text-[10px] text-slate-400">{s.fit.electiveProvided} / {s.fit.elective} electives{s.fit.unverified > 0 ? ` · ${s.fit.unverified} unconfirmed` : ""}</span>
+            <div className="flex items-center gap-2" title="confirmed with the site / reachable (any provider, inferred included) / required"><div className="h-1.5 w-16 overflow-hidden rounded bg-slate-100"><div className="flex h-full"><div className="h-full bg-emerald-500" style={{ width: `${Math.round(pctConfirmed * 100)}%` }} /><div className="h-full bg-amber-400" style={{ width: `${Math.round(Math.max(0, pct - pctConfirmed) * 100)}%` }} /></div></div><span className={`tabular-nums ${s.fit.requiredConfirmed === s.fit.required ? "text-emerald-700" : "text-slate-700"}`}>{s.fit.requiredConfirmed} confirmed · {s.fit.requiredProvided} / {s.fit.required}</span></div>
+            <span className="block text-[10px] text-slate-400">{s.fit.electiveProvided} / {s.fit.elective} electives{s.fit.unverified > 0 ? ` · ${s.fit.unverified} inferred only` : ""}{s.fit.possible > 0 ? ` · ${s.fit.possible} service lines unconfirmed` : ""}{s.fit.unknown > 0 ? ` · ${s.fit.unknown} unknown` : ""}</span>
+            {unverifiedStandard && <UnverifiedStandard verified={false} size="xs" />}
           </> : <span className="text-slate-300">—</span>}
         </td>
         <td className="px-2 py-2 align-top whitespace-nowrap text-right">

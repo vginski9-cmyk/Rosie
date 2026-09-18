@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getFamiliesClinical, getFamilyProgramId } from "@/lib/queries";
+import { CoverageHeadline } from "@/components/Evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,9 @@ export default async function ClinicalByProgramPage() {
         {f.requirements ? <p className="mt-2 text-xs text-slate-600">{f.requirements.authority.split(" · ")[0]}: {f.requirements.kind === "cases" ? "case log by specialty and scrub role" : f.requirements.kind === "hours" ? "set hours in set settings" : `${f.requirements.mandatory} required + ${f.requirements.elective} elective competencies`}{f.requirements.verified ? "" : " · unverified"}</p> : <p className="mt-2 text-xs text-amber-700">No requirement set loaded.</p>}
         {pct != null && f.score && (
           <div className="mt-2">
-            <div className="flex items-baseline justify-between text-[11px]"><span className="text-slate-600">Required experiences a secured site provides</span><span className={`font-semibold tabular-nums ${pct >= 1 ? "text-emerald-700" : "text-rose-700"}`}>{f.score.requiredCovered} of {f.score.required}</span></div>
-            <div className="mt-0.5 h-1.5 overflow-hidden rounded bg-slate-100"><div className={`h-full ${pct >= 1 ? "bg-emerald-500" : pct >= 0.8 ? "bg-amber-400" : "bg-rose-500"}`} style={{ width: `${Math.round(pct * 100)}%` }} /></div>
+            <div className="text-[11px] text-slate-600">Required experiences, from the weakest input</div>
+            <div className="mt-0.5"><CoverageHeadline score={f.score} unverifiedStandard={!!f.requirements && !f.requirements.verified} /></div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><div className="flex h-full"><div className="h-full bg-emerald-500" style={{ width: `${Math.round((f.score.requiredConfirmed / f.score.required) * 100)}%` }} /><div className="h-full bg-amber-400" style={{ width: `${Math.round(Math.max(0, pct - f.score.requiredConfirmed / f.score.required) * 100)}%` }} /></div></div>
             {f.score.gaps.length > 0 && <div className="mt-0.5 text-[10px] text-rose-600">missing: {f.score.gaps.slice(0, 3).join(", ")}{f.score.gaps.length > 3 ? ` +${f.score.gaps.length - 3}` : ""}</div>}
           </div>
         )}

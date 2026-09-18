@@ -49,6 +49,7 @@ export function FacilityDirectory({ facilities, institutions }: { facilities: Di
     return m;
   }, [filtered]);
   const totalSeats = filtered.reduce((n, r) => n + (r.capacity ?? 0), 0);
+  const unknownCap = filtered.filter((r) => r.capacity == null).length; // missing is not zero (Phase 3)
 
   return (
     <div className="space-y-4">
@@ -78,7 +79,7 @@ export function FacilityDirectory({ facilities, institutions }: { facilities: Di
       {showAdd && <FacilityForm institutions={institutions} onDone={() => setShowAdd(false)} />}
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="font-medium text-slate-700">{filtered.length}</span> spaces · {totalSeats} total seats/stations
+        <span className="font-medium text-slate-700">{filtered.length}</span> spaces · {totalSeats} total seats/stations{unknownCap ? <span className="text-amber-700"> ({unknownCap} with unknown capacity, not counted)</span> : null}
         {Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
           <span key={k} className={`rounded-full px-2 py-0.5 ${KIND_BADGE[k] ?? "bg-slate-100 text-slate-600"}`}>{KIND_LABEL[k] ?? k} {n}</span>
         ))}

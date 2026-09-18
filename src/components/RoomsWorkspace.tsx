@@ -60,6 +60,7 @@ function RoomsTab({ rooms, buildings, campuses, institutions, defaultInstitution
   const [showAdd, setShowAdd] = useState(false); const [editing, setEditing] = useState<string | null>(null); const [open, setOpen] = useState<string | null>(null);
   const filtered = useMemo(() => rooms.filter((r) => (!fCampus || r.campusId === fCampus) && (!fBuilding || r.buildingId === fBuilding) && (!fKind || r.kind === fKind) && (!q || `${r.name} ${r.building ?? ""} ${r.roomNumber ?? ""}`.toLowerCase().includes(q.toLowerCase()))), [rooms, q, fCampus, fBuilding, fKind]);
   const seats = filtered.reduce((n, r) => n + (r.capacity ?? 0), 0);
+  const unknownCap = filtered.filter((r) => r.capacity == null).length; // missing is not zero (Phase 3)
   const openHrs = filtered.reduce((n, r) => n + r.weeklyOpen, 0), booked = filtered.reduce((n, r) => n + r.weeklyBooked, 0);
   return (
     <div className="space-y-3">
@@ -72,7 +73,7 @@ function RoomsTab({ rooms, buildings, campuses, institutions, defaultInstitution
       </div>
       {showAdd && <RoomForm institutions={institutions} buildings={buildings} defaultInstitutionId={defaultInstitutionId} onDone={() => { setShowAdd(false); router.refresh(); }} />}
       <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-        <span className="font-medium text-slate-700">{filtered.length}</span> rooms · {seats} seats / stations · <span className="font-medium text-slate-700">{h1(openHrs)}</span> open hours a week · <span className="font-medium text-slate-700">{h1(booked)}</span> booked · utilization <span className="font-medium text-slate-700">{pct(openHrs ? booked / openHrs : 0)}</span>
+        <span className="font-medium text-slate-700">{filtered.length}</span> rooms · {seats} seats / stations{unknownCap ? <span className="text-amber-700"> ({unknownCap} room{unknownCap === 1 ? "" : "s"} with unknown capacity, not counted)</span> : null} · <span className="font-medium text-slate-700">{h1(openHrs)}</span> open hours a week · <span className="font-medium text-slate-700">{h1(booked)}</span> booked · utilization <span className="font-medium text-slate-700">{pct(openHrs ? booked / openHrs : 0)}</span>
         {filtered.some((r) => r.outsideHours > 0) && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">⚠ {filtered.reduce((n, r) => n + r.outsideHours, 0)} bookings outside open hours</span>}
         {filtered.some((r) => r.hours.length === 0) && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-700 ring-1 ring-amber-200">{filtered.filter((r) => r.hours.length === 0).length} rooms with no hours set</span>}
       </div>

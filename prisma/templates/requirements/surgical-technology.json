@@ -57,6 +57,13 @@
       "label": "Observation cases",
       "scope": "role == observation",
       "notes": "documented, not counted toward the 120"
+    },
+    {
+      "key": "service-line-confirmation",
+      "label": "Service lines a generic OR does not imply",
+      "scope": "no inference from an ORS asset",
+      "categories": ["Cardiothoracic", "Neurosurgery", "Procurement & transplant"],
+      "notes": "a hospital OR suite does not mean the hospital does these; the site must confirm the service line"
     }
   ],
   "items": [
