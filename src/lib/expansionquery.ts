@@ -40,7 +40,7 @@ export async function getExpansionInput(programId: string, overrides: Record<str
   const baselineRows: DatedInstance[] = (cap?.cohorts ?? []).flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
+    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
   const stages = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, status: { in: ["planned", "active"] } }, select: { id: true, name: true, stages: { where: { stageKey: "productive" }, select: { targetNumber: true } } } });
   const goalOf = new Map(stages.map((s) => [s.id, { goal: s.stages[0]?.targetNumber ?? 0, gradYear: gradYearOf(s.name) }]));

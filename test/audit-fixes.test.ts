@@ -36,7 +36,8 @@ describe("dating sessions in a term that does not start on a Monday", () => {
     const by = Object.fromEntries(rows.map((r) => [r.session.id, r]));
     expect(by.m1.dateIso).toBeNull(); expect(by.m1.beforeTerm).toBe(true);
     expect(by.t1.dateIso).toBe("2027-05-25");
-    expect(by.m2.dateIso).toBe("2027-05-31"); expect(by.m2.beforeTerm).toBeUndefined();
+    // Mon May 31 2027 is Memorial Day on the U.S. list (no calendar coded): the holiday rule holds it on Tuesday.
+    expect(by.m2.dateIso).toBe("2027-06-01"); expect(by.m2.beforeTerm).toBeUndefined(); expect(by.m2.holidayMoved).toEqual({ fromIso: "2027-05-31", holiday: "Memorial Day" });
   });
   it("anchors a course's own window at the template week it begins in", () => {
     const a = { termStart: "2027-08-16", courseStart: "2027-10-11", courseFirstWeek: 9 };
@@ -51,9 +52,11 @@ describe("holidays", () => {
       cohortId: "c", cohort: "C", programId: "p", program: "P", enrollmentByTerm: { 1: 20 }, termStartByIndex: { 1: new Date("2026-11-02T00:00:00Z") }, termEndByIndex: { 1: "2026-12-18" }, termWeeksByIndex: { 1: 6 }, holidays: {},
       courses: [{ code: "X", title: "X", courseId: "x", termIndex: 1, termName: "T1", sessions: [session({ id: "v", week: 2, dayOfWeek: "Wed" })] }], // Nov 11, 2026 — Veterans Day
     } as CohortCalendarInput;
-    expect(buildInstances(base)[0].holiday).toBe("Veterans Day"); // no calendar coded
-    expect(buildInstances({ ...base, holidays: { "2026-11-26": "Thanksgiving" } })[0].holiday).toBeNull(); // the college's calendar does not close Nov 11
-    expect(buildInstances({ ...base, holidays: { "2026-11-11": "Veterans Day (observed)" } })[0].holiday).toBe("Veterans Day (observed)");
+    // The holiday rule moves the session off the holiday; which holiday it left says which calendar was read.
+    expect(buildInstances(base)[0].holidayMoved?.holiday).toBe("Veterans Day"); // no calendar coded
+    expect(buildInstances({ ...base, holidays: { "2026-11-26": "Thanksgiving" } })[0].holidayMoved ?? null).toBeNull(); // the college's calendar does not close Nov 11
+    expect(buildInstances({ ...base, holidays: { "2026-11-11": "Veterans Day (observed)" } })[0].holidayMoved?.holiday).toBe("Veterans Day (observed)");
+    expect(buildInstances({ ...base, holidayRule: "flag-only" })[0].holiday).toBe("Veterans Day"); // flag-only leaves it on the day, flagged
   });
   it("parses a weekday in parentheses without leaving '( )' in the label", () => {
     const { events } = parseAcademicCalendar("Fall 2026\nOctober 12-13 (Monday-Tuesday) Fall Break\nNovember 26 (Thursday) Thanksgiving Holiday\n");

@@ -91,7 +91,7 @@ async function planOffering(cohortId: string) {
   const rows: DatedInstance[] = cc ? buildInstances({
     cohortId: cc.cohortId, cohort: cc.cohort, programId: cc.programId, program: cc.program, enrollmentByTerm: cc.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(cc.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-    termEndByIndex: cc.termEndByIndex, termWeeksByIndex: cc.termWeeksByIndex, holidays: cc.holidays, courses: cc.courses,
+    termEndByIndex: cc.termEndByIndex, termWeeksByIndex: cc.termWeeksByIndex, holidays: cc.holidays, holidayRule: cc.holidayRule, courses: cc.courses,
   } as CohortCalendarInput, cc.assumptions) : [];
   const dated = rows.filter((r) => r.dateIso);
   const from = dated.map((r) => r.dateIso!).sort()[0] ?? iso(new Date());

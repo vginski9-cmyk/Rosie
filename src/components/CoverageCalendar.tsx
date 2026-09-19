@@ -75,6 +75,8 @@ export interface Shift {
   /** The date the weekly pattern would put this shift on (the key of a per-occurrence move). */
   originDate: string;
   moved: boolean;
+  /** The holiday rule moved this shift off the named holiday. */
+  holidayMoved: string | null;
   facultyPerSection: number;
   preceptorsPerSection: number;
   holiday: string | null;
@@ -138,11 +140,13 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
         const day = r.session.dayOfWeek ?? (online ? null : m?.dayOfWeek ?? null);
         const off = day != null ? DAY_KEY[day] : undefined;
         if (off == null) continue; // async / no-day sessions don't land on a date
-        const date = new Date(r.monday.getTime() + off * 86400000);
-        const originIso = date.toISOString().slice(0, 10);
+        // The session's resolved date (the holiday rule may have moved it); a booking-day fallback is dated from the week's Monday.
+        const patternIso = r.session.dayOfWeek != null && r.dateIso ? (r.holidayMoved?.fromIso ?? r.dateIso) : new Date(r.monday.getTime() + off * 86400000).toISOString().slice(0, 10);
+        const heldIso = r.session.dayOfWeek != null && r.dateIso ? r.dateIso : patternIso;
+        const originIso = patternIso;
         // A per-occurrence move bumps THIS date only — the weekly pattern stays.
         const mv = movesIdx.get(`${r.cohortId}|${r.session.id}|${sIdx}|${originIso}`) ?? null;
-        const placedIso = mv?.toDate ?? originIso;
+        const placedIso = mv?.toDate ?? heldIso;
         out.push({
           key: `${r.session.id}|${r.weekOfTerm}|${sIdx}|${r.cohortId}`,
           dateIso: placedIso,
@@ -160,6 +164,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
           move: mv,
           originDate: originIso,
           moved: !!mv,
+          holidayMoved: r.holidayMoved?.holiday ?? null,
           facultyPerSection: r.session.facultyNeeded ?? 0,
           preceptorsPerSection: r.session.kind === "CLINICAL" ? r.session.preceptorsNeeded ?? 0 : 0,
           holiday: holidayByCohort.get(r.cohortId)?.[placedIso] ?? usHoliday(new Date(placedIso + "T00:00:00Z")),
@@ -302,7 +307,7 @@ export function CoverageCalendar({ rows, cohorts, rooms = [], people = [], sites
  *  program director schedules and reads: "SUR 123 clinical · 18 students at 6
  *  sites", not eighteen separate one-student chips. The sections (one student
  *  per preceptor for precepted clinicals) are the rows inside the Day view. */
-export interface Occurrence { key: string; dateIso: string; time: string | null; shifts: Shift[]; first: Shift; students: number; sections: number; of: number; locs: string[]; staff: string[]; moved: number; holiday: string | null }
+export interface Occurrence { key: string; dateIso: string; time: string | null; shifts: Shift[]; first: Shift; students: number; sections: number; of: number; locs: string[]; staff: string[]; moved: number; holiday: string | null; holidayMoved: string | null }
 export function occurrencesOf(list: Shift[]): Occurrence[] {
   const m = new Map<string, Shift[]>();
   for (const c of list) { const k = `${c.sessionKey}|${c.dateIso}`; const l = m.get(k) ?? []; l.push(c); m.set(k, l); }
@@ -313,7 +318,7 @@ export function occurrencesOf(list: Shift[]): Occurrence[] {
       students: shifts.reduce((n, c) => n + c.seats, 0), sections: shifts.length, of: first.of,
       locs: [...new Set(shifts.map((c) => c.loc).filter((x): x is string => !!x))],
       staff: [...new Set(shifts.map((c) => c.staffName).filter((x): x is string => !!x))],
-      moved: shifts.filter((c) => c.moved).length, holiday: shifts.find((c) => c.holiday)?.holiday ?? null,
+      moved: shifts.filter((c) => c.moved).length, holiday: shifts.find((c) => c.holiday)?.holiday ?? null, holidayMoved: shifts.find((c) => c.holidayMoved)?.holidayMoved ?? null,
     };
   }).sort((a, b) => (a.time ?? "99").localeCompare(b.time ?? "99") || a.first.courseTitle.localeCompare(b.first.courseTitle));
 }
@@ -330,7 +335,7 @@ function ShiftChipEl({ occ, size, tone }: { occ: Occurrence; size: "sm" | "md"; 
       className={`select-none rounded-r ${tone ? "" : KIND_CHIP[f.kind] ?? "bg-slate-50"} cursor-grab touch-none active:cursor-grabbing ${isDragging ? "opacity-40" : ""} ${size === "sm" ? "px-1.5 py-0.5 text-[11px] leading-tight" : "px-2 py-1 text-xs"}`}
       title={`${occLabel(occ)}${f.sessionTitle ? ` — ${f.sessionTitle}` : ""} · ${occDetail(occ)} · ${dec(f.lengthHours)}h ·${occ.staff.length ? occ.staff.slice(0, 3).join(", ") + (occ.staff.length > 3 ? ` +${occ.staff.length - 3}` : "") : f.kind === "CLINICAL" ? "no preceptor yet" : "no instructor yet"} · ${f.cohort} — drag to move every section to another day; open Day view for each section's date, time, site and staff`}
     >
-      <span className="font-semibold">{occLabel(occ)}{occ.moved > 0 ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`${occ.moved} section${occ.moved === 1 ? "" : "s"} moved off the weekly pattern`}>moved</span> : null}</span>
+      <span className="font-semibold">{occLabel(occ)}{occ.moved > 0 ? <span className="ml-1 rounded bg-amber-200 px-1 text-[9px] font-semibold text-amber-900" title={`${occ.moved} section${occ.moved === 1 ? "" : "s"} moved off the weekly pattern`}>moved</span> : null}{occ.holidayMoved ? <span className="ml-1 rounded bg-sky-100 px-1 text-[9px] font-semibold text-sky-800" title={`moved off ${occ.holidayMoved} by the holiday rule`}>holiday rule</span> : null}</span>
       <span className="block truncate opacity-80">{occDetail(occ)}</span>
     </div>
   );

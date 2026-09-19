@@ -2,6 +2,7 @@
 
 import { prisma } from "./db";
 import { requireOperational } from "./mode";
+import { isHolidayRule } from "./holidayrule";
 // Planning decisions — locking a goal-year cohort in or out, creating a planned offering, setting a
 // planned offering's dates and deriving its term dates and calendar meetings from the college
 // calendar — are the strategic product's own and are never guarded; the guard is on the actions
@@ -2393,6 +2394,7 @@ export async function updateInstitution(id: string, formData: FormData): Promise
       city: str(formData.get("city")) || null,
       state: str(formData.get("state")) || null,
       serviceArea: str(formData.get("serviceArea")) || null,
+      ...(isHolidayRule(str(formData.get("holidayRule"))) ? { holidayRule: str(formData.get("holidayRule")) } : {}),
     },
   });
   revalidatePath(`/orgs/${id}`); revalidatePath("/orgs"); revalidatePath("/", "layout");

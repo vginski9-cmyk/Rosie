@@ -11,6 +11,7 @@ const DAY_MS_SEM = 86400000;
 import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 import { resolveSessionDay } from "./capacitymodel";
+import { isHolidayRule, DEFAULT_HOLIDAY_RULE, resolveHolidays, holidayOn, type HolidayRule } from "./holidayrule";
 
 /** Load a program's full archetype mapped to the capacity-engine shape. */
 export async function getProgramArchetype(programId: string): Promise<TermArchetype[]> {
@@ -1825,6 +1826,11 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     const rawById = new Map(raw.map((m) => [m.id, m]));
     const dated: import("./space").DatedBooking[] = [];
     const seen = new Set<string>();
+    // The holiday rule (lib/holidayrule): a session on a holiday is held on the week's open day the rule picks.
+    const instRow = await prisma.institution.findUnique({ where: { id: institutionId }, select: { holidayRule: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } });
+    const { holidayMap: hm } = await import("./academiccalendar");
+    const calHolidays = hm((instRow?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+    const calRule: HolidayRule = isHolidayRule(instRow?.holidayRule) ? instRow.holidayRule : DEFAULT_HOLIDAY_RULE;
     for (const m of meetings) {
       if (!m.weekStartMs || !(m.weekStartMs <= currentWeekMs && currentWeekMs < m.weekEndMs)) continue;
       const r = rawById.get(m.id); if (!r) continue;
@@ -1838,7 +1844,11 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
         if (!day || day !== m.dayOfWeek) continue; // this booking hosts the session only on its own day
         const originIso = dateOfDay(day);
         const mv = moveByKey.get(`${m.cohortId}|${sess.id}|${m.sectionIndex}|${originIso}`);
-        const dateIso = mv ? mv.toDate.toISOString().slice(0, 10) : originIso;
+        // Sibling sessions of the same kind this week hold their days; the rule moves a holiday session onto a free one.
+        const siblings = new Set(kindSessions.filter((x) => x.id !== sess.id && (x.week ?? 1) === weekOfTerm && x.dayOfWeek).map((x) => dateOfDay(resolveSessionDay(x.dayOfWeek, isOnlineSession(x.deliveryMode, x.location), patterns, sessionDays) ?? x.dayOfWeek!)));
+        const heldIso = resolveHolidays([originIso], calHolidays, calRule)[0]?.dateIso ?? originIso;
+        const ruledIso = siblings.has(heldIso) && heldIso !== originIso ? originIso : heldIso;
+        const dateIso = mv ? mv.toDate.toISOString().slice(0, 10) : ruledIso;
         if (dateIso < monday || dateIso > sunday) continue; // moved out of this week
         const key = `${m.id}|${sess.id}`; if (seen.has(key)) continue; seen.add(key);
         dated.push({ id: m.id, cohortId: m.cohortId, sectionIndex: m.sectionIndex, kind: m.kind, seats: m.seats, seatStart: seatStarts.get(m.id), lengthHours: sess.lengthHours ?? m.lengthHours, dayOfWeek: DOW[(new Date(dateIso + "T00:00:00Z").getUTCDay() + 6) % 7] as import("./space").Weekday, startMin: toMin(mv?.startTime ?? sess.startTime ?? m.startTime), dateIso, facilityId: mv?.facilityId ?? m.facilityId, staffPersonId: mv?.staffPersonId ?? m.staffPersonId });
@@ -2229,6 +2239,9 @@ async function capacityModelFor(institution: { id: string; name: string }) {
   const { holidayMap } = await import("./academiccalendar");
   const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId: institution.id, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
     .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+  // The college's holiday rule (lib/holidayrule): how a session that lands on one of those days moves.
+  const holidayRuleRaw = (await prisma.institution.findUnique({ where: { id: institution.id }, select: { holidayRule: true } }))?.holidayRule;
+  const holidayRule: HolidayRule = isHolidayRule(holidayRuleRaw) ? holidayRuleRaw : DEFAULT_HOLIDAY_RULE;
 
   const programs = await prisma.program.findMany({
     where: { institutionId: institution.id, cohorts: { some: { status: { in: ["planned", "active"] } } } },
@@ -2333,7 +2346,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         institutionId: institution.id, institution: institution.name,
         students: co._count.students,
-        enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays,
+        enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays, holidayRule,
         // One row per booked section — the calendar's draggable shift instances.
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
@@ -2413,7 +2426,7 @@ export async function getOfferingDesign(cohortId: string) {
     include: {
       program: {
         include: {
-          institution: { select: { id: true, name: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } },
+          institution: { select: { id: true, name: true, holidayRule: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } },
           terms: {
             orderBy: { index: "asc" },
             include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
@@ -2869,15 +2882,26 @@ export async function getRotationBoard(cohortId: string, courseId?: string | nul
 
 /** Every session of an offering dated on its calendar: session id → ISO date (null when undated). */
 export async function sessionDatesForCohort(cohortId: string): Promise<{ dates: Map<string, string | null>; today: string }> {
-  const cohort = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { terms: { select: { id: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { id: true, week: true, dayOfWeek: true } } } } } } } } } });
+  const cohort = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } }, program: { select: { institution: { select: { holidayRule: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } }, terms: { select: { id: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, week: true, dayOfWeek: true } } } } } } } } } });
   const dates = new Map<string, string | null>();
   if (!cohort) return { dates, today: new Date().toISOString().slice(0, 10) };
+  // The same holiday rule the capacity model applies (lib/holidayrule), so the calendar agrees with every other reader.
+  const { holidayMap } = await import("./academiccalendar");
+  const holidays = holidayMap(cohort.program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
+  const rule: HolidayRule = isHolidayRule(cohort.program.institution.holidayRule) ? cohort.program.institution.holidayRule : DEFAULT_HOLIDAY_RULE;
   for (const t of cohort.program.terms) {
     const ct = cohort.cohortTerms.find((x) => x.termId === t.id);
     const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
-    for (const c of t.courses) for (const x of c.sessions) {
-      const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null, courseFirstWeek: firstWeekOf(c.sessions) }, x.week, x.dayOfWeek);
-      dates.set(x.id, d ? d.toISOString().slice(0, 10) : null);
+    const patternOf = new Map(t.courses.map((c) => [c.id, c.sessions.map((x) => { const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null, courseFirstWeek: firstWeekOf(c.sessions) }, x.week, x.dayOfWeek); return d ? d.toISOString().slice(0, 10) : null; })]));
+    const cohortDates = new Set([...patternOf.values()].flat().filter((d): d is string => !!d));
+    for (const c of t.courses) {
+      const pattern = patternOf.get(c.id)!;
+      for (const kind of new Set(c.sessions.map((x) => x.kind))) {
+        const idx = c.sessions.map((x, i) => (x.kind === kind ? i : -1)).filter((i) => i >= 0);
+        const mine = new Set(idx.map((i) => pattern[i]).filter((d): d is string => !!d));
+        const rs = resolveHolidays(idx.map((i) => pattern[i]), holidays, rule, { cohortDates: [...cohortDates].filter((d) => !mine.has(d)) });
+        idx.forEach((i, j) => { dates.set(c.sessions[i].id, rs[j]?.dateIso ?? pattern[i]); if (rs[j]?.fromIso) cohortDates.add(rs[j]!.dateIso); });
+      }
     }
   }
   return { dates, today: new Date().toISOString().slice(0, 10) };
@@ -3189,7 +3213,7 @@ export async function getCapacityBridge(institutionId: string, from: string, to:
   const rows = data.cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
+    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
   } as import("./capacitymodel").CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
   const rotations = await prisma.rotationSetting.findMany({ where: institutionId === ALL_INSTITUTIONS ? {} : { institutionId: data.institution.id }, select: { rotationType: true, settingCode: true } });
   const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotations), from, to));

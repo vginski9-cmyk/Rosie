@@ -37,6 +37,9 @@ model Institution {
   springStart  String  @default("01-08")
   summerStart  String  @default("05-28")
   fallStart    String  @default("08-15")
+  /// How a session that lands on an observed holiday is handled (lib/holidayrule):
+  /// next-open-day | previous-open-day | flag-only
+  holidayRule  String  @default("next-open-day")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

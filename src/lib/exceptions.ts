@@ -13,7 +13,7 @@ export type ExceptionSeverity = "blocker" | "warning" | "info";
 export interface ExceptionItem {
   id: string;
   severity: ExceptionSeverity;
-  kind: "no-supply" | "over-capacity" | "unsecured-placement" | "holiday-session" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "other";
+  kind: "no-supply" | "over-capacity" | "unsecured-placement" | "holiday-session" | "holiday-moved" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "other";
   institutionId: string | null; institution: string | null;
   familyId: string | null; family: string | null;
   title: string; detail: string;
@@ -120,14 +120,20 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
       const rows = buildInstances({
         cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
         termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-        termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
+        termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
       } as CohortCalendarInput, c.assumptions);
       const moved = new Set((c.moves ?? []).map((m) => `${m.sessionId}|${m.fromDate}`));
-      const onHoliday = rows.filter((r) => r.holiday && r.dateIso && r.dateIso >= todayIso && !moved.has(`${r.session.id}|${r.dateIso}`));
+      const ruleMoved = rows.filter((r) => r.holidayMoved && r.dateIso && r.dateIso >= todayIso).length;
+      if (ruleMoved) {
+        const fam = families.find((f) => f.programs.some((p) => p.id === c.programId)) ?? null;
+        items.push({ id: `holidaymoved|${c.cohortId}`, severity: "info", kind: "holiday-moved", institutionId: inst.id, institution: inst.name, familyId: fam?.id ?? null, family: fam?.name ?? null, count: ruleMoved,
+          title: `${c.cohort}: ${ruleMoved} upcoming session${ruleMoved === 1 ? "" : "s"} moved off a holiday by the holiday rule`, detail: "Each was moved to the nearest open day in its week, off a day the same course already uses; the design page marks each one with its original day.", href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "review the moves; change the rule under Setup → Basics" });
+      }
+      const onHoliday = rows.filter((r) => r.holiday && r.dateIso && r.dateIso >= todayIso && !moved.has(`${r.session.id}|${r.holidayMoved?.fromIso ?? r.dateIso}`));
       if (onHoliday.length) {
         const fam = families.find((f) => f.programs.some((p) => p.id === c.programId)) ?? null;
         items.push({ id: `holiday|${c.cohortId}`, severity: "blocker", kind: "holiday-session", institutionId: inst.id, institution: inst.name, familyId: fam?.id ?? null, family: fam?.name ?? null, count: onHoliday.length,
-          title: `${c.cohort}: ${onHoliday.length} upcoming session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed; the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
+          title: `${c.cohort}: ${onHoliday.length} upcoming session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed and the holiday rule found no open day in the week (a whole-week break, or the rule is flag-only); the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
       }
     }
     // Unverified and stale inputs.

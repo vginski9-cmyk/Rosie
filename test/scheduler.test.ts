@@ -12,7 +12,7 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   courseId: "c1", courseCode: "RAD-151", courseTitle: "Clinical Ed I", termIndex: 1, termName: "First Fall", weekOfTerm: 1,
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
   date: "2027-08-23", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-23",
-  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, ...o,
+  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
   demand: [], assets: [], overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], policy: { ...DEFAULT_POLICY, ...policy }, ...over,

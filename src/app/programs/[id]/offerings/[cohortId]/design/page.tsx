@@ -5,6 +5,7 @@ import type { RoleFamily } from "@/lib/workload";
 import { calendarizeCohort } from "@/lib/actions";
 import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/components/OfferingDesign";
 import { holidayMap } from "@/lib/academiccalendar";
+import { isHolidayRule } from "@/lib/holidayrule";
 import { SheetImport } from "@/components/SheetImport";
 import { ProvisionalDatesBanner } from "@/components/Evidence";
 import { getCalendarProvenance } from "@/lib/queries";
@@ -98,6 +99,7 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
         roles={roles}
         assignments={assignments.map((a) => ({ id: a.id, sessionId: a.sessionId, personId: a.personId, personName: a.person.name, personRole: a.person.role, role: a.role, contactHours: a.contactHours, startOffsetMin: a.startOffsetMin, segment: a.segment, sectionIndex: a.sectionIndex }))}
         enrollmentByTerm={capCohort?.enrollmentByTerm ?? {}}
+        holidayRule={isHolidayRule(program.institution.holidayRule) ? program.institution.holidayRule : undefined}
         holidays={holidayMap(program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })))}
         assumptions={capCohort?.assumptions ?? { facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks, preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks }}
       />

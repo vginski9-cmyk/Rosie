@@ -63,6 +63,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   const sites = capModel?.clinicalSites ?? [];
   let lastDay: Date | null = null;
   let holidayHits = 0;
+  let holidayMoved = 0;
   let peakFac = 0;
   let peakPre = 0;
   // Sessions whose template week is past the term's last week (a 16-week template in a 10-week summer) — undated, flagged.
@@ -73,7 +74,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       enrollmentByTerm: capCohort.enrollmentByTerm,
       termStartByIndex: Object.fromEntries(Object.entries(capCohort.termStartByIndex as Record<string, string | null>).map(([k, v]) => [k, v ? new Date(v) : null])),
       termEndByIndex: capCohort.termEndByIndex, termWeeksByIndex: capCohort.termWeeksByIndex,
-      holidays: capCohort.holidays,
+      holidays: capCohort.holidays, holidayRule: capCohort.holidayRule,
       courses: capCohort.courses,
     };
     const all = buildInstances(input, capCohort.assumptions);
@@ -81,6 +82,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
     const instances = all.filter((i) => i.mondayIso != null);
     lastDay = lastSessionDate(instances);
     holidayHits = instances.filter((i) => i.holiday).length;
+    holidayMoved = instances.filter((i) => i.holidayMoved).length;
     const w = weeklyNeedByKind(instances);
     peakFac = Math.max(0, ...w.map((x) => x.totalFacFte));
     peakPre = Math.max(0, ...w.map((x) => x.preceptorFte));
@@ -305,9 +307,14 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         </div>
       )}
 
+      {holidayMoved > 0 && (
+        <p className="rounded-lg bg-slate-50 px-4 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+          {fmt.num(holidayMoved)} session{holidayMoved === 1 ? "" : "s"} that fell on an observed holiday {holidayMoved === 1 ? "was" : "were"} moved to an open day in the same week by the college&apos;s holiday rule; the design page marks each one and its original day. Change the rule under Setup → Basics.
+        </p>
+      )}
       {holidayHits > 0 && (
         <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
-          ⚠ <strong>{holidayHits} session{holidayHits === 1 ? " lands" : "s land"} on an observed holiday.</strong> Open{" "}
+          ⚠ <strong>{holidayHits} session{holidayHits === 1 ? " lands" : "s land"} on an observed holiday that the holiday rule could not resolve</strong> (a whole-week break, or the rule is set to flag only). Open{" "}
           <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="font-medium underline">Design &amp; sequence — this offering</Link>{" "}
           — flagged rows show which holiday; click a row to move that session for this offering.
         </div>

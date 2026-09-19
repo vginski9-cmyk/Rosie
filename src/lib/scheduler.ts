@@ -95,6 +95,8 @@ export interface DemandUnit {
   /** The section's seat span: seats are dealt evenly across the session's sections (lib/sections), so seat numbers seatStart … seatStart+sectionSeats−1 sit here. */
   seatStart: number; sectionSeats: number;
   holiday: string | null; moved: boolean;
+  /** The holiday rule moved this shift off the named holiday (its pattern date is `originalDate`). */
+  holidayMoved: string | null;
 }
 
 export interface Preceptor { id: string; name: string; employerId: string | null; role: string }
@@ -266,7 +268,9 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
       const span = spans[sec - 1];
       if (!span || span.seats <= 0) continue;
       const seats = span.seats;
-      const m = mv.get(moveKey(r.session.id, sec, d.dateIso));
+      // A hand-made move is filed under the pattern date; when the holiday rule already moved the shift, either key finds it.
+      const patternIso = r.holidayMoved?.fromIso ?? d.dateIso;
+      const m = mv.get(moveKey(r.session.id, sec, d.dateIso)) ?? (r.holidayMoved ? mv.get(moveKey(r.session.id, sec, patternIso)) : undefined);
       const date = m?.toDate ?? d.dateIso;
       const startTime = m?.startTime ?? r.session.startTime ?? null;
       out.push({
@@ -274,12 +278,12 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
         cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, program: r.program, familyId: familyByCohort[r.cohortId] ?? null,
         courseId: r.courseId, courseCode: r.courseCode, courseTitle: r.courseTitle, termIndex: r.termIndex, termName: r.termName, weekOfTerm: r.weekOfTerm,
         sessionId: r.session.id, sessionTitle: r.session.title ?? null, sectionIndex: sec, sectionCount: Y,
-        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: d.dateIso,
+        date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: patternIso,
         rotationType: rt, settingCode: d.settingCode,
         seats, preceptorsNeeded: Math.max(0, r.session.preceptorsNeeded ?? 0), facultyNeeded: Math.max(0, r.session.facultyNeeded ?? 0), clinicalMode: r.session.clinicalMode ?? null,
         seatsPerSection: per, seatStart: span.start, sectionSeats: span.seats,
         // A shift moved by hand or by the plan is checked against the calendar on its NEW date.
-        holiday: m ? holidays[date] ?? null : r.holiday, moved: !!m,
+        holiday: m ? holidays[date] ?? null : r.holiday, moved: !!m, holidayMoved: r.holidayMoved?.holiday ?? null,
       });
     }
   }

@@ -54,6 +54,8 @@ export interface CapacityCohort {
   termWeeksByIndex?: Record<number, number | null>;
   /** Institution's coded holidays & breaks (ISO → label). */
   holidays?: Record<string, string>;
+  /** The college's holiday rule (lib/holidayrule) — how a session on a holiday is moved. */
+  holidayRule?: import("@/lib/holidayrule").HolidayRule;
   meetings?: ShiftMeeting[];
   /** Per-occurrence shift moves for this cohort (one chip, one date). */
   moves?: ShiftMoveInfo[];
@@ -139,7 +141,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         enrollmentByTerm: c.enrollmentByTerm,
         termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
         termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex,
-        holidays: c.holidays,
+        holidays: c.holidays, holidayRule: c.holidayRule,
         courses: c.courses,
       };
       out.push(...buildInstances(input, c.assumptions));

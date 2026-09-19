@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { moveMeeting, saveSessionOverride, clearSessionOverride } from "@/lib/actions";
 import {
-  CAPACITY_HEADERS, CAPACITY_FORMULAS, computeColumns, usHoliday,
+  CAPACITY_HEADERS, CAPACITY_FORMULAS, computeColumns,
   type WorkloadAssumptions, type SessionInput,
 } from "@/lib/capacitymodel";
+import { resolveHoliday, DEFAULT_HOLIDAY_RULE, type HolidayRule } from "@/lib/holidayrule";
 import { SessionFieldGrid, harvestOptions, type FieldRow } from "@/components/SessionFields";
 import type { EditableField } from "@/lib/sessionfields";
 import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnalytics";
@@ -105,7 +106,7 @@ const addTally = (a: Tally, b: Tally): Tally => ({
 });
 
 export function OfferingDesign({
-  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {}, assignments = [], roles = [],
+  programId, cohortId, cohortName, terms, meetings, overrides, rooms, people, employers, enrollmentByTerm, assumptions, holidays = {}, holidayRule = DEFAULT_HOLIDAY_RULE, assignments = [], roles = [],
 }: {
   /** Every shift share for this offering (person × session × section). */
   assignments?: ShiftAssignment[];
@@ -114,6 +115,8 @@ export function OfferingDesign({
   cohortName?: string;
   /** Institution-coded holidays & breaks (ISO → label) — checked before the U.S. defaults. */
   holidays?: Record<string, string>;
+  /** The college's holiday rule (lib/holidayrule): where a session on a holiday is held. */
+  holidayRule?: HolidayRule;
   programId: string;
   cohortId: string;
   terms: DsTerm[];
@@ -377,7 +380,8 @@ export function OfferingDesign({
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" /> editable for THIS offering (Save stores only what differs from the template)</span>
         <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm border border-emerald-300 bg-emerald-50" /> live formula at this offering&apos;s enrollment target</span>
         <span className="inline-flex items-center gap-1"><span className="rounded-full bg-amber-200 px-1.5 text-[9px] font-semibold text-amber-800">edited</span> overrides the template</span>
-        <span className="inline-flex items-center gap-1 text-rose-600">⚠ holiday collision</span>
+        <span className="inline-flex items-center gap-1"><span className="rounded-full bg-sky-100 px-1.5 text-[9px] font-semibold text-sky-800">↪ off …</span> moved to the week&apos;s open day by the holiday rule</span>
+        <span className="inline-flex items-center gap-1 text-rose-600">⚠ holiday collision the rule could not resolve</span>
         <span className="ml-auto text-slate-400">Click a term → its courses drop down → click a course → its sessions → click a session to edit every field, no scrolling.</span>
       </div>
 
@@ -482,7 +486,12 @@ export function OfferingDesign({
                 <div className="divide-y divide-slate-100">
                   {ordered.map((r) => {
                     const comp = computeColumns(r as unknown as SessionInput, enrollment, assumptions);
-                    const d = sessionDateObj(t, c, r.week, r.dayOfWeek);
+                    // The pattern date, then the holiday rule against the other sessions of this kind in the same week.
+                    const d0 = sessionDateObj(t, c, r.week, r.dayOfWeek);
+                    const weekTaken = new Set(ordered.filter((o) => o.id !== r.id && o.kind === r.kind && o.week === r.week && o.dayOfWeek != null).map((o) => sessionDateObj(t, c, o.week, o.dayOfWeek)?.toISOString().slice(0, 10)).filter((x): x is string => !!x));
+                    const weekAvoid = new Set(t.courses.flatMap((oc) => oc.sessions.filter((o) => o.id !== r.id && o.week === r.week && o.dayOfWeek != null && !(oc.id === c.id && o.kind === r.kind)).map((o) => sessionDateObj(t, oc, o.week, o.dayOfWeek)?.toISOString().slice(0, 10))).filter((x): x is string => !!x));
+                    const hr = d0 && r.dayOfWeek != null ? resolveHoliday(d0.toISOString().slice(0, 10), holidays, { rule: holidayRule, taken: weekTaken, avoid: weekAvoid }) : null;
+                    const d = hr?.fromIso ? new Date(hr.dateIso + "T00:00:00Z") : d0;
                     const anchor = c.startDate ?? t.startDate;
                     // A picked date → the template week that lands there (week w = calendar week w of the term).
                     const weekFromDate = (picked: Date) => {
@@ -493,7 +502,8 @@ export function OfferingDesign({
                     const tplW = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : 16;
                     const calW = t.startDate && t.endDate ? calendarWeeksBetween(t.startDate, t.endDate) : tplW;
                     const afterTerm = !!(r.week && calW < tplW && r.week > calW);
-                    const holiday = d && r.dayOfWeek != null ? holidays[d.toISOString().slice(0, 10)] ?? usHoliday(d) : null;
+                    const holiday = hr?.unresolved ? hr.holiday : null;
+                    const movedOff = hr?.fromIso ? hr.holiday : null;
                     const m = meetingsFor(c.id, r.kind)[0] ?? null;
                     const offCampus = r.kind === "CLINICAL";
                     const bookedLoc = m ? (offCampus ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room")) : "—";
@@ -524,6 +534,7 @@ export function OfferingDesign({
                             return <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${tone}`}>{mine.length ? `${done}/${secs} shifts staffed` : "unstaffed"}</span>;
                           })()}
                           {holiday && <span className="rounded-full bg-rose-200 px-1.5 py-0.5 text-[9px] font-semibold text-rose-800">⚠ {holiday}</span>}
+                          {movedOff && <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[9px] font-semibold text-sky-800" title={`the holiday rule moved this session off ${movedOff} (${r.dayOfWeek}) to the week's open day`}>↪ off {movedOff}</span>}
                           {r.overridden && <span className="rounded-full bg-amber-200 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">edited</span>}
                           {isDirty && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">unsaved</span>}
                         </button>

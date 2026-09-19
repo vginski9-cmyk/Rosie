@@ -284,8 +284,10 @@ export interface DatedInstance {
   date: Date | null;
   dateIso: string | null;
   month: string | null;   // "YYYY-MM"
-  /** Observed holiday this session lands on, if any — flag it, let people adjust. */
+  /** Observed holiday this session STILL lands on — only when the holiday rule could not move it (a whole-week break, or the rule is flag-only). */
   holiday: string | null;
+  /** The holiday rule moved this session: from its pattern date, off the named holiday, to `dateIso`. */
+  holidayMoved?: { fromIso: string; holiday: string } | null;
 }
 
 export interface CohortCalendarInput {
@@ -304,6 +306,8 @@ export interface CohortCalendarInput {
   termWeeksByIndex?: Record<number, number | null>;
   /** The institution's coded holidays & breaks (ISO → label) — beat the U.S. defaults. */
   holidays?: Record<string, string>;
+  /** How a session that lands on a holiday is handled (lib/holidayrule); default: the next open day in the week. */
+  holidayRule?: HolidayRule;
   courses: {
     code: string | null;
     title: string;
@@ -320,23 +324,8 @@ export interface CohortCalendarInput {
   }[];
 }
 
-/** U.S. observed holidays + common institutional breaks a session might land on
- *  (flagged, never silently moved — the configurer decides what shifts). */
-export function usHoliday(d: Date): string | null {
-  const m = d.getUTCMonth() + 1, day = d.getUTCDate(), wd = d.getUTCDay();
-  if (m === 1 && day === 1) return "New Year's Day";
-  if (m === 1 && wd === 1 && day >= 15 && day <= 21) return "MLK Day";
-  if (m === 5 && wd === 1 && day >= 25) return "Memorial Day";
-  if (m === 6 && day === 19) return "Juneteenth";
-  if (m === 7 && day === 4) return "Independence Day";
-  if (m === 9 && wd === 1 && day <= 7) return "Labor Day";
-  if (m === 10 && wd === 1 && day >= 8 && day <= 14) return "Indigenous Peoples' / Columbus Day";
-  if (m === 11 && day === 11) return "Veterans Day";
-  if (m === 11 && (wd === 4 || wd === 5)) { const thu = wd === 4 ? day : day - 1; if (thu >= 22 && thu <= 28) return wd === 4 ? "Thanksgiving" : "Day after Thanksgiving"; }
-  if (m === 12 && (day === 24 || day === 25)) return day === 25 ? "Christmas Day" : "Christmas Eve";
-  if (m === 12 && day >= 26) return "Winter break";
-  return null;
-}
+import { resolveHolidays, usHoliday, type HolidayRule } from "./holidayrule";
+export { usHoliday };
 
 import { seasonOfMonth, weekMonday, beyondTerm, calendarWeeksBetween } from "./term";
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
@@ -355,7 +344,8 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
   const enrollment: Record<number, number> = {};
   for (const ti of termIdxs) enrollment[ti] = enrollFor(ti);
 
-  for (const c of input.courses) {
+  // Every course's pattern dates first (the holiday rule avoids days the cohort has anything else on).
+  const prelims = input.courses.map((c) => {
     const courseStart = c.startDate ? (c.startDate instanceof Date ? c.startDate : new Date(c.startDate)) : null;
     const termStart = input.termStartByIndex[c.termIndex] ?? null;
     const start = courseStart ?? termStart;
@@ -367,7 +357,9 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
     const tplWeeks = input.termWeeksByIndex?.[c.termIndex] ?? null;
     const calWeeks = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : null;
     const anchor = { termStart, termEnd, templateWeeks: tplWeeks, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1 };
-    for (const s of c.sessions) {
+    // Pattern dates first, then the holiday rule per kind (class, lab and clinical each keep their own
+    // days), so a moved session never lands on a day its siblings already use that week.
+    const prelim = c.sessions.map((s) => {
       const computed = computeColumns(s, enrollment[c.termIndex] ?? 0, a);
       const week = s.week && s.week > 0 ? s.week : 1;
       const beyond = tplWeeks != null && calWeeks != null ? beyondTerm(week, tplWeeks, calWeeks) : false;
@@ -377,18 +369,36 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
       // Before the first day (a "Mon" session in a Tuesday-start week): not held that week — undated and flagged.
       const before = dated != null && start != null && dated < start;
       const date = before ? null : dated;
+      return { s, computed, week, beyond, monday, before, patternIso: date ? isoOf(date) : null };
+    });
+    return { c, semester, prelim };
+  });
+  const cohortDates = new Set(prelims.flatMap((x) => x.prelim.map((p) => p.patternIso)).filter((d): d is string => !!d));
+  for (const { c, semester, prelim } of prelims) {
+    const resolved = new Map<number, ReturnType<typeof resolveHolidays>[number]>();
+    for (const kind of new Set(prelim.map((p) => p.s.kind))) {
+      const idx = prelim.map((p, i) => (p.s.kind === kind ? i : -1)).filter((i) => i >= 0);
+      const mine = new Set(idx.map((i) => prelim[i].patternIso).filter((d): d is string => !!d));
+      const rs = resolveHolidays(idx.map((i) => prelim[i].patternIso), input.holidays, input.holidayRule, { cohortDates: [...cohortDates].filter((d) => !mine.has(d)) });
+      idx.forEach((i, j) => { resolved.set(i, rs[j]); if (rs[j]?.fromIso) cohortDates.add(rs[j]!.dateIso); });
+    }
+    prelim.forEach((p, i) => {
+      const r = resolved.get(i) ?? null;
+      const dateIso = r?.dateIso ?? p.patternIso;
+      const date = dateIso ? new Date(dateIso + "T00:00:00Z") : null;
       out.push({
-        session: s, computed,
+        session: p.s, computed: p.computed,
         cohortId: input.cohortId, cohort: input.cohort, programId: input.programId, program: input.program,
         courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, termIndex: c.termIndex, termName: c.termName, semester,
-        weekOfTerm: week, beyondTerm: beyond, beforeTerm: before || undefined,
-        monday, mondayIso: monday ? isoOf(monday) : null,
-        date, dateIso: date ? isoOf(date) : null,
-        month: monday ? isoOf(monday).slice(0, 7) : null,
-        // The college's imported calendar is the only authority once it exists; the US default list stands in only when no calendar is coded.
-        holiday: date ? (input.holidays && Object.keys(input.holidays).length ? input.holidays[isoOf(date)] ?? null : usHoliday(date)) : null,
+        weekOfTerm: p.week, beyondTerm: p.beyond, beforeTerm: p.before || undefined,
+        monday: p.monday, mondayIso: p.monday ? isoOf(p.monday) : null,
+        date, dateIso,
+        month: p.monday ? isoOf(p.monday).slice(0, 7) : null,
+        // Still on a holiday only when the rule could not move it; a moved session carries where it came from.
+        holiday: r?.unresolved ? r.holiday : null,
+        holidayMoved: r?.fromIso ? { fromIso: r.fromIso, holiday: r.holiday ?? "holiday" } : null,
       });
-    }
+    });
   }
   return out;
 }

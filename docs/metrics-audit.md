@@ -687,3 +687,17 @@ The boundary itself is one flag, `ROSIE_OPERATIONAL=1` (`src/lib/mode.ts`). Thir
 A target with no evaluated scenario is **not assessed**; its baseline and shortfall show `?`, never 0, and it sorts after the at-risk targets and before the covered ones. The baseline is the engine's measurement of what the offerings already planned yield — it exists only once a scenario has been evaluated for that program, which is why the page says so rather than inventing one.
 
 Tests: `test/executive.test.ts` (12: unassessed vs at-risk vs covered vs on-track, target-year fallback, recommended-first choice, binding roll-up, intervention ranking, evidence gaps, the guard) and `test/gate.test.ts` (4). Suite: 60 files, 436 tests.
+
+### The holiday rule (2026-09-19)
+
+Sessions that landed on an observed holiday were flagged and left for someone to move by hand, one at a time, on the offering's design page — 641 clinical shifts at Sandhills alone sat "unplaced — lands on an observed holiday" in the scheduler. Now one rule, set per college under Setup → Basics (`Institution.holidayRule`, additive, default `next-open-day`), moves them automatically at the single place sessions are dated (`buildInstances`, `lib/holidayrule.ts`), so class, lab and clinical all follow it and every reader agrees:
+
+| Rule | What happens to a session on a holiday |
+|---|---|
+| next-open-day (default) | forward to the next open day in the same Mon–Sun week, then backward; a weekday session stays on weekdays |
+| previous-open-day | backward first, then forward |
+| flag-only | nothing moves; the collision is listed for someone to resolve |
+
+A day the same course and kind already uses that week is never chosen (Mon/Wed class: the Mon holiday cannot land on Wed); a day the cohort has any other session on (a class day, for a clinical shift) is avoided while a free day exists and used only when the week has none; the coded college calendar is the only authority once it exists (the U.S. list stands in only with no calendar), and a whole-week break stays flagged because moving into another week is a re-sequence nobody asked for. The scheduler's demand, daily coverage, the master calendar's dated week, the calendar's per-cohort dates and the design page all apply the same rule; a hand-made per-occurrence move is filed under the pattern date and still wins. Each moved session carries where it came from (`holidayMoved`), shown as "↪ off Thanksgiving" on the design page and "holiday rule" on coverage; the exception queue lists what the rule moved as a note and keeps only the unresolved collisions as blockers.
+
+Tests: `test/holidayrule.test.ts` (the three rules, siblings, weekends, the calendar as authority, class/lab/clinical through `buildInstances`, hand-made moves over the rule in scheduler demand).

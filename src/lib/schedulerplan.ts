@@ -39,7 +39,7 @@ export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCod
   const rows: DatedInstance[] = cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
-    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, courses: c.courses,
+    termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
   const familyByCohort = Object.fromEntries(cohorts.map((c) => [c.cohortId, c.familyId ?? null]));
   const moves = cohorts.flatMap((c) => (c.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })));
