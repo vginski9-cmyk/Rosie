@@ -11,17 +11,21 @@
 //
 // A day already used by the same course and kind that week (class on Mon and Wed: the Mon holiday
 // cannot move onto Wed) is never open. A day the cohort has any other session on (a class day, for
-// a clinical shift) is avoided while a free day exists, and used only when the week has none. When
-// no day in the week is open — a whole-week break — the session stays flagged, because moving it
-// into another week is a re-sequence nobody asked for.
+// a clinical shift) is avoided while a free day exists, and used only when the week has none.
+//
+// A whole week the college is closed for (spring break, winter break) never reaches this rule: it
+// is not a term week at all (lib/term closedWeek) — the term's weeks continue on the far side of
+// it and the term's last day moves out by a week, under every rule. What is left for the rule is
+// the single closed day inside an open week.
 
 export type HolidayRule = "next-open-day" | "previous-open-day" | "flag-only";
 export const DEFAULT_HOLIDAY_RULE: HolidayRule = "next-open-day";
 export const HOLIDAY_RULES: { value: HolidayRule; label: string; hint: string }[] = [
-  { value: "next-open-day", label: "Next open day in the week", hint: "a session on a holiday moves forward to the next open day that week (then backward if the week ends); whole-week breaks stay flagged" },
+  { value: "next-open-day", label: "Next open day in the week", hint: "a session on a holiday moves forward to the next open day that week (then backward if the week ends)" },
   { value: "previous-open-day", label: "Previous open day in the week", hint: "a session on a holiday moves back to the nearest earlier open day that week (then forward)" },
   { value: "flag-only", label: "Flag only — move by hand", hint: "nothing moves on its own; every collision is listed for someone to resolve" },
 ];
+export const BREAK_RULE_TEXT = "A week the college is closed for (a break) is not a term week: the sessions after it slide a week later and the term ends a week later, under every rule.";
 export const isHolidayRule = (v: unknown): v is HolidayRule => HOLIDAY_RULES.some((r) => r.value === v);
 
 /** U.S. observed holidays + common institutional breaks a session might land on — the fallback when

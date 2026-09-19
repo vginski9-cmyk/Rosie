@@ -239,27 +239,68 @@ export function fitWeek(week: number, templateWeeks: number, calendarWeeks: numb
 
 /** What a session week is anchored to: the term (its real first and last day and
  *  the weeks the template plans) and, for a shorter course with its own window,
- *  the course's first day and the template week it begins in. */
+ *  the course's first day and the template week it begins in. With the college's
+ *  coded holidays, a week the college is closed for (spring break, winter break) is
+ *  not a term week: the template's weeks continue on the far side of it. */
 export interface WeekAnchor {
   termStart: Date | string | null | undefined;
   termEnd?: Date | string | null;
   templateWeeks?: number | null;
   courseStart?: Date | string | null;
   courseFirstWeek?: number | null;
+  /** The college's coded holidays and breaks (ISO date → label); a Mon–Fri fully inside them is a closed week. */
+  holidays?: Record<string, string> | null;
 }
 const asDate = (d: Date | string | null | undefined): Date | null => (d == null ? null : typeof d === "string" ? new Date(d.length === 10 ? d + "T00:00:00Z" : d) : d);
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+
+/** THE break rule: a calendar week whose five weekdays are all coded holidays is closed — not a
+ *  term week. Returns the break's label, or null for an open week. Only the coded calendar counts:
+ *  with no calendar there are no closed weeks. */
+export function closedWeek(monday: Date | string, holidays: Record<string, string> | null | undefined): string | null {
+  if (!holidays) return null;
+  const mon = mondayOfDate(asDate(monday)!);
+  let label: string | null = null;
+  for (let i = 0; i < 5; i++) { const h = holidays[isoDay(new Date(mon.getTime() + i * 86400000))]; if (!h) return null; label = label ?? h; }
+  return label;
+}
+/** The open (not closed) weeks from a first day through a last day, week 1 = the start's week. */
+export function openWeeksBetween(start: Date | string, end: Date | string, holidays: Record<string, string> | null | undefined): number {
+  const s = mondayOfDate(asDate(start)!), e = mondayOfDate(asDate(end)!);
+  let n = 0;
+  for (let m = s; m.getTime() <= e.getTime(); m = new Date(m.getTime() + 7 * 86400000)) if (!closedWeek(m, holidays)) n++;
+  return Math.max(1, n);
+}
+/** The Monday of the n-th open week on or after a Monday (n = 1 is that week itself, or the first open one after it). */
+function nthOpenMonday(from: Date, n: number, holidays: Record<string, string> | null | undefined): Date {
+  let m = from, seen = 0, guard = 0;
+  for (;;) { if (!closedWeek(m, holidays)) { seen++; if (seen >= n) return m; } m = new Date(m.getTime() + 7 * 86400000); if (++guard > 520) return m; }
+}
 /** The Monday of a session's week, everywhere: buildInstances, the design page, student itineraries, the master calendar. */
 export function weekMonday(a: WeekAnchor, week: number | null | undefined): Date | null {
   const w = week && week > 0 ? week : 1;
   const termStart = asDate(a.termStart), termEnd = asDate(a.termEnd), courseStart = asDate(a.courseStart);
   const tpl = a.templateWeeks && a.templateWeeks > 0 ? a.templateWeeks : 16;
-  const cal = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : tpl;
+  const cal = termStart && termEnd ? openWeeksBetween(termStart, termEnd, a.holidays) : tpl;
   if (beyondTerm(w, tpl, cal)) return null; // after the term's last day — undated, flagged
   // Week 1 is the calendar week (Mon–Sun) that CONTAINS the first day, so a term that starts on a
   // Tuesday still dates its "Mon" sessions on a Monday and its "Thu" sessions on a Thursday.
-  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return new Date(mondayOfDate(courseStart).getTime() + Math.max(0, w - f0) * 7 * 86400000); }
+  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return nthOpenMonday(mondayOfDate(courseStart), Math.max(0, w - f0) + 1, a.holidays); }
   if (!termStart) return null;
-  return new Date(mondayOfDate(termStart).getTime() + (w - 1) * 7 * 86400000);
+  return nthOpenMonday(mondayOfDate(termStart), w, a.holidays);
+}
+/** The template week a date falls in (the inverse of weekMonday): null before the anchor, or inside a closed week. */
+export function weekOfDate(a: WeekAnchor, date: Date | string): number | null {
+  const d = asDate(date); if (!d) return null;
+  const courseStart = asDate(a.courseStart), termStart = asDate(a.termStart);
+  const base = courseStart ?? termStart; if (!base) return null;
+  const f0 = courseStart ? (a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1) : 1;
+  const target = mondayOfDate(d);
+  if (target.getTime() < mondayOfDate(base).getTime()) return null;
+  if (closedWeek(target, a.holidays)) return null;
+  let n = 0;
+  for (let m = mondayOfDate(base); m.getTime() <= target.getTime(); m = new Date(m.getTime() + 7 * 86400000)) if (!closedWeek(m, a.holidays)) n++;
+  return n + f0 - 1;
 }
 /** The Monday (UTC) of the week a date falls in. */
 export function mondayOfDate(d: Date): Date { return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000); }

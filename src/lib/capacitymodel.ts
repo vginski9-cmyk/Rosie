@@ -327,7 +327,7 @@ export interface CohortCalendarInput {
 import { resolveHolidays, usHoliday, type HolidayRule } from "./holidayrule";
 export { usHoliday };
 
-import { seasonOfMonth, weekMonday, beyondTerm, calendarWeeksBetween } from "./term";
+import { seasonOfMonth, weekMonday, beyondTerm, openWeeksBetween } from "./term";
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86400000);
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -355,8 +355,9 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
     const termEndRaw = input.termEndByIndex?.[c.termIndex] ?? null;
     const termEnd = termEndRaw == null ? null : termEndRaw instanceof Date ? termEndRaw : new Date(termEndRaw);
     const tplWeeks = input.termWeeksByIndex?.[c.termIndex] ?? null;
-    const calWeeks = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : null;
-    const anchor = { termStart, termEnd, templateWeeks: tplWeeks, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1 };
+    // The weeks the term gives, a closed week (a whole-week break) not counted: the break rule in lib/term.
+    const calWeeks = termStart && termEnd ? openWeeksBetween(termStart, termEnd, input.holidays) : null;
+    const anchor = { termStart, termEnd, templateWeeks: tplWeeks, courseStart, courseFirstWeek: courseWeeks.length ? Math.min(...courseWeeks) : 1, holidays: input.holidays };
     // Pattern dates first, then the holiday rule per kind (class, lab and clinical each keep their own
     // days), so a moved session never lands on a day its siblings already use that week.
     const prelim = c.sessions.map((s) => {

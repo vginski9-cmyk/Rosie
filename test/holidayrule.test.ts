@@ -99,3 +99,68 @@ describe("buildInstances applies the rule to class, lab and clinical", () => {
     expect(plain.date).toBe("2027-11-23"); expect(plain.holidayMoved).toBe("Thanksgiving"); expect(plain.holiday).toBeNull(); expect(plain.originalDate).toBe("2027-11-25");
   });
 });
+
+import { closedWeek, openWeeksBetween, weekMonday, weekOfDate } from "../src/lib/term";
+import { alignOffering } from "../src/lib/termalign";
+
+// The break rule: a week the college is closed for is not a term week — the weeks after it slide
+// a week later and the term's last day moves out by a week, under every holiday rule.
+describe("the break rule: a closed week is not a term week", () => {
+  // Spring break Mon Mar 8 – Fri Mar 12 2027 (in HOL above); the term starts Mon Mar 1 2027.
+  const term = { termStart: "2027-03-01", termEnd: "2027-06-25", templateWeeks: 16, holidays: HOL };
+  it("knows a closed week from an open one", () => {
+    expect(closedWeek("2027-03-08", HOL)).toBe("Spring break");
+    expect(closedWeek("2027-03-10", HOL)).toBe("Spring break"); // any day of the week names it
+    expect(closedWeek("2027-03-01", HOL)).toBeNull();
+    expect(closedWeek("2027-11-22", HOL)).toBeNull(); // Thanksgiving week: Mon–Wed open
+    expect(closedWeek("2027-03-08", null)).toBeNull(); // no calendar → no closed weeks
+  });
+  it("counts only open weeks between two dates", () => {
+    expect(openWeeksBetween("2027-03-01", "2027-03-19", HOL)).toBe(2); // Mar 1, (8 closed), 15
+    expect(openWeeksBetween("2027-03-01", "2027-03-19", null)).toBe(3);
+  });
+  it("week 2 lands after the break, and every later week slides with it", () => {
+    expect(weekMonday(term, 1)?.toISOString().slice(0, 10)).toBe("2027-03-01");
+    expect(weekMonday(term, 2)?.toISOString().slice(0, 10)).toBe("2027-03-15");
+    expect(weekMonday(term, 16)?.toISOString().slice(0, 10)).toBe("2027-06-21");
+    expect(weekMonday({ ...term, holidays: null }, 2)?.toISOString().slice(0, 10)).toBe("2027-03-08");
+  });
+  it("a course with its own window skips the break too", () => {
+    expect(weekMonday({ ...term, courseStart: "2027-03-01", courseFirstWeek: 1 }, 2)?.toISOString().slice(0, 10)).toBe("2027-03-15");
+  });
+  it("maps a date back to its template week, and a break-week date to no week", () => {
+    expect(weekOfDate(term, "2027-03-03")).toBe(1);
+    expect(weekOfDate(term, "2027-03-17")).toBe(2);
+    expect(weekOfDate(term, "2027-03-10")).toBeNull();
+    expect(weekOfDate(term, "2027-02-20")).toBeNull();
+    expect(weekOfDate({ ...term, courseStart: "2027-03-15", courseFirstWeek: 2 }, "2027-03-23")).toBe(3);
+  });
+  it("buildInstances: nothing lands in the break week and nothing is flagged", () => {
+    const input: CohortCalendarInput = {
+      cohortId: "co", cohort: "Class of 2029", programId: "p", program: "Radiography", enrollmentByTerm: { 1: 20 },
+      termStartByIndex: { 1: new Date("2027-03-01T00:00:00Z") }, termEndByIndex: { 1: "2027-06-25" }, termWeeksByIndex: { 1: 16 }, holidays: HOL,
+      courses: [{ code: "RAD-111", title: "Intro", termIndex: 1, termName: "First Spring", sessions: [
+        session({ id: "w1", kind: "CLASS", week: 1, dayOfWeek: "Wed" }), session({ id: "w2", kind: "CLASS", week: 2, dayOfWeek: "Wed" }), session({ id: "w3", kind: "CLINICAL", week: 3, dayOfWeek: "Tue" }),
+      ] }],
+    };
+    const by = Object.fromEntries(buildInstances(input).map((r) => [r.session.id, r]));
+    expect(by.w1.dateIso).toBe("2027-03-03"); expect(by.w2.dateIso).toBe("2027-03-17"); expect(by.w3.dateIso).toBe("2027-03-23");
+    expect(Object.values(by).every((r) => r.holiday == null && !r.holidayMoved && !r.beyondTerm)).toBe(true);
+    // The same under flag-only: a break is not a collision to flag.
+    expect(buildInstances({ ...input, holidayRule: "flag-only" }).find((r) => r.session.id === "w2")).toMatchObject({ dateIso: "2027-03-17", holiday: null });
+  });
+  it("alignOffering: a break inside the term adds a calendar week to the term's end instead of eating a week", () => {
+    const anchors = { springStart: "01-11", summerStart: "05-31", fallStart: "08-16" };
+    const events = [{ iso: "2027-03-08", endIso: "2027-03-12", label: "Spring break", kind: "holiday", season: null }];
+    const terms = [{ id: "t1", index: 1, name: "Spring", startWeek: 1, endWeek: 16 }];
+    const withBreak = alignOffering({ startIso: "2027-01-11", terms, courses: [], anchors, events });
+    const without = alignOffering({ startIso: "2027-01-11", terms, courses: [], anchors, events: [] });
+    expect(without.terms[0].endIso).toBe("2027-04-30"); // 16 weeks: the last week's Friday
+    expect(withBreak.terms[0].endIso).toBe("2027-05-07"); // one closed week later
+    expect(withBreak.terms[0].calendarWeeks).toBe(16); // open weeks are what count
+    expect(withBreak.warnings).toEqual([]);
+    // A short course in weeks 9–10 opens after the break (week 9 = Mar 15, the break week skipped).
+    const course = alignOffering({ startIso: "2027-01-11", terms, courses: [{ id: "c", termId: "t1", code: "X", name: "x", sessions: [{ week: 9 }, { week: 10 }] }], anchors, events });
+    expect(course.courses[0]).toMatchObject({ startIso: "2027-03-15", endIso: "2027-03-26" });
+  });
+});

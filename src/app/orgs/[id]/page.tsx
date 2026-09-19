@@ -14,7 +14,7 @@ import { provisionalVerdict } from "@/lib/evidence";
 import { scopeOf } from "@/lib/assumptions";
 import { OPERATIONAL } from "@/lib/mode";
 import { dec, fmt } from "@/lib/format";
-import { HOLIDAY_RULES } from "@/lib/holidayrule";
+import { HOLIDAY_RULES, BREAK_RULE_TEXT } from "@/lib/holidayrule";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -132,7 +132,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
               <label className="block"><span className={lbl}>City</span><input name="city" defaultValue={inst.city ?? ""} className={inp} /></label>
               <label className="block"><span className={lbl}>State</span><input name="state" defaultValue={inst.state ?? "NC"} className={inp} /></label>
               <label className="block"><span className={lbl}>Service area</span><input name="serviceArea" defaultValue={inst.serviceArea ?? ""} placeholder="counties / region the goals cover" className={inp} /></label>
-              <label className="block lg:col-span-2"><span className={lbl}>Holiday rule — class, lab and clinical</span><select name="holidayRule" defaultValue={inst.holidayRule} className={inp}>{HOLIDAY_RULES.map((r) => <option key={r.value} value={r.value} title={r.hint}>{r.label}</option>)}</select><span className="mt-1 block text-[11px] text-slate-500">{HOLIDAY_RULES.find((r) => r.value === inst.holidayRule)?.hint}.</span></label>
+              <label className="block lg:col-span-2"><span className={lbl}>Holiday rule — class, lab and clinical</span><select name="holidayRule" defaultValue={inst.holidayRule} className={inp}>{HOLIDAY_RULES.map((r) => <option key={r.value} value={r.value} title={r.hint}>{r.label}</option>)}</select><span className="mt-1 block text-[11px] text-slate-500">{HOLIDAY_RULES.find((r) => r.value === inst.holidayRule)?.hint}. {BREAK_RULE_TEXT}</span></label>
               <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save basics</button></div>
             </form>
             <form action={updateInstitutionGeography.bind(null, inst.id)} className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">

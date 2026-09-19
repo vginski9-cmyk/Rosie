@@ -14,7 +14,7 @@ import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnal
 import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
 import { coverageOf, type RoleFamily } from "@/lib/workload";
-import { weekMonday, calendarWeeksBetween } from "@/lib/term";
+import { weekMonday, weekOfDate, closedWeek, openWeeksBetween } from "@/lib/term";
 import { dec } from "@/lib/format";
 
 // Design & sequence for ONE offering — the EXACT same Raw Data &
@@ -198,7 +198,7 @@ export function OfferingDesign({
     if (!week) return null;
     const cw = c.sessions.map((s) => s.week).filter((w): w is number => w != null && w > 0);
     const tpl = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
-    const mon = weekMonday({ termStart: t.startDate, termEnd: t.endDate ?? null, templateWeeks: tpl, courseStart: c.startDate, courseFirstWeek: cw.length ? Math.min(...cw) : 1 }, week);
+    const mon = weekMonday({ termStart: t.startDate, termEnd: t.endDate ?? null, templateWeeks: tpl, courseStart: c.startDate, courseFirstWeek: cw.length ? Math.min(...cw) : 1, holidays }, week);
     if (!mon) return null;
     const off = day != null ? DAY_OFFSET[day] : undefined;
     return new Date(mon.getTime() + (off ?? 0) * 86400000);
@@ -493,14 +493,14 @@ export function OfferingDesign({
                     const hr = d0 && r.dayOfWeek != null ? resolveHoliday(d0.toISOString().slice(0, 10), holidays, { rule: holidayRule, taken: weekTaken, avoid: weekAvoid }) : null;
                     const d = hr?.fromIso ? new Date(hr.dateIso + "T00:00:00Z") : d0;
                     const anchor = c.startDate ?? t.startDate;
-                    // A picked date → the template week that lands there (week w = calendar week w of the term).
+                    // A picked date → the template week that lands there (week w = open week w of the term; a closed break week is no week).
+                    const cwAll = c.sessions.map((s) => s.week).filter((w): w is number => w != null && w > 0);
                     const weekFromDate = (picked: Date) => {
-                      const a0 = new Date(anchor + "T00:00:00Z");
-                      let diff = Math.round((picked.getTime() - a0.getTime()) / 86400000); if (diff < 0) diff = 0;
-                      return { week: Math.floor(diff / 7) + 1, day: ALL_DAYS[diff % 7] };
+                      const w = weekOfDate({ termStart: t.startDate, courseStart: c.startDate, courseFirstWeek: cwAll.length ? Math.min(...cwAll) : 1, holidays }, picked);
+                      return { week: w ?? 1, day: ALL_DAYS[(picked.getUTCDay() + 6) % 7], closed: w == null && !!closedWeek(picked, holidays) };
                     };
                     const tplW = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : 16;
-                    const calW = t.startDate && t.endDate ? calendarWeeksBetween(t.startDate, t.endDate) : tplW;
+                    const calW = t.startDate && t.endDate ? openWeeksBetween(t.startDate, t.endDate, holidays) : tplW;
                     const afterTerm = !!(r.week && calW < tplW && r.week > calW);
                     const holiday = hr?.unresolved ? hr.holiday : null;
                     const movedOff = hr?.fromIso ? hr.holiday : null;

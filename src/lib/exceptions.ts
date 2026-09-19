@@ -133,7 +133,7 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
       if (onHoliday.length) {
         const fam = families.find((f) => f.programs.some((p) => p.id === c.programId)) ?? null;
         items.push({ id: `holiday|${c.cohortId}`, severity: "blocker", kind: "holiday-session", institutionId: inst.id, institution: inst.name, familyId: fam?.id ?? null, family: fam?.name ?? null, count: onHoliday.length,
-          title: `${c.cohort}: ${onHoliday.length} upcoming session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed and the holiday rule found no open day in the week (a whole-week break, or the rule is flag-only); the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
+          title: `${c.cohort}: ${onHoliday.length} upcoming session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed and the holiday rule found no open day in the week (every other day is taken, or the rule is flag-only); the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
       }
     }
     // Unverified and stale inputs.

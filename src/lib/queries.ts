@@ -8,7 +8,7 @@ const firstWeekOf = (sessions: { week: number | null }[]) => (sessions.length ? 
 const isOnlineSession = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
 const mondayMs = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
 const DAY_MS_SEM = 86400000;
-import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
+import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 import { resolveSessionDay } from "./capacitymodel";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, resolveHolidays, holidayOn, type HolidayRule } from "./holidayrule";
@@ -1834,7 +1834,8 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     for (const m of meetings) {
       if (!m.weekStartMs || !(m.weekStartMs <= currentWeekMs && currentWeekMs < m.weekEndMs)) continue;
       const r = rawById.get(m.id); if (!r) continue;
-      const weekOfTerm = Math.floor((currentWeekMs - mondayMs(m.weekStartMs)) / WEEK_MS) + 1; // week 1 = the calendar week containing the term's first day
+      const weekOfTerm = weekOfDate({ termStart: new Date(m.weekStartMs), holidays: calHolidays }, new Date(currentWeekMs)); // week 1 = the calendar week containing the term's first day; a closed week is no week
+      if (weekOfTerm == null) continue;
       const patterns = raw.filter((x) => x.cohortId === m.cohortId && x.courseId === m.courseId && x.kind === m.kind && x.sectionIndex === m.sectionIndex).map((x) => ({ dayOfWeek: x.dayOfWeek }));
       const kindSessions = r.course.sessions.filter((x) => x.kind === m.kind);
       const sessionDays = kindSessions.map((x) => x.dayOfWeek).filter((d): d is string => !!d);
@@ -2892,7 +2893,7 @@ export async function sessionDatesForCohort(cohortId: string): Promise<{ dates: 
   for (const t of cohort.program.terms) {
     const ct = cohort.cohortTerms.find((x) => x.termId === t.id);
     const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
-    const patternOf = new Map(t.courses.map((c) => [c.id, c.sessions.map((x) => { const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null, courseFirstWeek: firstWeekOf(c.sessions) }, x.week, x.dayOfWeek); return d ? d.toISOString().slice(0, 10) : null; })]));
+    const patternOf = new Map(t.courses.map((c) => [c.id, c.sessions.map((x) => { const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null, courseFirstWeek: firstWeekOf(c.sessions), holidays }, x.week, x.dayOfWeek); return d ? d.toISOString().slice(0, 10) : null; })]));
     const cohortDates = new Set([...patternOf.values()].flat().filter((d): d is string => !!d));
     for (const c of t.courses) {
       const pattern = patternOf.get(c.id)!;
@@ -2916,13 +2917,15 @@ export async function getStudentAssignments(studentId: string) {
   const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } },
     meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { id: true, name: true } } } },
     sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
-    program: { select: { institutionId: true, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } }, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true } } } } } } } } } });
+    program: { select: { institutionId: true, institution: { select: { academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } }, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } }, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true } } } } } } } } } });
   if (!cohort) return empty;
   const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
+  const { holidayMap: hmap } = await import("./academiccalendar");
+  const holidays = hmap(cohort.program.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
   const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => {
     const ct = cohort.cohortTerms.find((x) => x.termId === termId); const t = cohort.program.terms.find((x) => x.id === termId);
     const tplWeeks = t?.startWeek != null && t?.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
-    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null, courseFirstWeek: firstWeekOf(t?.courses.find((c) => c.id === courseId)?.sessions ?? []) }, week, day);
+    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null, courseFirstWeek: firstWeekOf(t?.courses.find((c) => c.id === courseId)?.sessions ?? []), holidays }, week, day);
     return d ? d.toISOString().slice(0, 10) : null;
   };
   // Who staffs each course × kind × section this learner sits in (instructors for class / lab, preceptors for clinical).

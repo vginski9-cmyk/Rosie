@@ -201,7 +201,7 @@ The first thing that runs out when a scenario's cohorts are laid over every offe
 
 ### Holiday rule
 
-How a class, lab or clinical session that lands on an observed holiday is handled, set per college: moved to the next open day in the same week (the default), to the previous open day, or only flagged for someone to move by hand. A day the same course already uses that week is never chosen; a whole-week break stays flagged. The imported college calendar is the only authority for which days are holidays once it exists.
+How a class, lab or clinical session that lands on an observed holiday is handled, set per college: moved to the next open day in the same week (the default), to the previous open day, or only flagged for someone to move by hand. A day the same course already uses that week is never chosen. A whole week the college is closed for (a break) is not a term week: the weeks after it slide a week later and the term ends a week later, under every rule. The imported college calendar is the only authority for which days are holidays once it exists.
 
 - **Not the same as:** A hand-made move of one occurrence is filed under the session's pattern date and always wins over the rule.
 - **Where:** Setup → Basics, the offering design page, coverage, the scheduler

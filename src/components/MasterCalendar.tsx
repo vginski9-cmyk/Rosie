@@ -1,513 +1,550 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+// THE MASTER CALENDAR — every class, lab and clinical shift of a college on one timeline, at any
+// grain (day · week · month · quarter · semester · year), backwards and forwards without limit,
+// searchable by a student, an instructor or preceptor, a clinical site, a room, an offering, a
+// program or a course. The server dates and joins everything (lib/calendarquery); this draws it.
+
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { moveMeeting } from "@/lib/actions";
 import { dec, fmt } from "@/lib/format";
-import type { CalOccurrence, CalRosterDay } from "@/lib/queries";
+import type { CalendarData } from "@/lib/calendarquery";
+import { CAL_VIEWS, KIND_LABEL, ENTITY_LABEL, entityKey, searchEntities, monthsIn, monthGrid, monthLabel, dayLabel, shortDate, addDaysIso, mondayIso, dowShort, DOW_SHORT, type CalView, type CalEvent, type CalEntity, type EventKind, type CalDayAgg } from "@/lib/calendarview";
 
-/** A block on the week grid: a weekly pattern, or — for clinicals the plan or a move has dated — the shift as it actually happens. */
-type CalBlock = CalMeeting & { occ?: CalOccurrence };
-
-export interface CalMeeting {
-  id: string;
-  cohortId: string; cohortName: string;
-  programId: string; programName: string; family: string | null;
-  courseId: string; courseCode: string | null; courseName: string;
-  kind: string; sectionIndex: number; sectionCount: number; seats: number;
-  dayOfWeek: string; startTime: string; endTime: string; lengthHours: number;
-  facilityId: string | null; facilityName: string | null; facilityKind: string | null;
-  employerId: string | null; employerName: string | null;
-  staffPersonId: string | null; staffName: string | null;
-  termIndex: number; weekStartMs: number; weekEndMs: number; startLabel: string; endLabel: string;
-  sessionTitles: { week: number | null; title: string | null }[];
-}
-export interface CalEmployer { id: string; name: string; setting: string | null }
-export interface CalRoom { facilityId: string; name: string; kind: string; capacity: number | null; building: string | null; utilization: number; bookedHoursPeakWeek: number; openHoursPerWeek: number; meetingCount: number; distinctDays: number }
-export interface CalConflict { kind: string; aId: string; bId: string; dayOfWeek: string; key: string; detail: string }
-export interface RoomOpt { id: string; name: string; kind: string; capacity: number | null }
-export interface CalPerson { id: string; name: string; role: string; employerId?: string | null }
-
-const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const KIND_COLOR: Record<string, string> = { CLASS: "#0284c7", LAB: "#7c3aed", CLINICAL: "#e11d48" };
-/** A stable, distinct color per location: golden-angle hues over the sorted list of locations. */
-const locationColor = (index: number) => `hsl(${Math.round((index * 137.508) % 360)} 62% 42%)`;
-type ColorBy = "program" | "kind" | "location";
-const DAY_FULL: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
-const START_HOUR = 8, END_HOUR = 20, HOUR_PX = 44;
-const PALETTE = ["bg-rose-500", "bg-sky-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-teal-500", "bg-fuchsia-500", "bg-indigo-500", "bg-orange-500", "bg-cyan-500"];
+// Kind colors: the validated categorical order (blue · orange · aqua). Text stays in slate.
+const KIND_COLOR: Record<EventKind, string> = { CLASS: "#2a78d6", LAB: "#eb6834", CLINICAL: "#1baf7a" };
+const KIND_TINT: Record<EventKind, string> = { CLASS: "#e3eefb", LAB: "#fdeae2", CLINICAL: "#dcf5ec" };
+const KIND_GLYPH: Record<EventKind, string> = { CLASS: "C", LAB: "L", CLINICAL: "⚕" };
+// Density: one hue, light → dark (sequential), for the coarse views.
+const DENSITY = ["#f1f5f9", "#dbeafe", "#93c5fd", "#3b82f6", "#1d4ed8"];
+const densityStep = (n: number) => (n <= 0 ? 0 : n <= 2 ? 1 : n <= 5 ? 2 : n <= 9 ? 3 : 4);
+const START_HOUR = 6, END_HOUR = 22, HOUR_PX = 40;
 const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
-const fmtTime = (t: string) => { const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
-const KIND_LABEL: Record<string, string> = { CLASS: "Lecture", LAB: "Lab", CLINICAL: "Clinical" };
+const fmtTime = (t: string | null) => { if (!t) return "any time"; const [h, m] = t.split(":").map(Number); const ap = h >= 12 ? "p" : "a"; const hh = h % 12 || 12; return m ? `${hh}:${String(m).padStart(2, "0")}${ap}` : `${hh}${ap}`; };
+const ENTITY_TONE: Record<string, string> = { student: "bg-violet-100 text-violet-800", person: "bg-emerald-100 text-emerald-800", site: "bg-rose-100 text-rose-800", room: "bg-sky-100 text-sky-800", cohort: "bg-amber-100 text-amber-800", program: "bg-slate-200 text-slate-700", course: "bg-fuchsia-100 text-fuchsia-800" };
 
-export function MasterCalendar({
-  institutions, institutionId, rooms, people = [], employers = [], meetings, conflicts, conflictGroupCount, weeks, currentWeekMs, programs, summary, occurrences = [], roster = [],
-}: {
-  institutions: { id: string; name: string }[]; institutionId: string;
-  rooms: CalRoom[]; people?: CalPerson[]; employers?: CalEmployer[]; meetings: CalMeeting[]; conflicts: CalConflict[]; /** Overlap groups this week (three sections in one room at once = one). */ conflictGroupCount?: number;
-  weeks: { ms: number; label: string }[]; currentWeekMs: number | null;
-  programs: { id: string; name: string }[]; summary: { roomed: number; unroomed: number; clinical: number; peakUtil: number };
-  /** The displayed week's clinical shifts as they actually happen, and who is where each day. */
-  occurrences?: CalOccurrence[]; roster?: CalRosterDay[];
-}) {
+export interface CalendarUrlState { view: CalView; date: string; who: string | null; kind: EventKind | null; program: string | null }
+
+export function MasterCalendar({ data, state }: { data: CalendarData; state: CalendarUrlState }) {
   const router = useRouter();
-  // The week is chosen on the server (it loads that week's real shifts), so moving weeks is a navigation.
-  const weekMs = currentWeekMs ?? weeks[0]?.ms ?? 0;
-  const [navPending, startNav] = useTransition();
-  const goWeek = (ms: number) => startNav(() => router.push(`/calendar?inst=${institutionId}&week=${ms}`));
-  const [fProgram, setFProgram] = useState("");
-  const [fRoom, setFRoom] = useState("");
-  const [fKind, setFKind] = useState("");
-  const [conflictsOnly, setConflictsOnly] = useState(false);
-  const [colorBy, setColorBy] = useState<ColorBy>("location");
-  const [editing, setEditing] = useState<CalMeeting | null>(null);
+  const [pending, startNav] = useTransition();
+  const [selected, setSelected] = useState<CalEvent | null>(null);
+  const [editing, setEditing] = useState<{ event: CalEvent; sectionIndex: number; patternId: string } | null>(null);
+  useEffect(() => { setSelected(null); }, [data.range.fromIso, data.range.toIso, data.who?.id]);
 
-  const programColor = useMemo(() => {
-    const m = new Map<string, string>();
-    programs.forEach((p, i) => m.set(p.id, PALETTE[i % PALETTE.length]));
-    return m;
-  }, [programs]);
-  // One color per location (room or partner site) across the whole calendar,
-  // so two blocks in the same place always match and different places never do.
-  const locationKey = (m: CalMeeting) => (m.kind === "CLINICAL" ? (m.employerId ? `site:${m.employerId}` : "site:tbd") : (m.facilityId ? `room:${m.facilityId}` : "room:none"));
-  const locationName = (m: CalMeeting) => (m.kind === "CLINICAL" ? (m.employerName ? `@ ${m.employerName}` : "@ site TBD") : (m.facilityName ?? "no room"));
-  const locationColors = useMemo(() => {
-    const names = new Map<string, string>();
-    for (const m of meetings) names.set(locationKey(m), locationName(m));
-    const keys = [...names.keys()].sort((a, b) => names.get(a)!.localeCompare(names.get(b)!));
-    const colors = new Map<string, { color: string; name: string }>();
-    keys.forEach((k, i) => colors.set(k, { color: k === "room:none" || k === "site:tbd" ? "#94a3b8" : locationColor(i), name: names.get(k)! }));
-    return colors;
-  }, [meetings]);
-  const blockStyle = (m: CalMeeting): { className: string; style?: React.CSSProperties } => {
-    if (colorBy === "program") return { className: programColor.get(m.programId) ?? "bg-slate-500" };
-    if (colorBy === "kind") return { className: "", style: { backgroundColor: KIND_COLOR[m.kind] ?? "#64748b" } };
-    return { className: "", style: { backgroundColor: locationColors.get(locationKey(m))?.color ?? "#64748b" } };
+  const go = (patch: Partial<CalendarUrlState> & { inst?: string }) => {
+    const s = { ...state, ...patch };
+    const q = new URLSearchParams();
+    q.set("inst", patch.inst ?? data.institutionId ?? "");
+    q.set("view", s.view); q.set("date", s.date);
+    if (s.who) q.set("who", s.who); if (s.kind) q.set("kind", s.kind); if (s.program) q.set("program", s.program);
+    startNav(() => router.push(`/calendar?${q.toString()}`));
   };
-
-  const conflictIds = useMemo(() => { const s = new Set<string>(); for (const c of conflicts) { s.add(c.aId); s.add(c.bId); } return s; }, [conflicts]);
-  const weekIdx = weeks.findIndex((w) => w.ms === weekMs);
-
-  // Meetings active in the selected week, after filters. Clinicals are off-campus
-  // (shown in a separate strip, they don't compete for rooms).
-  const inWeek = useMemo(() => meetings.filter((m) => m.weekStartMs && m.weekStartMs <= weekMs && weekMs < m.weekEndMs), [meetings, weekMs]);
-  // Clinical shifts the week actually has stand in for their weekly-pattern blocks: on the day they
-  // landed, at the site booked, with the preceptors and students on them. Patterns nothing is
-  // known about yet stay as they are.
-  const blocks: CalBlock[] = useMemo(() => {
-    const replaced = new Set(occurrences.map((o) => o.meetingId).filter((id): id is string => !!id));
-    const byId = new Map(meetings.map((m) => [m.id, m]));
-    const WK = 7 * 24 * 3600 * 1000;
-    const occBlocks: CalBlock[] = occurrences.map((o) => {
-      const p = o.meetingId ? byId.get(o.meetingId) : undefined;
-      const base: CalMeeting = p ?? {
-        id: `occ:${o.key}`, cohortId: o.cohortId, cohortName: o.cohortName, programId: o.programId, programName: o.programName, family: null,
-        courseId: o.courseId, courseCode: o.courseCode, courseName: o.courseName, kind: "CLINICAL", sectionIndex: o.sectionIndex, sectionCount: o.sectionCount, seats: o.students.length,
-        dayOfWeek: o.dayOfWeek, startTime: o.startTime, endTime: o.endTime, lengthHours: o.lengthHours, facilityId: null, facilityName: null, facilityKind: null,
-        employerId: o.employerId, employerName: o.employerName, staffPersonId: null, staffName: null, termIndex: 0, weekStartMs: weekMs, weekEndMs: weekMs + WK, startLabel: "", endLabel: "", sessionTitles: [],
-      };
-      return { ...base, id: `occ:${o.key}`, dayOfWeek: o.dayOfWeek, startTime: o.startTime, endTime: o.endTime, lengthHours: o.lengthHours, employerId: o.employerId, employerName: o.employerName, staffName: o.preceptors.length ? (o.preceptors.length > 1 ? `${o.preceptors[0]} +${o.preceptors.length - 1}` : o.preceptors[0]) : base.staffName, seats: o.students.length || base.seats, occ: o };
-    });
-    return [...inWeek.filter((m) => !replaced.has(m.id)), ...occBlocks];
-  }, [inWeek, occurrences, meetings, weekMs]);
-  const filtered = useMemo(() => blocks.filter((m) => {
-    if (fProgram && m.programId !== fProgram) return false;
-    if (fRoom && m.facilityId !== fRoom) return false;
-    if (fKind && m.kind !== fKind) return false;
-    if (conflictsOnly && !conflictIds.has(m.id)) return false;
-    return true;
-  }), [blocks, fProgram, fRoom, fKind, conflictsOnly, conflictIds]);
-
-  const campus = filtered.filter((m) => m.kind !== "CLINICAL");
-  const clinical = filtered.filter((m) => m.kind === "CLINICAL");
-  // Every week shows all seven days — weekends included, booked or not.
-  const DAYS = ALL_DAYS;
-  // Legend for the current coloring, limited to what is on screen this week.
-  const legend = useMemo(() => {
-    if (colorBy === "kind") return [["Lecture", KIND_COLOR.CLASS], ["Lab", KIND_COLOR.LAB], ["Clinical", KIND_COLOR.CLINICAL]] as [string, string][];
-    if (colorBy === "program") return [] as [string, string][];
-    const keys = [...new Set(filtered.map(locationKey))];
-    return keys.map((k) => [locationColors.get(k)?.name ?? k, locationColors.get(k)?.color ?? "#64748b"] as [string, string]).sort((a, b) => a[0].localeCompare(b[0]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colorBy, filtered, locationColors]);
-
-  // Per-day lane packing so overlapping blocks sit side by side. EVERYTHING is
-  // on the one master calendar — campus classes/labs AND clinical rotations
-  // (hosted at partner sites, or "site TBD" until one is assigned).
-  // One block per SESSION slot: the sections of a course × kind that meet at the
-  // same day and time travel together (a precepted clinical is one student per
-  // section, so 18 students at 6 sites is one block, not eighteen). Click a
-  // block with several sections to see and edit each one.
-  const dayLayout = (day: string) => {
-    const byKey = new Map<string, CalBlock[]>();
-    for (const m of filtered.filter((x) => x.dayOfWeek === day)) { const k = `${m.courseId}|${m.kind}|${m.startTime}|${m.lengthHours}|${m.cohortId}|${m.occ ? "occ" : "pat"}`; const l = byKey.get(k) ?? []; l.push(m); byKey.set(k, l); }
-    const items = [...byKey.values()].map((members) => ({ m: members.sort((a, b) => a.sectionIndex - b.sectionIndex)[0], members })).sort((a, b) => toMin(a.m.startTime) - toMin(b.m.startTime));
-    const laneEnds: number[] = [];
-    const placed = items.map(({ m, members }) => {
-      const s = toMin(m.startTime), e = s + m.lengthHours * 60;
-      let lane = laneEnds.findIndex((end) => end <= s);
-      if (lane === -1) { lane = laneEnds.length; laneEnds.push(e); } else laneEnds[lane] = e;
-      return { m, members, s, e, lane };
-    });
-    return { placed, lanes: Math.max(1, laneEnds.length) };
-  };
-  const [group, setGroup] = useState<CalBlock[] | null>(null);
-  const groupWhere = (members: CalBlock[]) => {
-    const m = members[0];
-    if (m.kind === "CLINICAL") { const sites = new Set(members.filter((x) => x.employerId).map((x) => x.employerName)); const tbd = members.filter((x) => !x.employerId).length; return sites.size === 0 ? "@ site TBD" : sites.size === 1 ? `@ ${[...sites][0]}${tbd ? ` · ${tbd} TBD` : ""}` : `@ ${sites.size} sites${tbd ? ` · ${tbd} TBD` : ""}`; }
-    const rooms = [...new Set(members.map((x) => x.facilityName).filter(Boolean))]; const none = members.filter((x) => !x.facilityId).length;
-    return rooms.length === 0 ? "⚠ no room" : rooms.length === 1 ? `${rooms[0]}${none ? ` · ${none} unroomed` : ""}` : `${rooms.slice(0, 2).join(", ")}${rooms.length > 2 ? ` +${rooms.length - 2}` : ""}`;
-  };
-  const groupStudents = (members: CalBlock[]) => members.reduce((n, x) => n + x.seats, 0);
-  const groupMoved = (members: CalBlock[]) => { const from = [...new Set(members.filter((x) => x.occ?.moved).map((x) => x.occ!.originalDay))]; return from.length ? `moved from ${from.join("/")}` : null; };
-  const groupUnbooked = (members: CalBlock[]) => members.filter((x) => x.occ && !x.occ.booked && x.occ.source === "pattern").length;
-  const dayDate = (day: string) => { const i = ALL_DAYS.indexOf(day); const d = new Date(weekMs + i * 24 * 3600 * 1000); return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }); };
-
-  const gridHeight = (END_HOUR - START_HOUR) * HOUR_PX;
-  // Conflicts arrive computed for the displayed week, on the dates things happen (after moves).
-  const conflictsForWeek = conflicts;
-  const conflictCount = conflictGroupCount ?? conflictsForWeek.length;
-
-  const save = (patch: Parameters<typeof moveMeeting>[1]) => {
-    if (!editing) return;
-    const id = editing.id;
-    setEditing(null);
-    startMove(id, patch);
-  };
-  const [pending, startTransition] = useTransition();
-  const [moveError, setMoveError] = useState<string | null>(null);
-  const startMove = (id: string, patch: Parameters<typeof moveMeeting>[1]) => {
-    startTransition(async () => { setMoveError(null); try { await moveMeeting(id, patch); router.refresh(); } catch (e) { setMoveError(e instanceof Error ? e.message : String(e)); } });
-  };
+  const open = (view: CalView, date: string) => go({ view, date });
+  const r = data.range;
+  const t = data.totals;
+  const eventById = useMemo(() => new Map(data.events.map((e) => [e.id, e])), [data.events]);
+  const conflictEventIds = useMemo(() => new Set(data.conflicts.flatMap((c) => c.eventIds)), [data.conflicts]);
+  const holidayOn = useMemo(() => new Map(data.holidays.map((h) => [h.date, h.label])), [data.holidays]);
+  const closedOn = useMemo(() => new Map(data.closedWeeks.map((w) => [w.mondayIso, w.label])), [data.closedWeeks]);
+  const marksOn = useMemo(() => { const m = new Map<string, string[]>(); for (const x of data.semesterMarks) m.set(x.iso, [...(m.get(x.iso) ?? []), x.label]); return m; }, [data.semesterMarks]);
+  const eventsByDate = useMemo(() => { const m = new Map<string, CalEvent[]>(); for (const e of data.events) m.set(e.date, [...(m.get(e.date) ?? []), e]); return m; }, [data.events]);
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Institution</span>
-          <select value={institutionId} aria-label="College" onChange={(e) => router.push(`/calendar?inst=${e.target.value}`)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-            {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Program</span>
-          <select value={fProgram} onChange={(e) => setFProgram(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-            <option value="">All programs</option>
-            {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Room</span>
-          <select value={fRoom} onChange={(e) => setFRoom(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-            <option value="">All rooms</option>
-            {rooms.map((r) => <option key={r.facilityId} value={r.facilityId}>{r.name}</option>)}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Type</span>
-          <select value={fKind} onChange={(e) => setFKind(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-            <option value="">All</option>
-            <option value="CLASS">Lecture</option><option value="LAB">Lab</option><option value="CLINICAL">Clinical</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-1.5 pb-1.5 text-xs text-slate-600">
-          <input type="checkbox" checked={conflictsOnly} onChange={(e) => setConflictsOnly(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-300" />
-          Conflicts only
-        </label>
-        {(fProgram || fRoom || fKind || conflictsOnly) && <button onClick={() => { setFProgram(""); setFRoom(""); setFKind(""); setConflictsOnly(false); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>}
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Color by</span>
-          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs">
-            {([["location", "Location"], ["kind", "Type"], ["program", "Program"]] as [ColorBy, string][]).map(([k, l]) => <button key={k} onClick={() => setColorBy(k)} className={`px-2.5 py-1.5 ${colorBy === k ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`} title={k === "location" ? "same color = same room or site" : k === "kind" ? "lecture / lab / clinical" : "one color per program"}>{l}</button>)}
+      {/* ── Toolbar: what to look at ──────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">College</span>
+            <select value={data.institutionId ?? ""} onChange={(e) => go({ inst: e.target.value, who: null, program: null })} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              {data.institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
+            </select>
+          </label>
+          <SearchBox entities={data.entities} who={data.who} onPick={(e) => go({ who: e ? entityKey(e) : null })} />
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Type</span>
+            <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs">
+              {([[null, "All"], ["CLASS", "Class"], ["LAB", "Lab"], ["CLINICAL", "Clinical"]] as [EventKind | null, string][]).map(([k, l]) => (
+                <button key={l} onClick={() => go({ kind: k })} className={`px-2.5 py-1.5 ${state.kind === k ? "bg-slate-800 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{l}</button>
+              ))}
+            </div>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Program</span>
+            <select value={state.program ?? ""} onChange={(e) => go({ program: e.target.value || null })} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+              <option value="">All programs</option>
+              {data.programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-sm">
+            {CAL_VIEWS.map((v) => <button key={v.key} onClick={() => open(v.key, state.date)} className={`px-3 py-1.5 ${state.view === v.key ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{v.label}</button>)}
           </div>
-        </label>
-        <div className="ml-auto flex items-center gap-2">
-          <button disabled={weekIdx <= 0 || navPending} onClick={() => goWeek(weeks[weekIdx - 1].ms)} aria-label="Previous week" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">←</button>
-          <select value={weekMs} disabled={navPending} aria-label="Week" onChange={(e) => goWeek(Number(e.target.value))} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-            {weeks.map((w) => <option key={w.ms} value={w.ms}>Week of {w.label}</option>)}
-          </select>
-          <button disabled={weekIdx >= weeks.length - 1 || navPending} onClick={() => goWeek(weeks[weekIdx + 1].ms)} aria-label="Next week" className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:opacity-30">→</button>
-          {navPending && <span className="text-xs text-slate-400">loading…</span>}
+          <div className="inline-flex items-center gap-1">
+            <button onClick={() => open(state.view, r.prevIso)} aria-label="Previous" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm hover:bg-slate-50">←</button>
+            <button onClick={() => open(state.view, data.today)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm hover:bg-slate-50">Today</button>
+            <button onClick={() => open(state.view, r.nextIso)} aria-label="Next" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm hover:bg-slate-50">→</button>
+          </div>
+          <div className="text-lg font-semibold text-slate-900">{r.label}</div>
+          <input type="date" value={state.date} onChange={(e) => { if (e.target.value) open(state.view, e.target.value); }} aria-label="Go to date" className="rounded-lg border border-slate-300 px-2 py-1 text-sm" />
+          {pending && <span className="text-xs text-slate-400">loading…</span>}
+          <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+            {(["CLASS", "LAB", "CLINICAL"] as EventKind[]).map((k) => <span key={k} className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: KIND_COLOR[k] }} />{KIND_LABEL[k]}</span>)}
+          </div>
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-        <span className="rounded-full bg-slate-100 px-2 py-0.5">{new Set(campus.map((m) => `${m.courseId}|${m.kind}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} campus sessions this week ({campus.length} section bookings)</span>
-        <span className="rounded-full bg-orange-100 px-2 py-0.5 text-orange-700">{new Set(clinical.map((m) => `${m.courseId}|${m.dayOfWeek}|${m.startTime}|${m.cohortId}`)).size} clinical sessions · {clinical.reduce((n, m) => n + m.seats, 0)} student shifts{clinical.some((m) => !m.employerId) ? ` · ${clinical.filter((m) => !m.employerId).length} need a site` : ""}{clinical.some((m) => m.occ?.moved) ? ` · ${clinical.filter((m) => m.occ?.moved).length} moved by the plan` : ""}</span>
-        {clinical.some((m) => m.occ) && <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">{new Set(clinical.filter((m) => m.occ?.employerId).map((m) => m.occ!.employerId)).size} sites hosting · {new Set(clinical.flatMap((m) => m.occ?.preceptors ?? [])).size} preceptors named</span>}
-        {summary.unroomed > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{summary.unroomed} unroomed — needs space</span>}
-        {conflictsForWeek.length > 0
-          ? <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{conflictCount} conflict{conflictCount === 1 ? "" : "s"} this week</span>
-          : <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">no conflicts this week</span>}
-        {pending && <span className="text-slate-400">saving…</span>}
-        {moveError && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700">{moveError}</span>}
+      {/* ── What is in the range ───────────────────────────────────────────────────────────── */}
+      {data.who && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${ENTITY_TONE[data.who.kind]}`}>{ENTITY_LABEL[data.who.kind]}</span>
+          <span className="font-semibold text-slate-900">{data.who.name}</span>
+          {data.who.sub && <span className="text-slate-500">· {data.who.sub}</span>}
+          <span className="text-slate-500">· everything on the calendar that touches them, {r.label.toLowerCase()}</span>
+          <button onClick={() => go({ who: null })} className="text-xs text-slate-400 hover:text-rose-600">clear ✕</button>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        <Tile label="Sessions" value={fmt.num(t.sessions)} sub={`${fmt.num(t.classes)} class · ${fmt.num(t.labs)} lab · ${fmt.num(t.clinicals)} clinical`} />
+        <Tile label="Student shifts" value={fmt.num(t.studentShifts)} sub="one student on one clinical shift" />
+        <Tile label="Hours" value={dec(t.hours, 0, 1)} sub="session hours" />
+        <Tile label="Days" value={fmt.num(t.days)} sub="with anything on" />
+        <Tile label="Sites" value={fmt.num(t.sites)} sub="clinical sites in use" />
+        <Tile label="Rooms" value={fmt.num(t.rooms)} sub="rooms in use" />
+        <Tile label="People" value={fmt.num(t.people)} sub="instructors and preceptors" />
+        <Tile label="Students" value={fmt.num(t.students)} sub="distinct" />
       </div>
-      {/* Legend — what the colors mean this week */}
-      {(legend.length > 0 || colorBy === "program") && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-          <span className="text-slate-400">{colorBy === "location" ? "same color = same room or site:" : colorBy === "kind" ? "session type:" : "program:"}</span>
-          {colorBy === "program"
-            ? programs.map((p) => <span key={p.id} className="inline-flex items-center gap-1"><span className={`inline-block h-2.5 w-2.5 rounded-sm ${programColor.get(p.id)}`} />{p.name}</span>)
-            : legend.map(([name, color]) => <span key={name} className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />{name}</span>)}
+      {(t.movedByRule > 0 || t.onHoliday > 0 || data.conflicts.length > 0 || t.unbookedClinical > 0 || data.closedWeeks.length > 0 || data.holidays.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {data.conflicts.length > 0 && <span className="rounded-full bg-rose-600 px-2 py-0.5 font-medium text-white">{data.conflicts.length} conflict{data.conflicts.length === 1 ? "" : "s"}</span>}
+          {t.onHoliday > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">{fmt.num(t.onHoliday)} on a holiday the rule could not resolve</span>}
+          {t.movedByRule > 0 && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-800">{fmt.num(t.movedByRule)} moved off a holiday by the rule</span>}
+          {t.unbookedClinical > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{fmt.num(t.unbookedClinical)} clinical sections not booked on a site asset</span>}
+          {data.closedWeeks.map((w) => <span key={w.mondayIso} className="rounded-full bg-slate-800 px-2 py-0.5 text-white">closed week of {shortDate(w.mondayIso)} · {w.label}</span>)}
+          {data.holidays.filter((h) => !closedOn.has(mondayIso(h.date))).slice(0, 8).map((h) => <span key={h.date} className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800 ring-1 ring-amber-200">{shortDate(h.date)} · {h.label}</span>)}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_240px]">
-        {/* Timetable */}
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3">
-          <div className="flex min-w-[840px]">
-            {/* time gutter */}
-            <div className="w-12 shrink-0 pt-7">
-              {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
-                <div key={i} style={{ height: HOUR_PX }} className="relative -top-2 text-right text-[10px] text-slate-400">{fmtTime(`${START_HOUR + i}:00`)}</div>
+      {/* ── The calendar itself ────────────────────────────────────────────────────────────── */}
+      {state.view === "day" && <DayView date={r.fromIso} events={data.events} holiday={holidayOn.get(r.fromIso) ?? null} closed={closedOn.get(mondayIso(r.fromIso)) ?? null} marks={marksOn.get(r.fromIso) ?? []} conflictIds={conflictEventIds} onSelect={setSelected} selected={selected} />}
+      {state.view === "week" && <WeekView monday={r.fromIso} eventsByDate={eventsByDate} holidayOn={holidayOn} closed={closedOn.get(r.fromIso) ?? null} marksOn={marksOn} conflictIds={conflictEventIds} today={data.today} onSelect={setSelected} selected={selected} onDay={(d) => open("day", d)} />}
+      {state.view === "month" && <MonthView monthIso={r.fromIso} eventsByDate={eventsByDate} holidayOn={holidayOn} closedOn={closedOn} marksOn={marksOn} conflictIds={conflictEventIds} today={data.today} onSelect={setSelected} onDay={(d) => open("day", d)} onWeek={(d) => open("week", d)} />}
+      {(state.view === "quarter" || state.view === "semester" || state.view === "year") && <CoarseView fromIso={r.fromIso} toIso={r.toIso} days={data.days} holidayOn={holidayOn} closedOn={closedOn} today={data.today} terms={data.terms} onDay={(d) => open("day", d)} onMonth={(d) => open("month", d)} onWeek={(d) => open("week", d)} />}
+
+      {/* Conflicts, when the view carries events */}
+      {data.conflicts.length > 0 && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4">
+          <h3 className="text-sm font-semibold text-rose-700">{data.conflicts.length} conflict{data.conflicts.length === 1 ? "" : "s"} <span className="font-normal text-rose-500">— on the dates things happen, after every move</span></h3>
+          <div className="mt-2 space-y-1">
+            {data.conflicts.slice(0, 30).map((c, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2 text-[12px]">
+                <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${c.kind === "room" ? "bg-rose-200 text-rose-800" : c.kind === "staff" ? "bg-violet-200 text-violet-800" : "bg-amber-200 text-amber-800"}`}>{c.kind}</span>
+                <span className="text-slate-500">{shortDate(c.dateIso)}</span>
+                {c.eventIds.map((id) => { const e = eventById.get(id); return e ? <button key={id} onClick={() => setSelected(e)} className="text-slate-700 hover:text-rose-700 hover:underline">{e.courseCode ?? e.courseName} ({e.cohortName})</button> : null; })}
+                <span className="text-slate-400">{c.detail}{c.pairs > 1 ? ` · ${fmt.num(c.pairs)} sections` : ""}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selected && <Detail event={selected} canEdit={data.canEdit} onClose={() => setSelected(null)} onEdit={(sectionIndex, patternId) => setEditing({ event: selected, sectionIndex, patternId })} onWho={(e) => go({ who: entityKey(e) })} />}
+      {editing && <PatternEditor event={editing.event} sectionIndex={editing.sectionIndex} patternId={editing.patternId} rooms={data.rooms} people={data.people} employers={data.employers} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setSelected(null); router.refresh(); }} />}
+    </div>
+  );
+}
+
+function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-xl font-semibold tabular-nums text-slate-900">{value}</div>
+      {sub && <div className="truncate text-[10px] text-slate-400" title={sub}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Search ──────────────────────────────────────────────────────────────────────────────────────
+function SearchBox({ entities, who, onPick }: { entities: CalEntity[]; who: CalEntity | null; onPick: (e: CalEntity | null) => void }) {
+  const [q, setQ] = useState("");
+  const [openList, setOpenList] = useState(false);
+  const [hi, setHi] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const hits = useMemo(() => searchEntities(entities, q, 10), [entities, q]);
+  useEffect(() => { const h = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpenList(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, []);
+  const pick = (e: CalEntity) => { onPick(e); setQ(""); setOpenList(false); };
+  return (
+    <div ref={box} className="relative block min-w-[18rem] flex-1">
+      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Find a student, instructor, preceptor, site, room, offering, program or course</span>
+      {who ? (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-sm">
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${ENTITY_TONE[who.kind]}`}>{ENTITY_LABEL[who.kind]}</span>
+          <span className="truncate font-medium text-slate-800">{who.name}</span>
+          <button onClick={() => onPick(null)} className="ml-auto text-xs text-slate-400 hover:text-rose-600" aria-label="Clear the search">✕</button>
+        </div>
+      ) : (
+        <input value={q} onChange={(e) => { setQ(e.target.value); setOpenList(true); setHi(0); }} onFocus={() => setOpenList(true)}
+          onKeyDown={(e) => { if (e.key === "ArrowDown") { setHi((h) => Math.min(h + 1, hits.length - 1)); e.preventDefault(); } else if (e.key === "ArrowUp") { setHi((h) => Math.max(h - 1, 0)); e.preventDefault(); } else if (e.key === "Enter" && hits[hi]) pick(hits[hi]); else if (e.key === "Escape") setOpenList(false); }}
+          placeholder="type a name…" aria-label="Search the calendar" className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
+      )}
+      {openList && q && (
+        <div className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          {hits.length === 0 && <div className="px-3 py-2 text-xs text-slate-400">Nothing matches.</div>}
+          {hits.map((e, i) => (
+            <button key={entityKey(e)} onMouseDown={() => pick(e)} className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === hi ? "bg-rose-50" : "hover:bg-slate-50"}`}>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${ENTITY_TONE[e.kind]}`}>{ENTITY_LABEL[e.kind]}</span>
+              <span className="truncate font-medium text-slate-800">{e.name}</span>
+              {e.sub && <span className="truncate text-xs text-slate-400">{e.sub}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Shared pieces ───────────────────────────────────────────────────────────────────────────────
+const whereOf = (e: CalEvent) => {
+  if (e.online) return "online";
+  const places = [...new Set(e.sections.map((s) => (e.kind === "CLINICAL" ? s.site : s.room)).filter(Boolean))] as string[];
+  const none = e.sections.filter((s) => !(e.kind === "CLINICAL" ? s.siteId : s.roomId)).length;
+  if (!places.length) return e.kind === "CLINICAL" ? "site TBD" : "no room";
+  return `${places.slice(0, 2).join(", ")}${places.length > 2 ? ` +${places.length - 2}` : ""}${none ? ` · ${none} unplaced` : ""}`;
+};
+const staffOf = (e: CalEvent) => { const names = [...new Set(e.sections.flatMap((s) => s.staff.map((p) => p.name)))]; return names.length ? (names.length > 2 ? `${names.slice(0, 2).join(", ")} +${names.length - 2}` : names.join(", ")) : null; };
+const Badges = ({ e, conflict }: { e: CalEvent; conflict: boolean }) => (
+  <>
+    {conflict && <span className="rounded bg-rose-600 px-1 text-[9px] font-semibold text-white">conflict</span>}
+    {e.holiday && <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-800" title={`on ${e.holiday}: the rule found no open day`}>on {e.holiday}</span>}
+    {e.holidayMoved && <span className="rounded bg-sky-100 px-1 text-[9px] font-semibold text-sky-800" title={`moved off ${e.holidayMoved.holiday} (${shortDate(e.holidayMoved.fromIso)}) by the holiday rule`}>↪ off {e.holidayMoved.holiday}</span>}
+    {e.sections.some((s) => s.moved) && <span className="rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-800" title="moved by hand from its pattern date">moved</span>}
+    {e.kind === "CLINICAL" && e.sections.some((s) => !s.booked && s.siteId) && <span className="rounded bg-slate-100 px-1 text-[9px] font-semibold text-slate-600" title="the section's weekly site; nothing is booked on a site asset for this date">not booked</span>}
+    {!e.online && !e.sections.some((s) => s.staff.length) && <span className="rounded bg-amber-50 px-1 text-[9px] font-semibold text-amber-700">unstaffed</span>}
+  </>
+);
+const eventTitle = (e: CalEvent) => `${e.courseCode ?? e.courseName} · ${KIND_LABEL[e.kind]}${e.title ? ` · ${e.title}` : ""}`;
+
+// ── Day ─────────────────────────────────────────────────────────────────────────────────────────
+function DayView({ date, events, holiday, closed, marks, conflictIds, onSelect, selected }: { date: string; events: CalEvent[]; holiday: string | null; closed: string | null; marks: string[]; conflictIds: Set<string>; onSelect: (e: CalEvent) => void; selected: CalEvent | null }) {
+  const sites = useMemo(() => {
+    const m = new Map<string, { name: string; students: { name: string; cohort: string; course: string; preceptor: string | null }[]; preceptors: Set<string> }>();
+    for (const e of events.filter((x) => x.kind === "CLINICAL")) for (const s of e.sections) {
+      const k = s.siteId ?? "tbd"; const site = m.get(k) ?? { name: s.site ?? "site TBD", students: [], preceptors: new Set() };
+      for (const st of s.students) site.students.push({ name: st.name, cohort: e.cohortName, course: e.courseCode ?? e.courseName, preceptor: s.staff.find((p) => p.role === "preceptor")?.name ?? null });
+      for (const p of s.staff) if (p.role === "preceptor") site.preceptors.add(p.name);
+      m.set(k, site);
+    }
+    return [...m.values()].sort((a, b) => b.students.length - a.students.length);
+  }, [events]);
+  return (
+    <div className="space-y-4">
+      {(holiday || closed || marks.length > 0) && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {closed && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-white">closed week · {closed}</span>}
+          {holiday && !closed && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">{holiday} · college closed</span>}
+          {marks.map((m) => <span key={m} className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">{m}</span>)}
+        </div>
+      )}
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {events.length === 0 ? <p className="px-5 py-6 text-sm text-slate-400">Nothing on the calendar this day.</p> : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-2">When</th><th className="px-3 py-2">What</th><th className="px-3 py-2">Offering</th><th className="px-3 py-2">Where</th><th className="px-3 py-2">Who</th><th className="px-3 py-2 text-right">Students</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {events.map((e) => (
+                <tr key={e.id} onClick={() => onSelect(e)} className={`cursor-pointer ${selected?.id === e.id ? "bg-rose-50" : "hover:bg-slate-50/70"}`}>
+                  <td className="whitespace-nowrap px-4 py-2 tabular-nums text-slate-700"><span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-middle" style={{ backgroundColor: KIND_COLOR[e.kind] }} />{fmtTime(e.startTime)}{e.endTime ? `–${fmtTime(e.endTime)}` : ""}</td>
+                  <td className="px-3 py-2"><div className="font-medium text-slate-800">{e.courseCode ?? e.courseName} <span className="font-normal text-slate-500">· {KIND_LABEL[e.kind]}</span></div><div className="text-xs text-slate-500">{e.title ?? e.courseName} · {e.termName} wk {e.weekOfTerm}</div><div className="mt-0.5 flex flex-wrap gap-1"><Badges e={e} conflict={conflictIds.has(e.id)} /></div></td>
+                  <td className="px-3 py-2 text-slate-700">{e.cohortName}<div className="text-xs text-slate-400">{e.programName}</div></td>
+                  <td className="px-3 py-2 text-slate-700">{whereOf(e)}</td>
+                  <td className="px-3 py-2 text-slate-700">{staffOf(e) ?? <span className="text-amber-700">{e.online ? "—" : "nobody named"}</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt.num(e.students)}<span className="text-slate-400"> / {e.sections.length} sect.</span></td>
+                </tr>
               ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {sites.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-800">Who is where <span className="text-xs font-normal text-slate-500">· every clinical site, the students on it and the preceptors named</span></h3>
+          <table className="mt-2 w-full text-xs">
+            <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-1">Site</th><th className="px-2 py-1 text-right">Students</th><th className="px-2 py-1">Who</th><th className="px-2 py-1">Preceptors</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {sites.map((s) => (
+                <tr key={s.name} className="align-top">
+                  <td className="px-2 py-1 font-medium text-slate-800">{s.name}</td>
+                  <td className="px-2 py-1 text-right tabular-nums">{fmt.num(s.students.length)}</td>
+                  <td className="px-2 py-1"><div className="flex flex-wrap gap-1">{s.students.map((st, i) => <span key={i} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700" title={`${st.cohort} · ${st.course}${st.preceptor ? ` · with ${st.preceptor}` : ""}`}>{st.name}</span>)}{s.students.length === 0 && <span className="text-slate-400">no students on the roster</span>}</div></td>
+                  <td className="px-2 py-1 text-slate-600">{s.preceptors.size ? [...s.preceptors].join(", ") : <span className="text-amber-700">none named</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Week ────────────────────────────────────────────────────────────────────────────────────────
+function WeekView({ monday, eventsByDate, holidayOn, closed, marksOn, conflictIds, today, onSelect, selected, onDay }: { monday: string; eventsByDate: Map<string, CalEvent[]>; holidayOn: Map<string, string>; closed: string | null; marksOn: Map<string, string[]>; conflictIds: Set<string>; today: string; onSelect: (e: CalEvent) => void; selected: CalEvent | null; onDay: (d: string) => void }) {
+  const days = Array.from({ length: 7 }, (_, i) => addDaysIso(monday, i));
+  const gridHeight = (END_HOUR - START_HOUR) * HOUR_PX;
+  const layout = (date: string) => {
+    const timed = (eventsByDate.get(date) ?? []).filter((e) => e.startTime).sort((a, b) => toMin(a.startTime!) - toMin(b.startTime!));
+    const laneEnds: number[] = [];
+    const placed = timed.map((e) => { const s = toMin(e.startTime!), en = s + e.hours * 60; let lane = laneEnds.findIndex((x) => x <= s); if (lane === -1) { lane = laneEnds.length; laneEnds.push(en); } else laneEnds[lane] = en; return { e, s, lane }; });
+    return { placed, lanes: Math.max(1, laneEnds.length), untimed: (eventsByDate.get(date) ?? []).filter((e) => !e.startTime) };
+  };
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      {closed && <div className="mb-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-white">Closed week · {closed} · not a term week: nothing runs, and the term's weeks continue after it.</div>}
+      <div className="flex min-w-[900px]">
+        <div className="w-12 shrink-0 pt-12">
+          {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => <div key={i} style={{ height: HOUR_PX }} className="relative -top-2 pr-1 text-right text-[10px] text-slate-400">{fmtTime(`${START_HOUR + i}:00`)}</div>)}
+        </div>
+        {days.map((date) => {
+          const { placed, lanes, untimed } = layout(date);
+          const hol = holidayOn.get(date);
+          return (
+            <div key={date} className={`flex-1 border-l border-slate-100 ${hol ? "bg-amber-50/50" : date === today ? "bg-rose-50/30" : ""}`}>
+              <button onClick={() => onDay(date)} className="block w-full px-1 pb-1 text-center hover:text-rose-700" title="open the day">
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{dowShort(date)} <span className="font-normal normal-case text-slate-400">{shortDate(date)}</span></span>
+                <span className="block h-4 truncate text-[10px] text-amber-700">{hol ?? marksOn.get(date)?.[0] ?? ""}</span>
+              </button>
+              <div className="min-h-[18px] space-y-0.5 px-0.5">
+                {untimed.map((e) => <button key={e.id} onClick={() => onSelect(e)} className="block w-full truncate rounded px-1 text-left text-[9px] font-medium text-slate-800" style={{ backgroundColor: KIND_TINT[e.kind], borderLeft: `3px solid ${KIND_COLOR[e.kind]}` }}>{e.courseCode ?? e.courseName} · {e.online ? "online" : "any time"}</button>)}
+              </div>
+              <div className="relative" style={{ height: gridHeight }}>
+                {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => <div key={i} style={{ top: i * HOUR_PX, height: HOUR_PX }} className="absolute inset-x-0 border-t border-slate-50" />)}
+                {placed.map(({ e, s, lane }) => {
+                  const top = Math.max(0, ((s - START_HOUR * 60) / 60) * HOUR_PX);
+                  const height = Math.max(18, e.hours * HOUR_PX - 2);
+                  const w = 100 / lanes;
+                  const conflict = conflictIds.has(e.id);
+                  return (
+                    <button key={e.id} onClick={() => onSelect(e)} style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)`, backgroundColor: KIND_TINT[e.kind], borderLeft: `3px solid ${KIND_COLOR[e.kind]}` }}
+                      title={`${eventTitle(e)} · ${fmtTime(e.startTime)}–${fmtTime(e.endTime)} · ${whereOf(e)} · ${e.cohortName} · ${fmt.num(e.students)} students`}
+                      className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-slate-900 ${selected?.id === e.id ? "ring-2 ring-rose-500" : conflict ? "ring-2 ring-rose-400" : ""} hover:brightness-95`}>
+                      <span className="block truncate text-[10px] font-semibold leading-tight">{e.courseCode ?? e.courseName} <span className="font-normal opacity-70">{KIND_GLYPH[e.kind]}</span></span>
+                      <span className="block truncate text-[9px] leading-tight opacity-80">{whereOf(e)}</span>
+                      <span className="block truncate text-[9px] leading-tight opacity-70">{fmtTime(e.startTime)} · {fmt.num(e.students)} stu · {e.cohortName}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            {/* day columns */}
-            {DAYS.map((day) => {
-              const { placed, lanes } = dayLayout(day);
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Month ───────────────────────────────────────────────────────────────────────────────────────
+function MonthView({ monthIso, eventsByDate, holidayOn, closedOn, marksOn, conflictIds, today, onSelect, onDay, onWeek }: { monthIso: string; eventsByDate: Map<string, CalEvent[]>; holidayOn: Map<string, string>; closedOn: Map<string, string>; marksOn: Map<string, string[]>; conflictIds: Set<string>; today: string; onSelect: (e: CalEvent) => void; onDay: (d: string) => void; onWeek: (d: string) => void }) {
+  const rows = monthGrid(monthIso);
+  const MAX = 4;
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid grid-cols-[2.5rem_repeat(7,minmax(0,1fr))] border-b border-slate-100 bg-slate-50 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="py-1.5">wk</div>{DOW_SHORT.map((d) => <div key={d} className="py-1.5">{d}</div>)}
+      </div>
+      {rows.map((row) => {
+        const closed = closedOn.get(row[0].iso);
+        return (
+          <div key={row[0].iso} className={`grid grid-cols-[2.5rem_repeat(7,minmax(0,1fr))] border-b border-slate-100 ${closed ? "bg-slate-100" : ""}`}>
+            <button onClick={() => onWeek(row[0].iso)} className="border-r border-slate-100 py-2 text-center text-[10px] text-slate-400 hover:text-rose-700" title={closed ? `closed week · ${closed}` : "open the week"}>{closed ? "✕" : "→"}</button>
+            {row.map(({ iso, inMonth }) => {
+              const evs = eventsByDate.get(iso) ?? [];
+              const hol = holidayOn.get(iso);
               return (
-                <div key={day} className="flex-1 border-l border-slate-100">
-                  <div className="sticky top-0 mb-1 text-center text-[11px] font-semibold uppercase tracking-wide text-slate-500">{day} <span className="font-normal normal-case text-slate-400">{dayDate(day)}</span></div>
-                  <div className="relative" style={{ height: gridHeight }}>
-                    {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => (
-                      <div key={i} style={{ top: i * HOUR_PX, height: HOUR_PX }} className="absolute inset-x-0 border-t border-slate-50" />
+                <div key={iso} className={`min-h-[6.5rem] border-r border-slate-100 p-1 ${!inMonth ? "bg-slate-50/60" : hol ? "bg-amber-50/60" : ""} ${iso === today ? "ring-2 ring-inset ring-rose-300" : ""}`}>
+                  <button onClick={() => onDay(iso)} className={`flex w-full items-baseline justify-between text-xs ${inMonth ? "text-slate-700" : "text-slate-400"} hover:text-rose-700`}>
+                    <span className="font-semibold">{Number(iso.slice(8, 10))}</span>
+                    {evs.length > 0 && <span className="text-[10px] tabular-nums text-slate-400">{fmt.num(evs.length)}</span>}
+                  </button>
+                  {hol && <div className="truncate text-[9px] text-amber-700" title={hol}>{hol}</div>}
+                  {(marksOn.get(iso) ?? []).map((m) => <div key={m} className="truncate text-[9px] text-emerald-700" title={m}>{m}</div>)}
+                  <div className="mt-0.5 space-y-0.5">
+                    {evs.slice(0, MAX).map((e) => (
+                      <button key={e.id} onClick={() => onSelect(e)} className={`block w-full truncate rounded px-1 text-left text-[9px] leading-4 text-slate-800 ${conflictIds.has(e.id) ? "ring-1 ring-rose-400" : ""}`} style={{ backgroundColor: KIND_TINT[e.kind], borderLeft: `3px solid ${KIND_COLOR[e.kind]}` }} title={`${eventTitle(e)} · ${whereOf(e)} · ${e.cohortName}`}>
+                        <span className="tabular-nums text-slate-500">{e.startTime ? fmtTime(e.startTime) : "—"}</span> {e.courseCode ?? e.courseName}
+                      </button>
                     ))}
-                    {placed.map(({ m, members, s, lane }) => {
-                      const top = ((s - START_HOUR * 60) / 60) * HOUR_PX;
-                      const height = Math.max(18, m.lengthHours * HOUR_PX - 2);
-                      const bs = blockStyle(m);
-                      const conflict = members.some((x) => conflictIds.has(x.id));
-                      const w = 100 / lanes;
-                      const many = members.length > 1;
-                      const moved = groupMoved(members);
-                      const unbooked = groupUnbooked(members);
-                      const names = members.flatMap((x) => x.occ?.students.map((s) => s.name) ?? []);
-                      return (
-                        <button key={m.id} onClick={() => (many || m.occ ? setGroup(members) : setEditing(m))}
-                          style={{ top, height, left: `${lane * w}%`, width: `calc(${w}% - 2px)`, ...(bs.style ?? {}) }}
-                          title={`${m.courseCode ?? m.courseName} ${KIND_LABEL[m.kind] ?? m.kind} · ${fmtTime(m.startTime)}–${fmtTime(m.endTime)} · ${many ? `${members.length} ${m.kind === "CLINICAL" ? "clinical placements" : "sections"} · ${groupStudents(members)} students` : `${m.seats} students`} · ${groupWhere(members)} · ${m.cohortName}${moved ? ` · ${moved}` : ""}${names.length ? ` · ${names.slice(0, 12).join(", ")}${names.length > 12 ? "…" : ""}` : ""}`}
-                          className={`absolute overflow-hidden rounded-md px-1 py-0.5 text-left text-white ${bs.className} ${m.kind === "CLINICAL" ? "border-2 border-dashed border-white/70" : ""} ${conflict ? "ring-2 ring-rose-600 ring-offset-1" : ""} hover:brightness-110`}>
-                          <span className="block truncate text-[10px] font-semibold leading-tight">{m.courseCode ?? m.courseName}{many ? ` · ${members.length} ${m.kind === "CLINICAL" ? "clinical placements" : "sections"}` : m.sectionCount > 1 ? ` §${m.sectionIndex}` : ""}{m.kind === "CLINICAL" ? " ⚕" : ""}{moved ? <span className="ml-1 rounded bg-white/90 px-1 text-[8px] font-semibold text-amber-700">{moved}</span> : null}{unbooked ? <span className="ml-1 rounded bg-white/90 px-1 text-[8px] font-semibold text-rose-700" title={`${unbooked} of these sections have no booking yet — the scheduler could not place them, or no plan is applied`}>{unbooked === members.length ? "not booked" : `${unbooked} not booked`}</span> : null}</span>
-                          <span className="block truncate text-[9px] leading-tight opacity-90">{groupWhere(members)}</span>
-                          <span className="block truncate text-[9px] leading-tight opacity-75">{fmtTime(m.startTime)} · {groupStudents(members)} stu · {m.cohortName}</span>
-                          {names.length > 0 && <span className="block truncate text-[9px] leading-tight opacity-75">{names.join(", ")}</span>}
-                        </button>
-                      );
-                    })}
+                    {evs.length > MAX && <button onClick={() => onDay(iso)} className="block text-[9px] text-rose-700 hover:underline">+{fmt.num(evs.length - MAX)} more</button>}
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-
-        {/* Room utilization rail */}
-        <div className="space-y-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Room utilization (peak week)</h3>
-            <div className="space-y-2">
-              {rooms.map((r) => {
-                const pct = Math.round(r.utilization * 100); // CSS width only
-                const bar = pct >= 85 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : pct > 0 ? "bg-emerald-500" : "bg-slate-200";
-                return (
-                  <button key={r.facilityId} onClick={() => setFRoom(fRoom === r.facilityId ? "" : r.facilityId)} className={`block w-full text-left ${fRoom === r.facilityId ? "rounded-lg ring-1 ring-rose-300" : ""}`}>
-                    <span className="flex items-center justify-between text-[11px]">
-                      <span className="truncate font-medium text-slate-700">{r.name}</span>
-                      <span className="tabular-nums text-slate-400">{fmt.pct(r.utilization)}</span>
-                    </span>
-                    <span className="mt-0.5 block h-1.5 w-full overflow-hidden rounded-full bg-slate-100"><span className={`block h-full ${bar}`} style={{ width: `${pct}%` }} /></span>
-                    <span className="block text-[9px] text-slate-400">{r.kind.toLowerCase()} · cap {r.capacity ?? "—"} · {dec(r.bookedHoursPeakWeek)}/{dec(r.openHoursPerWeek)}h · {r.meetingCount} mtgs</span>
-                  </button>
-                );
-              })}
-              {rooms.every((r) => r.utilization === 0) && <p className="text-[11px] text-slate-400">No campus bookings.</p>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Who is where — every student and preceptor at every site, day by day */}
-      {roster.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Who is where this week <span className="text-xs font-normal text-slate-500">· every clinical site with the students and preceptors on it, from the applied plan</span></h3>
-          <div className="mt-2 overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-1">Day</th><th className="px-2 py-1">Site</th><th className="px-2 py-1 text-right">Students</th><th className="px-2 py-1">Who</th><th className="px-2 py-1">Preceptors</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {roster.filter((d) => !fProgram || d.sites.some((s) => s.students.length)).flatMap((d) => d.sites.map((s, i) => (
-                  <tr key={`${d.date}|${s.employerId ?? "tbd"}`} className="align-top">
-                    <td className="whitespace-nowrap px-2 py-1 font-medium text-slate-700">{i === 0 ? `${DAY_FULL[d.dayOfWeek] ?? d.dayOfWeek} ${new Date(d.date + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}` : ""}</td>
-                    <td className="px-2 py-1">{s.employerId ? <Link href={`/employers/${s.employerId}`} className="whitespace-nowrap text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link> : <span className="text-amber-700">{s.name}</span>}</td>
-                    <td className="px-2 py-1 text-right tabular-nums">{s.students.length}</td>
-                    <td className="px-2 py-1"><div className="flex flex-wrap gap-1">{s.students.map((st, j) => <span key={j} className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-700" title={`${st.cohort} · ${st.course}${st.preceptor ? ` · with ${st.preceptor}` : ""}`}>{st.name}</span>)}</div></td>
-                    <td className="px-2 py-1 text-slate-600">{s.preceptors.length ? s.preceptors.join(", ") : s.employerId ? <span className="text-amber-700">none named</span> : <span className="text-slate-400">—</span>}</td>
-                  </tr>
-                )))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Conflicts panel */}
-      {conflictsForWeek.length > 0 && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4">
-          <h3 className="text-sm font-semibold text-rose-700">{conflictCount} scheduling conflict{conflictCount === 1 ? "" : "s"} this week <span className="font-normal text-rose-500">— {conflictsForWeek.length} overlapping pair{conflictsForWeek.length === 1 ? "" : "s"}, on the dates things happen after moves</span></h3>
-          <div className="mt-2 space-y-1">
-            {conflictsForWeek.slice(0, 30).map((c, i) => {
-              const a = meetings.find((m) => m.id === c.aId), b = meetings.find((m) => m.id === c.bId);
-              if (!a || !b) return null;
-              return (
-                <div key={i} className="flex flex-wrap items-center gap-2 text-[12px]">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${c.kind === "room" ? "bg-rose-200 text-rose-800" : c.kind === "staff" ? "bg-violet-200 text-violet-800" : "bg-amber-200 text-amber-800"}`}>{c.kind}</span>
-                  <button onClick={() => setEditing(a)} className="text-slate-700 hover:text-rose-700 hover:underline">{a.courseCode ?? a.courseName} ({a.cohortName})</button>
-                  <span className="text-slate-400">↔</span>
-                  <button onClick={() => setEditing(b)} className="text-slate-700 hover:text-rose-700 hover:underline">{b.courseCode ?? b.courseName} ({b.cohortName})</button>
-                  <span className="text-slate-400">{c.detail}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {group && !editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={() => setGroup(null)}>
-          <div className="max-h-[80vh] w-full max-w-2xl overflow-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-slate-800">{group[0].courseCode ? `${group[0].courseCode} · ` : ""}{group[0].courseName} <span className="font-normal text-slate-500">· {KIND_LABEL[group[0].kind] ?? group[0].kind}</span></h3>
-                <p className="text-xs text-slate-500">{DAY_FULL[group[0].dayOfWeek] ?? group[0].dayOfWeek} {dayDate(group[0].dayOfWeek)} {fmtTime(group[0].startTime)}–{fmtTime(group[0].endTime)} · {group.length} {group[0].kind === "CLINICAL" ? "clinical placements" : "sections"} · {groupStudents(group)} students · {group[0].cohortName}{group[0].startLabel ? ` · ${group[0].startLabel} → ${group[0].endLabel}` : ""}{groupMoved(group) ? ` · ${groupMoved(group)} by the scheduler's plan` : ""}</p>
-              </div>
-              <button onClick={() => setGroup(null)} className="text-xs text-slate-500 hover:text-rose-700">close</button>
-            </div>
-            <table className="mt-3 w-full text-xs">
-              <thead className="text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-2 py-1 text-left">Section</th><th className="px-2 py-1 text-left">{group[0].kind === "CLINICAL" ? "Clinical site" : "Room"}</th><th className="px-2 py-1 text-left">{group[0].kind === "CLINICAL" ? "Preceptor" : "Instructor"}</th>{group.some((x) => x.occ) && <th className="px-2 py-1 text-left">Who is there</th>}<th className="px-2 py-1 text-right">Students</th><th className="px-2 py-1"></th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {group.map((x) => {
-                  const pattern = x.occ?.meetingId ? meetings.find((m) => m.id === x.occ!.meetingId) : x.occ ? null : x;
-                  return (
-                    <tr key={x.id} className={conflictIds.has(x.id) ? "bg-rose-50" : ""}>
-                      <td className="px-2 py-1 font-medium text-slate-800">§{x.sectionIndex}{x.occ?.moved ? <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title={`the weekly pattern has it on ${DAY_FULL[x.occ.originalDay] ?? x.occ.originalDay}`}>from {x.occ.originalDay}</span> : null}{x.occ?.changedBlock ? <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-800">other shift</span> : null}</td>
-                      <td className="px-2 py-1 text-slate-700">{x.kind === "CLINICAL" ? (x.employerName ?? <span className="text-amber-700">site TBD</span>) : (x.facilityName ?? <span className="text-amber-700">no room</span>)}{x.occ?.assets.length ? <span className="text-slate-400"> · {x.occ.assets.join(", ")}</span> : null}{x.occ && !x.occ.booked && x.occ.source === "pattern" ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] text-rose-800" title="the section's weekly site — nothing is booked for this date">not booked</span> : null}</td>
-                      <td className="px-2 py-1 text-slate-700">{x.occ ? (x.occ.preceptors.length ? x.occ.preceptors.join(", ") : <span className="text-amber-700">none named</span>) : (x.staffName ?? <span className="text-amber-700">unassigned</span>)}{x.occ?.instructor ? <span className="text-slate-400"> · {x.occ.instructor} (instructor)</span> : null}</td>
-                      {group.some((y) => y.occ) && <td className="px-2 py-1"><div className="flex flex-wrap gap-1">{x.occ?.students.map((s) => <span key={s.id} className={`rounded px-1.5 py-0.5 ${s.status === "scheduled" ? "bg-slate-100 text-slate-700" : s.status === "completed" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`} title={`${s.status}${s.preceptor ? ` · with ${s.preceptor}` : ""}`}>{s.name}</span>)}{x.occ && !x.occ.students.length && <span className="text-slate-400">no students on the roster yet</span>}</div></td>}
-                      <td className="px-2 py-1 text-right tabular-nums">{x.seats}</td>
-                      <td className="px-2 py-1 text-right">{pattern ? <button onClick={() => { setEditing(pattern); }} className="text-rose-700 hover:underline" title="edit the weekly pattern this shift belongs to">edit</button> : null}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-      {editing && <MoveEditor meeting={editing} weekMs={weekMs} rooms={rooms} people={people} employers={employers} onClose={() => setEditing(null)} onSave={save} />}
+        );
+      })}
     </div>
   );
 }
 
-function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave }: { meeting: CalMeeting; weekMs: number; rooms: CalRoom[]; people: CalPerson[]; employers: CalEmployer[]; onClose: () => void; onSave: (p: { dayOfWeek?: string; startTime?: string; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null }) => void }) {
-  const [day, setDay] = useState(meeting.dayOfWeek);
-  const [time, setTime] = useState(meeting.startTime);
-  const [room, setRoom] = useState(meeting.facilityId ?? "");
-  const [site, setSite] = useState(meeting.employerId ?? "");
-  const [staff, setStaff] = useState(meeting.staffPersonId ?? "");
-  const offCampus = meeting.kind === "CLINICAL";
-  // Preceptors stay with their employer: once a site is chosen, only its own preceptors can be picked.
+// ── Quarter · Semester · Year: density per day, months side by side ─────────────────────────────
+function CoarseView({ fromIso, toIso, days, holidayOn, closedOn, today, terms, onDay, onMonth, onWeek }: { fromIso: string; toIso: string; days: Record<string, CalDayAgg>; holidayOn: Map<string, string>; closedOn: Map<string, string>; today: string; terms: CalendarData["terms"]; onDay: (d: string) => void; onMonth: (d: string) => void; onWeek: (d: string) => void }) {
+  const months = monthsIn(fromIso, toIso);
+  const byMonth = useMemo(() => {
+    const m = new Map<string, { sessions: number; classes: number; labs: number; clinicals: number; studentShifts: number; hours: number; days: number }>();
+    for (const d of Object.values(days)) { const k = d.date.slice(0, 7) + "-01"; const a = m.get(k) ?? { sessions: 0, classes: 0, labs: 0, clinicals: 0, studentShifts: 0, hours: 0, days: 0 }; a.sessions += d.sessions; a.classes += d.classes; a.labs += d.labs; a.clinicals += d.clinicals; a.studentShifts += d.studentShifts; a.hours += d.hours; a.days++; m.set(k, a); }
+    return m;
+  }, [days]);
+  const cols = months.length <= 3 ? "md:grid-cols-3" : months.length <= 5 ? "md:grid-cols-3 xl:grid-cols-5" : "md:grid-cols-3 xl:grid-cols-4";
+  return (
+    <div className="space-y-4">
+      <div className={`grid grid-cols-1 gap-3 ${cols}`}>
+        {months.map((m) => {
+          const agg = byMonth.get(m);
+          return (
+            <div key={m} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-baseline justify-between">
+                <button onClick={() => onMonth(m)} className="text-sm font-semibold text-slate-900 hover:text-rose-700">{monthLabel(m)}</button>
+                <span className="text-[10px] tabular-nums text-slate-500">{agg ? `${fmt.num(agg.sessions)} sessions · ${dec(agg.hours, 0, 0)} h` : "nothing"}</span>
+              </div>
+              <div className="mt-1 grid grid-cols-[1rem_repeat(7,minmax(0,1fr))] gap-0.5 text-center text-[9px] text-slate-400">
+                <div />{DOW_SHORT.map((d) => <div key={d}>{d[0]}</div>)}
+                {monthGrid(m).map((row) => {
+                  const closed = closedOn.get(row[0].iso);
+                  return [
+                    <button key={`w${row[0].iso}`} onClick={() => onWeek(row[0].iso)} className="text-[8px] text-slate-300 hover:text-rose-700" title={closed ? `closed · ${closed}` : "open the week"}>{closed ? "✕" : "›"}</button>,
+                    ...row.map(({ iso, inMonth }) => {
+                      const a = days[iso]; const n = a?.sessions ?? 0; const step = densityStep(n); const hol = holidayOn.get(iso);
+                      return (
+                        <button key={iso} onClick={() => onDay(iso)} disabled={!inMonth} title={inMonth ? `${dayLabel(iso)}${hol ? ` · ${hol}` : ""}${a ? ` · ${fmt.num(a.sessions)} sessions · ${fmt.num(a.clinicals)} clinical · ${fmt.num(a.studentShifts)} student shifts · ${dec(a.hours, 0, 1)} h` : " · nothing on"}` : undefined}
+                          className={`relative aspect-square rounded-sm text-[9px] tabular-nums ${!inMonth ? "opacity-0" : step >= 3 ? "text-white" : "text-slate-700"} ${iso === today ? "ring-2 ring-rose-500" : ""} ${closed ? "opacity-40" : ""} hover:ring-1 hover:ring-slate-400`}
+                          style={{ backgroundColor: inMonth ? DENSITY[step] : undefined }}>
+                          {n > 0 ? fmt.num(n) : ""}
+                          {hol && inMonth && <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-amber-500" />}
+                        </button>
+                      );
+                    }),
+                  ];
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+        <span>sessions a day:</span>
+        {["none", "1–2", "3–5", "6–9", "10+"].map((l, i) => <span key={l} className="inline-flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: DENSITY[i] }} />{l}</span>)}
+        <span className="inline-flex items-center gap-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" /> holiday</span>
+        <span>✕ closed week</span>
+        <span>· click a day, a week (›) or a month to drill in</span>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-800">By month</div>
+          <table className="w-full text-xs">
+            <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-1.5">Month</th><th className="px-2 py-1.5 text-right">Sessions</th><th className="px-2 py-1.5 text-right">Class</th><th className="px-2 py-1.5 text-right">Lab</th><th className="px-2 py-1.5 text-right">Clinical</th><th className="px-2 py-1.5 text-right">Student shifts</th><th className="px-2 py-1.5 text-right">Hours</th><th className="px-2 py-1.5 text-right">Days</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+              {months.map((m) => { const a = byMonth.get(m); return <tr key={m}><td className="px-4 py-1"><button onClick={() => onMonth(m)} className="font-medium text-slate-800 hover:text-rose-700">{monthLabel(m, false)}</button></td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.sessions ?? 0)}</td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.classes ?? 0)}</td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.labs ?? 0)}</td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.clinicals ?? 0)}</td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.studentShifts ?? 0)}</td><td className="px-2 py-1 text-right tabular-nums">{dec(a?.hours ?? 0, 0, 0)}</td><td className="px-2 py-1 text-right tabular-nums">{fmt.num(a?.days ?? 0)}</td></tr>; })}
+            </tbody>
+          </table>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-800">Terms running <span className="text-xs font-normal text-slate-500">· each offering's terms that touch this range</span></div>
+          {terms.length === 0 ? <p className="px-4 py-3 text-xs text-slate-400">No offering has a term in this range.</p> : (
+            <table className="w-full text-xs">
+              <thead className="text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-1.5">Offering</th><th className="px-2 py-1.5">Term</th><th className="px-2 py-1.5">First day</th><th className="px-2 py-1.5">Last day</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {terms.map((tb) => <tr key={`${tb.cohortId}|${tb.termName}`}><td className="px-4 py-1"><Link href={`/programs/${tb.programId}/offerings/${tb.cohortId}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{tb.cohortName}</Link><span className="block text-[10px] text-slate-400">{tb.programName}</span></td><td className="px-2 py-1 text-slate-700">{tb.termName}</td><td className="px-2 py-1 tabular-nums text-slate-700"><button onClick={() => onDay(tb.startIso)} className="hover:text-rose-700">{shortDate(tb.startIso)}, {tb.startIso.slice(0, 4)}</button></td><td className="px-2 py-1 tabular-nums text-slate-700"><button onClick={() => onDay(tb.endIso)} className="hover:text-rose-700">{shortDate(tb.endIso)}, {tb.endIso.slice(0, 4)}</button></td></tr>)}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── One event, in full ──────────────────────────────────────────────────────────────────────────
+function Detail({ event: e, canEdit, onClose, onEdit, onWho }: { event: CalEvent; canEdit: boolean; onClose: () => void; onEdit: (sectionIndex: number, patternId: string) => void; onWho: (x: { kind: CalEntity["kind"]; id: string }) => void }) {
+  return (
+    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col border-l border-slate-200 bg-white shadow-2xl">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: KIND_COLOR[e.kind] }} /><span className="text-xs font-medium uppercase tracking-wide text-slate-500">{KIND_LABEL[e.kind]}{e.online ? " · online" : ""}</span></div>
+          <h3 className="mt-0.5 text-lg font-semibold text-slate-900">{e.courseCode ? `${e.courseCode} · ` : ""}{e.courseName}</h3>
+          {e.title && <p className="text-sm text-slate-600">{e.title}</p>}
+          <p className="mt-1 text-sm text-slate-700">{dayLabel(e.date)} · {fmtTime(e.startTime)}{e.endTime ? `–${fmtTime(e.endTime)}` : ""} · {dec(e.hours, 0, 1)} h</p>
+          <p className="text-xs text-slate-500"><button onClick={() => onWho({ kind: "cohort", id: e.cohortId })} className="hover:text-rose-700 hover:underline">{e.cohortName}</button> · <button onClick={() => onWho({ kind: "program", id: e.programId })} className="hover:text-rose-700 hover:underline">{e.programName}</button> · {e.termName}, week {e.weekOfTerm}</p>
+          <div className="mt-1.5 flex flex-wrap gap-1"><Badges e={e} conflict={false} /></div>
+        </div>
+        <button onClick={onClose} className="rounded-lg border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">close</button>
+      </div>
+      <div className="flex-1 overflow-auto px-5 py-4">
+        <div className="mb-3 flex flex-wrap gap-2 text-xs">
+          <Link href={`/programs/${e.programId}/offerings/${e.cohortId}`} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Offering →</Link>
+          <Link href={`/programs/${e.programId}/offerings/${e.cohortId}/design`} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Design &amp; sequence →</Link>
+          <button onClick={() => onWho({ kind: "course", id: e.courseId })} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Every date of this course</button>
+        </div>
+        <div className="space-y-3">
+          {e.sections.map((s) => (
+            <div key={s.index} className="rounded-xl border border-slate-200 p-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-800">{s.count > 1 ? `Section ${s.index} of ${s.count}` : "One section"} <span className="font-normal text-slate-500">· {fmt.num(s.students.length || s.seats)} students</span></div>
+                {canEdit && s.patternId && <button onClick={() => onEdit(s.index, s.patternId!)} className="text-xs text-rose-700 hover:underline">edit the weekly pattern</button>}
+              </div>
+              <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div><dt className="text-slate-400">{e.kind === "CLINICAL" ? "Clinical site" : "Room"}</dt><dd className="font-medium text-slate-800">{e.kind === "CLINICAL" ? (s.siteId ? <button onClick={() => onWho({ kind: "site", id: s.siteId! })} className="hover:text-rose-700 hover:underline">{s.site}</button> : <span className="text-amber-700">site TBD</span>) : e.online ? "online" : s.roomId ? <button onClick={() => onWho({ kind: "room", id: s.roomId! })} className="hover:text-rose-700 hover:underline">{s.room}</button> : <span className="text-amber-700">no room</span>}{e.kind === "CLINICAL" && s.siteId && !s.booked && <span className="ml-1 text-slate-400">(weekly site; not booked on an asset)</span>}</dd></div>
+                <div><dt className="text-slate-400">{e.kind === "CLINICAL" ? "Preceptors / instructor" : "Instructor"}</dt><dd className="font-medium text-slate-800">{s.staff.length ? s.staff.map((p, i) => <span key={p.id}>{i > 0 ? ", " : ""}<button onClick={() => onWho({ kind: "person", id: p.id })} className="hover:text-rose-700 hover:underline">{p.name}</button><span className="text-slate-400"> ({p.role})</span></span>) : <span className="text-amber-700">{e.online ? "—" : "nobody named"}</span>}</dd></div>
+                {s.moved && <div className="col-span-2"><dt className="text-slate-400">Moved by hand</dt><dd className="text-slate-700">from {shortDate(s.moved.fromIso)}{s.moved.startTime ? `, now at ${fmtTime(s.moved.startTime)}` : ""}</dd></div>}
+              </dl>
+              {s.students.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Students</div>
+                  <div className="mt-1 flex flex-wrap gap-1">{s.students.map((st) => <button key={st.id} onClick={() => onWho({ kind: "student", id: st.id })} className={`rounded px-1.5 py-0.5 text-[11px] hover:ring-1 hover:ring-rose-300 ${st.status === "completed" ? "bg-emerald-100 text-emerald-800" : st.status === "absent" || st.status === "withdrawn" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`} title={st.status ?? ""}>{st.name}</button>)}</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── The weekly pattern behind a section (operational module only) ───────────────────────────────
+function PatternEditor({ event: e, sectionIndex, patternId, rooms, people, employers, onClose, onSaved }: { event: CalEvent; sectionIndex: number; patternId: string; rooms: CalendarData["rooms"]; people: CalendarData["people"]; employers: CalendarData["employers"]; onClose: () => void; onSaved: () => void }) {
+  const s = e.sections.find((x) => x.index === sectionIndex)!;
+  const [day, setDay] = useState(e.dayOfWeek);
+  const [time, setTime] = useState(e.startTime ?? "08:00");
+  const [room, setRoom] = useState(s.roomId ?? "");
+  const [site, setSite] = useState(s.siteId ?? "");
+  const [staff, setStaff] = useState(s.staff[0]?.id ?? "");
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState<string | null>(null);
+  const offCampus = e.kind === "CLINICAL";
   const staffPool = offCampus ? people.filter((p) => p.role === "preceptor" && (!site || !p.employerId || p.employerId === site)) : people.filter((p) => p.role !== "preceptor");
-  const pickSite = (id: string) => { setSite(id); if (id && staff) { const s = people.find((p) => p.id === staff); if (s?.employerId && s.employerId !== id) setStaff(""); } };
-  const eligible = rooms.filter((r) => (meeting.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
-  const location = offCampus ? (meeting.employerName ?? "site TBD") : (meeting.facilityName ?? "unroomed");
-  // What happens on THIS day: the selected calendar week → the week-of-term →
-  // that week's session(s) for this course + kind. Not the whole curriculum.
-  const WK = 7 * 24 * 3600 * 1000;
-  const mondayOf = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
-  const weekOfTerm = meeting.weekStartMs ? Math.floor((weekMs - mondayOf(meeting.weekStartMs)) / WK) + 1 : null;
-  const thisWeek = weekOfTerm != null ? meeting.sessionTitles.filter((x) => x.week === weekOfTerm && x.title) : [];
+  const eligible = rooms.filter((r) => (e.kind === "LAB" ? r.kind === "LAB" || r.kind === "SIM" : r.kind === "CLASSROOM" || r.kind === "OTHER"));
+  const inp = "w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
+  const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-base font-semibold text-slate-800">
-              {meeting.courseCode ? <span>{meeting.courseCode} · </span> : null}{meeting.courseName}
-              {meeting.sectionCount > 1 ? <span className="text-slate-400"> · section {meeting.sectionIndex}/{meeting.sectionCount}</span> : null}
-            </h3>
-            <p className="text-xs text-slate-500">{KIND_LABEL[meeting.kind] ?? meeting.kind} · {meeting.cohortName} · {meeting.programName}</p>
-          </div>
-          <Link href={`/programs/${meeting.programId}/offerings/${meeting.cohortId}`} className="text-xs text-rose-600 hover:underline">offering ↦</Link>
-        </div>
-
-        {/* What this booking IS — full detail */}
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-xs">
-          <div><dt className="text-slate-400">Location</dt><dd className="font-medium text-slate-700">{location}</dd></div>
-          <div><dt className="text-slate-400">{offCampus ? "Preceptor" : "Instructor"}</dt><dd className={`font-medium ${meeting.staffName ? "text-slate-700" : "text-amber-600"}`}>{meeting.staffName ?? "unstaffed"}</dd></div>
-          <div><dt className="text-slate-400">When</dt><dd className="font-medium text-slate-700">{DAY_FULL[meeting.dayOfWeek] ?? meeting.dayOfWeek} {fmtTime(meeting.startTime)}–{fmtTime(meeting.endTime)} ({dec(meeting.lengthHours)}h)</dd></div>
-          <div><dt className="text-slate-400">Runs</dt><dd className="font-medium text-slate-700">{meeting.startLabel} → {meeting.endLabel}</dd></div>
-          <div><dt className="text-slate-400">Students</dt><dd className="font-medium text-slate-700">{meeting.seats}</dd></div>
-          <div><dt className="text-slate-400">Term</dt><dd className="font-medium text-slate-700">Term {meeting.termIndex}</dd></div>
-        </dl>
-
-        {/* What happens on THIS day (the selected week) — not the whole curriculum */}
-        <div className="mt-2 rounded-lg bg-rose-50/60 px-3 py-2 ring-1 ring-rose-100">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-500">
-            This day{weekOfTerm != null ? ` · week ${weekOfTerm} of the term` : ""}
-          </div>
-          {thisWeek.length > 0 ? (
-            <div className="mt-0.5 space-y-0.5">
-              {thisWeek.map((x, i) => (
-                <div key={i} className="text-[12px] font-medium text-slate-800">{x.title}</div>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-0.5 text-[11px] text-slate-500">
-              {weekOfTerm != null && weekOfTerm >= 1 ? `Untitled ${KIND_LABEL[meeting.kind]?.toLowerCase() ?? "session"} — week ${weekOfTerm}` : "Outside this booking's term window"}
-            </div>
-          )}
-        </div>
+      <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-5 shadow-xl" onClick={(x) => x.stopPropagation()}>
+        <h3 className="text-base font-semibold text-slate-800">{e.courseCode ?? e.courseName} · {KIND_LABEL[e.kind]}{s.count > 1 ? ` · section ${s.index}` : ""}</h3>
+        <p className="text-xs text-slate-500">The weekly pattern every week of the term follows. Changing it moves every date of this section, not only {shortDate(e.date)}.</p>
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Day</span>
-            <select value={day} onChange={(e) => setDay(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              {ALL_DAYS.map((d) => <option key={d} value={d}>{DAY_FULL[d]}</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Start time</span>
-            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm" />
-          </label>
-          {!offCampus ? (
-            <label className="col-span-2 block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Room</span>
-              <select value={room} onChange={(e) => setRoom(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-                <option value="">— unroomed —</option>
-                {eligible.map((r) => <option key={r.facilityId} value={r.facilityId} disabled={r.capacity != null && meeting.seats > r.capacity}>{r.name} (cap {r.capacity ?? "—"}){r.capacity != null && meeting.seats > r.capacity ? " — too small" : ""}</option>)}
-              </select>
-            </label>
+          <label className="block"><span className={lbl}>Day</span><select value={day} onChange={(x) => setDay(x.target.value)} className={inp}>{DOW_SHORT.map((d) => <option key={d} value={d}>{d}</option>)}</select></label>
+          <label className="block"><span className={lbl}>Start time</span><input type="time" value={time} onChange={(x) => setTime(x.target.value)} className={inp} /></label>
+          {offCampus ? (
+            <label className="col-span-2 block"><span className={lbl}>Clinical site</span><select value={site} onChange={(x) => setSite(x.target.value)} className={inp}><option value="">— site TBD —</option>{employers.map((em) => <option key={em.id} value={em.id}>{em.name}{em.setting ? ` (${em.setting})` : ""}</option>)}</select></label>
           ) : (
-            <label className="col-span-2 block">
-              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Clinical site (partner)</span>
-              <select value={site} onChange={(e) => pickSite(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-                <option value="">— site TBD —</option>
-                {employers.map((emp) => <option key={emp.id} value={emp.id}>{emp.name}{emp.setting ? ` (${emp.setting})` : ""}</option>)}
-              </select>
-            </label>
+            <label className="col-span-2 block"><span className={lbl}>Room</span><select value={room} onChange={(x) => setRoom(x.target.value)} className={inp}><option value="">— unroomed —</option>{eligible.map((rm) => <option key={rm.id} value={rm.id}>{rm.name} (cap {rm.capacity ?? "—"})</option>)}</select></label>
           )}
-          <label className="col-span-2 block">
-            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{offCampus ? `Preceptor${site ? " — at this site" : ""}` : "Instructor"}</span>
-            <select value={staff} onChange={(e) => setStaff(e.target.value)} className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
-              <option value="">— unstaffed —</option>
-              {staffPool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            {offCampus && site && staffPool.length === 0 && <span className="mt-1 block text-[11px] text-amber-700">No preceptors on record at this site — add them to the site&apos;s people first.</span>}
-          </label>
+          <label className="col-span-2 block"><span className={lbl}>{offCampus ? "Preceptor" : "Instructor"}</span><select value={staff} onChange={(x) => setStaff(x.target.value)} className={inp}><option value="">— unstaffed —</option>{staffPool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         </div>
+        {err && <p className="mt-2 text-xs text-rose-700">{err}</p>}
         <div className="mt-4 flex items-center gap-2">
-          <button onClick={() => onSave({ dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), employerId: offCampus ? (site || null) : undefined, staffPersonId: staff || null })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save</button>
+          <button disabled={pending} onClick={() => start(async () => { setErr(null); try { await moveMeeting(patternId, { dayOfWeek: day, startTime: time, facilityId: offCampus ? undefined : (room || null), employerId: offCampus ? (site || null) : undefined, staffPersonId: staff || null }); onSaved(); } catch (x) { setErr(x instanceof Error ? x.message : String(x)); } })} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50">{pending ? "Saving…" : "Save"}</button>
           <button onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">Cancel</button>
         </div>
       </div>
