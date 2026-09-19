@@ -216,7 +216,8 @@ export function computeColumns(s: SessionInput, enrollment: number, a: WorkloadA
   const Z = nz(s.lengthHours) * nz(s.facultyNeeded) * Y;     // =K*M*Y
   const AA = d.facSemesterHours > 0 ? Z / d.facSemesterHours : null;   // =Z/$AM$2
   const AB = a.facContactHours > 0 ? Z / a.facContactHours : null;     // =Z/$AI$2
-  const AC = Y * nz(s.preceptorsNeeded) * nz(s.lengthHours) * nz(s.preceptorContactPolicy); // =Y*T*K*U
+  // U (preceptor contact policy) blank means the whole shift is precepted — a missing policy is not zero contact.
+  const AC = Y * nz(s.preceptorsNeeded) * nz(s.lengthHours) * (s.preceptorContactPolicy == null ? 1 : s.preceptorContactPolicy); // =Y*T*K*U
   const AD = d.preSemesterHours > 0 ? AC / d.preSemesterHours : null;  // =AC/$AM$5
   const AE = d.preWeeklyHours > 0 ? AC / d.preWeeklyHours : null;      // =AC/$AN$5
   return { C: enrollment, Y, X, Z, AA, AB, AC, AD, AE, divByZero: false };
@@ -274,6 +275,8 @@ export interface DatedInstance {
   weekOfTerm: number;     // Q (defaulted to 1 when unset)
   /** The session's template week is past the term's last week (a 16-week template in a 10-week summer): undated, flagged. */
   beyondTerm?: boolean;
+  /** The session's weekday falls before the term's (or course's) first day in week 1: undated, flagged. */
+  beforeTerm?: boolean;
   /** Monday of the calendar week this session lands in; null when the term has no date. */
   monday: Date | null;
   mondayIso: string | null;
@@ -370,16 +373,20 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
       const beyond = tplWeeks != null && calWeeks != null ? beyondTerm(week, tplWeeks, calWeeks) : false;
       const monday = start ? weekMonday(anchor, week) : null;
       const off = s.dayOfWeek != null ? CAPACITY_DAY_OFFSET[s.dayOfWeek] : undefined;
-      const date = monday != null && off != null ? addDays(monday, off) : null;
+      const dated = monday != null && off != null ? addDays(monday, off) : null;
+      // Before the first day (a "Mon" session in a Tuesday-start week): not held that week — undated and flagged.
+      const before = dated != null && start != null && dated < start;
+      const date = before ? null : dated;
       out.push({
         session: s, computed,
         cohortId: input.cohortId, cohort: input.cohort, programId: input.programId, program: input.program,
         courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, termIndex: c.termIndex, termName: c.termName, semester,
-        weekOfTerm: week, beyondTerm: beyond,
+        weekOfTerm: week, beyondTerm: beyond, beforeTerm: before || undefined,
         monday, mondayIso: monday ? isoOf(monday) : null,
         date, dateIso: date ? isoOf(date) : null,
         month: monday ? isoOf(monday).slice(0, 7) : null,
-        holiday: date ? input.holidays?.[isoOf(date)] ?? usHoliday(date) : null,
+        // The college's imported calendar is the only authority once it exists; the US default list stands in only when no calendar is coded.
+        holiday: date ? (input.holidays && Object.keys(input.holidays).length ? input.holidays[isoOf(date)] ?? null : usHoliday(date)) : null,
       });
     }
   }

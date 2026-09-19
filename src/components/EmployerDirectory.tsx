@@ -73,8 +73,9 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
     return { sections, students };
   };
   const bestAgreement = (e: DirEmployer): string => {
+    // The family agreement is the record; the employer-level status stands in only for a site no family has a row for.
     const order = ["secured", "asked", "prospect", "none", "declined"];
-    const all = [e.agreementStatus ?? "none", ...e.hosting.agreements.map((a) => a.status)];
+    const all = e.hosting.agreements.length ? e.hosting.agreements.map((a) => a.status) : [e.agreementStatus ?? "none"];
     return order.find((o) => all.includes(o)) ?? "none";
   };
 

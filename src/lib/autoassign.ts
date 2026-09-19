@@ -100,7 +100,7 @@ async function planOffering(cohortId: string) {
   if (cc && dated.length) {
     const institutionId = cap!.institution.id;
     const sched = await getSchedulerData(institutionId, from, to);
-    const demand = demandUnits(dated, sched.rotations, (cc.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })), { [cohortId]: cc.familyId ?? null });
+    const demand = demandUnits(dated, sched.rotations, (cc.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })), { [cohortId]: cc.familyId ?? null }, cc.holidays ?? {});
     if (demand.length) {
       // Other offerings' bookings (hand-made or planned) consume seats; this offering's own auto-plan is replaced.
       const existingBookings = sched.bookings.filter((b) => b.cohortId !== cohortId || (b as { note?: string | null }).note !== "auto-plan");
@@ -201,7 +201,7 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
   const assetBySection = new Map<string, string>();
   if (best) {
     if (bestLabel !== TIERS[0].label) notes.push(`Clinical placement widened to ${bestLabel} to place more sections — secure those agreements.`);
-    const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset })));
+    const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset, seatStart: x.unit.seatStart, sectionSeats: x.unit.sectionSeats })));
     for (const x of best.assignments) {
       const k = `${x.unit.sessionId}|${x.unit.sectionIndex}`;
       if (!planPreceptorBySection.has(k)) planPreceptorBySection.set(k, x.preceptorIds);

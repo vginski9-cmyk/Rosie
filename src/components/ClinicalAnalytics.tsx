@@ -146,7 +146,7 @@ function Breakdown({ title, note, slices, color, showStarts }: { title: string; 
         {slices.map((s) => (
           <div key={s.key} className="text-[11px]">
             <div className="flex items-baseline justify-between gap-2">
-              <span className={`truncate ${s.key === NOT_SET ? "italic text-amber-700" : "text-slate-700"}`} title={s.key}>{s.key}{showStarts && s.starts.length > 0 && <span className="ml-1 text-slate-400">{s.starts.map(fmtT).join(", ")}</span>}</span>
+              <span className={`truncate ${s.key === NOT_SET ? "italic text-amber-700" : "text-slate-700"}`} title={s.key}>{s.key}{showStarts && s.starts.length > 0 && <span className="ml-1 text-slate-400">· {s.starts.map(fmtT).join(", ")}</span>}</span>
               <span className="whitespace-nowrap tabular-nums text-slate-600"><strong>{n1(s.hours)}h</strong> · {pct(s.share)} · {s.sessions} sess</span>
             </div>
             <div className="h-1.5 w-full rounded bg-slate-100"><div className={`h-1.5 rounded ${s.key === NOT_SET ? "bg-amber-300" : color}`} style={{ width: `${Math.max(2, (s.hours / max) * 100)}%` }} /></div>

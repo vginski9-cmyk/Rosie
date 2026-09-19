@@ -12,7 +12,7 @@ export default async function InsightsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Explore</h1>
-        <p className="text-sm text-slate-500">Pipeline and delivery metrics across {institutions} institution{institutions === 1 ? "" : "s"} and {programs} programs — pick two dimensions, switch the measure, click to drill.</p>
+        <p className="text-sm text-slate-500">Pipeline and delivery metrics across {institutions} institution{institutions === 1 ? "" : "s"} and {programs} programs with offerings — pick two dimensions, switch the measure, click to drill.</p>
       </div>
 
       <PivotExplorer facts={facts} />

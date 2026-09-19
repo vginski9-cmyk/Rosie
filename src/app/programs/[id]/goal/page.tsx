@@ -38,11 +38,18 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
       if (!gy) continue;
       let enrolled = 0, completed = 0, placed = 0;
       const a = (actualByYear[gy] ??= { interested: 0, qualified: 0, offered: 0, enrolled: 0, completing: 0, licensed: 0, placed: 0, productive: 0 });
-      for (const st of co.students) {
-        if (st.status === "withdrawn") continue;
-        const r = STATUS_RANK[st.status] ?? -1;
-        if (r >= 3) enrolled++; if (r >= 4) completed++; if (r >= 6) placed++;
-        if (r >= 0) a.interested++; if (r >= 1) a.qualified++; if (r >= 2) a.offered++; if (r >= 3) a.enrolled++; if (r >= 4) a.completing++; if (r >= 5) a.licensed++; if (r >= 6) a.placed++; if (r >= 7) a.productive++;
+      // The offering's stage actuals (the same figures its own page shows) are the record; the student rows are a
+      // fallback, and a withdrawn student did reach "enrolled" before leaving.
+      const actualOf = (k: string) => co.stages.find((s) => s.stageKey === k)?.actualNumber ?? null;
+      if (co.stages.some((s) => s.actualNumber != null)) {
+        for (const k of ["interested", "qualified", "offered", "enrolled", "completing", "licensed", "placed", "productive"] as const) a[k] += actualOf(k) ?? 0;
+        enrolled = actualOf("enrolled") ?? 0; completed = actualOf("completing") ?? 0; placed = actualOf("placed") ?? 0;
+      } else {
+        for (const st of co.students) {
+          const r = st.status === "withdrawn" ? 3 : STATUS_RANK[st.status] ?? -1;
+          if (r >= 3) enrolled++; if (r >= 4) completed++; if (r >= 6) placed++;
+          if (r >= 0) a.interested++; if (r >= 1) a.qualified++; if (r >= 2) a.offered++; if (r >= 3) a.enrolled++; if (r >= 4) a.completing++; if (r >= 5) a.licensed++; if (r >= 6) a.placed++; if (r >= 7) a.productive++;
+        }
       }
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -50,7 +57,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
       (offeringsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
-        pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length,
+        pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length, startDate: co.startDate ? co.startDate.toISOString().slice(0, 10) : null,
         phase: tm.phase, currentTerm: tm.currentTermName,
         endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
       });

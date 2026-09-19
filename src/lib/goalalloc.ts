@@ -39,7 +39,7 @@ export interface Alloc {
   cohortName?: string | null;
 }
 
-export interface OfferingLite { id: string; name: string; programId: string; goalProductive: number; pipelineRates?: string | null }
+export interface OfferingLite { id: string; name: string; programId: string; goalProductive: number; pipelineRates?: string | null; /** ISO first day, when the offering is dated. */ startDate?: string | null }
 
 /** The goal an offering carries: its saved pipeline plan's goal, else its productive target. */
 export function offeringGoal(c: Pick<OfferingLite, "goalProductive" | "pipelineRates">): number {
@@ -55,7 +55,7 @@ export function yearAllocations(saved: Alloc[], offerings: OfferingLite[]): Allo
   const out = saved.map((a) => ({ ...a, offerings: a.offerings ? [...a.offerings] : a.offerings }));
   for (const c of orphans) {
     const goal = offeringGoal(c);
-    const slot: OfferingSlot = { startDate: null, goal, termOverrides: [], locked: true, cohortId: c.id, cohortName: c.name };
+    const slot: OfferingSlot = { startDate: c.startDate ?? null, goal, termOverrides: [], locked: true, cohortId: c.id, cohortName: c.name };
     const a = out.find((x) => x.programId === c.programId);
     if (a) {
       const legacy: OfferingSlot[] = a.startDate != null || a.locked ? [{ startDate: a.startDate ?? null, locked: a.locked, cohortId: a.cohortId, cohortName: a.cohortName }] : [];

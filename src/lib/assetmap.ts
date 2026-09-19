@@ -21,6 +21,8 @@ export interface AssetLite {
   /** The licensee / health system the site belongs to. */
   organization?: string | null;
   agreementStatus?: string; facilityStatus?: string;
+  /** The site's agreement per job family (familyId → status). `agreementStatus` is the employer-level status; use forFamily() to resolve. */
+  agreementByFamily?: Record<string, string>;
   settingCode: string; setting: string; assetType: string; assetNumber: number;
   /** How the accreditor counts it (JRCERT class override); blank = derived from setting / type. */
   accreditorClass?: string | null;
@@ -33,6 +35,13 @@ export interface AssetDayOverride { assetId: string; date: string; shiftBlocks: 
 export interface AssetBookingLite { id: string; assetId: string; cohortId: string; sessionId: string | null; sectionIndex: number; date: string; block: string; students: number; cohort?: string; program?: string; courseCode?: string | null }
 
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+/** The assets as one job family sees them: its own site agreement decides "secured"; the employer-level status only where the family has no row for the site. */
+export function forFamily<T extends AssetLite>(assets: T[], familyId: string | null | undefined): T[] {
+  if (!familyId) return assets;
+  return assets.map((a) => { const s = a.agreementByFamily?.[familyId]; return s && s !== a.agreementStatus ? { ...a, agreementStatus: s } : a; });
+}
+/** An asset counts only while neither it nor its facility is archived — the same rule for totals, supply and export. */
+export const isLive = (a: AssetLite) => a.status !== "archived" && a.facilityStatus !== "archived";
 /** Length of one block's shift on this asset (falls back to the asset's default). */
 export const shiftHours = (a: AssetLite, block: ShiftBlock): number => (block === "Day" ? a.dayHours : block === "Evening" ? a.eveningHours : a.nightHours) ?? a.hoursPerShift;
 export const shiftStart = (a: AssetLite, block: ShiftBlock): string => (block === "Day" ? a.dayStart : block === "Evening" ? a.eveningStart : a.nightStart) ?? (block === "Day" ? "07:00" : block === "Evening" ? "15:00" : "23:00");
@@ -95,7 +104,7 @@ export function assetTotals(assets: AssetLite[], overrides: AssetDayOverride[], 
   const dayList = dayIndex(from, to);
   const days = dayList.length;
   for (const a of assets) {
-    if (a.status === "archived") continue;
+    if (!isLive(a)) continue;
     const st = bySetting.get(a.settingCode) ?? { settingCode: a.settingCode, setting: a.setting, assets: 0, day: 0, evening: 0, night: 0, total: 0, hours: 0 };
     st.assets++;
     const perBlock: Record<ShiftBlock, number> = { Day: 0, Evening: 0, Night: 0 };
@@ -127,7 +136,7 @@ export function assetSupply(assets: AssetLite[], overrides: AssetDayOverride[], 
   const out = new Map<string, AssetSupplyCell>();
   const dayList = dayIndex(from, to);
   for (const a of assets) {
-    if (a.status === "archived" || a.facilityStatus === "archived") continue;
+    if (!isLive(a)) continue;
     const secured = a.agreementStatus === "secured";
     for (const { iso, blocks } of blocksAcross(a, dayList, ov)) {
       for (const b of blocks) {
@@ -181,7 +190,7 @@ export function settingVerdicts(cells: AssetMatchCell[], assets: AssetLite[]): S
   const codes = [...new Set(cells.map((c) => c.settingCode))].sort();
   return codes.map((code) => {
     const cs = cells.filter((c) => c.settingCode === code);
-    const as = assets.filter((a) => a.settingCode === code && a.status !== "archived");
+    const as = assets.filter((a) => a.settingCode === code && isLive(a));
     return {
       settingCode: code, setting: as[0]?.setting ?? code, rotationTypes: [...new Set(cs.flatMap((c) => c.rotationTypes))],
       demandShifts: cs.reduce((n, c) => n + c.demand, 0), hostedPhysical: cs.reduce((n, c) => n + Math.min(c.demand, c.learners), 0), hostedSecured: cs.reduce((n, c) => n + Math.min(c.demand, c.securedLearners), 0),
@@ -196,7 +205,7 @@ export function settingVerdicts(cells: AssetMatchCell[], assets: AssetLite[]): S
 export function assetsAvailable(assets: AssetLite[], overrides: AssetDayOverride[], bookings: AssetBookingLite[], iso: string, block: ShiftBlock, settingCode: string | null) {
   const ov = overrideIndex(overrides);
   return assets
-    .filter((a) => a.status !== "archived" && (!settingCode || a.settingCode === settingCode) && blocksOn(a, iso, ov.get(overrideKey(a.id, iso))).includes(block))
+    .filter((a) => isLive(a) && (!settingCode || a.settingCode === settingCode) && blocksOn(a, iso, ov.get(overrideKey(a.id, iso))).includes(block))
     .map((a) => { const bs = bookings.filter((b) => b.assetId === a.id && b.date === iso && b.block === block); const used = bs.reduce((n, b) => n + b.students, 0); return { asset: a, booked: used, free: Math.max(0, a.learnersPerShift - used), bookings: bs }; })
     .sort((x, y) => Number(y.asset.agreementStatus === "secured") - Number(x.asset.agreementStatus === "secured") || y.free - x.free || x.asset.facilityName.localeCompare(y.asset.facilityName));
 }
@@ -291,7 +300,7 @@ export function assetMapWorkbook(assets: AssetLite[], overrides: AssetDayOverrid
     ["asset_day_id", "date", "day_of_week", "asset_id", "facility_id", "facility_name", "setting_code", "setting", "asset_type", "asset_number", "day_shift", "hours_day_shift", "evening_shift", "hours_evening_shift", "night_shift", "hours_night_shift", "total_shifts", "total_hours", "serves"]];
   const DOW: Record<string, string> = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
   for (const a of assets) {
-    if (a.status === "archived") continue;
+    if (!isLive(a)) continue;
     const per: Record<ShiftBlock, number> = { Day: 0, Evening: 0, Night: 0 };
     for (const { iso, blocks: bl } of blocksAcross(a, exportDays, ov)) {
       for (const b of bl) per[b]++;

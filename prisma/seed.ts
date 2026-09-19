@@ -621,6 +621,8 @@ async function loadClinicalModels(institutionId: string) {
       const CNA_ROT: [string, string, string | null, string][] = [
         ["Medical-Surgical", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"], ["Med-Surg", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"],
         ["Long-Term Care", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Skilled Nursing", "Long-term care beds", "SNF Nursing Unit", "LTC"], ["Adult Care", "Adult care beds", "Adult Care Unit", "LTC"],
+        // Carteret names its rotations as an either/or; both read as acute beds first.
+        ["Acute & LTC", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"], ["Acute MedSurg or LTC", "Inpatient beds", "Med-Surg / Telemetry", "BEDS"],
       ];
       for (const [rotationType, unitCategory, unitType, settingCode] of CNA_ROT) {
         await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });

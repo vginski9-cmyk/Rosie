@@ -13,7 +13,7 @@ export type ExceptionSeverity = "blocker" | "warning" | "info";
 export interface ExceptionItem {
   id: string;
   severity: ExceptionSeverity;
-  kind: "over-capacity" | "unsecured-placement" | "holiday-session" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "other";
+  kind: "no-supply" | "over-capacity" | "unsecured-placement" | "holiday-session" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "other";
   institutionId: string | null; institution: string | null;
   familyId: string | null; family: string | null;
   title: string; detail: string;
@@ -89,6 +89,14 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
   const caps: CapLite[] = await prisma.familySite.findMany({ where: { studentsAtOnce: { not: null } }, select: { familyId: true, employerId: true, studentsAtOnce: true } });
 
   for (const inst of institutions) {
+    // A college whose offerings run clinical sessions but that has no sites, assets or preceptors on record at all:
+    // nothing clinical can be placed, sized or verified, and every clinical page for it is an empty state, not a zero.
+    const [employers, clinicalSessions] = await Promise.all([
+      prisma.employer.count({ where: { institutionId: inst.id } }),
+      prisma.session.count({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: { status: { in: ["planned", "active"] } } } } } } } }),
+    ]);
+    if (employers === 0 && clinicalSessions > 0) items.push({ id: `nosupply|${inst.id}`, severity: "blocker", kind: "no-supply", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: clinicalSessions,
+      title: `${inst.name}: no clinical sites, assets or preceptors on record`, detail: `${clinicalSessions} clinical session${clinicalSessions === 1 ? "" : "s"} in its planned and running offerings have nowhere to be placed. Coverage, site load and the scheduler show nothing for this college until its sites are added — that is missing data, not zero demand.`, href: "/employers", fix: "add the college's clinical sites and their assets, then map each rotation type to a setting" });
     // Site load rows: over-capacity site-days, unsecured placements, unprecepted shifts.
     const load = await getSiteLoad(inst.id);
     if (load) {
@@ -119,7 +127,7 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
       if (onHoliday.length) {
         const fam = families.find((f) => f.programs.some((p) => p.id === c.programId)) ?? null;
         items.push({ id: `holiday|${c.cohortId}`, severity: "blocker", kind: "holiday-session", institutionId: inst.id, institution: inst.name, familyId: fam?.id ?? null, family: fam?.name ?? null, count: onHoliday.length,
-          title: `${c.cohort}: ${onHoliday.length} session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed; the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
+          title: `${c.cohort}: ${onHoliday.length} upcoming session${onHoliday.length === 1 ? "" : "s"} land on an observed holiday`, detail: `${[...new Set(onHoliday.map((r) => r.holiday))].slice(0, 3).join(", ")} — the college is closed; the sessions need moving.`, href: `/programs/${c.programId}/offerings/${c.cohortId}/design`, fix: "move each session off the holiday on the offering's design page" });
       }
     }
     // Unverified and stale inputs.

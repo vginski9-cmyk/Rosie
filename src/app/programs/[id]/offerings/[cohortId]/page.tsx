@@ -186,7 +186,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       )}
 
       {/* ── One button: rooms, sites, staff and learners, all placed ─────────── */}
-      <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={offering._count.students} />
+      <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={enrolledNow} />
 
       {/* ── Term dates for THIS offering (derived from the org's calendar; overridable here) ── */}
       {(() => {

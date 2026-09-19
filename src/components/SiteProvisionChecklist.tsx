@@ -64,17 +64,17 @@ export function SiteProvisionChecklist({ familyId, employerId, siteName, set, ki
                         <td className="px-2 py-1 align-top whitespace-nowrap"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${st.tone}`}>{st.label}</span>{f.basis && <span className="block text-[10px] text-slate-400">{BASIS[f.basis]}{f.evidence?.verifiedAt ? ` · ${f.evidence.owner ? `${f.evidence.owner}, ` : ""}${f.evidence.verifiedAt}` : ""}{f.evidence?.reviewBy ? ` · review by ${f.evidence.reviewBy}` : ""}</span>}</td>
                         {f.state === "n/a" ? <td colSpan={cases ? 5 : 4} className="px-2 py-1 text-[11px] text-slate-400">done on campus or in the lab — nothing to confirm at a site</td> : <>
                           <td className="px-2 py-1 align-top">
-                            <select name={`st_${i.id}`} defaultValue={current} className={inp}>
+                            <select name={`st_${i.id}`} defaultValue={current} aria-label={`Provision status for ${i.name}`} className={inp}>
                               <option value="assets">as the assets say ({f.seats ? (stKey === "possible" ? "possible" : "inferred") : "unknown"})</option>
                               <option value="provides">provides — the site confirmed</option>
                               <option value="limited">limited (rare / by arrangement)</option>
                               <option value="none">does not provide</option>
                             </select>
                           </td>
-                          <td className="px-2 py-1 align-top text-right"><input name={`vol_${i.id}`} type="number" min="0" step="1" defaultValue={f.annualVolume ?? ""} placeholder="—" className={inp + " w-20 text-right"} /></td>
+                          <td className="px-2 py-1 align-top text-right"><input name={`vol_${i.id}`} type="number" min="0" step="1" aria-label={`Annual volume for ${i.name}`} defaultValue={f.annualVolume ?? ""} placeholder="—" className={inp + " w-20 text-right"} /></td>
                           {cases && <td className="px-2 py-1 align-top whitespace-nowrap">{(() => { const on = parseScrubRoles(f.studentRole); return SCRUB_ROLES.map((r) => <label key={r} className="mr-2 inline-flex items-center gap-0.5 text-[11px] text-slate-700"><input type="checkbox" name={`role_${i.id}_${r.replace(/ /g, "_")}`} defaultChecked={on.includes(r)} />{r}</label>); })()}</td>}
-                          <td className="px-2 py-1 align-top"><select name={`src_${i.id}`} defaultValue={f.basis === "estimate" ? "ESTIMATE" : "VERIFIED"} className={inp}><option value="VERIFIED">confirmed with site</option><option value="ESTIMATE">estimate</option></select></td>
-                          <td className="px-2 py-1 align-top"><input name={`note_${i.id}`} defaultValue={f.notes ?? ""} placeholder={cases ? "e.g. Tue/Thu ortho block, students first-scrub after wk 6" : "e.g. 2 fluoro days a week; GI only"} className={inp + " w-52"} /></td>
+                          <td className="px-2 py-1 align-top"><select name={`src_${i.id}`} defaultValue={f.basis === "estimate" ? "ESTIMATE" : "VERIFIED"} aria-label={`Evidence source for ${i.name}`} className={inp}><option value="VERIFIED">confirmed with site</option><option value="ESTIMATE">estimate</option></select></td>
+                          <td className="px-2 py-1 align-top"><input name={`note_${i.id}`} defaultValue={f.notes ?? ""} aria-label={`Note for ${i.name}`} placeholder={cases ? "e.g. Tue/Thu ortho block, students first-scrub after wk 6" : "e.g. 2 fluoro days a week; GI only"} className={inp + " w-52"} /></td>
                         </>}
                       </tr>
                     );

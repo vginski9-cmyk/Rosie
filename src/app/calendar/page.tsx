@@ -7,7 +7,7 @@ import { getCalendarProvenance } from "@/lib/queries";
 export const dynamic = "force-dynamic";
 
 export default async function CalendarPage({ searchParams }: { searchParams: { inst?: string; week?: string } }) {
-  const data = await getMasterCalendar({ institutionId: searchParams.inst, weekMs: searchParams.week ? Number(searchParams.week) : undefined });
+  const data = await getMasterCalendar({ institutionId: searchParams.inst, weekMs: searchParams.week && Number.isFinite(Number(searchParams.week)) && Math.abs(Number(searchParams.week) - Date.now()) < 20 * 365 * 86400000 ? Number(searchParams.week) : undefined });
   const provenance = (await getCalendarProvenance(data.institutionId)).all;
 
   return (

@@ -84,7 +84,7 @@ export function ExpansionStudio({ program, scenarios, defaultDesign, defaultNote
       {/* Scenarios */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="text-slate-500">Scenarios:</span>
-        {scenarios.map((s) => <button key={s.id} onClick={() => pick(s)} className={`rounded-full px-2.5 py-1 font-medium ${s.id === scenarioId ? "bg-rose-600 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:ring-rose-300"}`}>{s.name}{s.status === "recommended" ? " ★" : ""}{s.result ? (s.result.feasible ? " · feasible" : " · not feasible") : " · not evaluated"}</button>)}
+        {scenarios.map((s) => <button key={s.id} onClick={() => pick(s)} className={`rounded-full px-2.5 py-1 font-medium ${s.id === scenarioId ? "bg-rose-600 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:ring-rose-300"}`}>{s.name}{s.status === "recommended" ? " ★" : ""}{s.result ? (s.result.feasible ? " · feasible" : " · not feasible") : s.staleResult ? ` · evaluated ${s.evaluatedAt ?? "earlier"} with an older engine — re-evaluate` : " · not evaluated"}</button>)}
         <button onClick={() => pick(null)} className={`rounded-full px-2.5 py-1 font-medium ${scenarioId == null ? "bg-rose-600 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:ring-rose-300"}`}>+ new</button>
         {compared.length > 1 && <button onClick={() => setTab("compare")} className="ml-auto rounded-full bg-slate-800 px-2.5 py-1 font-medium text-white">Compare {compared.length} evaluated</button>}
       </div>

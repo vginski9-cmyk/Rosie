@@ -24,9 +24,9 @@ export const fmt = {
   /** A count of people or things: a whole number. */
   num(n: number | null | undefined, _digits = 0): string { void _digits; return bad(n) ? "—" : loc(Math.round(n), 0); },
   /** A count that must be met (a pipeline target): rounded UP, never down. */
-  atLeast(n: number | null | undefined): string { return bad(n) ? "—" : loc(Math.ceil(n - 1e-9), 0); },
+  atLeast(n: number | null | undefined): string { return bad(n) ? "—" : loc(Math.max(0, Math.ceil(n - 1e-9)), 0); },
   /** A required count as a phrase: "at least 83" when the calculation is fractional, plain "29" when it is whole. */
-  atLeastPhrase(n: number | null | undefined): string { return bad(n) ? "—" : Math.abs(n - Math.round(n)) < 1e-9 ? loc(Math.round(n), 0) : `at least ${loc(Math.ceil(n - 1e-9), 0)}`; },
+  atLeastPhrase(n: number | null | undefined): string { return bad(n) ? "—" : Math.abs(n - Math.round(n)) < 1e-9 ? loc(Math.round(n), 0) : `at least ${loc(Math.max(0, Math.ceil(n - 1e-9)), 0)}`; },
   /** The unrounded calculation, for a hover or a detail view only — never the headline figure. */
   exact(n: number | null | undefined): string { return bad(n) ? "—" : loc(n, PRECISION); },
   /** A hover title pairing the shown figure with its calculation: "calculated 82.214082 · shown as at least 83". */

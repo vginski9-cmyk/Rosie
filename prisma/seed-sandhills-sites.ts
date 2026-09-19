@@ -279,8 +279,8 @@ export async function loadSandhillsSites(prisma: PrismaClient, institutionId: st
     if (!codes) continue;
     for (const e of employers) {
       if (!e.assets.some((a) => codes.includes(a.settingCode))) continue;
-      const h = hash(`${f.id}|${e.id}`) % 100;
-      const status = e.agreementStatus === "secured" ? (h < 80 ? "secured" : "asked") : e.agreementStatus === "asked" ? (h < 60 ? "asked" : h < 80 ? "secured" : "prospect") : h < 25 ? "asked" : h < 40 ? "secured" : "prospect";
+      // One agreement status per site: the family row carries the employer's status rather than a randomised tier.
+      const status = e.agreementStatus ?? "prospect";
       await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: f.id, employerId: e.id } }, update: {}, create: { familyId: f.id, employerId: e.id, agreementStatus: status, evidenceSource: "seeded agreement tier — not confirmed with the site", verifiedAt: null } });
       agreements++;
     }

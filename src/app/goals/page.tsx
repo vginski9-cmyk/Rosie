@@ -89,7 +89,7 @@ export default async function HomePage() {
                         <Link href={f.programs[0] ? `/programs/${f.programs[0].id}/goal` : "/programs"} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.job} ↦</Link>
                         <div className="text-xs text-slate-500">{f.name}{f.socCode ? ` · SOC ${f.socCode}` : ""}</div>
                       </div>
-                      <form action={deleteNorthStarGoal.bind(null, f.id)}><button className="rounded p-1 text-xs text-slate-300 hover:text-rose-600" title="delete this North Star goal">✕</button></form>
+                      <form action={deleteNorthStarGoal.bind(null, f.id)}><button className="rounded p-1 text-xs text-slate-300 hover:text-rose-600" title="clear this North Star goal (the job family, its sites and records stay)">✕</button></form>
                     </div>
                     <div className="mt-2 flex items-end gap-1.5">
                       {years.map((y) => (
@@ -102,7 +102,7 @@ export default async function HomePage() {
                     </div>
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">{thisYear} placed in jobs so far</span>
+                        <span className="text-slate-500">{thisYear - 1} graduates placed, against the {thisYear} goal</span>
                         <span className={f.progress == null ? "text-slate-400" : onTrack ? "font-medium text-emerald-600" : "font-medium text-amber-600"}>{f.progress != null ? `${fmt.pct(f.progress)} of the ${thisYear} goal` : "no goal set"}</span>
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${onTrack ? "bg-emerald-500" : "bg-rose-400"}`} style={{ width: `${f.progress != null ? Math.min(100, f.progress * 100) : 0}%` }} /></div>

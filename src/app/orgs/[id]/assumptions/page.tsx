@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // THE ASSUMPTION REGISTRY for one college (Phase 9): every planning assumption with its value, range,
 // source, owner, status and review date — and where each came from (default, workspace, this college,
 // a job family, a program). Edit at the college scope here; family and program scopes from the studio.
-export default async function AssumptionsPage({ params, searchParams }: { params: { id: string }; searchParams: { scope?: string } }) {
+export default async function AssumptionsPage({ params, searchParams }: { params: { id: string }; searchParams: { scope?: string; err?: string } }) {
   const inst = await prisma.institution.findUnique({ where: { id: params.id }, select: { id: true, name: true, programFamilies: { select: { id: true, name: true, programs: { select: { id: true, name: true } } } } } });
   if (!inst) notFound();
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -27,6 +27,7 @@ export default async function AssumptionsPage({ params, searchParams }: { params
         <h1 className="mt-1 text-2xl font-semibold tracking-tight">Planning assumptions</h1>
         <p className="text-sm text-slate-600">The rates, lags, lead times, costs and workload figures every expansion analysis rests on. A default is never presented as verified; set the college&apos;s own figure, name who owns it and when to review it. The most specific scope wins: program over job family over college over workspace.</p>
       </div>
+      {searchParams.err && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">Not saved: {searchParams.err}</p>}
       <AssumptionRegistry defs={ASSUMPTION_DEFS} resolved={Object.values(resolved)} own={Object.fromEntries(own)} scope={scope} scopes={scopes} back={`/orgs/${inst.id}/assumptions?scope=${encodeURIComponent(scope)}`} />
     </div>
   );

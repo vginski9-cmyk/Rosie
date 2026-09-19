@@ -3083,7 +3083,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 4,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3102,8 +3102,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3175,7 +3175,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 8,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3194,8 +3194,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3267,7 +3267,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 12,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3286,8 +3286,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3359,7 +3359,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 16,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3378,8 +3378,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3451,7 +3451,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 20,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3470,8 +3470,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3543,7 +3543,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 24,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3562,8 +3562,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3635,7 +3635,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 28,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3654,8 +3654,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3727,7 +3727,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 32,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3746,8 +3746,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3819,7 +3819,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 36,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3838,8 +3838,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -3911,7 +3911,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 40,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -3930,8 +3930,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4003,7 +4003,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 44,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4022,8 +4022,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4095,7 +4095,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 48,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4114,8 +4114,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4187,7 +4187,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 52,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4206,8 +4206,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4279,7 +4279,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 56,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4298,8 +4298,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4371,7 +4371,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 60,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4390,8 +4390,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       },
       {
        "kind": "CLINICAL",
@@ -4463,7 +4463,7 @@
        "clinicalMode": "Precepted Experience"
       },
       {
-       "kind": "CLINICAL",
+       "kind": "CLASS",
        "number": 64,
        "title": "CLINICAL",
        "deliveryMode": "Online",
@@ -4482,8 +4482,8 @@
        "notes": "Online · Online (no fixed weekday)",
        "preceptorsNeeded": 0,
        "preceptorContactPolicy": 1,
-       "rotationType": "Online",
-       "clinicalMode": "Precepted Experience"
+       "rotationType": null,
+       "clinicalMode": null
       }
      ]
     }

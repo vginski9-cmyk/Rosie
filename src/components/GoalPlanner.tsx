@@ -37,6 +37,8 @@ export interface OfferingSummary {
   pipelineRates?: string | null;
   /** Number of terms in this offering's program. */
   terms?: number;
+  /** ISO first day of the offering, when dated — the planner shows it instead of the saved plan's slot date. */
+  startDate?: string | null;
   phase: string;              // recruiting | in-program | graduated | unscheduled
   currentTerm: string | null; // current term name (when in-program)
   endLabel: string | null;    // expected-end label, e.g. "ends May 2026"
@@ -367,7 +369,7 @@ export function GoalPlanner({
                     <button onClick={(e) => { e.stopPropagation(); removeYear(year); }} className="absolute right-2 top-2 rounded px-1 text-xs text-slate-300 hover:bg-rose-100 hover:text-rose-700" title={`remove ${year}`}>×</button>
                   )}
                   <input
-                    type="number" min={0} value={Math.round(goalVal)}
+                    type="number" min={0} value={Math.round(goalVal)} aria-label="Fully productive workers wanted this year"
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => setYearValue(year, Number(e.target.value) || 0)}
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
@@ -621,7 +623,7 @@ export function GoalPlanner({
                         <span className="block text-[10px] text-slate-400">{d.of}</span>
                       </td>
                       <td className="px-2 py-1.5 text-right">
-                        <input type="number" value={numInput(gv * 100)} step="any" onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
+                        <input type="number" value={numInput(gv * 100)} step="any" aria-label={`${d.label} goal rate (%)`} onChange={(e) => setGoalRate(d.key, Number(e.target.value) || 0)} className="w-16 rounded border border-slate-200 px-1.5 py-1 text-right tabular-nums focus:border-rose-400 focus:outline-none" /><span className="ml-0.5 text-slate-400">%</span>
                       </td>
                       <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${ar == null ? "text-slate-300" : healthy ? "text-emerald-600" : "text-amber-600"}`}>{ar == null ? "—" : pct(ar)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-400">{pct(d.benchmark)}</td>

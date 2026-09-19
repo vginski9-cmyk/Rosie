@@ -51,7 +51,8 @@ export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCod
     const hours = r.session.lengthHours && r.session.lengthHours > 0 ? r.session.lengthHours : r.session.startTime ? 1 : 9;
     campus.push({ cohortId: r.cohortId, date: r.dateIso, startMin: start, endMin: start + Math.round(hours * 60), label: `${r.courseCode ?? r.courseTitle} ${r.session.kind === "LAB" ? "lab" : "class"}` });
   }
-  return { demand: demandUnits(rows, rotations, moves, familyByCohort), campus };
+  const holidays = Object.assign({}, ...cohorts.map((c) => c.holidays ?? {})) as Record<string, string>;
+  return { demand: demandUnits(rows, rotations, moves, familyByCohort, holidays), campus };
 }
 
 /** The demand the levers leave: chosen offerings (none chosen = all) inside the window. */
@@ -78,7 +79,7 @@ export function planInputs(assignments: Assignment[]): PlanAssignmentInput[] {
   return assignments.map((x) => ({
     assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId,
     date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId,
-    parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset,
+    parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset, seatStart: x.unit.seatStart, sectionSeats: x.unit.sectionSeats,
     originalDate: x.unit.originalDate, movedDays: x.movedDays, changedBlock: x.changedBlock, startTime: x.changedBlock ? shiftStart(x.asset, x.block) : x.unit.startTime, hours: x.hours,
   }));
 }

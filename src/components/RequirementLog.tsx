@@ -126,7 +126,7 @@ export function RequirementLog({ data }: { data: Data }) {
                       <td className="py-1">{cases ? `${l.role ?? "—"} · ${dec(l.count)}` : l.outcome}{l.simulated ? " · simulated" : ""}</td>
                       <td className="py-1 text-slate-600">{l.site ?? "—"}{l.preceptor ? ` · ${l.preceptor}` : ""}</td>
                       <td className="py-1">{l.verifiedAt ? <span className="text-emerald-700">✓ {l.verifier ?? ""} {fmtDate(l.verifiedAt)}</span> : (
-                        <form action={verifyRequirementLog.bind(null, l.id, data.student.id)} className="flex items-center gap-1"><select name="verifiedById" className={inp}><option value="">— preceptor —</option>{data.sites.flatMap((s) => s.preceptors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>))}</select><button className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-white">verify</button></form>
+                        <form action={verifyRequirementLog.bind(null, l.id, data.student.id)} className="flex items-center gap-1"><select name="verifiedById" aria-label="Verified by" className={inp}><option value="">— preceptor —</option>{data.sites.flatMap((s) => s.preceptors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>))}</select><button className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-white">verify</button></form>
                       )}</td>
                       <td className="py-1 text-right"><form action={deleteRequirementLog.bind(null, l.id, data.student.id)}><button className="text-slate-300 hover:text-rose-600" title="remove entry">✕</button></form></td>
                     </tr>

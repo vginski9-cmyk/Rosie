@@ -2,6 +2,12 @@ import { prisma } from "./db";
 import * as React from "react";
 /** Per-request memo (React `cache`) where the server runtime has it; a plain call elsewhere (tests, scripts). */
 const cache = ((React as unknown as { cache?: <F>(fn: F) => F }).cache ?? ((fn) => fn)) as <F>(fn: F) => F;
+/** The template week a course begins in (its earliest session week) — the anchor of its own date window. */
+const firstWeekOf = (sessions: { week: number | null }[]) => (sessions.length ? Math.min(...sessions.map((x) => x.week ?? 1)) : null);
+/** One definition of an online session, shared with the calendarizer: the delivery mode says online, or the location is the internet. */
+const isOnlineSession = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
+const mondayMs = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
+const DAY_MS_SEM = 86400000;
 import { seasonOfDate, seasonOfTerm, sessionDate, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 import { resolveSessionDay } from "./capacitymodel";
@@ -276,12 +282,29 @@ export async function getClinicalSupply(institutionId?: string) {
       select: {
         id: true, name: true, organization: true, facilityType: true, county: true, ring: true, city: true, status: true, agreementStatus: true,
         licensedBeds: true, nursingHomeBeds: true, adultCareBeds: true, operatingRooms: true, wblSlots: true,
+        assets: { where: { status: "active" }, select: { settingCode: true, learnersPerShift: true, preceptorsPerShift: true } },
         units: { where: { status: "active" }, select: { id: true, unitType: true, unitCategory: true, unitName: true, capacityCount: true, uom: true, dataSource: true, shiftsPerDay: true, shiftLengthHrs: true, shiftBlocks: true, days: true, studentsPerShift: true, studentsPerPreceptor: true, preceptorsPerShift: true } },
       },
     }),
     prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, orderBy: { rotationType: "asc" } }),
   ]);
-  return { institution: inst, sites, rotations };
+  // A unit that codes no student capacity is not a unit with zero capacity: the site's assets in the settings that
+  // serve its category carry the seats, and the unit reads them (marked as derived) until someone codes it.
+  const codesByCategory = new Map<string, Set<string>>();
+  for (const r of rotations) if (r.unitCategory && r.settingCode) { const set = codesByCategory.get(r.unitCategory) ?? new Set<string>(); set.add(r.settingCode); codesByCategory.set(r.unitCategory, set); }
+  const sitesDerived = sites.map((site) => ({
+    ...site,
+    units: site.units.map((u) => {
+      if (u.studentsPerShift > 0) return u;
+      const codes = codesByCategory.get(u.unitCategory);
+      if (!codes) return u;
+      const mine = site.assets.filter((a) => codes.has(a.settingCode));
+      if (!mine.length) return u;
+      const students = mine.reduce((n, a) => n + a.learnersPerShift, 0), preceptors = mine.reduce((n, a) => n + a.preceptorsPerShift, 0);
+      return { ...u, studentsPerShift: students, preceptorsPerShift: u.preceptorsPerShift > 0 ? u.preceptorsPerShift : preceptors, dataSource: `${u.dataSource} · students/shift derived from ${mine.length} asset${mine.length === 1 ? "" : "s"}` };
+    }),
+  }));
+  return { institution: inst, sites: sitesDerived, rotations };
 }
 
 /** The 365-day clinical asset map for an institution: every physical asset with
@@ -293,7 +316,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
       where: { employer: { institutionId } },
       orderBy: [{ employer: { name: "asc" } }, { settingCode: "asc" }, { assetNumber: "asc" }],
       include: {
-        employer: { select: { id: true, name: true, externalId: true, county: true, ring: true, facilityType: true, organization: true, agreementStatus: true, status: true } },
+        employer: { select: { id: true, name: true, externalId: true, county: true, ring: true, facilityType: true, organization: true, agreementStatus: true, status: true, familySites: { select: { familyId: true, agreementStatus: true } } } },
         dayOverrides: { where: { date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } }, select: { date: true, shiftBlocks: true, note: true } },
       },
     }),
@@ -307,6 +330,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   const assets = assetsRaw.map((a) => ({
     id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: a.employer.name, facilityExternalId: a.employer.externalId,
     county: a.employer.county, ring: a.employer.ring, facilityType: a.employer.facilityType, organization: a.employer.organization, agreementStatus: a.employer.agreementStatus, facilityStatus: a.employer.status,
+    agreementByFamily: Object.fromEntries(a.employer.familySites.map((f) => [f.familyId, f.agreementStatus])),
     settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks,
     hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours,
     serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, status: a.status, notes: a.notes,
@@ -735,7 +759,8 @@ export async function getAccreditorCapacity(familyId: string, employerId?: strin
     .map((e) => {
       const fs = fsByEmp.get(e.id) ?? null;
       const cap = jrcertCapacity({ assets: e.assets, qualifiedStaffOnShift: fs?.qualifiedStaffOnShift ?? null });
-      const bookings = e.meetings.map((m) => { const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex); const s = ct?.startDate?.getTime() ?? 0; return { dayOfWeek: m.dayOfWeek, startMin: toMin(m.startTime), lengthHours: m.lengthHours, seats: m.seats, weekStartMs: s, weekEndMs: ct?.endDate ? ct.endDate.getTime() + 86400000 : s + 16 * 7 * 86400000 }; });
+      const seenMeeting = new Set<string>();
+      const bookings = e.meetings.filter((m) => { const k = `${m.cohort.name}|${m.termIndex}|${m.dayOfWeek}|${m.startTime}|${m.lengthHours}|${m.seats}`; if (seenMeeting.has(k)) return false; seenMeeting.add(k); return true; }).map((m) => { const ct = m.cohort.cohortTerms.find((c) => c.term.index === m.termIndex); const s = ct?.startDate?.getTime() ?? 0; return { dayOfWeek: m.dayOfWeek, startMin: toMin(m.startTime), lengthHours: m.lengthHours, seats: m.seats, weekStartMs: s, weekEndMs: ct?.endDate ? ct.endDate.getTime() + 86400000 : s + 16 * 7 * 86400000 }; });
       const peak = peakAssigned(bookings);
       const approved = fs?.approvedCapacity ?? null;
       const change = programCapacityChange(fam.accreditedCapacity, approved, fs?.requestedCapacity ?? null);
@@ -920,8 +945,9 @@ export async function getProgramPlanData(programId: string) {
     startYear, endYear, seatsByYear,
     defaultSeats: Math.round(program.defaultCohortSeats ?? 30),
   };
-  const explicitCohorts = program.cohorts.filter((c) => c.isExplicit && c.entryTermCode && c.entryYear).map((c) => ({
-    id: c.id, label: c.name, entryCode: c.entryTermCode as "FALL" | "SPRING" | "SUMMER", entryCalendarYear: c.entryYear!, seats: Math.round(c.plannedSeats ?? program.defaultCohortSeats ?? 30),
+  const termCodeOf = (d: Date | null): "FALL" | "SPRING" | "SUMMER" | null => (d ? (d.getUTCMonth() + 1 >= 8 ? "FALL" : d.getUTCMonth() + 1 >= 5 ? "SUMMER" : "SPRING") : null);
+  const explicitCohorts = program.cohorts.filter((c) => c.isExplicit && (c.entryTermCode || termCodeOf(c.startDate)) && (c.entryYear || c.startDate)).map((c) => ({
+    id: c.id, label: c.name, entryCode: (c.entryTermCode as "FALL" | "SPRING" | "SUMMER" | null) ?? termCodeOf(c.startDate)!, entryCalendarYear: c.entryYear ?? c.startDate!.getUTCFullYear(), seats: Math.round(c.plannedSeats ?? program.defaultCohortSeats ?? 30),
   }));
   const cohorts = generateCohortSeries(launchConfig, explicitCohorts);
   const activeCodes = parseTermCodes(program.termSlots);
@@ -1052,10 +1078,12 @@ export async function getProgramStudents(programId: string) {
     select: {
       id: true, name: true, email: true, status: true, stageKey: true,
       entryYear: true, gpa: true, attendedCount: true, missedCount: true,
+      shifts: { select: { status: true } },
       _count: { select: { grades: true, absences: true } },
     },
   });
-  return { program, students };
+  // Attendance comes from the shift ledger; the counters on the student row are not maintained.
+  return { program, students: students.map((s) => ({ ...s, attendedCount: s.shifts.filter((x) => x.status === "completed").length, missedCount: s.shifts.filter((x) => x.status === "absent" || x.status === "excused").length })) };
 }
 
 /** A single student's complete record: dated grades and dated attendance —
@@ -1479,7 +1507,8 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     const t = sessions.length ? courseService(sessions, enrollment, DEFAULT_SERVICE).totals : null;
     // Term date window: real start (from the CohortTerm) + its instructional span.
     const termWeeks = ct.term.startWeek != null && ct.term.endWeek != null && ct.term.endWeek >= ct.term.startWeek ? ct.term.endWeek - ct.term.startWeek + 1 : 16;
-    const endDate = ct.startDate ? new Date(ct.startDate.getTime() + termWeeks * WEEK_MS) : null;
+    // The offering's coded last day when the calendar carries one (exclusive bound = the day after), else the template span.
+    const endDate = ct.endDate ? new Date(ct.endDate.getTime() + DAY_MS_SEM) : ct.startDate ? new Date(ct.startDate.getTime() + termWeeks * WEEK_MS) : null;
     const inSessionNow = !!(ct.startDate && endDate && today >= ct.startDate && today < endDate);
     rows.push({
       sem: season, year: yr,
@@ -1714,7 +1743,7 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     return top.length ? (top.length > 1 ? `${top[0][0]} +${top.length - 1}` : top[0][0]) : null;
   };
 
-  const dlabel = (ms: number) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const dlabel = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
   const meetings: MasterMeeting[] = raw.map((m) => {
     // Derive placement from the LIVE course→term relation, so re-sequencing the
     // program shifts every calendar (the stored termIndex is only a fallback).
@@ -1799,12 +1828,12 @@ export async function getMasterCalendar(opts?: { institutionId?: string; weekMs?
     for (const m of meetings) {
       if (!m.weekStartMs || !(m.weekStartMs <= currentWeekMs && currentWeekMs < m.weekEndMs)) continue;
       const r = rawById.get(m.id); if (!r) continue;
-      const weekOfTerm = Math.floor((currentWeekMs - m.weekStartMs) / WEEK_MS) + 1;
+      const weekOfTerm = Math.floor((currentWeekMs - mondayMs(m.weekStartMs)) / WEEK_MS) + 1; // week 1 = the calendar week containing the term's first day
       const patterns = raw.filter((x) => x.cohortId === m.cohortId && x.courseId === m.courseId && x.kind === m.kind && x.sectionIndex === m.sectionIndex).map((x) => ({ dayOfWeek: x.dayOfWeek }));
       const kindSessions = r.course.sessions.filter((x) => x.kind === m.kind);
       const sessionDays = kindSessions.map((x) => x.dayOfWeek).filter((d): d is string => !!d);
       for (const sess of kindSessions.filter((x) => (x.week ?? 1) === weekOfTerm)) {
-        const online = sess.deliveryMode === "Online" || sess.location === "Internet";
+        const online = isOnlineSession(sess.deliveryMode, sess.location);
         const day = resolveSessionDay(sess.dayOfWeek, online, patterns, sessionDays);
         if (!day || day !== m.dayOfWeek) continue; // this booking hosts the session only on its own day
         const originIso = dateOfDay(day);
@@ -2167,7 +2196,9 @@ export async function getCohortPlacements(cohortId: string) {
 export const ALL_INSTITUTIONS = "all";
 
 /** The capacity model is read several times per request (a page and its scope bridge): one computation per request (Phase 8). */
-export const getCapacityModel = cache((opts?: { institutionId?: string; cohortId?: string }) => getCapacityModelUncached(opts));
+// React's cache keys object arguments by identity, so the memo is keyed on the primitives — every caller passes a fresh literal.
+const capacityModelByKey = cache((institutionId: string | null, cohortId: string | null) => getCapacityModelUncached({ institutionId: institutionId ?? undefined, cohortId: cohortId ?? undefined }));
+export const getCapacityModel = (opts?: { institutionId?: string; cohortId?: string }) => capacityModelByKey(opts?.institutionId ?? null, opts?.cohortId ?? null);
 async function getCapacityModelUncached(opts?: { institutionId?: string; cohortId?: string }) {
   // Which institution: the one asked for, the one an offering belongs to, or —
   // with no hint — the one that actually has offerings running (not the
@@ -2190,7 +2221,7 @@ async function getCapacityModelUncached(opts?: { institutionId?: string; cohortI
 
 /** One college's offerings as the capacity model reads them, with its sites, rooms and people. */
 async function capacityModelFor(institution: { id: string; name: string }) {
-  const { deriveCohortTargets } = await import("./pipeline");
+  const { deriveCohortTargets, thinTerms } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
 
   // The institution's coded holidays & breaks (imported academic calendar) —
@@ -2245,9 +2276,14 @@ async function capacityModelFor(institution: { id: string; name: string }) {
           if (saved.termOverrides) termOverrides = saved.termOverrides;
         } catch { /* family defaults */ }
       }
-      const derived = productiveGoal > 0
-        ? deriveCohortTargets(productiveGoal, coRates, Math.max(1, orderedTerms.length)).terms
-        : orderedTerms.map(() => Number(fallbackSeats));
+      // Term 1 is the enrollment the offering actually plans (its enrolled target or planned seats), thinned by the
+      // family's completion rate; only an offering with no planned seats falls back to the seats its productive goal implies.
+      const seatsPlanned = enrolledTarget ?? co.plannedSeats ?? null;
+      const derived = seatsPlanned != null && seatsPlanned > 0
+        ? thinTerms(Number(seatsPlanned), coRates.completionRate, Math.max(1, orderedTerms.length))
+        : productiveGoal > 0
+          ? deriveCohortTargets(productiveGoal, coRates, Math.max(1, orderedTerms.length)).terms
+          : orderedTerms.map(() => Number(fallbackSeats));
       const enrollmentByTerm: Record<number, number> = {};
       orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(termOverrides[i] ?? derived[i] ?? derived[derived.length - 1] ?? 0); });
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
@@ -2334,8 +2370,8 @@ async function capacityModelFor(institution: { id: string; name: string }) {
               week: ov?.week ?? s.week,
               // The session's day, unless the calendar moved its weekly booking to another weekday
               // (see resolveSessionDay); an online / no-fixed-day session stays undated.
-              dayOfWeek: ov?.dayOfWeek ?? resolveSessionDay(s.dayOfWeek, (ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet", bookingsByCK.get(`${c.id}|${s.kind}`) ?? [], c.sessions.filter((x) => x.kind === s.kind).map((x) => x.dayOfWeek).filter((d): d is string => !!d)),
-              startTime: ov?.startTime ?? s.startTime ?? ((ov?.deliveryMode ?? s.deliveryMode) === "Online" || (ov?.location ?? s.location) === "Internet" ? null : meetingTime.get(`${c.id}|${s.kind}|${ov?.dayOfWeek ?? s.dayOfWeek ?? ""}`) ?? meetingTime.get(`${c.id}|${s.kind}`) ?? null),
+              dayOfWeek: ov?.dayOfWeek ?? resolveSessionDay(s.dayOfWeek, isOnlineSession(ov?.deliveryMode ?? s.deliveryMode, ov?.location ?? s.location), bookingsByCK.get(`${c.id}|${s.kind}`) ?? [], c.sessions.filter((x) => x.kind === s.kind).map((x) => x.dayOfWeek).filter((d): d is string => !!d)),
+              startTime: ov?.startTime ?? s.startTime ?? (isOnlineSession(ov?.deliveryMode ?? s.deliveryMode, ov?.location ?? s.location) ? null : meetingTime.get(`${c.id}|${s.kind}|${ov?.dayOfWeek ?? s.dayOfWeek ?? ""}`) ?? meetingTime.get(`${c.id}|${s.kind}`) ?? null),
               notes: ov?.notes ?? s.notes,
               preceptorsNeeded: ov?.preceptorsNeeded ?? s.preceptorsNeeded, preceptorContactPolicy: ov?.preceptorContactPolicy ?? s.preceptorContactPolicy,
               rotationType: ov?.rotationType ?? s.rotationType, clinicalMode: ov?.clinicalMode ?? s.clinicalMode,
@@ -2541,7 +2577,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     },
     include: {
       person: { select: { id: true, name: true, employmentType: true, employer: { select: { name: true } } } },
-      session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } } } } } },
+      session: { select: { id: true, kind: true, lengthHours: true, week: true, dayOfWeek: true, course: { select: { id: true, code: true, name: true, termId: true, term: { select: { index: true, name: true } }, sessions: { select: { week: true } } } } } },
       cohort: { select: { id: true, name: true, startDate: true, program: { select: { name: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true, semester: true, term: { select: { startWeek: true, endWeek: true } } } }, sessionOverrides: { select: { sessionId: true, week: true, dayOfWeek: true } }, courseDates: { select: { courseId: true, startDate: true } } } },
     },
   });
@@ -2551,7 +2587,7 @@ export async function datedStaffAssignments(where: { cohortId?: string; personId
     const ct = r.cohort?.cohortTerms.find((x) => x.termId === r.session.course.termId);
     const cw = r.cohort?.courseDates.find((x) => x.courseId === r.session.course.id);
     const tplWeeks = ct?.term.startWeek != null && ct?.term.endWeek != null && ct.term.endWeek >= ct.term.startWeek ? ct.term.endWeek - ct.term.startWeek + 1 : null;
-    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cw?.startDate ?? null }, week, day);
+    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cw?.startDate ?? null, courseFirstWeek: firstWeekOf(r.session.course.sessions) }, week, day);
     const dateIso: string | null = d ? d.toISOString().slice(0, 10) : null;
     const termStart = ct?.startDate ?? null;
     const termKey = termStart ? `${seasonOfTerm({ semester: ct?.semester, name: null }, termStart)} ${termStart.getUTCFullYear()}` : r.session.course.term.name;
@@ -2602,7 +2638,7 @@ export async function getOrganization(id: string) {
     include: {
       academicEvents: { orderBy: { date: "asc" } },
       facilities: { orderBy: [{ kind: "asc" }, { name: "asc" }] },
-      employers: { orderBy: { name: "asc" }, select: { id: true, name: true, facilityType: true, county: true, ring: true, ringSource: true, geoSource: true, distanceMiles: true, driveMinutes: true, city: true, agreementStatus: true, status: true, _count: { select: { assets: true, units: true, people: true } } } },
+      employers: { orderBy: { name: "asc" }, select: { id: true, name: true, facilityType: true, county: true, ring: true, ringSource: true, geoSource: true, distanceMiles: true, driveMinutes: true, city: true, agreementStatus: true, status: true, _count: { select: { assets: true, units: true, people: { where: { role: "preceptor", active: true } } } } } },
       campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, address: true, city: true, state: true, zip: true, lat: true, lng: true, geoSource: true, isMain: true } },
       people: { select: { role: true, employmentType: true, active: true, employerId: true } },
       programFamilies: { orderBy: { name: "asc" }, include: { occupation: { select: { title: true, socCode: true } }, programs: { orderBy: { name: "asc" }, select: { id: true, name: true, credential: true, programType: true, launchTerms: true, defaultCohortSeats: true, _count: { select: { terms: true, cohorts: true } } } } } },
@@ -2628,10 +2664,11 @@ export async function getRoomsWorkspace(institutionId?: string) {
     prisma.building.findMany({ where, orderBy: { name: "asc" }, include: { campus: { select: { id: true, name: true } }, _count: { select: { rooms: true, equipment: true } } } }),
     prisma.equipment.findMany({ where, orderBy: [{ category: "asc" }, { name: "asc" }], include: { homeFacility: { select: { id: true, name: true } }, building: { select: { id: true, name: true } }, assignments: { orderBy: { from: "desc" }, include: { facility: { select: { id: true, name: true } } } } } }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.meetingPattern.findMany({ where: { facilityId: { not: null }, ...(institutionId ? { cohort: { program: { institutionId } } } : {}), cohort: { status: { in: ["planned", "active"] } } }, select: { facilityId: true, dayOfWeek: true, startTime: true, lengthHours: true } }),
+    prisma.meetingPattern.findMany({ where: { facilityId: { not: null }, ...(institutionId ? { cohort: { program: { institutionId } } } : {}), cohort: { status: { in: ["planned", "active"] } } }, select: { facilityId: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, cohort: { select: { cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } }),
   ]);
-  const byRoom = new Map<string, { dayOfWeek: string; startTime: string; lengthHours: number }[]>();
-  for (const m of meetings) { const l = byRoom.get(m.facilityId!) ?? []; l.push(m); byRoom.set(m.facilityId!, l); }
+  // Each booking is placed in its term's calendar window so utilization is the busiest WEEK, not every term's hours added together.
+  const byRoom = new Map<string, { dayOfWeek: string; startTime: string; lengthHours: number; weekStartMs?: number | null; weekEndMs?: number | null }[]>();
+  for (const m of meetings) { const ct = m.cohort.cohortTerms.find((x) => x.term.index === m.termIndex); const l = byRoom.get(m.facilityId!) ?? []; l.push({ dayOfWeek: m.dayOfWeek, startTime: m.startTime, lengthHours: m.lengthHours, weekStartMs: ct?.startDate?.getTime() ?? null, weekEndMs: ct?.endDate?.getTime() ?? null }); byRoom.set(m.facilityId!, l); }
   return {
     rooms: rooms.map((r) => {
       const spans = r.openHours.map((h) => ({ dayOfWeek: h.dayOfWeek, openTime: h.openTime, closeTime: h.closeTime }));
@@ -2749,7 +2786,7 @@ export async function getRotationInput(cohortId: string, courseId: string) {
   const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId: co.program.institutionId }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
   const mondayOf = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); };
   const shifts = course.sessions
-    .filter((x) => x.dayOfWeek && !(x.deliveryMode === "Online" || x.location === "Internet"))
+    .filter((x) => x.dayOfWeek && !isOnlineSession(x.deliveryMode, x.location))
     .map((x) => { const iso = dates.get(x.id) ?? null; return iso ? { sessionId: x.id, date: iso, weekMonday: mondayOf(iso), block: shiftBlockOf(x.startTime), hours: x.lengthHours, rotationType: x.rotationType, settingCode: rotations.get((x.rotationType ?? "").trim().toLowerCase()) ?? null, holiday: holidays[iso] ?? null } : null; })
     .filter((x): x is NonNullable<typeof x> => !!x)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -2839,7 +2876,7 @@ export async function sessionDatesForCohort(cohortId: string): Promise<{ dates: 
     const ct = cohort.cohortTerms.find((x) => x.termId === t.id);
     const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
     for (const c of t.courses) for (const x of c.sessions) {
-      const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null }, x.week, x.dayOfWeek);
+      const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((cd) => cd.courseId === c.id)?.startDate ?? null, courseFirstWeek: firstWeekOf(c.sessions) }, x.week, x.dayOfWeek);
       dates.set(x.id, d ? d.toISOString().slice(0, 10) : null);
     }
   }
@@ -2861,7 +2898,7 @@ export async function getStudentAssignments(studentId: string) {
   const dateOf = (termId: string, courseId: string, week: number | null, day: string | null) => {
     const ct = cohort.cohortTerms.find((x) => x.termId === termId); const t = cohort.program.terms.find((x) => x.id === termId);
     const tplWeeks = t?.startWeek != null && t?.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
-    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null }, week, day);
+    const d = sessionDate({ termStart: ct?.startDate ?? null, termEnd: ct?.endDate ?? null, templateWeeks: tplWeeks, courseStart: cohort.courseDates.find((x) => x.courseId === courseId)?.startDate ?? null, courseFirstWeek: firstWeekOf(t?.courses.find((c) => c.id === courseId)?.sessions ?? []) }, week, day);
     return d ? d.toISOString().slice(0, 10) : null;
   };
   // Who staffs each course × kind × section this learner sits in (instructors for class / lab, preceptors for clinical).
@@ -2925,7 +2962,7 @@ export async function getOfferingLedger(cohortId: string) {
   const staffByKey = new Map<string, Map<string, { name: string; role: string }>>();
   for (const a of co.sessionStaff) { const si = sessionInfo.get(a.sessionId); if (!si) continue; const k = `${si.courseId}|${si.kind}|${a.sectionIndex}`; const m = staffByKey.get(k) ?? new Map(); m.set(a.person.id, { name: a.person.name, role: a.role }); staffByKey.set(k, m); }
   // Course kinds every learner should sit in: in-person kinds of the courses of the terms that have started (online-only kinds need no section).
-  const expected = started.flatMap((t) => t.courses.flatMap((c) => [...new Set(c.sessions.filter((x) => !(x.deliveryMode === "Online" || x.location === "Internet")).map((x) => x.kind))].map((kind) => ({ courseId: c.id, code: c.code, kind, current: t.id === current?.id }))));
+  const expected = started.flatMap((t) => t.courses.flatMap((c) => [...new Set(c.sessions.filter((x) => !isOnlineSession(x.deliveryMode, x.location)).map((x) => x.kind))].map((kind) => ({ courseId: c.id, code: c.code, kind, current: t.id === current?.id }))));
   const clinicalCourses = co.program.terms.flatMap((t) => t.courses.filter((c) => c.sessions.some((x) => x.kind === "CLINICAL")).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, termIndex: t.index, requiredHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0), requiredCases: c.clinicalRequirements.reduce((n, r) => n + (r.casesPerStudent ?? 0), 0), byArea: c.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, hours: r.hoursPerStudent, settingCodes: r.serviceArea.settingCodes.split(",").filter(Boolean) })), started: started.some((t2) => t2.courses.some((x) => x.id === c.id)) })));
   const siteOf = (courseId: string, sectionIndex: number) => co.meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex)?.employer?.name ?? null;
   const students = co.students.map((st) => {
@@ -2949,7 +2986,7 @@ export async function getOfferingLedger(cohortId: string) {
     });
     const req = clinicalCourses.reduce((n, c) => n + c.requiredHours, 0);
     return {
-      id: st.id, name: st.name, status: st.status, seat: st.sectionIndex, attended: st.attendedCount, missed: st.missedCount,
+      id: st.id, name: st.name, status: st.status, seat: st.sectionIndex, attended: st.shifts.filter((x) => x.status === "completed").length, missed: st.shifts.filter((x) => x.status === "absent" || x.status === "excused").length,
       missingSections, unstaffedSections, instructors, clinical,
       requiredHours: req, scheduledHours: clinical.reduce((n, c) => n + c.scheduled, 0), loggedHours: clinical.reduce((n, c) => n + c.logged, 0), missedShifts: clinical.reduce((n, c) => n + c.missed, 0), shortHours: clinical.reduce((n, c) => n + c.short, 0), unprecepted: clinical.reduce((n, c) => n + c.unprecepted, 0),
     };
@@ -3039,7 +3076,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
       rows.push({
         studentId: s.studentId, student: s.student.name, cohortId: co.id, cohort: co.name, programId: co.program.id, program: co.program.name, familyId: fam?.id ?? null, family: fam?.name ?? null,
         course: s.session.course.code ?? s.session.course.name, term: s.session.course.term.name,
-        date: dates.get(s.session.id) ?? null, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.session.lengthHours, status: s.status,
+        date: dates.get(s.session.id) ?? null, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.status === "absent" || s.status === "excused" ? 0 : s.session.lengthHours, status: s.status,
         ...(() => { const iso = dates.get(s.session.id) ?? null; if (!iso) return { year: null, semester: null, dayOfWeek: null }; const d = new Date(iso + "T00:00:00Z"); return { year: d.getUTCFullYear(), semester: seasonOfDate(d), dayOfWeek: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] }; })(),
         employerId, site: e?.name ?? "site TBD", system: e?.organization ?? null, county: e?.county ?? null, ring: e?.ring ?? null, facilityType: e?.facilityType ?? null, driveMinutes: e?.driveMinutes ?? null,
         setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,

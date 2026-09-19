@@ -40,7 +40,7 @@ function Pick({ dim, options, chips, value, onChange }: { dim: LoadDim; options:
         <div className="flex flex-wrap gap-1">{options.map((o) => <button key={o} onClick={() => toggle(o)} className={`rounded-full border px-2 py-0.5 text-[11px] ${value.has(o) ? "border-rose-600 bg-rose-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"}`}>{o}</button>)}</div>
       ) : (
         <div className="rounded-lg border border-slate-200 bg-white">
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`${value.size ? `${value.size} picked` : "any"} · search ${options.length}`} className="w-full rounded-t-lg border-b border-slate-100 px-2 py-1 text-[11px]" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search options" placeholder={`${value.size ? `${value.size} picked` : "any"} · search ${options.length}`} className="w-full rounded-t-lg border-b border-slate-100 px-2 py-1 text-[11px]" />
           <div className="max-h-28 overflow-y-auto px-1 py-0.5">{shown.slice(0, 200).map((o) => <label key={o} className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50"><input type="checkbox" checked={value.has(o)} onChange={() => toggle(o)} /><span className="truncate">{o}</span></label>)}{shown.length === 0 && <div className="px-1 py-1 text-[11px] text-slate-400">no match</div>}</div>
         </div>
       )}
@@ -103,7 +103,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
             <div className="flex flex-wrap items-start gap-x-5 gap-y-3 text-xs">
               <div>
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Dates</div>
-                <div className="flex items-center gap-1"><input type="date" value={filter.from ?? ""} onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value || null }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px]" /><span className="text-slate-400">→</span><input type="date" value={filter.to ?? ""} onChange={(e) => setFilter((f) => ({ ...f, to: e.target.value || null }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px]" /></div>
+                <div className="flex items-center gap-1"><input type="date" value={filter.from ?? ""} aria-label="From date" onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value || null }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px]" /><span className="text-slate-400">→</span><input type="date" value={filter.to ?? ""} onChange={(e) => setFilter((f) => ({ ...f, to: e.target.value || null }))} className="rounded border border-slate-200 px-1.5 py-0.5 text-[11px]" /></div>
               </div>
               {dims.filter((d) => d.chips).map((d) => <Pick key={d.dim} dim={d.dim} options={d.options} chips value={(filter[d.dim] as Set<string> | undefined) ?? new Set()} onChange={set(d.dim)} />)}
             </div>

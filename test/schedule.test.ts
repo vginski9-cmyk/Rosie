@@ -94,10 +94,10 @@ describe("studentsForShift", () => {
     const [shift] = expandSchedule([base({ id: "lec", maxStudents: 100 })], 30); // 1 section
     expect(studentsForShift(shift, students).map((s) => s.id)).toEqual(["s1", "s2", "s3"]);
   });
-  it("splits students across multiple sections round-robin", () => {
+  it("deals students across sections evenly, the same rule the scheduler and calendarizer use", () => {
     const shifts = expandSchedule([base({ id: "lab", maxStudents: 1 })], 2); // 2 sections
-    expect(studentsForShift(shifts[0], students).map((s) => s.id)).toEqual(["s1", "s3"]); // sections 1,3 -> shift 1
-    expect(studentsForShift(shifts[1], students).map((s) => s.id)).toEqual(["s2"]); // section 2 -> shift 2
+    expect(studentsForShift(shifts[0], students).map((s) => s.id)).toEqual(["s1", "s2"]); // 3 in 2 sections → 2, 1
+    expect(studentsForShift(shifts[1], students).map((s) => s.id)).toEqual(["s3"]);
   });
 });
 

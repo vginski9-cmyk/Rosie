@@ -18,6 +18,7 @@
 // Pure functions, no React, no Prisma. Deterministic for the same input.
 
 import type { DatedInstance } from "./capacitymodel";
+import { sectionSpans } from "./sections";
 import { clinicalDemandRows } from "./clinicaldemand";
 import { blocksOn, overrideIndex, overrideKey, shiftHours, shiftSpan, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
@@ -89,8 +90,10 @@ export interface DemandUnit {
   originalDate: string;
   rotationType: string; settingCode: string | null;
   seats: number; preceptorsNeeded: number; facultyNeeded: number; clinicalMode: string | null;
-  /** The session's students-per-section ceiling — seat numbers map to sections with it: section = ceil(seat ÷ seatsPerSection). */
+  /** The session's students-per-section ceiling (the template's max), kept for display. */
   seatsPerSection: number;
+  /** The section's seat span: seats are dealt evenly across the session's sections (lib/sections), so seat numbers seatStart … seatStart+sectionSeats−1 sit here. */
+  seatStart: number; sectionSeats: number;
   holiday: string | null; moved: boolean;
 }
 
@@ -206,8 +209,8 @@ export interface Plan {
 }
 
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
-/** Which section (1-based) a seat number falls in when sections hold `seatsPerSection` students each. */
-export const sectionOfSeat = (seat: number, seatsPerSection: number) => Math.max(1, Math.ceil(Math.max(1, seat) / Math.max(1, seatsPerSection)));
+/** Is this seat number in the unit's section? Seats are dealt evenly (lib/sections); the unit carries its span. */
+const seatInUnit = (seat: number, u: { seatStart: number; sectionSeats: number }) => seat >= u.seatStart && seat < u.seatStart + u.sectionSeats;
 const num = (v: number) => dec(v);
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 const mondayOf = (iso: string) => isoAdd(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
@@ -216,7 +219,7 @@ const mondayOf = (iso: string) => isoAdd(iso, -((new Date(iso + "T00:00:00Z").ge
 export interface MoveLite { sessionId: string; sectionIndex: number; fromDate: string; toDate: string; startTime: string | null }
 
 /** One unit per SECTION of every dated clinical shift; per-occurrence moves applied. */
-export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}): DemandUnit[] {
+export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}, holidays: Record<string, string> = {}): DemandUnit[] {
   const moveKey = (sid: string, sec: number, d: string) => `${sid}|${sec}|${d}`;
   const mv = new Map(moves.map((m) => [moveKey(m.sessionId, m.sectionIndex, m.fromDate), m]));
   const out: DemandUnit[] = [];
@@ -227,10 +230,11 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
     const Y = d.sections, per = d.seatsPerSection;
     if (Y === 0 || d.students === 0) continue;
     const rt = d.rotationType;
-    let left = d.students;
+    const spans = sectionSpans(d.students, Y);
     for (let sec = 1; sec <= Y; sec++) {
-      if (left <= 0) break;
-      const seats = Math.max(1, Math.min(per, left)); left -= seats;
+      const span = spans[sec - 1];
+      if (!span || span.seats <= 0) continue;
+      const seats = span.seats;
       const m = mv.get(moveKey(r.session.id, sec, d.dateIso));
       const date = m?.toDate ?? d.dateIso;
       const startTime = m?.startTime ?? r.session.startTime ?? null;
@@ -242,8 +246,9 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
         date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: d.dateIso,
         rotationType: rt, settingCode: d.settingCode,
         seats, preceptorsNeeded: Math.max(0, r.session.preceptorsNeeded ?? 0), facultyNeeded: Math.max(0, r.session.facultyNeeded ?? 0), clinicalMode: r.session.clinicalMode ?? null,
-        seatsPerSection: per,
-        holiday: m ? null : r.holiday, moved: !!m,
+        seatsPerSection: per, seatStart: span.start, sectionSeats: span.seats,
+        // A shift moved by hand or by the plan is checked against the calendar on its NEW date.
+        holiday: m ? holidays[date] ?? null : r.holiday, moved: !!m,
       });
     }
   }
@@ -319,9 +324,9 @@ export function recommendPlan(input: SchedulerInput): Plan {
   // sites, facility types, health systems and preceptors — the student-side levers score against these.
   const studentsCache = new Map<string, StudentLite[]>();
   const studentsOf = (u: DemandUnit): StudentLite[] => {
-    const k = `${u.cohortId}|${u.seatsPerSection}|${u.sectionIndex}`;
+    const k = `${u.cohortId}|${u.seatStart}|${u.sectionSeats}`;
     let l = studentsCache.get(k);
-    if (!l) { l = input.students.filter((s) => s.cohortId === u.cohortId && sectionOfSeat(s.sectionIndex, u.seatsPerSection) === u.sectionIndex); studentsCache.set(k, l); }
+    if (!l) { l = input.students.filter((s) => s.cohortId === u.cohortId && seatInUnit(s.sectionIndex, u)); studentsCache.set(k, l); }
     return l;
   };
   const seen = { sites: new Map<string, Set<string>>(), types: new Map<string, Set<string>>(), systems: new Map<string, Set<string>>(), preceptors: new Map<string, Map<string, number>>() };
@@ -654,7 +659,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const byCohort = new Map<string, Assignment[]>();
   for (const x of assignments) { const l = byCohort.get(x.unit.cohortId) ?? []; l.push(x); byCohort.set(x.unit.cohortId, l); }
   for (const st of input.students) {
-    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (sectionOfSeat(st.sectionIndex, x.unit.seatsPerSection) !== x.unit.sectionIndex) return false; const ord = st.sectionIndex - (x.unit.sectionIndex - 1) * x.unit.seatsPerSection; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (!seatInUnit(st.sectionIndex, x.unit)) return false; const ord = st.sectionIndex - x.unit.seatStart + 1; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
     if (!xs.length) continue;
     const stops: StudentRoster["stops"] = [];
     for (const x of xs) {
@@ -671,7 +676,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const preceptorById = new Map(input.preceptors.map((p) => [p.id, p]));
   const studentStats: StudentStat[] = [];
   for (const st of input.students) {
-    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (sectionOfSeat(st.sectionIndex, x.unit.seatsPerSection) !== x.unit.sectionIndex) return false; const ord = st.sectionIndex - (x.unit.sectionIndex - 1) * x.unit.seatsPerSection; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (!seatInUnit(st.sectionIndex, x.unit)) return false; const ord = st.sectionIndex - x.unit.seatStart + 1; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
     if (!xs.length) continue;
     const sites = new Set(xs.map((x) => x.employerId)); const types = new Set<string>(); const systems = new Set<string>(); const settings = new Set<string>(); const precs = new Set<string>();
     let run = 0, longest = 0, last: string | null = null;
@@ -694,7 +699,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     const p = preceptorById.get(pid);
     const s = pMap.get(pid) ?? { id: pid, name: p?.name ?? pid, employerId: p?.employerId ?? null, siteName: live.find((a) => a.employerId === p?.employerId)?.facilityName ?? null, shifts: 0, peakWeek: 0, students: 0, sites: 0, overCapWeeks: 0, weeks: new Map(), studentIds: new Set(), siteIds: new Set() };
     s.shifts++; s.weeks.set(x.unit.weekMonday, (s.weeks.get(x.unit.weekMonday) ?? 0) + 1); s.siteIds.add(x.employerId);
-    for (const st of input.students) if (st.cohortId === x.unit.cohortId && sectionOfSeat(st.sectionIndex, x.unit.seatsPerSection) === x.unit.sectionIndex) s.studentIds.add(st.id);
+    for (const st of input.students) if (st.cohortId === x.unit.cohortId && seatInUnit(st.sectionIndex, x.unit)) s.studentIds.add(st.id);
     pMap.set(pid, s);
   }
   const preceptorStats: PreceptorStat[] = [...pMap.values()].map(({ weeks, studentIds, siteIds, ...s }) => ({ ...s, peakWeek: Math.max(0, ...weeks.values()), students: studentIds.size, sites: siteIds.size, overCapWeeks: policy.maxPreceptorShiftsPerWeek != null ? [...weeks.values()].filter((n) => n > policy.maxPreceptorShiftsPerWeek!).length : 0 })).sort((a, b) => b.shifts - a.shifts || a.name.localeCompare(b.name));
@@ -756,7 +761,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     ? "No dated clinical shifts in this window — offerings need real term dates and clinical sessions before there is demand to place."
     : `${from === to ? `On ${from}` : `From ${from} to ${to}`}, ${num(demandShifts)} clinical shifts — a section on a date — (${num(demandSeats)} learner-shifts, ${num(demandHours)} learner-hours) need a home in ${balance.filter((b) => b.demandShifts > 0).length} settings. ` +
       `Under the current levers the plan places ${pct(placedShare)} of them — ${num(placedSeats)} learner-shifts across ${sitesUsed} site${sitesUsed === 1 ? "" : "s"}, ${num(preceptorsAssigned)} of ${num(preceptorShifts)} preceptor-shifts staffed by name` +
-      (unmet.length ? `, and ${num(unmet.length)} shifts (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} because ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
+      (unmet.length ? `, and ${num(unmet.length)} shifts (${num(demandSeats - placedSeats)} learner-shifts) unplaced: ${topReasons.map(([r, n]) => `${num(n)} — ${REASON_LABEL[r].split(" — ")[0]}`).join("; ")}.` : ", with nothing left over.") +
       (shortSettings.length ? ` Short settings: ${shortSettings.join(", ")}.` : "") +
       (placedSeats > 0 ? ` Ready to run: ${pct(demandSeats > 0 ? readiness.ready / demandSeats : 0)} — ${num(readiness.ready)} learner-shifts pass every check (secured agreement, named staff, confirmed experience, no conflicts).` : "");
 

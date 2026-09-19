@@ -10,9 +10,15 @@ import { prisma } from "@/lib/db";
 export async function GET(req: NextRequest) {
   const institutionId = req.nextUrl.searchParams.get("institutionId") ?? (await prisma.institution.findFirst({ orderBy: { name: "asc" }, select: { id: true } }))?.id;
   if (!institutionId) return NextResponse.json({ error: "no institution" }, { status: 404 });
-  const year = Number(req.nextUrl.searchParams.get("year") ?? new Date().getUTCFullYear() + 1);
-  const from = req.nextUrl.searchParams.get("from") ?? `${year}-01-01`;
-  const to = req.nextUrl.searchParams.get("to") ?? `${year}-12-31`;
+  if (!(await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true } }))) return NextResponse.json({ error: "unknown institution" }, { status: 404 });
+  const yearRaw = req.nextUrl.searchParams.get("year");
+  const year = yearRaw == null ? new Date().getUTCFullYear() + 1 : Number(yearRaw);
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) return NextResponse.json({ error: "year must be a four-digit year" }, { status: 400 });
+  const isoOk = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(s + "T00:00:00Z").getTime());
+  const fromRaw = req.nextUrl.searchParams.get("from"), toRaw = req.nextUrl.searchParams.get("to");
+  if ((fromRaw != null && !isoOk(fromRaw)) || (toRaw != null && !isoOk(toRaw))) return NextResponse.json({ error: "from and to must be YYYY-MM-DD" }, { status: 400 });
+  const from = fromRaw ?? `${year}-01-01`;
+  const to = toRaw ?? `${year}-12-31`;
   const employerId = req.nextUrl.searchParams.get("employerId");
   const data = await getAssetMap(institutionId, from, to);
   const assets = employerId ? data.assets.filter((a) => a.employerId === employerId) : data.assets;

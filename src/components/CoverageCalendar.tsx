@@ -614,7 +614,7 @@ function ShiftEditorRow({ shift, rooms, people, sites, onSaved }: {
     <tr className="border-b border-slate-50 align-middle">
       <td className="whitespace-nowrap px-3 py-1.5 font-medium text-slate-700">§{shift.section}</td>
       <td className="px-3 py-1.5">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inp} />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date" className={inp} />
         {shift.moved && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800" title={`weekly pattern puts this on ${shift.originDate}`}>moved</span>}
       </td>
       <td className="px-3 py-1.5"><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={inp} /></td>

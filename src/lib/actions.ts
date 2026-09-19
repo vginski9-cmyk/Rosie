@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "./db";
+import { ASSUMPTION_BY_KEY } from "./assumptions";
 import { SCRUB_ROLES, joinScrubRoles } from "./surgvolume";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -9,7 +10,9 @@ import { seasonOfDate, seasonOfName } from "./term";
 
 const str = (v: FormDataEntryValue | null) => (v == null ? "" : String(v).trim());
 const numOr = (v: FormDataEntryValue | null, d = 0) => {
-  const n = Number(str(v));
+  const s = str(v);
+  if (s === "") return d; // a blank field is "unchanged / default", never zero
+  const n = Number(s);
   return Number.isFinite(n) ? n : d;
 };
 const optNum = (v: FormDataEntryValue | null): number | null => {
@@ -79,32 +82,12 @@ export async function createNorthStarGoal(formData: FormData): Promise<void> {
 }
 
 export async function deleteNorthStarGoal(familyId: string): Promise<void> {
-  await prisma.program.updateMany({ where: { familyId }, data: { familyId: null } });
-  await prisma.programFamily.delete({ where: { id: familyId } });
-  revalidatePath("/");
+  // Clears the goal only. The family record stays: its sites, agreements, requirement sets and every
+  // student's competency log hang off it and would cascade away with a delete.
+  await prisma.programFamily.update({ where: { id: familyId }, data: { goalPlan: null } });
+  revalidatePath("/", "layout");
 }
 
-/** Create a new delivery-model template under a family (a credential + N-term structure). */
-export async function createFamilyProgram(familyId: string, formData: FormData): Promise<void> {
-  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { institutionId: true, occupationId: true } });
-  if (!fam) return;
-  const program = await prisma.program.create({
-    data: {
-      institutionId: fam.institutionId, familyId, occupationId: fam.occupationId,
-      name: str(formData.get("name")) || "New delivery model",
-      programType: str(formData.get("programType")) || "Traditional Full Time",
-      credential: str(formData.get("credential")) || null,
-    },
-  });
-  const termCount = Math.max(1, Math.min(12, numOr(formData.get("terms"), 4)));
-  for (let i = 1; i <= termCount; i++) {
-    await prisma.term.create({ data: { programId: program.id, index: i, name: `Term ${i}`, startWeek: 1, endWeek: 16 } });
-  }
-  const cohort = await prisma.cohort.create({ data: { programId: program.id, name: "First Cohort" } });
-  await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
-  revalidatePath(`/families/${familyId}`);
-  redirect(`/programs/${program.id}/structure`);
-}
 
 // ---------------------------------------------------------------------------
 // PROGRAM FAMILY — North-Star goal plan
@@ -208,7 +191,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   });
   const isoOf = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
   const manual: Record<string, { startIso: string; endIso: string | null }> = {};
-  if (!opts.resetManual) for (const ct of cohort.cohortTerms) if (ct.source === "manual" && ct.startDate) manual[ct.termId] = { startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) };
+  if (!opts.resetManual) for (const ct of cohort.cohortTerms) if ((ct.source === "manual" || ct.source === "chosen") && ct.startDate) manual[ct.termId] = { startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) };
   const a = alignOffering({
     startIso: isoOf(cohort.startDate)!,
     terms: cohort.program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })),
@@ -376,20 +359,6 @@ export async function removeCourseStaff(cohortId: string, courseId: string, pers
 // SESSION RESOURCES — homework / readings / materials (course planning)
 // ---------------------------------------------------------------------------
 
-export async function addSessionResource(sessionId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
-  await prisma.sessionResource.create({
-    data: {
-      sessionId,
-      kind: str(formData.get("kind")) || "READING",
-      title: str(formData.get("title")) || "Untitled",
-      url: str(formData.get("url")) || null,
-      detail: str(formData.get("detail")) || null,
-      estMinutes: optNum(formData.get("estMinutes")),
-    },
-  });
-  revalidatePath(`/courses/${courseId}`);
-  revalidatePath(`/programs/${programId}/structure`);
-}
 
 /** Save the program's workload-assumption cells (capacity model AI/AJ/AL, faculty & preceptor). */
 export async function updateWorkloadAssumptions(programId: string, formData: FormData) {
@@ -408,10 +377,6 @@ export async function updateWorkloadAssumptions(programId: string, formData: For
   revalidatePath(`/programs/${programId}`);
 }
 
-export async function deleteSessionResource(resourceId: string, courseId: string): Promise<void> {
-  await prisma.sessionResource.delete({ where: { id: resourceId } });
-  revalidatePath(`/courses/${courseId}`);
-}
 
 // ---------------------------------------------------------------------------
 // FACILITIES — classrooms / labs / clinical spaces
@@ -434,7 +399,7 @@ export async function createFacility(formData: FormData): Promise<void> {
       status: str(formData.get("status")) || "active",
     },
   });
-  revalidatePath("/facilities");
+  revalidatePath("/orgs");
 }
 
 export async function updateFacility(facilityId: string, formData: FormData): Promise<void> {
@@ -452,12 +417,12 @@ export async function updateFacility(facilityId: string, formData: FormData): Pr
       status: str(formData.get("status")) || "active",
     },
   });
-  revalidatePath("/facilities");
+  revalidatePath("/orgs");
 }
 
 export async function deleteFacility(facilityId: string): Promise<void> {
   await prisma.facility.delete({ where: { id: facilityId } });
-  revalidatePath("/facilities");
+  revalidatePath("/orgs");
 }
 
 // ---------------------------------------------------------------------------
@@ -554,8 +519,10 @@ export async function deleteClinicalUnit(unitId: string, employerId: string): Pr
 }
 /** Agreement lifecycle with a site: none | prospect | asked | secured | declined. */
 export async function updateEmployerAgreement(employerId: string, status: string): Promise<void> {
+  // One agreement status per site: the umbrella and every job family's row move together (a family-specific tier is set on the family's site page).
   await prisma.employer.update({ where: { id: employerId }, data: { agreementStatus: status || "none" } });
-  revalidatePath("/insights/clinical-sites"); revalidatePath("/employers"); revalidatePath(`/employers/${employerId}`);
+  await prisma.familySite.updateMany({ where: { employerId }, data: { agreementStatus: status || "none" } });
+  revalidatePath("/", "layout");
 }
 /** Rotation type → unit category (the demand ↔ supply join), per institution. */
 export async function upsertRotationSetting(institutionId: string, formData: FormData): Promise<void> {
@@ -646,46 +613,12 @@ export async function saveSiteProvisions(familyId: string, employerId: string, f
 export async function removeFamilySite(familyId: string, employerId: string): Promise<void> {
   await prisma.familySite.deleteMany({ where: { familyId, employerId } });
   await prisma.settingAllocation.deleteMany({ where: { familyId, employerId } });
+  // Weekly clinical bookings of this family's offerings that pointed at the site no longer have one.
+  await prisma.meetingPattern.updateMany({ where: { employerId, cohort: { program: { familyId } } }, data: { employerId: null } });
   revalidateFamilySite(familyId, employerId);
 }
 
-/** The shifts a site allocates to this family in one setting: Day / Evening / Night shifts per week (0 removes the block). */
-export async function saveSettingAllocation(familyId: string, employerId: string, formData: FormData): Promise<void> {
-  const settingCode = str(formData.get("settingCode")).toUpperCase();
-  if (!settingCode) return;
-  const hoursPerShift = numOr(formData.get("hoursPerShift"), 8);
-  const learnersPerShift = Math.max(0, Math.round(numOr(formData.get("learnersPerShift"), 1)));
-  const fromRaw = str(formData.get("from")), toRaw = str(formData.get("to"));
-  const from = fromRaw ? new Date(fromRaw + "T00:00:00Z") : null, to = toRaw ? new Date(toRaw + "T00:00:00Z") : null;
-  for (const block of ["Day", "Evening", "Night"]) {
-    const shifts = numOr(formData.get(`shifts_${block}`), 0);
-    if (shifts <= 0) { await prisma.settingAllocation.deleteMany({ where: { familyId, employerId, settingCode, block } }); continue; }
-    await prisma.settingAllocation.upsert({ where: { familyId_employerId_settingCode_block: { familyId, employerId, settingCode, block } }, update: { shiftsPerWeek: shifts, hoursPerShift, learnersPerShift, from, to }, create: { familyId, employerId, settingCode, block, shiftsPerWeek: shifts, hoursPerShift, learnersPerShift, from, to } });
-  }
-  // Allocating shifts implies a relationship for this family.
-  await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: {}, create: { familyId, employerId, agreementStatus: "asked" } });
-  revalidateFamilyClinical(familyId);
-}
 
-/** Import a course-allocation sheet (Course · Course weeks · Rotation/service area · Total hours per student) into the family's grid. */
-export async function importCourseAllocation(familyId: string, rows: { courseCode: string; areaName: string; hoursPerStudent: number }[]): Promise<{ saved: number; unmatched: string[] }> {
-  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, include: { serviceAreas: true, programs: { include: { terms: { include: { courses: true } } } } } });
-  if (!fam) return { saved: 0, unmatched: ["family not found"] };
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const courses = new Map(fam.programs.flatMap((p) => p.terms.flatMap((t) => t.courses)).filter((c) => c.code).map((c) => [norm(c.code!), c.id]));
-  const areas = new Map(fam.serviceAreas.flatMap((a) => [[norm(a.name), a.id], [norm(a.code), a.id]] as [string, string][]));
-  const unmatched: string[] = []; let saved = 0;
-  for (const r of rows) {
-    const courseId = courses.get(norm(r.courseCode)); const areaId = areas.get(norm(r.areaName));
-    if (!courseId) { unmatched.push(`course ${r.courseCode}`); continue; }
-    if (!areaId) { unmatched.push(`service area "${r.areaName}"`); continue; }
-    if (r.hoursPerStudent <= 0) { await prisma.courseClinicalRequirement.deleteMany({ where: { courseId, serviceAreaId: areaId } }); continue; }
-    await prisma.courseClinicalRequirement.upsert({ where: { courseId_serviceAreaId: { courseId, serviceAreaId: areaId } }, update: { hoursPerStudent: r.hoursPerStudent }, create: { courseId, serviceAreaId: areaId, hoursPerStudent: r.hoursPerStudent } });
-    saved++;
-  }
-  revalidateFamilyClinical(familyId);
-  return { saved, unmatched: [...new Set(unmatched)] };
-}
 
 // ---------------------------------------------------------------------------
 // 365-DAY CLINICAL ASSET MAP — physical assets, per-date exceptions, learner bookings
@@ -801,14 +734,6 @@ export async function addFamilySite(familyId: string, formData: FormData): Promi
   return { employerId };
 }
 
-export async function createClinicalAsset(employerId: string, formData: FormData): Promise<void> {
-  await prisma.clinicalAsset.create({ data: { employerId, ...assetDataFrom(formData) } });
-  revalidateAssets(employerId);
-}
-export async function updateClinicalAsset(assetId: string, employerId: string, formData: FormData): Promise<void> {
-  await prisma.clinicalAsset.update({ where: { id: assetId }, data: assetDataFrom(formData) });
-  revalidateAssets(employerId);
-}
 export async function deleteClinicalAsset(assetId: string, employerId: string): Promise<void> {
   await prisma.clinicalAsset.delete({ where: { id: assetId } });
   revalidateAssets(employerId);
@@ -967,12 +892,6 @@ export async function updateSiteAccreditation(familyId: string, employerId: stri
   };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
   revalidateFamilySite(familyId, employerId);
-}
-/** How the accreditor counts one asset (override the derived class). */
-export async function setAssetAccreditorClass(assetId: string, employerId: string, formData: FormData): Promise<void> {
-  const v = str(formData.get("accreditorClass"));
-  await prisma.clinicalAsset.update({ where: { id: assetId }, data: { accreditorClass: v || null } });
-  revalidateAssets(employerId);
 }
 
 /** Mark one date as an exception for an asset: `shiftBlocks` = the blocks it
@@ -1199,18 +1118,6 @@ export async function getCohortDrill(institution: string, program: string, cohor
   };
 }
 
-export async function updateProgram(programId: string, formData: FormData) {
-  await prisma.program.update({
-    where: { id: programId },
-    data: {
-      name: str(formData.get("name")),
-      programType: str(formData.get("programType")),
-      credential: str(formData.get("credential")) || null,
-      monthsToFullProductivity: optNum(formData.get("monthsToFullProductivity")),
-    },
-  });
-  revalidatePath(`/programs/${programId}`);
-}
 
 export async function duplicateProgram(programId: string) {
   const src = await prisma.program.findUnique({
@@ -1283,36 +1190,7 @@ const csvFromCheckboxes = (fd: FormData, name: string, fallback: string) => {
   return vals.length ? vals.join(",") : fallback;
 };
 
-/** Edit a program's delivery calendar and launch cadence. */
-export async function updateLaunchConfig(programId: string, formData: FormData) {
-  await prisma.program.update({
-    where: { id: programId },
-    data: {
-      termSlots: csvFromCheckboxes(formData, "termSlots", "FALL,SPRING,SUMMER"),
-      launchCadence: str(formData.get("launchCadence")) || "ANNUAL",
-      launchTerms: csvFromCheckboxes(formData, "launchTerms", "FALL"),
-      launchIntervalYears: Math.max(1, numOr(formData.get("launchIntervalYears"), 1)),
-      defaultCohortSeats: optNum(formData.get("defaultCohortSeats")),
-    },
-  });
-  revalidatePath(`/programs/${programId}/plan`);
-  revalidatePath(`/programs/${programId}`);
-}
 
-/** Add an explicit on-demand cohort (entry term + year + seats). */
-export async function addExplicitCohort(programId: string, formData: FormData) {
-  await prisma.cohort.create({
-    data: {
-      programId,
-      name: str(formData.get("name")) || "Ad-hoc cohort",
-      entryYear: numOr(formData.get("entryYear"), 2026),
-      entryTermCode: str(formData.get("entryTermCode")) || "FALL",
-      plannedSeats: optNum(formData.get("plannedSeats")),
-      isExplicit: true,
-    },
-  });
-  revalidatePath(`/programs/${programId}/plan`);
-}
 
 // ---------------------------------------------------------------------------
 // TERMS / COURSES / SESSIONS
@@ -1398,7 +1276,7 @@ export async function lockInInstantiation(
   const cohort = await prisma.cohort.create({
     data: {
       programId, name, status: "planned", startDate: startD,
-      entryYear: startD.getFullYear(), isExplicit: true,
+      entryYear: startD.getUTCFullYear(), isExplicit: true,
       plannedSeats: Math.round(term1),
       // The slot's own plan travels with the offering: goal, per-term enrollment, rates.
       pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides }),
@@ -1566,8 +1444,8 @@ export async function saveSectionSchedules(
       update: { dayOfWeek: it.dayOfWeek || null, startTime: it.startTime || null, location: it.location || null, facilityId },
     });
   }
-  revalidatePath(`/programs/${programId}/offerings/${cohortId}/schedule`);
-  revalidatePath(`/programs/${programId}/schedule`);
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}`);
 }
 
 export async function addTerm(programId: string) {
@@ -1577,7 +1455,13 @@ export async function addTerm(programId: string) {
   revalidatePath(`/programs/${programId}`);
 }
 
+/** Refuses to delete template structure that logged clinical shifts hang from — the ledger is a record, not a draft. */
+async function guardLoggedShifts(where: { session: Record<string, unknown> }, what: string) {
+  const logged = await prisma.studentShift.count({ where: { ...where, status: { in: ["completed", "absent", "excused"] } } });
+  if (logged > 0) throw new Error(`${what} has ${logged} logged clinical shifts on students' records. Archive or edit it instead of deleting it.`);
+}
 export async function deleteTerm(termId: string, programId: string) {
+  await guardLoggedShifts({ session: { course: { termId } } }, "This term");
   await prisma.term.delete({ where: { id: termId } });
   revalidatePath(`/programs/${programId}`);
 }
@@ -1635,6 +1519,7 @@ export async function updateCourse(courseId: string, programId: string, formData
 }
 
 export async function deleteCourse(courseId: string, programId: string) {
+  await guardLoggedShifts({ session: { courseId } }, "This course");
   await prisma.course.delete({ where: { id: courseId } });
   revalidatePath(`/programs/${programId}`);
 }
@@ -1699,6 +1584,7 @@ export async function updateSession(sessionId: string, programId: string, formDa
 }
 
 export async function deleteSession(sessionId: string, programId: string) {
+  await guardLoggedShifts({ session: { id: sessionId } }, "This session");
   await prisma.session.delete({ where: { id: sessionId } });
   revalidatePath(`/programs/${programId}`);
 }
@@ -1820,8 +1706,8 @@ export async function setSessionTiming(courseId: string, programId: string, form
   if (day) data.dayOfWeek = day;
   if (time) data.startTime = time;
   if (loc) data.location = loc;
-  if (len) data.lengthHours = Number(len);
-  if (cap) data.maxStudents = Number(cap);
+  if (len && Number.isFinite(Number(len)) && Number(len) > 0) data.lengthHours = Number(len);
+  if (cap && Number.isInteger(Number(cap)) && Number(cap) > 0) data.maxStudents = Number(cap);
   if (Object.keys(data).length > 0) {
     await prisma.session.updateMany({ where: { courseId, kind }, data });
   }
@@ -1832,106 +1718,22 @@ export async function setSessionTiming(courseId: string, programId: string, form
 // FUNNEL
 // ---------------------------------------------------------------------------
 
-export async function updateFunnelStage(stageId: string, programId: string, formData: FormData) {
-  await prisma.funnelStage.update({
-    where: { id: stageId },
-    data: { targetNumber: optNum(formData.get("target")), actualNumber: optNum(formData.get("actual")) },
-  });
-  revalidatePath(`/programs/${programId}`);
-}
 
 // ---------------------------------------------------------------------------
 // WBL PROFILES
 // ---------------------------------------------------------------------------
 
-export async function createWblProfile(institutionId: string, formData: FormData) {
-  const p = await prisma.wblProfile.create({
-    data: {
-      institutionId,
-      subjectType: str(formData.get("subjectType")) || "LEARNER",
-      name: str(formData.get("name")) || "New Profile",
-      tier: str(formData.get("tier")) || null,
-      summary: str(formData.get("summary")) || null,
-    },
-  });
-  revalidatePath("/wbl");
-  redirect(`/wbl/${p.id}`);
-}
 
-export async function addWblFactor(profileId: string, formData: FormData) {
-  await prisma.wblFactor.create({
-    data: {
-      profileId,
-      layer: str(formData.get("layer")) || "MOTIVATION",
-      label: str(formData.get("label")) || "Factor",
-      detail: str(formData.get("detail")) || null,
-      weight: numOr(formData.get("weight"), 1),
-      binding: str(formData.get("binding")) === "on",
-      disclosure: str(formData.get("disclosure")) || "STATED",
-      matchKey: str(formData.get("matchKey")) || null,
-    },
-  });
-  revalidatePath(`/wbl/${profileId}`);
-}
 
-export async function deleteWblFactor(factorId: string, profileId: string) {
-  await prisma.wblFactor.delete({ where: { id: factorId } });
-  revalidatePath(`/wbl/${profileId}`);
-}
 
-export async function deleteWblProfile(profileId: string) {
-  await prisma.wblProfile.delete({ where: { id: profileId } });
-  revalidatePath("/wbl");
-  redirect("/wbl");
-}
 
 // ---------------------------------------------------------------------------
 // STAFF ASSIGNMENTS (supply)
 // ---------------------------------------------------------------------------
 
-export async function addAssignment(programId: string, institutionId: string, formData: FormData) {
-  const personId = str(formData.get("personId"));
-  if (!personId) return;
-  await prisma.assignment.create({
-    data: {
-      institutionId,
-      programId,
-      personId,
-      role: str(formData.get("role")) || "instructor",
-      fteCommitment: numOr(formData.get("fteCommitment"), 1),
-    },
-  });
-  revalidatePath(`/programs/${programId}/plan`);
-}
 
-export async function removeAssignment(id: string, programId: string) {
-  await prisma.assignment.delete({ where: { id } });
-  revalidatePath(`/programs/${programId}/plan`);
-}
 
-export async function createStaff(institutionId: string, programId: string, formData: FormData) {
-  await prisma.person.create({
-    data: {
-      institutionId,
-      name: str(formData.get("name")) || "New staff",
-      role: str(formData.get("role")) || "instructor",
-    },
-  });
-  revalidatePath(`/programs/${programId}/plan`);
-}
 
-/** The studio's "ask": create a PLANNED placement (learner × partner). The partner
- *  confirming it (planned → active) is what makes it secured — asked vs secured on
- *  the employer page reads straight from these statuses. */
-export async function requestPlacement(studentId: string, employerId: string, familyId: string): Promise<void> {
-  const student = await prisma.student.findUnique({ where: { id: studentId }, select: { cohortId: true } });
-  const dup = await prisma.wblPlacement.findFirst({ where: { studentId, employerId, status: { in: ["planned", "active"] } } });
-  if (!dup) {
-    await prisma.wblPlacement.create({ data: { studentId, employerId, cohortId: student?.cohortId ?? null, status: "planned" } });
-  }
-  revalidatePath("/students");
-  revalidatePath(`/employers/${employerId}`);
-}
 
 // ---------------------------------------------------------------------------
 // MASTER SCHEDULE — move / reassign a bookable meeting
@@ -2090,48 +1892,7 @@ export interface AlignmentTagInput {
   note?: string | null;
 }
 
-/** Create (or replace, per subject+checkpoint) an alignment profile with its tags. */
-export async function saveAlignmentProfile(input: {
-  subjectType: "LEARNER" | "EMPLOYER";
-  studentId?: string | null;
-  employerId?: string | null;
-  checkpoint: string;
-  mvdTier: number;
-  narrative?: string | null;
-  conductedBy?: string | null;
-  tags: AlignmentTagInput[];
-}): Promise<void> {
-  const where = input.subjectType === "LEARNER"
-    ? { studentId: input.studentId ?? undefined, checkpoint: input.checkpoint }
-    : { employerId: input.employerId ?? undefined, checkpoint: input.checkpoint };
-  const existing = await prisma.alignmentProfile.findFirst({ where });
-  if (existing) await prisma.alignmentProfile.delete({ where: { id: existing.id } });
-  await prisma.alignmentProfile.create({
-    data: {
-      subjectType: input.subjectType,
-      studentId: input.subjectType === "LEARNER" ? input.studentId ?? null : null,
-      employerId: input.subjectType === "EMPLOYER" ? input.employerId ?? null : null,
-      checkpoint: input.checkpoint,
-      mvdTier: input.mvdTier,
-      narrative: input.narrative ?? null,
-      conductedBy: input.conductedBy ?? null,
-      tags: {
-        create: input.tags.map((t) => ({
-          layer: t.layer, code: t.code, tier: t.tier ?? null,
-          binding: t.binding ?? false, conditionalOn: t.conditionalOn ?? null, note: t.note ?? null,
-        })),
-      },
-    },
-  });
-  if (input.studentId) revalidatePath(`/students/${input.studentId}/alignment`);
-  if (input.employerId) revalidatePath(`/employers/${input.employerId}/alignment`);
-}
 
-export async function deleteAlignmentProfile(profileId: string): Promise<void> {
-  const p = await prisma.alignmentProfile.delete({ where: { id: profileId } });
-  if (p.studentId) revalidatePath(`/students/${p.studentId}/alignment`);
-  if (p.employerId) revalidatePath(`/employers/${p.employerId}/alignment`);
-}
 
 // ---------------------------------------------------------------------------
 // CALENDARIZE — bind a cohort's timeless archetype to reality (rooms, sites,
@@ -2158,6 +1919,8 @@ export interface PlanAssignmentInput {
   parts?: { assetId: string; seats: number }[];
   /** When a section is split across sites, this piece covers section seats (seatOffset, seatOffset + seats]. */
   seatOffset?: number;
+  /** The section's seat span under the even-dealing rule (lib/sections); absent on inputs from before it existed. */
+  seatStart?: number; sectionSeats?: number;
   /** Where the shift moved from and what changed — the calendar shows it where it actually lands. */
   originalDate?: string; movedDays?: number; changedBlock?: boolean; startTime?: string | null; hours?: number;
 }
@@ -2253,7 +2016,15 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
   const placements: { studentId: string; employerId: string; cohortId: string; startDate: Date; endDate: Date; status: string; notes: string }[] = [];
   const target = new Map<string, { studentId: string; cohortId: string; sessionId: string; sectionIndex: number; assetId: string; preceptorId: string | null }>();
   for (const st of students) {
-    const mine = assignments.filter((a) => { if (a.cohortId !== st.cohortId) return false; const per = Math.max(1, a.seatsPerSection); const sec = Math.max(1, Math.ceil(Math.max(1, st.sectionIndex) / per)); if (sec !== a.sectionIndex) return false; const ord = st.sectionIndex - (sec - 1) * per; const off = a.seatOffset ?? 0; return ord > off && ord <= off + a.seats; });
+    const mine = assignments.filter((a) => {
+      if (a.cohortId !== st.cohortId) return false;
+      // Seats are dealt evenly across sections (lib/sections); the plan carries each section's span. Older inputs without it fall back to the ceiling rule.
+      const per = Math.max(1, a.seatsPerSection);
+      const inSection = a.seatStart != null && a.sectionSeats != null ? st.sectionIndex >= a.seatStart && st.sectionIndex < a.seatStart + a.sectionSeats : Math.max(1, Math.ceil(Math.max(1, st.sectionIndex) / per)) === a.sectionIndex;
+      if (!inSection) return false;
+      const ord = a.seatStart != null ? st.sectionIndex - a.seatStart + 1 : st.sectionIndex - (a.sectionIndex - 1) * per;
+      return ord > (a.seatOffset ?? 0) && ord <= (a.seatOffset ?? 0) + a.seats;
+    });
     const bySite = new Map<string, { from: string; to: string }>();
     for (const a of mine) {
       const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w);
@@ -2594,7 +2365,7 @@ export async function updateInstitution(id: string, formData: FormData): Promise
 // ---------------------------------------------------------------------------
 
 function revalidateRooms(institutionId?: string | null) {
-  revalidatePath("/facilities"); if (institutionId) revalidatePath(`/orgs/${institutionId}`); revalidatePath("/calendar");
+  revalidatePath("/orgs"); if (institutionId) revalidatePath(`/orgs/${institutionId}`); revalidatePath("/calendar");
 }
 
 export async function saveCampus(formData: FormData): Promise<void> {
@@ -2936,10 +2707,23 @@ export async function saveAssumption(formData: FormData): Promise<void> {
   const scope = str(formData.get("scope")), key = str(formData.get("key"));
   if (!scope || !key) return;
   const value = Number(formData.get("value"));
-  if (!Number.isFinite(value)) return;
+  const back0 = str(formData.get("back"));
+  const bounce = (msg: string) => { if (back0) redirect(`${back0}${back0.includes("?") ? "&" : "?"}err=${encodeURIComponent(msg)}`); throw new Error(msg); };
+  if (!Number.isFinite(value)) bounce("The value must be a number.");
+  const def = ASSUMPTION_BY_KEY[key];
+  const lowIn = optNum(formData.get("low")), highIn = optNum(formData.get("high"));
+  if (def) {
+    if (value < 0) bounce(`${def.label} cannot be negative.`);
+    if (def.unit === "share" && value > 10) bounce(`${def.label} is a share or multiplier (${def.low}–${def.high} is typical); ${value} looks like a figure for another assumption.`);
+    if (lowIn != null && highIn != null && !(lowIn <= value && value <= highIn)) bounce(`${def.label}: the value ${value} is outside the low–high range you entered (${lowIn}–${highIn}).`);
+    if (lowIn == null && highIn == null && (value < def.low / 10 || value > def.high * 10)) bounce(`${def.label}: ${value} is far outside the expected range (${def.low}–${def.high}). Enter your own low and high if it is right.`);
+  }
   const status = str(formData.get("status")) || "estimate";
   const d = (k: string) => { const v = str(formData.get(k)); return v ? new Date(v + "T00:00:00Z") : null; };
-  const data = { value, low: optNum(formData.get("low")), high: optNum(formData.get("high")), source: str(formData.get("source")) || null, owner: str(formData.get("owner")) || null, status, verifiedAt: status === "verified" ? d("verifiedAt") ?? new Date() : d("verifiedAt"), reviewBy: d("reviewBy"), notes: str(formData.get("notes")) || null };
+  const existing = await prisma.assumption.findUnique({ where: { scope_key: { scope, key } }, select: { verifiedAt: true, status: true } });
+  // A re-save keeps the verification date it had; only a change TO verified stamps today.
+  const verifiedAt = status === "verified" ? d("verifiedAt") ?? (existing?.status === "verified" ? existing.verifiedAt : null) ?? new Date() : d("verifiedAt");
+  const data = { value, low: optNum(formData.get("low")), high: optNum(formData.get("high")), source: str(formData.get("source")) || null, owner: str(formData.get("owner")) || null, status, verifiedAt, reviewBy: d("reviewBy"), notes: str(formData.get("notes")) || null };
   await prisma.assumption.upsert({ where: { scope_key: { scope, key } }, update: data, create: { scope, key, ...data } });
   const back = str(formData.get("back"));
   revalidatePath("/", "layout");

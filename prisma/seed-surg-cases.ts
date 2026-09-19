@@ -38,7 +38,7 @@ export async function applySurgicalCaseVolumes(prisma: PrismaClient, institution
     if (id) { await prisma.employer.update({ where: { id }, data }); updated++; continue; }
     // Not on file: only the tracker's hospitals and surgery centers with reported cases are worth a record.
     if (!f.annualCases) { unmatched.push(f.name); continue; }
-    const e = await prisma.employer.create({ data: { institutionId, name: f.name, organization: f.system, county: f.county, city: f.city, state: "NC", facilityType: FACILITY_TYPE[f.type ?? ""] ?? f.type, setting: FACILITY_TYPE[f.type ?? ""] ?? f.type, status: "prospect", agreementStatus: "none", sourceNote: `${f.clinicalValue ?? ""}${f.constraint ? ` ${f.constraint}` : ""}`.trim() || null, ...data } });
+    const e = await prisma.employer.create({ data: { institutionId, name: f.name, externalId: `T-${f.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40)}`, organization: f.system, county: f.county, city: f.city, state: "NC", facilityType: FACILITY_TYPE[f.type ?? ""] ?? f.type, setting: FACILITY_TYPE[f.type ?? ""] ?? f.type, status: "prospect", agreementStatus: "none", sourceNote: `${f.clinicalValue ?? ""}${f.constraint ? ` ${f.constraint}` : ""}`.trim() || null, ...data } });
     byName.set(key, e.id); created++;
   }
   // One student, one preceptor per surgical unit.

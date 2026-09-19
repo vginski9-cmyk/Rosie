@@ -99,6 +99,18 @@ const r1 = (v: number) => Number(v.toFixed(7));
  * Derive every funnel target for one cohort from its productivity goal —
  * the workbook's INPUT rows 52–71 for one year column.
  */
+/** Per-term enrollment from term 1 under linear attrition: every term sheds an equal slice of
+ *  (term 1 − completing), so the last term sits one slice above completing. The one thinning rule —
+ *  real offerings (capacity model), proposed cohorts (expansion) and the workbook chain all use it. */
+export function thinTerms(term1: number, completionRate: number, n: number): number[] {
+  const terms = Math.max(1, Math.round(n));
+  const completing = term1 * completionRate;
+  const slice = (term1 - completing) / terms;
+  const out: number[] = [term1];
+  for (let i = 1; i < terms; i++) out.push(out[i - 1] - slice);
+  return out;
+}
+
 export function deriveCohortTargets(productiveGoal: number, rates: LadderRates, numTerms: number): CohortTargets {
   const n = Math.max(1, Math.round(numTerms));
   const productive = productiveGoal;
@@ -112,9 +124,7 @@ export function deriveCohortTargets(productiveGoal: number, rates: LadderRates, 
   const interested = capacity * rates.interestedSurplus;
 
   // Linear attrition: every term sheds an equal slice of (term1 − completing).
-  const slice = (term1 - completing) / n;
-  const terms: number[] = [term1];
-  for (let i = 1; i < n; i++) terms.push(terms[i - 1] - slice);
+  const terms = thinTerms(term1, rates.completionRate, n);
 
   const chain: DerivedStep[] = [
     { key: "productive", label: "Reaching full productivity", value: productive, formula: "the North-Star goal for this cohort (input)" },

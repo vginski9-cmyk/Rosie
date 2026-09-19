@@ -35,9 +35,11 @@ describe("computeColumns — the workbook formulas to the cell", () => {
     expect(c.AD).toBeCloseTo(120 / 640, 10);
     expect(c.AE).toBeCloseTo(3, 10);
   });
-  it("treats blank policies as 0 like Excel and flags L=0 as div-by-zero", () => {
+  it("treats a blank preceptor policy as the whole shift (missing is not zero) and flags L=0 as div-by-zero", () => {
     const blank = computeColumns(classRow({ preceptorsNeeded: 2, preceptorContactPolicy: null }), 40);
-    expect(blank.AC).toBe(0); // U blank → 0
+    const whole = computeColumns(classRow({ preceptorsNeeded: 2, preceptorContactPolicy: 1 }), 40);
+    expect(blank.AC).toBe(whole.AC); // U blank → 1, the same as explain.ts and service.ts
+    expect(blank.AC).toBeGreaterThan(0);
     const dz = computeColumns(classRow({ maxStudents: 0 }), 40);
     expect(dz.divByZero).toBe(true);
     expect(dz.Y).toBeNull();

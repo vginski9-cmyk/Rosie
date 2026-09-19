@@ -17,7 +17,7 @@ import { alignOffering, weeksOf, type TermLite, type CourseLite, type CodedEvent
 import type { SemesterAnchors } from "./term";
 import { assetSupply, assetDemand, assetMatch, type AssetLite, type AssetDayOverride, type RotationCode, type AssetMatchCell, type AssetSupplyCell } from "./assetmap";
 import { buildLadder, type LadderRates } from "./northstar";
-import { deriveCohortTargets } from "./pipeline";
+import { deriveCohortTargets, thinTerms } from "./pipeline";
 import { confidenceOf, type Assumptions, type ResolvedAssumption } from "./assumptions";
 import type { ShiftBlock } from "./clinicalsupply";
 
@@ -157,6 +157,9 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const dateOf = (s: string) => new Date(s + "T00:00:00Z");
 const addWeeks = (s: string, w: number) => iso(new Date(dateOf(s).getTime() + Math.round(w * 7) * DAY));
 const addMonths = (s: string, m: number) => { const d = dateOf(s); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + m); const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last)); return iso(d); };
+/** The same month and day in another year, clamped to that month's last day (Feb 29 → Feb 28). */
+const sameDayInYear = (y: number, isoLike: string) => { const m = Number(isoLike.slice(5, 7)), day = Number(isoLike.slice(8, 10)); const last = new Date(Date.UTC(y, m, 0)).getUTCDate(); return `${y}-${String(m).padStart(2, "0")}-${String(Math.min(day, last)).padStart(2, "0")}`; };
+const mondayOnOrAfter = (s: string) => { const d = dateOf(s); const back = (d.getUTCDay() + 6) % 7; return iso(new Date(d.getTime() + (back ? 7 - back : 0) * DAY)); };
 const mondayOf = (s: string) => { const d = dateOf(s); return iso(new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * DAY)); };
 const fmtD = (s: string) => dateOf(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtW = (s: string) => `week of ${dateOf(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
@@ -184,8 +187,9 @@ function designedSessions(p: ProgramTemplate, d: ExpansionDesign): ProgramTempla
 
 /** Per-term enrollment for a cohort of `seats`: term 1 = seats × enrollment rate, sliding to completing by the last term. */
 function termEnrollment(seats: number, rates: LadderRates, nTerms: number): number[] {
-  const t1 = seats * rates.enrollmentRate, last = t1 * rates.completionRate;
-  return Array.from({ length: Math.max(1, nTerms) }, (_, i) => (nTerms <= 1 ? t1 : t1 - (t1 - last) * (i / (nTerms - 1))));
+  // The workbook's linear attrition, exactly as pipeline.ts derives it for real offerings: every term sheds
+  // an equal slice of (term 1 − completing), so the last term sits one slice above completing.
+  return thinTerms(seats * rates.enrollmentRate, rates.completionRate, Math.max(1, nTerms));
 }
 
 /** One proposed cohort, dated on the college's calendar from its first day. */
@@ -232,7 +236,7 @@ export function proposeCohorts(input: ExpansionInput, d: ExpansionDesign): { coh
   if (perYear > 0) {
     const lastYear = Math.max(d.targetYear, Number(d.startIso.slice(0, 4)) + 1);
     for (let y = Number(d.startIso.slice(0, 4)); y <= lastYear; y++) for (let k = 0; k < perYear; k++) {
-      const s = addMonths(`${y}${d.startIso.slice(4)}`, Math.round((12 / perYear) * k));
+      const s = mondayOnOrAfter(addMonths(sameDayInYear(y, d.startIso), Math.round((12 / perYear) * k)));
       if (s > d.startIso && !starts.includes(s)) starts.push(s);
     }
   }
@@ -332,7 +336,8 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
   // 1–3 · The pipeline the target needs, worked backward.
   const req = deriveCohortTargets(Math.max(0, d.targetWorkers), effRates, Math.max(1, p.terms.length));
   const baselineAnnualProductive = input.baselineCohorts.filter((c) => c.programId === p.id && c.gradYear != null).reduce((m, c) => { const y = c.gradYear as number; return { ...m, [y]: (m[y] ?? 0) + c.productiveGoal }; }, {} as Record<number, number>);
-  const baselineProductiveTargetYear = baselineAnnualProductive[d.targetYear] ?? Math.max(0, ...Object.values(baselineAnnualProductive));
+  // Only offerings that graduate IN the target year are credited against it; another year's graduates are not.
+  const baselineProductiveTargetYear = baselineAnnualProductive[d.targetYear] ?? 0;
 
   // 4–5 · Dated cohorts under the program's structure.
   const { cohorts, rows: newRows } = proposeCohorts(input, d);
@@ -461,7 +466,7 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
   const seatsRequired = Math.max(0, req.capacity - (baselineProductiveTargetYear > 0 ? deriveCohortTargets(baselineProductiveTargetYear, effRates, Math.max(1, p.terms.length)).capacity : 0));
   constraints.push({
     kind: "pipeline", severity: d.targetWorkers <= 0 ? "info" : seatsPerYear + 1e-9 < seatsRequired && d.kind !== "improve-retention" ? "secondary" : "ok", label: "Pipeline",
-    demand: Math.ceil(seatsRequired - 1e-9), supply: seatsPerYear, unit: "seats a year", where: null,
+    demand: Math.max(0, Math.ceil(seatsRequired - 1e-9)), supply: seatsPerYear, unit: "seats a year", where: null,
     detail: d.targetWorkers <= 0 ? "No workforce target set — the seats are tested against capacity only." : `${d.targetWorkers} productive workers a year need ${Math.ceil(req.capacity - 1e-9)} seats a year at the current rates (${Math.ceil(req.interested - 1e-9)} interested → ${Math.ceil(req.qualified - 1e-9)} qualified → ${Math.ceil(req.offered - 1e-9)} offers → ${Math.ceil(req.capacity - 1e-9)} enrolled → ${Math.ceil(req.completing - 1e-9)} completing → ${Math.ceil(req.licensed - 1e-9)} licensed → ${Math.ceil(req.placed - 1e-9)} placed). The offerings already planned cover ${Math.ceil((req.capacity - seatsRequired) - 1e-9)}; this design adds ${seatsPerYear}.`,
     fix: seatsPerYear + 1e-9 < seatsRequired ? `add ${Math.ceil(seatsRequired - seatsPerYear - 1e-9)} more seats a year, or raise completion and placement` : "none needed",
     shortfall: Math.max(0, Math.ceil(seatsRequired - seatsPerYear - 1e-9)), evidence: "estimate",

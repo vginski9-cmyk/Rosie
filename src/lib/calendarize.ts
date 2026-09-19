@@ -3,6 +3,7 @@
 // clinical sections attributed to partner sites. Pure — the server action and
 // the seed both call it.
 
+import { sectionSpans } from "./sections";
 import { autoSchedule, toHHMM, type PlaceReq, type RoomLite, type Weekday } from "./space";
 import { sectionSlot, toMinutes } from "./sessiontimes";
 import { hostSlots, type HostLite } from "./hosts";
@@ -97,7 +98,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
           const slot = sectionSlot({ dayOfWeek: info.day, startTime: info.sample.startTime ?? null, endTime: info.sample.endTime ?? null, sectionTimes: info.sample.sectionTimes ?? null }, si);
           const preferDay = (slot?.dayOfWeek ?? info.day ?? undefined) as Weekday | undefined;
           // Seats dealt evenly: 41 students in 4 sections are 11, 10, 10, 10 — never 44.
-          const seats = Math.floor(E / sections) + (si <= E % sections ? 1 : 0);
+          const seats = sectionSpans(E, sections)[si - 1].seats;
           // The booking occupies the window the sheet states ("8:30a-11:10a" holds the room 2h40, whatever the contact-hour count); the session's hours otherwise.
           const span = slot?.endTime && toMinutes(slot.endTime) > toMinutes(slot.startTime) ? (toMinutes(slot.endTime) - toMinutes(slot.startTime)) / 60 : null;
           const lengthHours = span ?? (info.lengthHours || 2);

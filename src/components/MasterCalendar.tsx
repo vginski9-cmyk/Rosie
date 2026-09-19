@@ -425,7 +425,8 @@ function MoveEditor({ meeting, weekMs, rooms, people, employers, onClose, onSave
   // What happens on THIS day: the selected calendar week → the week-of-term →
   // that week's session(s) for this course + kind. Not the whole curriculum.
   const WK = 7 * 24 * 3600 * 1000;
-  const weekOfTerm = meeting.weekStartMs ? Math.floor((weekMs - meeting.weekStartMs) / WK) + 1 : null;
+  const mondayOf = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
+  const weekOfTerm = meeting.weekStartMs ? Math.floor((weekMs - mondayOf(meeting.weekStartMs)) / WK) + 1 : null;
   const thisWeek = weekOfTerm != null ? meeting.sessionTitles.filter((x) => x.week === weekOfTerm && x.title) : [];
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4" onClick={onClose}>

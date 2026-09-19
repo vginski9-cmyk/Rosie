@@ -267,9 +267,9 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
           <div>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Date range</div>
             <div className="flex items-center gap-1.5 text-xs">
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded border border-slate-200 bg-white px-1.5 py-0.5" />
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="From date" className="rounded border border-slate-200 bg-white px-1.5 py-0.5" />
               <span className="text-slate-400">→</span>
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded border border-slate-200 bg-white px-1.5 py-0.5" />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="To date" className="rounded border border-slate-200 bg-white px-1.5 py-0.5" />
               {(dateFrom || dateTo) && <button onClick={() => { setDateFrom(""); setDateTo(""); }} className="text-slate-400 hover:text-rose-600">clear</button>}
             </div>
           </div>
@@ -392,7 +392,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
     // The semester's real span: first dated session → last dated session (a
     // summer term fitted into ten weeks ends in early August, not September).
     const spanOf = (year: string, sem: string) => {
-      const ds = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem).map((r) => r.dateIso ?? addDaysN(r.mondayIso!, 4)).sort();
+      const ds = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem && r.dateIso).map((r) => r.dateIso as string).sort();
       return ds.length ? `${fmtMD(ds[0])} → ${fmtMD(ds[ds.length - 1])}` : undefined;
     };
     return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
@@ -474,7 +474,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
       return {
         termIndex: ti, termName: tr[0]?.termName ?? `Term ${ti}`,
         peakFacFte: pf, peakPreFte: pp, facHeads: Math.ceil(pf - 1e-9), preHeads: Math.ceil(pp - 1e-9),
-        from: weeks[0]?.mondayIso ?? null, to: weeks[weeks.length - 1]?.mondayIso ?? null,
+        from: tr.map((r) => r.dateIso).filter((d): d is string => !!d).sort()[0] ?? weeks[0]?.mondayIso ?? null, to: tr.map((r) => r.dateIso).filter((d): d is string => !!d).sort().at(-1) ?? weeks[weeks.length - 1]?.mondayIso ?? null,
         cohorts: [...new Set(tr.map((r) => r.cohort))],
       };
     });

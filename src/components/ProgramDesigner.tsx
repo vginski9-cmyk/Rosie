@@ -88,11 +88,12 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
       }
       termStudentHrs.set(t.id, th);
     }
-    // Peak week: the most faculty / preceptor hours any one template week asks for, as people working a full week.
+    // Peak week: the most faculty / preceptor contact hours any one template week asks for, as full-time loads — the same
+    // denominator the capacity model (AB = Z ÷ AI2) and the expansion engine use, so the three pages agree.
     const peakFacHrs = Math.max(0, ...[...weekLoad.values()].map((w) => w.fac)), peakPreHrs = Math.max(0, ...[...weekLoad.values()].map((w) => w.pre));
-    const peakFacFte = peakFacHrs / Math.max(1, assumptions.facWorkWeekHours), peakPreFte = peakPreHrs / Math.max(1, assumptions.preWorkWeekHours);
+    const peakFacFte = peakFacHrs / Math.max(1, assumptions.facContactHours), peakPreFte = peakPreHrs / Math.max(1, assumptions.preContactHours);
     return { perStudent, sectionHrs, sections, facHrs, facFte, precHrs, precFte, bySession, courseStudentHrs, courseFootprint, termStudentHrs, peakFacFte, peakPreFte };
-  }, [terms, enrollment, assumptions.facWorkWeekHours, assumptions.preWorkWeekHours]);
+  }, [terms, enrollment, assumptions.facContactHours, assumptions.preContactHours]);
 
   // Every session in the program — its values feed the drop-downs on every row.
   const allSessions = useMemo(() => terms.flatMap((t) => t.courses.flatMap((c) => c.sessions)), [terms]);
@@ -169,7 +170,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         </div>
         <div className="mt-2 grid gap-1 text-xs text-slate-500 sm:grid-cols-2">
           <div><span className="font-semibold text-slate-600">Across the whole program</span> (semester-FTE of every term added together — a budget total, not people at once): faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong>, provided by partner sites.</div>
-          <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ a {n0(assumptions.facWorkWeekHours)}-hour week): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakFacFte)} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakPreFte)} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
+          <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ the full-time contact-hour load of {n0(assumptions.facContactHours)} h for faculty and {n0(assumptions.preContactHours)} h for preceptors — the same denominator as the staffing and expansion pages): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakFacFte)} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakPreFte)} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
         </div>
         {/* Terms → courses, the sessions each holds */}
         <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">

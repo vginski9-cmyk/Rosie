@@ -166,7 +166,7 @@ export function parseAcademicCalendar(text: string, opts: { today?: Date } = {})
     // Clean separators but keep in-word hyphens ("12-Week", "Late-start"); a weekday in
     // parentheses leaves "( )" behind. One line can carry several events joined by " / "
     // ("Registration Day / Classes Begin / 75% Refund Period Begins") — each is coded on its own.
-    const clean = (s: string) => s.replace(/\(\s*\)/g, " ").replace(/\s*[|•·:–—]+\s*/g, " ").replace(/(^|\s)[-,]+(?=\s|$)/g, " ").replace(/\s+/g, " ").replace(/^[\s\-,:]+|[\s\-,:]+$/g, "");
+    const clean = (s: string) => s.replace(/(\d):(\d\d)/g, "$1\u0001$2").replace(/\(\s*[-–—,|•·:]*\s*\)/g, " ").replace(/\s*[|•·:–—]+\s*/g, " ").replace(/(^|\s)[-,]+(?=\s|$)/g, " ").replace(/\(\s*[-–—,]*\s*\)/g, " ").replace(/\s+/g, " ").replace(/^[\s\-,:]+|[\s\-,:]+$/g, "").replace(/\u0001/g, ":");
     let labels = found.rest.split(/\s+\/\s+/).map(clean).filter((l) => l.length >= 3);
     if (!labels.length && pendingLabel) labels = [pendingLabel];
     if (!labels.length) { warnings.push(`No event name found for ${found.iso}: "${raw}"`); continue; }

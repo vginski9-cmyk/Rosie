@@ -74,7 +74,7 @@ describe("expansion analysis", () => {
   it("dates the proposed cohorts on the calendar and repeats them yearly through the target year", () => {
     const inp = input();
     const { cohorts, rows } = proposeCohorts(inp, design({ targetYear: 2028 }));
-    expect(cohorts.map((c) => c.startIso)).toEqual(["2027-08-16", "2028-08-16"]);
+    expect(cohorts.map((c) => c.startIso)).toEqual(["2027-08-16", "2028-08-21"]); // Aug 16, 2028 is a Wednesday: the repeat starts the Monday after
     expect(cohorts[0].terms).toHaveLength(2);
     expect(cohorts[0].terms[1].startIso.slice(0, 4)).toBe("2028");
     expect(cohorts[0].ladder.productive).toBeCloseTo(24 * 0.7 * 0.9 * 0.9 * 0.9);
@@ -93,7 +93,7 @@ describe("expansion analysis", () => {
     expect(r.outputs.additionalAnnualProductive).toBeCloseTo(24 * 0.7 * 0.9 * 0.9 * 0.9);
     expect(r.outputs.firstYearWorkersEnter).toBe(2029); // ends spring 2028 + 12 months of lags
     expect(r.outputs.facultyFteAdded).toBeGreaterThan(0);
-    expect(r.outputs.learnerShifts).toBe(272); // a year's cohort: 17 students in term 2 (24 × 0.7 completion, sliding) × 16 Tuesday shifts
+    expect(r.outputs.learnerShifts).toBe(320); // a year's cohort under the workbook's thinning (term 2 sits one slice above completing): 20 students in term 2 (24 × 0.7 completion, sliding) × 16 Tuesday shifts
     expect(r.costs.recurring).toBeGreaterThan(0);
     expect(r.costs.perAdditionalCompleter).toBeGreaterThan(0);
     expect(r.milestones.some((m) => m.what.startsWith("Recruit"))).toBe(true);
@@ -139,11 +139,11 @@ describe("expansion analysis", () => {
     const r = evaluateExpansion(prepareExpansion(withBase), design({ seats: 8, cohortsPerYear: 0 }), { searchMax: false });
     const seats = r.constraints.find((c) => c.kind === "clinical-seats")!;
     expect(seats.severity).toBe("binding");
-    expect(seats.detail).toMatch(/27 students vs 24 secured/);
+    expect(seats.detail).toMatch(/33 students vs 24 secured/);
     // The faculty roster also reads both cohorts' weeks together.
     expect(r.constraints.find((c) => c.kind === "faculty")!.demand).toBeGreaterThan(evaluateExpansion(prepareExpansion(inp), design({ seats: 8, cohortsPerYear: 0 }), { searchMax: false }).constraints.find((c) => c.kind === "faculty")!.demand!);
     // The context is shown, not implied: who is on the binding date, what else runs in the window, and the busiest weeks.
-    expect(seats.demandBreakdown!.map((b) => [b.label, b.value, b.note])).toEqual([["Class of 2028", 21, "Radiography"], ["Proposed cohort 1 (Aug 16, 2027)", 6, "proposed"]]);
+    expect(seats.demandBreakdown!.map((b) => [b.label, b.value, b.note])).toEqual([["Class of 2028", 26, "Radiography"], ["Proposed cohort 1 (Aug 16, 2027)", 7, "proposed"]]);
     expect(seats.supplyBreakdown).toEqual([{ label: "Moore Regional", value: 24, note: "secured · 12 assets" }]);
     expect(seats.how).toMatch(/date × shift × setting/);
     expect(r.concurrent).toHaveLength(1);
@@ -203,7 +203,7 @@ describe("expansion analysis", () => {
 
   it("finds the largest cohort the design could run today, and models retention instead of seats", () => {
     const r = evaluateExpansion(prepareExpansion(input()), design({ targetWorkers: 0 }));
-    expect(r.outputs.currentMaxFeasibleSeats).toBe(34); // 24 secured seats on a Tuesday ÷ 0.7 (term-2 enrollment of a 34-seat cohort is 24), then seats bind
+    expect(r.outputs.currentMaxFeasibleSeats).toBe(28); // 24 secured seats on a Tuesday ÷ 0.7 (term-2 enrollment of a 34-seat cohort is 24), then seats bind
     const ret = evaluateExpansion(prepareExpansion(input({ baselineCohorts: [{ cohortId: "b", cohort: "Class of 2028", programId: "p1", seats: 24, startIso: "2026-08-17", endIso: "2028-05-09", productiveGoal: 12, gradYear: 2028 }] })), design({ kind: "improve-retention", seats: 0, retentionUplift: 0.1, targetWorkers: 0 }), { searchMax: false });
     expect(ret.cohorts).toHaveLength(0);
     expect(ret.outputs.additionalAnnualEnrollment).toBe(0);

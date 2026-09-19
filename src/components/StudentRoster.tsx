@@ -40,7 +40,7 @@ export function StudentRoster({ programId, students }: { programId: string; stud
   }, []);
 
   const reachedIndex = (s: RosterStudent) =>
-    s.stageKey && s.stageKey in STAGE_INDEX ? STAGE_INDEX[s.stageKey as StageKey] : -1;
+    s.stageKey === "withdrawn" || s.status === "withdrawn" ? STAGE_INDEX.enrolled : s.stageKey && s.stageKey in STAGE_INDEX ? STAGE_INDEX[s.stageKey as StageKey] : -1;
   const reachedCount = (key: StageKey) => students.filter((s) => reachedIndex(s) >= STAGE_INDEX[key]).length;
 
   const needle = q.trim().toLowerCase();
@@ -76,7 +76,7 @@ export function StudentRoster({ programId, students }: { programId: string; stud
             </button>
           );
         })}
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name / email…" className="ml-auto rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search students" placeholder="Search name / email…" className="ml-auto rounded-lg border border-slate-300 px-3 py-2 text-sm" />
       </div>
 
       {(stage || q) && (
@@ -103,7 +103,7 @@ export function StudentRoster({ programId, students }: { programId: string; stud
           </thead>
           <tbody className="divide-y divide-slate-100 text-sm">
             {filtered.map((s) => {
-              const st = STAGES.find((x) => x.key === s.stageKey);
+              const st = STAGES.find((x) => x.key === s.stageKey) ?? (s.stageKey === "withdrawn" ? { key: "withdrawn", label: "Withdrawn", conversionInto: "", color: "#94a3b8" } : undefined);
               return (
                 <tr key={s.id} className="hover:bg-slate-50/60">
                   <td className="px-4 py-3">

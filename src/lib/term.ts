@@ -255,16 +255,24 @@ export function weekMonday(a: WeekAnchor, week: number | null | undefined): Date
   const tpl = a.templateWeeks && a.templateWeeks > 0 ? a.templateWeeks : 16;
   const cal = termStart && termEnd ? calendarWeeksBetween(termStart, termEnd) : tpl;
   if (beyondTerm(w, tpl, cal)) return null; // after the term's last day — undated, flagged
-  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return new Date(courseStart.getTime() + Math.max(0, w - f0) * 7 * 86400000); }
+  // Week 1 is the calendar week (Mon–Sun) that CONTAINS the first day, so a term that starts on a
+  // Tuesday still dates its "Mon" sessions on a Monday and its "Thu" sessions on a Thursday.
+  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return new Date(mondayOfDate(courseStart).getTime() + Math.max(0, w - f0) * 7 * 86400000); }
   if (!termStart) return null;
-  return new Date(termStart.getTime() + (w - 1) * 7 * 86400000);
+  return new Date(mondayOfDate(termStart).getTime() + (w - 1) * 7 * 86400000);
 }
+/** The Monday (UTC) of the week a date falls in. */
+export function mondayOfDate(d: Date): Date { return new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400000); }
 export const DAY_OFFSET: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6, Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6 };
 /** The exact date of a session (its week's Monday + its weekday), or null when it has no day. */
 export function sessionDate(a: WeekAnchor, week: number | null | undefined, dayOfWeek: string | null | undefined): Date | null {
   const mon = weekMonday(a, week);
   const off = dayOfWeek != null ? DAY_OFFSET[dayOfWeek] : undefined;
-  return mon && off != null ? new Date(mon.getTime() + off * 86400000) : null;
+  if (!mon || off == null) return null;
+  const d = new Date(mon.getTime() + off * 86400000);
+  // A "Mon" session in a week whose term starts on Tuesday falls before the first day: it is not held that week.
+  const first = asDate(a.courseStart) ?? asDate(a.termStart);
+  return first && d < first ? null : d;
 }
 
 /** The semester a DATE sits in under the pattern: the latest semester start on

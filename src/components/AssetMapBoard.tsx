@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { buildInstances, type DatedInstance, type CohortCalendarInput } from "@/lib/capacitymodel";
 import {
-  assetTotals, assetSupply, assetDemand, assetMatch, settingVerdicts, assetsAvailable, blocksOn, overrideIndex, overrideKey, isoRange, parseAssetMapWorkbook, ASSET_BLOCKS,
+  assetTotals, assetSupply, assetDemand, assetMatch, settingVerdicts, forFamily, assetsAvailable, blocksOn, overrideIndex, overrideKey, isoRange, parseAssetMapWorkbook, ASSET_BLOCKS,
   type AssetLite, type AssetDayOverride, type AssetBookingLite, type AssetMatchCell, type ParsedAssetMap,
 } from "@/lib/assetmap";
 import { weekdayOfIso, type ShiftBlock } from "@/lib/clinicalsupply";
@@ -47,7 +47,12 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
   const liveAssets = hydrated ? assets : [];
   const supply = useMemo(() => assetSupply(liveAssets, overrides, from, to), [liveAssets, overrides, from, to]);
   const demand = useMemo(() => assetDemand(rows, rotations), [rows, rotations]);
-  const cells = useMemo(() => assetMatch(demand, supply, bookings, assetById), [demand, supply, bookings, assetById]);
+  // "Secured" is a job family's agreement with a site, so each family's demand is matched against the supply as that family sees it.
+  const familyByCohort = useMemo(() => new Map(cohorts.map((c) => [c.cohortId, c.familyId ?? null])), [cohorts]);
+  const cells = useMemo(() => {
+    const fids = [...new Set(demand.map((d) => familyByCohort.get(d.cohortId) ?? null))];
+    return fids.flatMap((fid) => { const mine = demand.filter((d) => (familyByCohort.get(d.cohortId) ?? null) === fid); const sup = fid ? assetSupply(forFamily(liveAssets, fid), overrides, from, to) : supply; return assetMatch(mine, sup, bookings, assetById); });
+  }, [demand, supply, liveAssets, overrides, from, to, bookings, assetById, familyByCohort]);
   const verdicts = useMemo(() => settingVerdicts(cells, assets), [cells, assets]);
   const totalsWindow = useMemo(() => assetTotals(liveAssets, overrides, from, to), [liveAssets, overrides, from, to]);
   const totalsYear = useMemo(() => assetTotals(liveAssets, overrides, `${year}-01-01`, `${year}-12-31`), [liveAssets, overrides, year]);

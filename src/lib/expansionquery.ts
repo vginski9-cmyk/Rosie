@@ -9,11 +9,13 @@ import { resolvePolicy, type PolicyLite, type PersonLite } from "./workload";
 import { resolveAssumptions, applyFamilyRates, type AssumptionRow, type Assumptions } from "./assumptions";
 import { DEFAULT_DESIGN, type ExpansionDesign, type ExpansionInput, type ExpansionResult } from "./expansion";
 import { holidayMap } from "./academiccalendar";
+import { forFamily } from "./assetmap";
 
-export interface ScenarioRow { id: string; name: string; status: string; design: ExpansionDesign; overrides: Record<string, number>; result: ExpansionResult | null; evaluatedAt: string | null; notes: string | null; updatedAt: string }
+export interface ScenarioRow { id: string; name: string; status: string; design: ExpansionDesign; overrides: Record<string, number>; result: ExpansionResult | null; /** A result exists but was produced by an earlier engine and cannot be shown; re-evaluate. */ staleResult: boolean; evaluatedAt: string | null; notes: string | null; updatedAt: string }
 export interface SitePick { employerId: string; name: string; agreementStatus: string; assets: number }
 
 const parse = <T,>(s: string | null | undefined, fallback: T): T => { if (!s) return fallback; try { return JSON.parse(s) as T; } catch { return fallback; } };
+const mondayOnOrAfter = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); const back = (d.getUTCDay() + 6) % 7; return new Date(d.getTime() + (back ? 7 - back : 0) * 86400000).toISOString().slice(0, 10); };
 const isoOf = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
 
@@ -84,27 +86,28 @@ export async function getExpansionInput(programId: string, overrides: Record<str
     },
     anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
     events, holidays, baselineRows, baselineCohorts,
-    supply: { instructors, assets: map.assets, overrides: map.overrides, rotations: map.rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode })), sites, rooms },
+    supply: { instructors, assets: forFamily(map.assets, program.family?.id ?? null), overrides: map.overrides, rotations: map.rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode })), sites, rooms },
     assumptions,
   };
 }
 
 /** What the studio page shows before any evaluation: the program, the saved scenarios, the site picker, a default design. */
 export async function getExpansionStudio(programId: string) {
-  const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true, institutionId: true, defaultCohortSeats: true, launchTerms: true, family: { select: { id: true, name: true, goalPlan: true, familySites: { select: { employerId: true, agreementStatus: true, employer: { select: { name: true, _count: { select: { assets: true } } } } } } } }, institution: { select: { id: true, name: true, fallStart: true } }, terms: { select: { id: true } } } });
+  const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true, institutionId: true, defaultCohortSeats: true, launchTerms: true, family: { select: { id: true, name: true, goalPlan: true, familySites: { select: { employerId: true, agreementStatus: true, employer: { select: { name: true, _count: { select: { assets: true } } } } } } } }, institution: { select: { id: true, name: true, fallStart: true, academicEvents: { where: { kind: "term_start" }, select: { date: true, kind: true, season: true } } } }, terms: { select: { id: true } } } });
   if (!program) return null;
-  const scenarios = (await prisma.scenario.findMany({ where: { programId }, orderBy: { updatedAt: "desc" } })).map((s): ScenarioRow => ({ id: s.id, name: s.name, status: s.status, design: parse<ExpansionDesign>(s.design, { ...DEFAULT_DESIGN, targetYear: new Date().getUTCFullYear() + 3, startIso: "" }), overrides: parse<Record<string, number>>(s.overrides, {}), result: (() => { const r = parse<ExpansionResult | null>(s.result, null); return r && Array.isArray(r.rules) && Array.isArray(r.concurrent) ? r : null; })(), evaluatedAt: isoOf(s.evaluatedAt), notes: s.notes, updatedAt: s.updatedAt.toISOString() }));
+  const scenarios = (await prisma.scenario.findMany({ where: { programId }, orderBy: { updatedAt: "desc" } })).map((s): ScenarioRow => ({ id: s.id, name: s.name, status: s.status, design: parse<ExpansionDesign>(s.design, { ...DEFAULT_DESIGN, targetYear: new Date().getUTCFullYear() + 3, startIso: "" }), overrides: parse<Record<string, number>>(s.overrides, {}), result: (() => { const r = parse<ExpansionResult | null>(s.result, null); return r && Array.isArray(r.rules) && Array.isArray(r.concurrent) ? r : null; })(), staleResult: (() => { const r = parse<ExpansionResult | null>(s.result, null); return !!r && !(Array.isArray(r.rules) && Array.isArray(r.concurrent)); })(), evaluatedAt: isoOf(s.evaluatedAt), notes: s.notes, updatedAt: s.updatedAt.toISOString() }));
   const goals = parse<{ goalsByYear?: Record<string, number> }>(program.family?.goalPlan, {}).goalsByYear ?? {};
   const year = new Date().getUTCFullYear();
   const targetYear = year + 3;
-  const nextFall = `${year + 1}-${program.institution.fallStart}`;
+  const coded = program.institution.academicEvents.find((e) => e.kind === "term_start" && e.season === "Fall" && e.date.getUTCFullYear() === year + 1)?.date.toISOString().slice(0, 10);
+  const nextFall = coded ?? mondayOnOrAfter(`${year + 1}-${program.institution.fallStart}`);
   const defaultDesign: ExpansionDesign = { ...DEFAULT_DESIGN, seats: Math.round(program.defaultCohortSeats ?? 24), targetWorkers: Math.round(goals[String(targetYear)] ?? 0), targetYear, startIso: nextFall };
   // Where each prefilled figure comes from, so nothing on the form reads as a recommendation.
   const defaultNotes = {
     seats: program.defaultCohortSeats != null ? `the program's default cohort size (${Math.round(program.defaultCohortSeats)}) from its design page` : "a placeholder of 24 — the program has no default cohort size on record",
     targetWorkers: goals[String(targetYear)] != null ? `the ${program.family?.name ?? "family"} North Star goal for ${targetYear} (${Math.round(goals[String(targetYear)])} productive workers)` : "not set — no North Star goal for that year; enter the workforce ask",
     targetYear: `three years out (${targetYear})`,
-    startIso: `${program.institution.name}'s next fall semester start (${nextFall})`,
+    startIso: coded ? `${program.institution.name}'s coded Fall ${year + 1} semester start (${nextFall})` : `the Monday on or after ${program.institution.name}'s fall anchor, ${nextFall} — no Fall ${year + 1} start is coded on the calendar yet`,
     kind: "an additional annual cohort — the most common ask; pick another design to test something else",
   };
   const sitePicks: SitePick[] = (program.family?.familySites ?? []).filter((s) => s.agreementStatus !== "secured").map((s) => ({ employerId: s.employerId, name: s.employer.name, agreementStatus: s.agreementStatus, assets: s.employer._count.assets })).sort((a, b) => b.assets - a.assets);

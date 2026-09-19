@@ -572,3 +572,60 @@ The Phase 9 page asserted a verdict without its inputs beside it: a reader could
 | Compare view trapped the reader | a "back to <scenario>" link; results saved before this phase show as "not evaluated" until re-run rather than rendering without their context |
 
 Tests: `test/expansion.test.ts` adds the breakdown, concurrent, peak-week, how-computed and supply-summary checks to the baseline test, and a hybrid test (room hours fall, faculty hours hold at a 100% credit and fall at 50%, clinical unchanged, the rules say so). Suite: 56 files, 406 tests.
+
+## 17. Phase 11 — the audit: every page, every number, every connection (2026-09-19)
+
+Four read-only audits ran in parallel against the production build and `prisma/dev.db`: the computation libraries (reproduced with scripts), data integrity (128 relations, ~180 cross-table checks, every JSON column), cross-page consistency (the same quantity captured from every page that shows it and recomputed), and a crawl of every route with real ids (console, hydration, links, controls, actions). Everything below was reproduced before it was fixed; the fixes are regression-tested in `test/audit-fixes.test.ts` and the affected suites.
+
+### Computation defects
+
+| Defect | Outcome |
+|---|---|
+| Every term or course that does not start on a Monday dated every session on the wrong weekday (a Tuesday start put "Mon" sessions on Tuesday and "Fri" on Saturday; 1,044 of 2,846 dated sessions, 37%, and 34 clinical shifts on weekends) | week 1 is the calendar week that contains the first day, so every session keeps its weekday; a "Mon" session in a Tuesday-start week falls before the term and is undated and flagged (`beforeTerm`), like one past the end. The master calendar's week-of-term and the three itinerary queries use the same anchor, and course windows carry the template week they begin in |
+| US default holidays were unioned with the college's imported calendar (Veterans Day, Columbus Day and winter-break flags on days the college is open; 63 phantom holiday sessions at Lenoir) | the imported calendar is the only authority once one exists; the US list stands in only for a college with no calendar coded |
+| Three seat-to-section rules (scheduler filled sections to the maximum, 20-20-1; the calendarizer dealt evenly, 14-14-13; the roster round-robined), so a plan pinned students to sections the room bookings and roster disagreed with | one rule in `lib/sections.ts`: seats are dealt evenly and each demand unit carries its seat span; the scheduler, plan-apply, calendarizer and roster read it |
+| Hybrid-style rules aside, the expansion engine credited the target year with another year's graduates when none graduated in it (Radiography 2029: "covered", −0 seats needed) | only offerings graduating in the target year count; −0 can no longer reach the screen (`fmt.atLeast`, the pipeline constraint) |
+| Two thinning curves (real offerings one slice above completing; proposed cohorts sliding to completing), so an identical proposed cohort needed one fewer clinical seat than the real one | one `thinTerms` rule in `lib/pipeline.ts`, used by the workbook chain, the capacity model and the expansion engine |
+| The per-request memo of the capacity model never hit (React `cache` keys object arguments by identity), so pages computed it two or three times | keyed on the primitive ids |
+| The semester view ended every term at its template weeks, not its coded last day (21 of 53 terms more than a week off) | the coded end wins |
+| Preceptor contact hours: blank policy = 0 in the capacity model, ignored in the service model, 1 in the explainer | blank means the whole shift, in all three |
+| A shift moved by hand or by the plan onto a holiday was never flagged | checked against the calendar on its new date |
+| Archived-facility filtering differed between totals and supply; site-load hours counted absent shifts at full length; local-time reads of UTC dates in three places; a Feb-29 start crashed the studio | one `isLive` rule; absent and excused shifts are 0 hours; UTC everywhere; leap days clamp |
+
+### Data and connection defects
+
+| Defect | Outcome |
+|---|---|
+| Two agreement statuses per site (the employer umbrella and each job family's own agreement), read differently by every page ("18 secured hosts" and "0 secured sites" for the same setting on one page); the Sandhills site seed also randomised the family tier | the family's agreement is the record and the employer status is the umbrella: assets carry `agreementByFamily`, `forFamily()` resolves it, and the seed no longer randomises. The expansion engine, the offering's clinical page and the site-capacity board resolve per job family; the employer level stands in only where a family has no row |
+| Clinical units coded 0 students per shift while the same sites' assets carry 46 imaging seats, so "Clinical sites" showed no imaging capacity | a unit with no coded capacity reads it from the site's assets in the settings that serve its category, marked as derived |
+| "Delete North Star goal" deleted the whole job family, cascading its sites, requirement sets and every student's competency log | it clears the goal only; the family and its records stay |
+| Deleting a term, course or session erased logged clinical shifts; removing a family site left weekly bookings pointing at it | a delete is refused while logged shifts hang from it; removed sites are cleared from bookings |
+| The capacity model re-derived Carteret's Term-1 seats from the productive goal (18) while every other page said 10 | term 1 is the enrollment the offering plans (its enrolled target or planned seats); the productive goal is a fallback only |
+| A registry value could be stored under any key with no range check (my own browser test had written a salary into a rate) | saved values are checked against their unit and range; the row is removed |
+| SUR 123's 16 "clinical" sessions were online with no weekday and no site; Carteret's two rotation types mapped to no setting; a hospital created from the surgical tracker had no external id, so its assets duplicated another hospital's ids; the parser left "( )" in nine holiday labels; a template typo | fixed in the template, seed and parser |
+| Pipeline actuals were three sets of numbers (offering page from stage actuals; goal page from student statuses skipping the withdrawn at every stage; students page dropping the withdrawn) | the goal page reads the same stage actuals as the offering page; a withdrawn student counts as having reached "enrolled" |
+| Attendance counters on the student row were written once by the seed and never maintained (58 students with 9 attended and 0 logged shifts) | attendance is read from the shift ledger on every page |
+| "Section 37" on a student was a seat number; the org page's "Preceptors" counted every person of any role; the funnel had no "withdrawn" stage | labelled "Seat"; active preceptors only; withdrawn reads as withdrawn |
+| Room utilization on the org page summed every term's bookings into one week (6.4% vs 1.5%) | the busiest week |
+| Three FTE denominators (design page ÷ 40-hour week, capacity model and expansion ÷ full-time contact load) | one denominator, named on the design page |
+| Home's holiday count is upcoming sessions, the offering's is all; the semester bars synthesised dates for undated sessions; the expansion default start was a Sunday; a scenario evaluated by an older engine read "not evaluated"; explicit offerings with no entry-term code vanished from the launch plan | labelled "upcoming"; dated sessions only; the coded fall start or the Monday on or after the anchor; "evaluated with an older engine — re-evaluate"; the entry term is read from the start date |
+| Three of four colleges have no clinical sites, assets or preceptors on record at all, yet 4,047 clinical shifts | the exception queue leads with it as a blocker: missing data, not zero demand |
+
+### Page-level defects from the crawl (845 URLs, 1,871 links, 186 controls, 162 actions reviewed)
+
+| Defect | Outcome |
+|---|---|
+| A blank numeric field saved as 0 through the shared form helper (workload assumptions, policies, sessions, assets, units, geography bands, shift assignments) | a blank field keeps the default; two more parsers stop writing NaN |
+| Every registry save re-stamped "verified today" and wrote the resolved default range as the college's own figures | the verification date is kept unless the status changes to verified; the range fields start blank |
+| The site-capacity page's agreement select changed the employer umbrella only, so every program page still read the old family status | it sets the one status per site: the umbrella and every family's row move together |
+| `/calendar?week=abc`, `/supply` with a bad custom window and `/api/asset-map` with a bad year or institution crashed | validated; the API answers 400/404 |
+| The goal planner showed "starts — · ends ~—" for a dated, running offering | the live cohort date |
+| 22 exported server actions had no caller (each a public POST endpoint); 13 revalidated routes that do not exist | removed; paths point at the pages that render the data |
+| A plain GET to the logout route ended the session | POST signs out; a bare GET only goes to the login page |
+| Copy: "602 because lands on an observed holiday", "Day7a, 8a", "7,171 staff assignments" as a headline | fixed and labelled |
+| 4,200 unlabeled selects and inputs on the site-provision pages; unlabeled date, range and search inputs on six explorers; the requirement-log select | accessible names on all of them |
+
+Verification: typecheck clean; 57 test files, 416 tests; production build; a browser run over Home, the program, goal, students, offering, org, calendar, supply, scheduler, site-capacity, expansion, registry, semester and student pages with no console or page errors, and the API returning 400/404 on bad input. The seed changes were validated by seeding a throwaway copy of the database; the live dev database received the same corrections as targeted updates (9 labels, 16 sessions, 304 shifts, 2 rotations, 2 employer ids) so record ids stayed stable.
+
+### Left as recorded (data-entry, not code)
+Lenoir's real meeting days never reached its sessions (the seed sets Mon/Wed templates and Mon/Sat bookings); 217 sessions land on coded holidays and are listed as exceptions; 34 completed cohorts carry no students; duplicate student names across stages are seed artefacts; every employer is geocoded to its town centroid. These are shown as what they are on the pages that read them.

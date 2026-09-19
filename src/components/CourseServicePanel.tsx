@@ -45,7 +45,7 @@ export function CourseServicePanel({ sessions, defaultEnrollment }: { sessions: 
             </p>
           </div>
           <div className="flex items-center gap-4">
-            <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-56 accent-rose-600" />
+            <input type="range" min={1} max={150} value={enrollment} aria-label="Enrollment" onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-56 accent-rose-600" />
             <div className="text-right">
               <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-24 rounded-lg border border-slate-300 px-3 py-2 text-right text-2xl font-semibold" />
               <div className="text-[11px] uppercase tracking-wide text-slate-400">students enrolled</div>

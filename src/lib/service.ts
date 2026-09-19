@@ -43,6 +43,8 @@ export interface ServiceSession {
   maxStudents: number;
   /** Faculty required to teach one full section (can be fractional, e.g. 0.1/3). */
   facultyNeeded: number;
+  /** U — share of the shift a preceptor is in contact; blank = the whole shift. */
+  preceptorContactPolicy?: number | null;
   /** Preceptors required for one full clinical section. */
   preceptorsNeeded: number;
   week?: number | null;
@@ -74,7 +76,7 @@ export function sessionService(s: ServiceSession, enrollment: number, k: Service
   const sections = s.maxStudents > 0 && enrollment > 0 ? roundUpInt(enrollment / s.maxStudents) : 0;
   const spaceHours = sections * s.lengthHours;
   const facultyContactHours = sections * s.facultyNeeded * s.lengthHours;
-  const preceptorContactHours = sections * s.preceptorsNeeded * s.lengthHours;
+  const preceptorContactHours = sections * s.preceptorsNeeded * s.lengthHours * (s.preceptorContactPolicy == null ? 1 : s.preceptorContactPolicy);
   return {
     sections,
     spaceHours,

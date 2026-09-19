@@ -47,10 +47,17 @@ export function withinHours(spans: HoursSpan[], dayOfWeek: string, startTime: st
   return spans.some((x) => x.dayOfWeek === dayOfWeek && toMin(x.openTime) <= s && toMin(x.closeTime) >= e);
 }
 
-/** Weekly utilization: booked meeting hours in the room ÷ weekly open hours. */
-export function weeklyUtilization(spans: HoursSpan[], meetings: { dayOfWeek: string; startTime: string; lengthHours: number }[]): { open: number; booked: number; utilization: number; outsideHours: number } {
+/** Weekly utilization: booked meeting hours in the room's busiest week ÷ weekly open hours. A booking that
+ *  carries its term window counts only in the weeks of that window; one without a window counts every week. */
+export function weeklyUtilization(spans: HoursSpan[], meetings: { dayOfWeek: string; startTime: string; lengthHours: number; weekStartMs?: number | null; weekEndMs?: number | null }[]): { open: number; booked: number; utilization: number; outsideHours: number } {
   const open = weeklyOpenHours(spans);
-  const booked = meetings.reduce((n, m) => n + m.lengthHours, 0);
+  const WEEK = 7 * 86400000;
+  const always = meetings.filter((m) => m.weekStartMs == null || m.weekEndMs == null).reduce((n, m) => n + m.lengthHours, 0);
+  const windowed = meetings.filter((m) => m.weekStartMs != null && m.weekEndMs != null);
+  const edges = [...new Set(windowed.map((m) => m.weekStartMs as number))].sort((a, b) => a - b);
+  let peak = 0;
+  for (const t of edges) { const at = windowed.filter((m) => (m.weekStartMs as number) <= t && t < (m.weekEndMs as number) + WEEK).reduce((n, m) => n + m.lengthHours, 0); if (at > peak) peak = at; }
+  const booked = always + peak;
   const outsideHours = meetings.filter((m) => !withinHours(spans, m.dayOfWeek, m.startTime, m.lengthHours)).length;
   return { open, booked, utilization: open > 0 ? booked / open : 0, outsideHours };
 }

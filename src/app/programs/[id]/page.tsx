@@ -43,7 +43,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <Link href={`/programs/${program.id}/offerings/${o.id}`} className="font-semibold text-slate-800 hover:text-rose-700 hover:underline">{o.name} →</Link>
-                      <div className="mt-0.5 text-xs text-slate-500">{o.startDate ? `starts ${o.startDate.toISOString().slice(0, 10)}` : "no start date"} · {o.cohortTerms.length} of {program.terms.length} terms dated · {o._count.students} students · {o._count.sessionStaff} staff assignments</div>
+                      <div className="mt-0.5 text-xs text-slate-500">{o.startDate ? `starts ${o.startDate.toISOString().slice(0, 10)}` : "no start date"} · {o.cohortTerms.length} of {program.terms.length} terms dated · {o._count.students} students · {o._count.sessionStaff} staffing rows (one person on one shift)</div>
                     </div>
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{o.status}</span>
                   </div>

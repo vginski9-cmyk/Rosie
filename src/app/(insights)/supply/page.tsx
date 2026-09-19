@@ -12,7 +12,8 @@ export default async function SupplyPage({ searchParams }: { searchParams: { ins
   // The coded semesters come from the institution; resolve the window in two steps for "semester".
   const probe = await getSupplyExplorer(searchParams.inst, today, today);
   if (!probe) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
-  const win = preset === "custom" && searchParams.from && searchParams.to ? { from: searchParams.from, to: searchParams.to, label: `${searchParams.from} → ${searchParams.to}` } : presetWindow(preset, today, probe.semesters);
+  const isoOk = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(s + "T00:00:00Z").getTime());
+  const win = preset === "custom" && isoOk(searchParams.from) && isoOk(searchParams.to) && searchParams.from <= searchParams.to ? { from: searchParams.from, to: searchParams.to, label: `${searchParams.from} → ${searchParams.to}` } : presetWindow(preset, today, probe.semesters);
   const data = await getSupplyExplorer(probe.institution.id, win.from, win.to);
   if (!data) return null;
   const provenance = (await getCalendarProvenance(data.institution.id)).all;

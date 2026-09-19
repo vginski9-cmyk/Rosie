@@ -7,6 +7,7 @@
 // (clinical) has to work. This module expands the template into those shifts and
 // gives the calendar + staffing views something concrete to lay out and assign.
 
+import { sectionOfSeat } from "./sections";
 import { roundUpInt } from "./service";
 
 export type ShiftKind = "CLASS" | "LAB" | "CLINICAL";
@@ -305,12 +306,13 @@ export interface SectionStudent {
   clinicalSite?: string | null;
 }
 
-/** Which students sit in a given shift: those whose cohort section maps onto
- *  this shift's section (round-robin across the session's section count). For a
+/** Which students sit in a given shift: those whose seat number falls in this
+ *  shift's section under the one even-dealing rule (lib/sections). For a
  *  single-section session (e.g. a 40-seat lecture) that's everyone. */
 export function studentsForShift(shift: Shift, students: SectionStudent[]): SectionStudent[] {
   const sections = Math.max(1, shift.sections);
-  return students.filter((s) => ((Math.max(1, s.sectionIndex) - 1) % sections) + 1 === shift.sectionIndex);
+  const total = Math.max(students.length, ...students.map((s) => s.sectionIndex));
+  return students.filter((s) => sectionOfSeat(s.sectionIndex, total, sections) === shift.sectionIndex);
 }
 
 // ---------------------------------------------------------------------------

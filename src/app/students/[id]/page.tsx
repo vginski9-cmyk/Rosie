@@ -33,8 +33,11 @@ export default async function StudentPage({ params }: { params: { id: string } }
   const yn = (v: boolean | null) => (v == null ? "" : v ? "yes" : "no");
   const stage = STAGES.find((s) => s.key === student.stageKey);
   const reachedIdx = student.stageKey && student.stageKey in STAGE_INDEX ? STAGE_INDEX[student.stageKey as StageKey] : -1;
-  const totalSessions = student.attendedCount + student.missedCount;
-  const attendanceRate = totalSessions > 0 ? student.attendedCount / totalSessions : null;
+  // Attendance is read from the clinical shift ledger; the counters on the student row are not maintained.
+  const attendedShifts = assignments.shifts.filter((s) => s.status === "completed").length;
+  const missedShifts = assignments.shifts.filter((s) => s.status === "absent" || s.status === "excused").length;
+  const totalSessions = attendedShifts + missedShifts;
+  const attendanceRate = totalSessions > 0 ? attendedShifts / totalSessions : null;
   const terms = Array.from(new Set(student.grades.map((g) => g.termIndex))).sort((a, b) => a - b);
   const clinicalShifts = assignments.shifts.length;
   const completedShifts = assignments.shifts.filter((s) => s.status === "completed").length;
@@ -56,13 +59,13 @@ export default async function StudentPage({ params }: { params: { id: string } }
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {stage && <span className="rounded-full px-3 py-1 text-xs font-medium text-white" style={{ background: stage.color }}>{stage.label}</span>}
-            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700">Section {student.sectionIndex}</span>
+            <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-medium text-violet-700">Seat {student.sectionIndex}</span>
             {student.clinicalSite && <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700">{student.clinicalSite}</span>}
           </div>
         </div>
         <form action={updateStudentEnrollment.bind(null, student.id)} className="mt-3 flex flex-wrap items-end gap-2 text-xs">
           <label className="block"><span className={lbl}>Cohort</span><select name="cohortId" defaultValue={student.cohortId ?? ""} className="rounded-lg border border-slate-300 px-2 py-1 text-sm"><option value="">— unassigned —</option>{cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label className="block"><span className={lbl}>Section</span><input name="sectionIndex" type="number" min={1} defaultValue={student.sectionIndex} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums" /></label>
+          <label className="block"><span className={lbl}>Seat number</span><input name="sectionIndex" type="number" min={1} defaultValue={student.sectionIndex} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums" /></label>
           <label className="block"><span className={lbl}>Status</span><select name="status" defaultValue={student.status} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">{STUDENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
           <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Save</button>
         </form>
