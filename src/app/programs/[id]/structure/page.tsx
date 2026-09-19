@@ -31,8 +31,7 @@ export default async function StructureEditor({ params }: { params: { id: string
   }));
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-500">The template every offering runs: terms, courses, and each class, lab and clinical session with its length, capacity and staffing. Open a course to edit its sessions.</p>
-
+      <p className="text-sm text-slate-500">The template every offering runs. Open a course to edit its sessions.</p>
       <ProgramDesigner
         programId={program.id}
         programName={program.name}

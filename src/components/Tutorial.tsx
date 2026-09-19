@@ -11,11 +11,11 @@ interface Tour { key: string; match: RegExp; title: string; steps: Step[] }
 
 const TOURS: Tour[] = [
   { key: "home", match: /^\/$/, title: "Home", steps: [
-    { h: "Six questions", b: "Which workforce targets are at risk, the expected shortfall, what binds, which interventions are worth the most, which evidence gaps weaken the confidence, and what changed. Every answer rests on a saved scenario; a target with none is not assessed, never assumed fine." },
-    { h: "Where to go next", b: "Programs: whether each can meet its target. Scenarios: design and evaluate expansions. Capacity: staffing, clinical, facilities, pipeline, evidence. Setup: connections, mappings, assumptions, evidence review, exceptions." },
+    { h: "The colleges and their targets", b: "Each college, the jobs it is working toward with the goal for each year, and the programs that deliver them. Click a job to open its goal planner." },
+    { h: "Where to go next", b: "Programs: colleges, then jobs, then programs and their offerings. Capacity: staffing, clinical, facilities, pipeline, evidence. Setup: connections, mappings, assumptions, evidence review, exceptions." },
   ] },
   { key: "program", match: /^\/programs\/[^/]+$/, title: "A program", steps: [
-    { h: "One tab per job to do", b: "Overview lists the offerings that run this program (imported actuals). Design & sequence is the template. Clinical sites & requirements is the program's network. Goal & pipeline is the multi-year North Star. Scenarios tests whether it can expand. Students is the roster, as a drill-down." },
+    { h: "One tab per job to do", b: "Overview lists the offerings that run this program (imported actuals). Design & sequence is the template. Clinical sites & requirements is the program's network. Goal & pipeline is the multi-year North Star. Students is the roster, as a drill-down." },
   ] },
   { key: "structure", match: /^\/programs\/[^/]+\/structure$/, title: "Design & sequence", steps: [
     { h: "One row per course", b: "Every course is one closed row: code, hours per week, session counts, clinical settings, and what it costs at the planned enrollment. Open a row to edit its sessions — every class, lab and clinical with its length, capacity, staffing, day and time." },
@@ -35,9 +35,6 @@ const TOURS: Tour[] = [
   ] },
   { key: "capacity", match: /^\/(capacity|insights|scheduler|supply|utilization|semester)/, title: "Capacity", steps: [
     { h: "Five kinds of capacity", b: "Staffing, clinical, facilities and equipment, pipeline, and evidence and uncertainty. The hub reads the headline of each; the tabs are the diagnostics beneath it, all reading the same offerings and the same college picked at the top." },
-  ] },
-  { key: "scenarios", match: /^\/scenarios$/, title: "Scenarios", steps: [
-    { h: "Expansion planning", b: "Every program, its target, and its saved scenarios: feasible or not, what binds, what it adds, what it costs per placed worker, how sure. Open a program to design and evaluate a new one." },
   ] },
 ];
 

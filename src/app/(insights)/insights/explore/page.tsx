@@ -15,7 +15,7 @@ export default async function ExplorePage() {
     <div className="space-y-6">
       <div>
         <PageHeader crumb={{ href: "/setup", label: "Setup" }} title="Explore (diagnostic pivot)" />
-        <p className="text-sm text-slate-500">Pipeline and delivery metrics across {institutions} institution{institutions === 1 ? "" : "s"} and {programs} programs with offerings — pick two dimensions, switch the measure, click to drill. A diagnostic for checking the data, not a place to decide from; the answers live under <Link href="/scenarios" className="text-rose-700 hover:underline">Scenarios</Link> and <Link href="/capacity" className="text-rose-700 hover:underline">Capacity</Link>.</p>
+        <p className="text-sm text-slate-500">Pipeline and delivery metrics across {institutions} institution{institutions === 1 ? "" : "s"} and {programs} programs with offerings — pick two dimensions, switch the measure, click to drill. A diagnostic for checking the data, not a place to decide from; the answers live under <Link href="/programs" className="text-rose-700 hover:underline">Programs</Link> and <Link href="/capacity" className="text-rose-700 hover:underline">Capacity</Link>.</p>
       </div>
       <PivotExplorer facts={facts} />
     </div>

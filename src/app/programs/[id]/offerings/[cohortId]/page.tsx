@@ -176,7 +176,6 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           title="Talent pipeline"
           sub="Goal vs actual at every stage, with enrollment through each term"
           summary={<>{fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} productive target · {fmt.num(enrolledNow)} enrolled now</>}
-          defaultOpen
         >
           <div className="mb-4">
             <OfferingPipelineEditor cohortId={offering.id} initial={initialTargets} termNames={orderedTerms.map((t) => t.name)} defaultRates={defaultRates} />
@@ -367,7 +366,6 @@ export default async function OfferingPage({ params, searchParams }: { params: {
             title="Completion requirements — the credentialing body's list"
             sub={`${reqProgress.sets.map((x) => x.authority.split(" · ")[0]).join(" · ")}: every student's standing, what the cohort still needs, and which sites provide it`}
             summary={<>{reqProgress.sets.map((x) => `${x.complete} of ${reqProgress.students} complete`).join(" · ")}{reqProgress.sets.some((x) => !x.verified) && <> <UnverifiedStandard verified={false} size="xs" /></>}</>}
-            defaultOpen
           >
             <CohortRequirementProgress data={reqProgress} base={`/programs/${program.id}/offerings/${params.cohortId}`} />
           </Collapse>

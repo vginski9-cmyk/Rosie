@@ -8,6 +8,8 @@ export const dynamic = "force-dynamic";
 // CAN THIS PROGRAM EXPAND? — use case 1: a workforce target, a proposed design, and the answer as a
 // sentence with a date, the constraint that binds first, the cost per worker, and the trace behind it.
 export default async function ExpandPage({ params }: { params: { id: string } }) {
+  // The scenario planner is switched off unless ROSIE_SCENARIOS=1 (the engine and its tests stay).
+  if (process.env.ROSIE_SCENARIOS !== "1") notFound();
   const data = await getExpansionStudio(params.id);
   if (!data) notFound();
   return (

@@ -120,16 +120,48 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
 
   return (
     <div className="space-y-4">
-      {/* Design at a glance — sessions, shifts and hours by kind, at the planned enrollment */}
+      {/* The sequence: terms and their courses, at the planned enrollment. */}
       <section className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold text-slate-900">Design at a glance <span className="text-sm font-normal text-slate-400">— {terms.length} term{terms.length === 1 ? "" : "s"} · {terms.reduce((n, t) => n + t.courses.length, 0)} course{terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"}</span></h2>
+          <h2 className="text-base font-semibold text-slate-900">Terms &amp; courses <span className="text-sm font-normal text-slate-400">— {terms.length} term{terms.length === 1 ? "" : "s"} · {terms.reduce((n, t) => n + t.courses.length, 0)} course{terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"} · {n1(psTotal)} h per student</span></h2>
           <label className="flex items-center gap-3 text-sm">
             <span className="font-semibold text-slate-700">Planned enrollment</span>
             <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
             <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
           </label>
         </div>
+        {/* Terms → courses, the sessions each holds */}
+        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {terms.map((term) => (
+            <div key={term.id} className="rounded-lg border border-slate-100 p-3">
+              <div className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-800">{term.name}{term.semester ? <span className="font-normal text-slate-400"> · {term.semester}</span> : null}</span><span className="text-xs text-slate-400">weeks {term.startWeek}–{term.endWeek}</span></div>
+              <div className="mt-1 divide-y divide-slate-100">
+                {term.courses.map((course) => {
+                  const n = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<Kind, number>; for (const s of course.sessions) n[s.kind]++;
+                  const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
+                  return (
+                    <div key={course.id} className="flex items-center justify-between gap-2 py-1 text-xs">
+                      <span className="min-w-0 truncate text-slate-700"><span className="text-slate-400">{course.code ?? ""}</span> {course.name}</span>
+                      <span className="flex shrink-0 gap-1 text-[10px]">
+                        {n.CLASS > 0 && <span className="rounded bg-sky-100 px-1 text-sky-700">{n.CLASS} class</span>}
+                        {n.LAB > 0 && <span className="rounded bg-violet-100 px-1 text-violet-700">{n.LAB} lab</span>}
+                        {n.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{n.CLINICAL} clinical</span>}
+                        <span className="text-slate-400">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h</span>
+                      </span>
+                    </div>
+                  );
+                })}
+                {term.courses.length === 0 && <p className="py-1 text-xs text-slate-400">No courses yet.</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* The numbers behind it — closed until wanted. */}
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Sessions, shifts and hours at {n0(enrollment)} students <span className="font-normal text-slate-400">— {n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} shifts · {n0(psTotal * enrollment)} student-hours · faculty {n2(calc.peakFacFte)} FTE and preceptors {n2(calc.peakPreFte)} FTE in the peak week</span></summary>
+        <div className="border-t border-slate-100 px-4 pb-4">
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
@@ -172,35 +204,10 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
           <div><span className="font-semibold text-slate-600">Across the whole program</span> (semester-FTE of every term added together — a budget total, not people at once): faculty <strong className="text-rose-700">{n2(calc.facFte)} FTE</strong> · preceptors <strong className="text-rose-700">{n2(calc.precFte)} FTE</strong>, provided by partner sites.</div>
           <div><span className="font-semibold text-slate-600">Peak week, at once</span> (the busiest template week ÷ the full-time contact-hour load of {n0(assumptions.facContactHours)} h for faculty and {n0(assumptions.preContactHours)} h for preceptors — the same denominator as the staffing and expansion pages): faculty <strong className="text-rose-700">{n2(calc.peakFacFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakFacFte)} people · preceptors <strong className="text-rose-700">{n2(calc.peakPreFte)} FTE</strong> ≈ {fmt.atLeast(calc.peakPreFte)} people. <span className="text-slate-400">Week-by-week on Instructors &amp; preceptors needed.</span></div>
         </div>
-        {/* Terms → courses, the sessions each holds */}
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {terms.map((term) => (
-            <div key={term.id} className="rounded-lg border border-slate-100 p-3">
-              <div className="flex items-center justify-between text-sm"><span className="font-semibold text-slate-800">{term.name}{term.semester ? <span className="font-normal text-slate-400"> · {term.semester}</span> : null}</span><span className="text-xs text-slate-400">weeks {term.startWeek}–{term.endWeek}</span></div>
-              <div className="mt-1 divide-y divide-slate-100">
-                {term.courses.map((course) => {
-                  const n = { CLASS: 0, LAB: 0, CLINICAL: 0 } as Record<Kind, number>; for (const s of course.sessions) n[s.kind]++;
-                  const ch = calc.courseStudentHrs.get(course.id) ?? { CLASS: 0, LAB: 0, CLINICAL: 0 };
-                  return (
-                    <div key={course.id} className="flex items-center justify-between gap-2 py-1 text-xs">
-                      <span className="min-w-0 truncate text-slate-700"><span className="text-slate-400">{course.code ?? ""}</span> {course.name}</span>
-                      <span className="flex shrink-0 gap-1 text-[10px]">
-                        {n.CLASS > 0 && <span className="rounded bg-sky-100 px-1 text-sky-700">{n.CLASS} class</span>}
-                        {n.LAB > 0 && <span className="rounded bg-violet-100 px-1 text-violet-700">{n.LAB} lab</span>}
-                        {n.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{n.CLINICAL} clinical</span>}
-                        <span className="text-slate-400">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h</span>
-                      </span>
-                    </div>
-                  );
-                })}
-                {term.courses.length === 0 && <p className="py-1 text-xs text-slate-400">No courses yet.</p>}
-              </div>
-            </div>
-          ))}
         </div>
-      </section>
+      </details>
 
-      <details open={allSessions.some((s) => s.kind === "CLINICAL")} className="rounded-xl border border-slate-200 bg-white">
+      <details className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Clinical analytics <span className="font-normal text-slate-400">— settings, modes, shifts and days across the sequence</span></summary>
         <div className="border-t border-slate-100 p-3"><ClinicalAnalytics subject={programName ? `${programName} (template)` : "this template"} courses={analyticsCourses} enrollment={enrollment} /></div>
       </details>
@@ -235,7 +242,10 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         </form>
       </details>
 
-      <SheetImport mode="template" programId={pid} />
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Import from a spreadsheet <span className="font-normal text-slate-400">— Excel, CSV or pasted cells; you check the mapping, then import</span></summary>
+        <div className="border-t border-slate-100 p-3"><SheetImport mode="template" programId={pid} /></div>
+      </details>
 
       {/* Sticky jump-nav: terms, expand, re-sequence, add term */}
       <div className="sticky top-0 z-20 -mx-2 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
