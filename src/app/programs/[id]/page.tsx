@@ -5,6 +5,7 @@ import { duplicateProgram, deleteProgram, createOffering } from "@/lib/actions";
 import { fmt } from "@/lib/format";
 import { ProvisionalDatesBanner } from "@/components/Evidence";
 import { getCalendarProvenance } from "@/lib/queries";
+import { OPERATIONAL } from "@/lib/mode";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           </div>
         </div>
         {offerings.length === 0 ? (
-          <p className="text-sm text-slate-400">No offerings yet — create one below.</p>
+          <p className="text-sm text-slate-400">No offerings yet{OPERATIONAL ? " — create one below" : ""}.</p>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
             {offerings.map((o) => {
@@ -57,11 +58,12 @@ export default async function ProgramPage({ params }: { params: { id: string } }
             })}
           </div>
         )}
-        <form action={createOffering.bind(null, program.id)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
+        {!OPERATIONAL && <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">Offerings are read-mostly actuals (Phase 13): each run, its dates, rooms, staff and students are imported from the college&apos;s source systems. New runs are created in the operational module; what a new run <em>would</em> do is a <Link href={`/programs/${program.id}/expand`} className="text-rose-700 hover:underline">scenario</Link>.</p>}
+        {OPERATIONAL && <form action={createOffering.bind(null, program.id)} className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3">
           <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">New offering</span><input name="name" required placeholder="e.g. Class of 2029" className="input-sm w-56" /></label>
           <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Start date</span><input name="startDate" type="date" className="input-sm w-40" /></label>
           <button className="btn-primary text-sm">+ Create offering</button>
-        </form>
+        </form>}
       </section>
 
       {/* Staffing and clinical placement for these offerings are read on Insights (the capacity model

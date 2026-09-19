@@ -9,6 +9,8 @@ import { UnverifiedStandard } from "@/components/Evidence";
 import { SEX, RACE_ETHNICITY, RESIDENCY, PRIOR_EDUCATION, EMPLOYMENT_STATUS, WITHDRAWAL_REASON, NC_COUNTIES, ageOn } from "@/lib/learners";
 import { STAGES, STAGE_INDEX, type StageKey } from "@/lib/funnel";
 import { fmt, dec } from "@/lib/format";
+import { OPERATIONAL } from "@/lib/mode";
+import { ReadOnly } from "@/components/ReadOnly";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +57,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
         <div className="mt-1 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{student.name}</h1>
-            <p className="text-sm text-slate-500">{student.program.name}{student.cohort ? ` · ${student.cohort.name}` : ""}{student.email ? ` · ${student.email}` : ""}{reqSummary ? ` · ${reqSummary}` : ""}{reqSummary && reqUnverified ? <> <UnverifiedStandard verified={false} size="xs" /></> : null}</p>
+            <p className="text-sm text-slate-500">{student.program.name}{student.cohort ? ` · ${student.cohort.name}` : ""}{OPERATIONAL && student.email ? ` · ${student.email}` : ""}{reqSummary ? ` · ${reqSummary}` : ""}{reqSummary && reqUnverified ? <> <UnverifiedStandard verified={false} size="xs" /></> : null}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {stage && <span className="rounded-full px-3 py-1 text-xs font-medium text-white" style={{ background: stage.color }}>{stage.label}</span>}
@@ -63,23 +65,24 @@ export default async function StudentPage({ params }: { params: { id: string } }
             {student.clinicalSite && <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700">{student.clinicalSite}</span>}
           </div>
         </div>
-        <form action={updateStudentEnrollment.bind(null, student.id)} className="mt-3 flex flex-wrap items-end gap-2 text-xs">
+        {!OPERATIONAL && <p className="mt-3 text-xs text-slate-500">An imported student record (Phase 13): cohort, seat and status come from the college&apos;s student system. Contact details are not shown in the strategic product.</p>}
+        {OPERATIONAL && <form action={updateStudentEnrollment.bind(null, student.id)} className="mt-3 flex flex-wrap items-end gap-2 text-xs">
           <label className="block"><span className={lbl}>Cohort</span><select name="cohortId" defaultValue={student.cohortId ?? ""} className="rounded-lg border border-slate-300 px-2 py-1 text-sm"><option value="">— unassigned —</option>{cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <label className="block"><span className={lbl}>Seat number</span><input name="sectionIndex" type="number" min={1} defaultValue={student.sectionIndex} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums" /></label>
           <label className="block"><span className={lbl}>Status</span><select name="status" defaultValue={student.status} className="rounded-lg border border-slate-300 px-2 py-1 text-sm">{STUDENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
           <button className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Save</button>
-        </form>
+        </form>}
       </div>
 
       {requirements && requirements.sets.length > 0 && (
         <section id="requirements" className="scroll-mt-16 rounded-xl border border-rose-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-sm font-semibold text-slate-800">Completion requirements <span className="font-normal text-slate-400">— {requirements.sets.map((s) => s.authority.split(" · ")[0]).join(" · ")}: what is logged, what is missing, and where it can be had</span></h2>
-          <RequirementLog data={requirements} />
+          <RequirementLog data={requirements} readOnly={!OPERATIONAL} />
         </section>
       )}
 
       <Collapse title="Sections, preceptors & clinical shifts" sub="Which section this student sits in for each course, who staffs it, and every clinical shift with its site, preceptor and hours" summary={<>{completedShifts} of {clinicalShifts} clinical shifts logged</>}>
-        <StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} staff={assignments.staff} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} today={assignments.today} />
+        <ReadOnly what="This student&apos;s sections and shifts"><StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} staff={assignments.staff} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} today={assignments.today} /></ReadOnly>
       </Collapse>
 
       <Collapse title="Academic record" sub="Pipeline stage, grades by term, attendance" summary={<>GPA {student.gpa != null ? dec(student.gpa) : "—"} · attendance {attendanceRate != null ? fmt.pct(attendanceRate, 1) : "—"} · {student.grades.length} courses</>}>
@@ -130,8 +133,13 @@ export default async function StudentPage({ params }: { params: { id: string } }
         </div>
       </Collapse>
 
-      <Collapse title="Profile & demographics" sub="Coded fields, so learners aggregate cleanly in Learner analytics" summary={<>{[student.sex, student.raceEthnicity, student.county ? `${student.county} County` : null, student.dob ? `age ${ageOn(iso(student.dob), todayIso)}` : null].filter(Boolean).join(" · ") || "not coded yet"}</>}>
-        <form action={updateStudentProfile.bind(null, student.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Collapse title="Profile & demographics" sub="Coded fields, so learners aggregate cleanly in Learner analytics" summary={<>{[student.sex, student.raceEthnicity, student.county ? `${student.county} County` : null, OPERATIONAL && student.dob ? `age ${ageOn(iso(student.dob), todayIso)}` : null].filter(Boolean).join(" · ") || "not coded yet"}</>}>
+        {!OPERATIONAL ? (
+          <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
+            {([["Sex", student.sex], ["Race / ethnicity", student.raceEthnicity], ["County", student.county ? `${student.county} County` : null], ["Residency", student.residency], ["Prior education", student.priorEducation], ["Employment", student.employmentStatus], ["First generation", yn(student.firstGeneration) || "unknown"], ["Veteran", yn(student.veteran) || "unknown"], ["Pell eligible", yn(student.pellEligible) || "unknown"], ["Started", student.startDate ? dateFmt(student.startDate) : null], ["Completed", student.completionDate ? dateFmt(student.completionDate) : null], ["Withdrawal reason", student.withdrawalReason]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className={lbl}>{k}</dt><dd className="text-slate-700">{v || <span className="text-slate-400">—</span>}</dd></div>)}
+            <p className="text-[11px] text-slate-400 sm:col-span-3 lg:col-span-4">Coded fields only, as imported. Name, contact details, address, date of birth and GPA are not shown in the strategic product.</p>
+          </dl>
+        ) : <form action={updateStudentProfile.bind(null, student.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="block"><span className={lbl}>Name</span><input name="name" defaultValue={student.name} className={inp} /></label>
           <label className="block"><span className={lbl}>Email</span><input name="email" type="email" defaultValue={student.email ?? ""} className={inp} /></label>
           <label className="block"><span className={lbl}>Phone</span><input name="phone" defaultValue={student.phone ?? ""} className={inp} /></label>
@@ -156,11 +164,11 @@ export default async function StudentPage({ params }: { params: { id: string } }
           <label className="block"><span className={lbl}>GPA</span><input name="gpa" type="number" step="any" defaultValue={student.gpa ?? ""} className={inp} /></label>
           <label className="block"><span className={lbl}>Withdrawal reason</span><select name="withdrawalReason" defaultValue={student.withdrawalReason ?? ""} className={inp}><option value="">—</option>{WITHDRAWAL_REASON.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
           <div className="flex items-end lg:col-span-4"><button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save profile</button></div>
-        </form>
+        </form>}
       </Collapse>
 
       <Collapse title="Work-based learning placements" sub="Employment-style placements at partner sites — not the clinical shifts above" summary={<>{student.placements.length} work-based learning placement{student.placements.length === 1 ? "" : "s"}</>}>
-        <div className="space-y-1.5">
+        <ReadOnly what="A work-based learning placement"><div className="space-y-1.5">
           {student.placements.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[13px]">
               <div><Link href={`/employers/${p.employer.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.employer.name}</Link><span className="ml-2 text-slate-400">{[p.cohort?.name, p.term?.name, p.modality].filter(Boolean).join(" · ") || "—"}</span></div>
@@ -183,7 +191,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
             <label className="block"><span className={lbl}>Modality</span><input name="modality" placeholder="CT" className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
             <button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Add work-based learning placement</button>
           </form>
-        )}
+        )}</ReadOnly>
       </Collapse>
     </div>
   );

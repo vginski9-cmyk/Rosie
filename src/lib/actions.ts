@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "./db";
+import { requireOperational } from "./mode";
 import { ASSUMPTION_BY_KEY } from "./assumptions";
 import { SCRUB_ROLES, joinScrubRoles } from "./surgvolume";
 import { revalidatePath } from "next/cache";
@@ -176,6 +177,7 @@ export interface AlignSummary { offerings: number; termsMoved: number; courseWin
  *  institution's coded academic calendar from its chosen first day. Terms typed
  *  by hand stay put unless `resetManual`; course windows typed by hand stay put. */
 export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignReport | null> {
+  requireOperational();
   const { alignOffering, endYearOf } = await import("./termalign");
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
@@ -252,6 +254,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
 /** Re-align EVERY planned / active offering at an institution (after a calendar
  *  import, a pattern change, or on demand). */
 export async function alignInstitutionOfferings(institutionId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignSummary> {
+  requireOperational();
   const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true }, orderBy: { startDate: "asc" } });
   const reports: AlignReport[] = [];
   for (const c of cohorts) { const r = await alignOfferingToCalendar(c.id, opts); if (r) reports.push(r); }
@@ -264,7 +267,9 @@ export async function previewRealign(institutionId: string, opts: { resetManual?
 }
 
 /** Re-align on purpose: snapshot every offering's dates first, align, record the change (undoable). */
-export async function confirmRealign(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary & { changeSetId: string | null }> {
+export async function confirmRealign(institutionId: string, opts: { resetManual?: boolean } = {}): Promise<AlignSummary & {
+  changeSetId: string | null }> {
+  requireOperational();
   const { snapshotRealign, recordChange } = await import("./changesets");
   const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true } });
   const before = await snapshotRealign(cohorts.map((c) => c.id));
@@ -301,6 +306,7 @@ const STATUS_TO_STAGE: Record<string, string | null> = {
 
 /** Intake: create a real student record and place them in a program (and optionally a cohort). */
 export async function enrollStudent(formData: FormData): Promise<void> {
+  requireOperational();
   const programId = str(formData.get("programId"));
   if (!programId) return;
   const status = str(formData.get("status")) || "enrolled";
@@ -329,6 +335,7 @@ export async function enrollStudent(formData: FormData): Promise<void> {
 
 /** Assign / re-assign a student: cohort, section, and lifecycle status (→ stage). */
 export async function updateStudentEnrollment(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const status = str(formData.get("status"));
   const data: { cohortId: string | null; sectionIndex: number; status?: string; stageKey?: string | null } = {
     cohortId: str(formData.get("cohortId")) || null,
@@ -351,6 +358,7 @@ export async function updateStudentEnrollment(studentId: string, formData: FormD
 
 /** Remove a person from all of a course's sessions for this cohort. */
 export async function removeCourseStaff(cohortId: string, courseId: string, personId: string, programId: string): Promise<void> {
+  requireOperational();
   await prisma.sessionInstructor.deleteMany({ where: { cohortId, personId, session: { courseId } } });
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
 }
@@ -795,6 +803,7 @@ export async function updateInstitutionGeography(institutionId: string, formData
 // ── Student requirement log: competencies and cases as the credentialing body counts them ──
 /** Log one experience against a requirement item. If a shift is chosen, its date, site and preceptor fill any blank field. */
 export async function logRequirement(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const itemId = str(formData.get("itemId")); if (!itemId) return;
   const shiftId = str(formData.get("shiftId")) || null;
   const shift = shiftId ? await prisma.studentShift.findUnique({ where: { id: shiftId }, select: { cohortId: true, sessionId: true, sectionIndex: true, loggedAt: true, preceptorId: true, asset: { select: { employerId: true } }, session: { select: { courseId: true } } } }) : null;
@@ -813,11 +822,13 @@ export async function logRequirement(studentId: string, formData: FormData): Pro
   revalidatePath(`/students/${studentId}`); revalidatePath("/programs/[id]/offerings/[cohortId]", "page"); revalidatePath("/families", "layout");
 }
 export async function deleteRequirementLog(logId: string, studentId: string): Promise<void> {
+  requireOperational();
   await prisma.studentRequirementLog.deleteMany({ where: { id: logId, studentId } });
   revalidatePath(`/students/${studentId}`); revalidatePath("/programs/[id]/offerings/[cohortId]", "page"); revalidatePath("/families", "layout");
 }
 /** The preceptor (or clinical instructor) signs the entry off. */
 export async function verifyRequirementLog(logId: string, studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const by = str(formData.get("verifiedById")) || null;
   await prisma.studentRequirementLog.update({ where: { id: logId }, data: { verifiedById: by, verifiedAt: by ? new Date() : null } });
   revalidatePath(`/students/${studentId}`);
@@ -905,7 +916,9 @@ export async function setAssetDay(assetId: string, dateIso: string, shiftBlocks:
 }
 
 /** Book learners onto a physical asset for one date × shift block. */
-export async function bookAsset(input: { assetId: string; cohortId: string; sessionId?: string | null; sectionIndex?: number; meetingId?: string | null; date: string; block: string; students?: number; note?: string | null }): Promise<{ ok: boolean; reason?: string }> {
+export async function bookAsset(input: { assetId: string; cohortId: string; sessionId?: string | null; sectionIndex?: number; meetingId?: string | null; date: string; block: string; students?: number; note?: string | null }): Promise<{
+  ok: boolean; reason?: string }> {
+  requireOperational();
   const asset = await prisma.clinicalAsset.findUnique({ where: { id: input.assetId }, include: { bookings: { where: { date: new Date(input.date + "T00:00:00Z"), block: input.block } } } });
   if (!asset) return { ok: false, reason: "asset not found" };
   const students = Math.max(1, Math.round(input.students ?? 1));
@@ -916,6 +929,7 @@ export async function bookAsset(input: { assetId: string; cohortId: string; sess
   return { ok: true };
 }
 export async function unbookAsset(bookingId: string): Promise<void> {
+  requireOperational();
   const b = await prisma.assetBooking.delete({ where: { id: bookingId }, include: { asset: { select: { employerId: true } } } }).catch(() => null);
   revalidateAssets(b?.asset.employerId);
 }
@@ -955,6 +969,7 @@ export async function importAssetMap(institutionId: string, parsed: import("./as
 }
 /** Host a clinical section at a site + functional unit (weekly booking). */
 export async function assignSectionSite(meetingId: string, employerId: string | null, unitId: string | null): Promise<void> {
+  requireOperational();
   const m = await prisma.meetingPattern.update({ where: { id: meetingId }, data: { employerId, unitId }, include: { cohort: { select: { programId: true } } } });
   revalidatePath("/insights/clinical-sites"); revalidatePath("/calendar");
   revalidatePath(`/programs/${m.cohort.programId}/offerings/${m.cohortId}`);
@@ -1038,6 +1053,7 @@ const dateOrNull = (v: FormDataEntryValue | null): Date | null => {
 };
 
 export async function createPlacement(formData: FormData): Promise<void> {
+  requireOperational();
   const studentId = str(formData.get("studentId"));
   const employerId = str(formData.get("employerId"));
   if (!studentId || !employerId) return;
@@ -1059,12 +1075,14 @@ export async function createPlacement(formData: FormData): Promise<void> {
 }
 
 export async function updatePlacementStatus(placementId: string, status: string): Promise<void> {
+  requireOperational();
   const p = await prisma.wblPlacement.update({ where: { id: placementId }, data: { status }, select: { studentId: true, employerId: true } });
   revalidatePath(`/students/${p.studentId}`);
   revalidatePath(`/employers/${p.employerId}`);
 }
 
 export async function deletePlacement(placementId: string): Promise<void> {
+  requireOperational();
   const p = await prisma.wblPlacement.delete({ where: { id: placementId }, select: { studentId: true, employerId: true } });
   revalidatePath(`/students/${p.studentId}`);
   revalidatePath(`/employers/${p.employerId}`);
@@ -1200,6 +1218,7 @@ const csvFromCheckboxes = (fd: FormData, name: string, fallback: string) => {
  *  start date, the canonical funnel, and per-term dates cascaded from each
  *  template term's week-span. Then you assign instructors and enroll students. */
 export async function createOffering(programId: string, formData: FormData) {
+  requireOperational();
   const name = str(formData.get("name")) || "New Offering";
   const startStr = str(formData.get("startDate"));
   const startD = startStr ? new Date(startStr) : null;
@@ -1224,7 +1243,9 @@ export async function lockInInstantiation(
   programId: string,
   familyId: string,
   input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number> },
-): Promise<{ cohortId: string; name: string }> {
+): Promise<{
+  cohortId: string; name: string }> {
+  requireOperational();
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
 
@@ -1406,6 +1427,7 @@ export async function clearSessionOverride(cohortId: string, sessionId: string, 
  *  first day. Calendars, capacity insights, and timing all derive from these
  *  live, so a shift here moves everything at once. */
 export async function updateOfferingDates(cohortId: string, programId: string, formData: FormData) {
+  requireOperational();
   const startStr = str(formData.get("startDate"));
   await prisma.cohort.update({
     where: { id: cohortId },
@@ -1436,6 +1458,7 @@ export async function saveSectionSchedules(
   programId: string,
   items: { sessionId: string; sectionIndex: number; dayOfWeek: string | null; startTime: string | null; location: string | null; facilityId?: string | null }[],
 ) {
+  requireOperational();
   for (const it of items) {
     const facilityId = it.facilityId || null;
     await prisma.sectionSchedule.upsert({
@@ -1788,6 +1811,7 @@ export async function saveCohortPipeline(
  *  enrolled students are detached, never deleted. The slot goes back to a
  *  plannable start date. */
 export async function unlockInstantiation(cohortId: string): Promise<void> {
+  requireOperational();
   const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } } } });
   if (!co) return;
   await prisma.cohort.delete({ where: { id: cohortId } });
@@ -1812,6 +1836,7 @@ export async function moveShiftOccurrence(
   fromDateIso: string,
   patch: { toDate?: string; startTime?: string | null; facilityId?: string | null; employerId?: string | null; staffPersonId?: string | null },
 ): Promise<void> {
+  requireOperational();
   const { cohortId, sessionId } = key;
   const sectionIndex = Math.max(1, Math.round(key.sectionIndex || 1));
   const fromDate = new Date(fromDateIso + "T00:00:00Z");
@@ -1839,6 +1864,7 @@ export async function moveShiftOccurrence(
 
 /** Put one moved occurrence back on its weekly pattern. */
 export async function clearShiftMove(key: { cohortId: string; sessionId: string; sectionIndex: number }, fromDateIso: string): Promise<void> {
+  requireOperational();
   const fromDate = new Date(fromDateIso + "T00:00:00Z");
   const sectionIndex = Math.max(1, Math.round(key.sectionIndex || 1));
   const m = await prisma.shiftMove.findUnique({ where: { cohortId_sessionId_sectionIndex_fromDate: { cohortId: key.cohortId, sessionId: key.sessionId, sectionIndex, fromDate } }, include: { cohort: { select: { programId: true } } } });
@@ -1853,6 +1879,7 @@ export async function moveMeeting(
   meetingId: string,
   patch: { dayOfWeek?: string; startTime?: string; lengthHours?: number; facilityId?: string | null; staffPersonId?: string | null; employerId?: string | null },
 ): Promise<void> {
+  requireOperational();
   const data: Record<string, unknown> = {};
   if (patch.dayOfWeek) data.dayOfWeek = patch.dayOfWeek;
   if (patch.startTime) data.startTime = patch.startTime;
@@ -1900,6 +1927,7 @@ export interface AlignmentTagInput {
 // ---------------------------------------------------------------------------
 
 export async function calendarizeCohort(cohortId: string, programId: string): Promise<void> {
+  requireOperational();
   const { calendarizeCore } = await import("./autoassign");
   const made = await calendarizeCore(cohortId);
   if (!made) return;
@@ -1939,6 +1967,7 @@ const chunks = <T,>(xs: T[], n = 400): T[][] => { const out: T[][] = []; for (le
  *  - a planned placement per student per site.
  *  Earlier auto-plan rows for the same offerings are replaced; anything made by hand is left alone. */
 export async function applySchedulerPlan(institutionId: string, assignments: PlanAssignmentInput[]): Promise<AppliedPlan> {
+  requireOperational();
   const cohortIds = [...new Set(assignments.map((a) => a.cohortId))];
   if (cohortIds.length === 0) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0 };
   await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
@@ -2069,7 +2098,9 @@ export async function applySchedulerPlan(institutionId: string, assignments: Pla
  *  same offerings and supply the board loaded, by the same pure steps, so it
  *  matches what was on screen — and a 5,000-section plan never has to travel
  *  as a request body (Next.js caps server-action bodies at 1 MB). */
-export async function applySchedulerLevers(institutionId: string, levers: import("./schedulerplan").SchedulerLevers, opts: { override?: import("./scheduler").BlockerKind[] } = {}): Promise<AppliedPlan & { sections: number; changeSetId: string | null }> {
+export async function applySchedulerLevers(institutionId: string, levers: import("./schedulerplan").SchedulerLevers, opts: {
+  override?: import("./scheduler").BlockerKind[] } = {}): Promise<AppliedPlan & { sections: number; changeSetId: string | null }> {
+  requireOperational();
   const { getCapacityModel, getSchedulerData } = await import("./queries");
   const { buildSchedulerPlan, planInputs, schedulerWindow } = await import("./schedulerplan");
   const { snapshotPlan, recordChange } = await import("./changesets");
@@ -2132,6 +2163,7 @@ export async function previewSchedulerApply(institutionId: string, levers: impor
 
 /** Undo one recorded change (Phase 5): restores its snapshot and marks the record undone. */
 export async function undoChangeSet(id: string): Promise<import("./changesets").ChangeSetRow | null> {
+  requireOperational();
   const { undoChange } = await import("./changesets");
   const r = await undoChange(id);
   revalidatePath("/scheduler"); revalidatePath("/calendar"); revalidatePath("/employers"); revalidatePath("/students"); revalidatePath("/people");
@@ -2143,7 +2175,9 @@ export async function undoChangeSet(id: string): Promise<import("./changesets").
 /** AUTO-ASSIGN one offering end to end: calendarize, place every clinical
  *  section on partner assets, staff every shift under workload policies, and
  *  put every learner in sections and on their clinical shifts. Fills gaps only. */
-export async function autoAssignOffering(cohortId: string, programId: string): Promise<(import("./autoassign").AutoAssignSummary & { changeSetId: string | null }) | null> {
+export async function autoAssignOffering(cohortId: string, programId: string): Promise<(import("./autoassign").AutoAssignSummary & {
+  changeSetId: string | null }) | null> {
+  requireOperational();
   const { autoAssignOffering: run } = await import("./autoassign");
   const { snapshotAutoAssign, diffAutoAssign, recordChange } = await import("./changesets");
   const head = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { name: true, program: { select: { institutionId: true } } } });
@@ -2179,6 +2213,7 @@ export async function previewAutoAssign(cohortId: string): Promise<import("./aut
 /** Remove everything a plan wrote for these offerings: bookings, placements, moves, shift staffing,
  *  the student shifts it created — and the shifts it merely pinned go back to unpinned. Hand-made rows stay. */
 export async function clearSchedulerPlan(cohortIds: string[]): Promise<void> {
+  requireOperational();
   if (!cohortIds.length) return;
   await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
@@ -2268,6 +2303,7 @@ function revalidateStaffing(programId: string, cohortId: string) {
  *  to the whole session length; an offset (minutes into the session) places
  *  the share in time, so overlapping shares read as co-teaching. */
 export async function addShiftAssignment(cohortId: string, programId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const sessionId = str(formData.get("sessionId")); const personId = str(formData.get("personId"));
   if (!sessionId || !personId) return;
   const session = await prisma.session.findUnique({ where: { id: sessionId }, select: { lengthHours: true, courseId: true } });
@@ -2288,6 +2324,7 @@ export async function addShiftAssignment(cohortId: string, programId: string, fo
 }
 
 export async function updateShiftAssignment(id: string, cohortId: string, programId: string, formData: FormData): Promise<void> {
+  requireOperational();
   await prisma.sessionInstructor.update({
     where: { id },
     data: {
@@ -2302,12 +2339,14 @@ export async function updateShiftAssignment(id: string, cohortId: string, progra
 }
 
 export async function removeShiftAssignment(id: string, cohortId: string, programId: string): Promise<void> {
+  requireOperational();
   await prisma.sessionInstructor.delete({ where: { id } }).catch(() => undefined);
   revalidateStaffing(programId, cohortId);
 }
 
 /** Copy one section's assignments for a session onto every other section. */
 export async function copyShiftAssignments(cohortId: string, sessionId: string, fromSection: number, sectionCount: number, programId: string): Promise<void> {
+  requireOperational();
   const rows = await prisma.sessionInstructor.findMany({ where: { cohortId, sessionId, sectionIndex: fromSection } });
   await prisma.sessionInstructor.deleteMany({ where: { cohortId, sessionId, sectionIndex: { not: fromSection } } });
   for (let s = 1; s <= sectionCount; s++) {
@@ -2321,6 +2360,7 @@ export async function copyShiftAssignments(cohortId: string, sessionId: string, 
  *  full, on the chosen section(s) — the fast path; refine any shift on the
  *  design page. */
 export async function assignCourseStaffBulk(cohortId: string, courseId: string, programId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const personId = str(formData.get("personId"));
   if (!personId) return;
   const role = str(formData.get("role")) || "instructor";
@@ -2516,6 +2556,7 @@ const boolOrNull = (v: FormDataEntryValue | null): boolean | null => { const s =
 
 /** Save the coded demographic profile (every field a dropdown or a date, so it aggregates cleanly). */
 export async function updateStudentProfile(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const d = (k: string) => { const v = str(formData.get(k)); return v ? new Date(v + "T00:00:00Z") : null; };
   const s = await prisma.student.update({
     where: { id: studentId },
@@ -2535,6 +2576,7 @@ export async function updateStudentProfile(studentId: string, formData: FormData
 
 /** Put a student in a section of one course kind for their offering (0 = remove). */
 export async function setStudentSection(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId")), kind = str(formData.get("kind"));
   const sectionIndex = Math.round(numOr(formData.get("sectionIndex"), 0));
   if (!cohortId || !courseId || !kind) return;
@@ -2545,6 +2587,7 @@ export async function setStudentSection(studentId: string, formData: FormData): 
 
 /** Put a student on a clinical shift (a clinical session × section), optionally on a specific asset. */
 export async function addStudentShift(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const cohortId = str(formData.get("cohortId")), sessionId = str(formData.get("sessionId"));
   if (!cohortId || !sessionId) return;
   const sectionIndex = Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1)));
@@ -2553,6 +2596,7 @@ export async function addStudentShift(studentId: string, formData: FormData): Pr
   revalidatePath(`/students/${studentId}`);
 }
 export async function removeStudentShift(id: string, studentId: string): Promise<void> {
+  requireOperational();
   await prisma.studentShift.delete({ where: { id } }).catch(() => undefined);
   revalidatePath(`/students/${studentId}`);
 }
@@ -2561,6 +2605,7 @@ const SHIFT_STATUSES = new Set(["scheduled", "completed", "absent", "excused"]);
 /** Log one shift: completed (hours credited — the session length unless overridden), absent or excused
  *  (no hours), or back to scheduled. The preceptor recorded defaults to the section's assigned preceptor. */
 export async function logStudentShift(shiftId: string, studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const status = str(formData.get("status"));
   if (!SHIFT_STATUSES.has(status)) return;
   const sh = await prisma.studentShift.findUnique({ where: { id: shiftId }, select: { cohortId: true, sessionId: true, sectionIndex: true, preceptorId: true, settingCode: true, asset: { select: { settingCode: true } }, session: { select: { lengthHours: true, rotationType: true, course: { select: { term: { select: { program: { select: { institutionId: true } } } } } } } } } });
@@ -2578,6 +2623,7 @@ export async function logStudentShift(shiftId: string, studentId: string, formDa
 /** Log every still-scheduled shift dated on or before a date as completed (session hours, section preceptor)
  *  — for one learner, or for the whole offering when no studentId is given. */
 export async function logShiftsThrough(cohortId: string, studentId: string | null, formData: FormData): Promise<void> {
+  requireOperational();
   const through = str(formData.get("through")) || new Date().toISOString().slice(0, 10);
   const { sessionDatesForCohort } = await import("./queries");
   const { dates } = await sessionDatesForCohort(cohortId);
@@ -2602,6 +2648,7 @@ export async function logShiftsThrough(cohortId: string, studentId: string | nul
  *  and save it: every student's shift gets its asset (site + setting) and a preceptor at that site,
  *  and the seats are booked on the asset map so other cohorts see them taken. Pinned cells stay. */
 export async function buildClinicalRotations(cohortId: string, courseId: string, _formData?: FormData): Promise<void> {
+  requireOperational();
   void _formData;
   const { getRotationInput } = await import("./queries");
   const { buildRotationPlan } = await import("./rotations");
@@ -2645,6 +2692,7 @@ export async function buildClinicalRotations(cohortId: string, courseId: string,
 
 /** Pin (or unpin) a student's shifts in one week to a service area, then rebuild the plan around it. */
 export async function pinStudentWeek(cohortId: string, courseId: string, studentId: string, weekMonday: string, formData: FormData): Promise<void> {
+  requireOperational();
   const area = str(formData.get("area")) || null;
   const { getRotationInput } = await import("./queries");
   const r = await getRotationInput(cohortId, courseId);
@@ -2659,6 +2707,7 @@ export async function pinStudentWeek(cohortId: string, courseId: string, student
 
 /** Put the student on every clinical shift of a course, section = their seat's section. */
 export async function addStudentShiftsForCourse(studentId: string, formData: FormData): Promise<void> {
+  requireOperational();
   const cohortId = str(formData.get("cohortId")), courseId = str(formData.get("courseId"));
   if (!cohortId || !courseId) return;
   const sectionIndex = Math.max(1, Math.round(numOr(formData.get("sectionIndex"), 1)));

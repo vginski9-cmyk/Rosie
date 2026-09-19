@@ -3,16 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// One flat bar. Each item is a place, and each place has its own tabs — no menus to hunt through.
-//   Home (the setup and where things stand) · Programs · Clinical sites · Students · People · Calendar · Insights · Setup
+// The primary places are the product: workforce goals (Home), the programs that deliver them, the
+// scenarios that test expansion, the capacity that constrains it, and Setup (connections, mappings,
+// assumptions, evidence review, exceptions). Operational records — students, people, the calendar,
+// clinical sites, the scheduler — are drill-downs reached from those places, not destinations.
 const ITEMS: { label: string; href: string; match: (p: string) => boolean }[] = [
   { label: "Home", href: "/", match: (p) => p === "/" || p === "/goals" },
-  { label: "Programs", href: "/programs", match: (p) => p.startsWith("/programs") || p.startsWith("/courses") || p.startsWith("/families/") },
-  { label: "Clinical sites", href: "/clinical", match: (p) => p.startsWith("/clinical") || p.startsWith("/employers") },
-  { label: "Students", href: "/students", match: (p) => p.startsWith("/students") },
-  { label: "People", href: "/people", match: (p) => p.startsWith("/people") },
-  { label: "Calendar", href: "/calendar", match: (p) => p.startsWith("/calendar") },
-  { label: "Insights", href: "/insights/staffing-need", match: (p) => p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") },
+  { label: "Programs", href: "/programs", match: (p) => (p.startsWith("/programs") && !p.endsWith("/expand")) || p.startsWith("/courses") || p.startsWith("/families/") || p.startsWith("/students") },
+  { label: "Scenarios", href: "/scenarios", match: (p) => p.startsWith("/scenarios") || p.endsWith("/expand") },
+  { label: "Capacity", href: "/capacity", match: (p) => p.startsWith("/capacity") || p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") || p.startsWith("/clinical") || p.startsWith("/employers") || p.startsWith("/people") || p.startsWith("/calendar") },
   { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") },
   { label: "Glossary", href: "/glossary", match: (p) => p.startsWith("/glossary") },
 ];

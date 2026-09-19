@@ -19,7 +19,7 @@ export default async function ProgramsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Programs</h1>
-          <p className="text-sm text-slate-500">Design the program, set up its clinical sites, run an offering, follow the students.</p>
+          <p className="text-sm text-slate-500">Determine whether each program can meet its workforce target, identify its binding constraints, and compare the investments that would expand production.</p>
         </div>
         <Link href="/programs/new" className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">+ New program</Link>
       </div>

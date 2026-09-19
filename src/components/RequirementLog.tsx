@@ -13,7 +13,7 @@ const inp = "rounded border border-slate-300 px-1.5 py-0.5 text-xs";
 const lbl = "block text-[9px] font-semibold uppercase tracking-wide text-slate-500";
 const fmtDate = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit", timeZone: "UTC" }) : "—");
 
-export function RequirementLog({ data }: { data: Data }) {
+export function RequirementLog({ data, readOnly = false }: { data: Data; /** Phase 13: the strategic product reads the log as imported evidence; logging, verifying and deleting entries belong to the operational module. */ readOnly?: boolean }) {
   if (!data.sets.length) return <p className="text-xs text-slate-400">No requirement set is loaded for {data.family.name}.</p>;
   return (
     <div className="space-y-6">
@@ -92,8 +92,9 @@ export function RequirementLog({ data }: { data: Data }) {
               </table>
             </div>
 
-            {/* Log an experience */}
-            <form action={logRequirement.bind(null, data.student.id)} className="grid gap-2 rounded-lg border border-rose-200 bg-rose-50/30 p-3 text-xs sm:grid-cols-2 lg:grid-cols-6">
+            {/* Log an experience — the operational module only */}
+            {readOnly && <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>Imported record.</strong> Case and competency entries come from the program&apos;s clinical tracking system; they are read here as evidence of what the sites provide, not logged by hand.</p>}
+            {!readOnly && <form action={logRequirement.bind(null, data.student.id)} className="grid gap-2 rounded-lg border border-rose-200 bg-rose-50/30 p-3 text-xs sm:grid-cols-2 lg:grid-cols-6">
               <div className="sm:col-span-2 lg:col-span-6 text-sm font-semibold text-slate-800">Log {cases ? "a case" : "a competency"} <span className="text-xs font-normal text-slate-500">— pick the shift it happened on and the site, date and preceptor fill themselves; override any of them</span></div>
               <label className="block sm:col-span-2 lg:col-span-2"><span className={lbl}>Experience</span>
                 <select name="itemId" required className={inp + " w-full"}>{cats.map((cat) => <optgroup key={cat} label={cat}>{pr.items.filter((i) => i.item.category === cat).map((r) => <option key={r.item.id} value={r.item.id}>{r.met ? "✓ " : ""}{r.item.name}{r.item.mandatory ? "" : " (elective)"}</option>)}</optgroup>)}</select></label>
@@ -112,7 +113,7 @@ export function RequirementLog({ data }: { data: Data }) {
               <label className="block sm:col-span-2 lg:col-span-3"><span className={lbl}>{cases ? "Procedure (e.g. lap chole, ORIF ankle)" : "Projections / notes (e.g. PA & lateral, wheelchair)"}</span><input name="procedure" className={inp + " w-full"} /></label>
               <label className="block sm:col-span-2 lg:col-span-2"><span className={lbl}>Notes</span><input name="notes" className={inp + " w-full"} /></label>
               <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700">Log it</button></div>
-            </form>
+            </form>}
 
             {/* Entries */}
             {set.logs.length > 0 && (
@@ -125,10 +126,10 @@ export function RequirementLog({ data }: { data: Data }) {
                       <td className="py-1">{l.item.name}{l.procedure ? <span className="text-slate-400"> · {l.procedure}</span> : null}{l.flags ? <span className="ml-1 text-[10px] text-slate-400">{l.flags}</span> : null}</td>
                       <td className="py-1">{cases ? `${l.role ?? "—"} · ${dec(l.count)}` : l.outcome}{l.simulated ? " · simulated" : ""}</td>
                       <td className="py-1 text-slate-600">{l.site ?? "—"}{l.preceptor ? ` · ${l.preceptor}` : ""}</td>
-                      <td className="py-1">{l.verifiedAt ? <span className="text-emerald-700">✓ {l.verifier ?? ""} {fmtDate(l.verifiedAt)}</span> : (
+                      <td className="py-1">{l.verifiedAt ? <span className="text-emerald-700">✓ {l.verifier ?? ""} {fmtDate(l.verifiedAt)}</span> : readOnly ? <span className="text-amber-700">not verified</span> : (
                         <form action={verifyRequirementLog.bind(null, l.id, data.student.id)} className="flex items-center gap-1"><select name="verifiedById" aria-label="Verified by" className={inp}><option value="">— preceptor —</option>{data.sites.flatMap((s) => s.preceptors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>))}</select><button className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-white">verify</button></form>
                       )}</td>
-                      <td className="py-1 text-right"><form action={deleteRequirementLog.bind(null, l.id, data.student.id)}><button className="text-slate-300 hover:text-rose-600" title="remove entry">✕</button></form></td>
+                      <td className="py-1 text-right">{!readOnly && <form action={deleteRequirementLog.bind(null, l.id, data.student.id)}><button className="text-slate-300 hover:text-rose-600" title="remove entry">✕</button></form>}</td>
                     </tr>
                   ))}</tbody></table>
               </details>

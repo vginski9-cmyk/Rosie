@@ -3,6 +3,7 @@ import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { listChangeSets } from "@/lib/changesets";
+import { OPERATIONAL } from "@/lib/mode";
 
 export const dynamic = "force-dynamic";
 
@@ -23,12 +24,12 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Clinical scheduler</h1>
-        <p className="text-sm text-slate-500">Every dated clinical shift (demand) placed onto every site&apos;s assets (supply), with the reason for each clinical placement and what would fix each gap. Nothing is written until you apply the plan.</p>
+        <p className="text-sm text-slate-500">Every dated clinical shift (demand) placed onto every site&apos;s assets (supply), with the reason for each clinical placement and what would fix each gap. {OPERATIONAL ? "Nothing is written until you apply the plan." : "A diagnostic: nothing here is written to the calendar."}</p>
       </div>
       <ScopeStrip
         provisional={provenance}
         bridge={bridge} self="scheduler"
-        shows="A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load."
+        shows={OPERATIONAL ? "A proposed scenario — the plan the engine builds under the levers on the page. Nothing is written until you apply it; an applied plan shows on the calendar, in daily coverage and in site load." : "A diagnostic — the plan the engine builds under the levers on the page, read for what binds. The strategic product never writes it to the calendar."}
         population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
         window={`${from} → ${to} (adjustable in the levers)`}
         constraints={["agreement tier (and agreement end dates)", "asset seats per shift", "holidays", "site continuity", "travel ring", "preceptors only when the Preceptors lever requires one", "readiness: secured agreement · named staff · confirmed experience · site students-at-once · no overlaps"]}
@@ -50,6 +51,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         changes={changes}
         from={from}
         to={to}
+        canApply={OPERATIONAL}
       />
     </div>
   );

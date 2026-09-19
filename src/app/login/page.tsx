@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage({ searchParams }: { searchParams: { next?: string; error?: string } }) {
+export default function LoginPage({ searchParams }: { searchParams: { next?: string; error?: string; unconfigured?: string } }) {
   const next = searchParams.next && searchParams.next.startsWith("/") ? searchParams.next : "/";
   return (
     <div className="flex min-h-[70vh] items-center justify-center">
@@ -20,6 +20,7 @@ export default function LoginPage({ searchParams }: { searchParams: { next?: str
           <input name="password" type="password" autoFocus required autoComplete="current-password" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none" />
         </label>
         {searchParams.error && <p className="text-sm font-medium text-rose-700">That password isn&apos;t right — try again.</p>}
+        {searchParams.unconfigured && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">This deployment has no site password configured (SITE_PASSWORD), so it stays closed. Set the password in the hosting environment and redeploy.</p>}
         <button className="w-full rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Open Rosie</button>
       </form>
     </div>

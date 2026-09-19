@@ -44,9 +44,11 @@ const LEVER_NAMES: Record<keyof Policy, string> = {
 };
 const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
+  /** Phase 13: the strategic product reads the plan and never writes it; apply, undo and clear are shown only in the operational module. */
+  canApply?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -186,7 +188,12 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             </ul>
           </div>
         )}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+        {!canApply && (
+          <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <strong>Read-only.</strong> This is the strategic product: the plan above is a diagnostic — what the engine would place, and what binds — not an instruction to the calendar. Applying a plan, undoing one and clearing bookings belong to the operational module, which is switched off here.{autoBookings.length > 0 ? ` ${n0(autoBookings.length)} asset bookings from an earlier applied plan are on the books and counted as supply taken.` : ""}{manualBookings.length > 0 ? ` ${n0(manualBookings.length)} hand-made bookings already take seats.` : ""}
+          </p>
+        )}
+        {canApply && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           {!preview && <button onClick={doPreview} disabled={pending || plan.assignments.length === 0} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400">{pending ? "Working…" : `Preview apply — ${n0(plan.assignments.length)} shifts`}</button>}
           {(autoBookings.length > 0 || applied) && <button onClick={clear} disabled={pending} className="rounded-lg border border-slate-300 px-3 py-1.5 text-slate-700 hover:bg-slate-50">Clear the applied plan</button>}
           {applied?.changeSetId && <button onClick={() => undo(applied.changeSetId!)} disabled={pending} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-100">Undo this apply</button>}
@@ -194,8 +201,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             {applyError ? <span className="text-rose-700">Could not apply: {applyError}</span> : applied ? <span className="text-emerald-700">Applied and recorded: {n0(applied.sections)} shifts as {n0(applied.bookings)} asset bookings · {n0(applied.moves)} shifts moved on the calendar (other day, shift or site than the weekly pattern) · {n0(applied.staffed)} preceptor and instructor shift assignments · {n0(applied.shifts)} student shifts pinned to their site · {n0(applied.placements)} student placements{applied.offSite ? ` · ${n0(applied.offSite)} preceptor assignments from other sites taken off shifts that now happen elsewhere` : ""}. <a href="/calendar" className="underline">See it on the calendar →</a></span> : autoBookings.length > 0 ? `${n0(autoBookings.length)} asset bookings (one per shift × asset, not learner-shifts) from an earlier applied plan are on the books — they will be replaced.` : "Applying writes every shift to the calendar: bookings on assets, each shift on the day, shift block and site the plan chose, the preceptors and instructor on it, and every student pinned to their site. Hand-made bookings, moves and assignments are never touched. Preview first; the change is recorded and can be undone."}
             {manualBookings.length > 0 && ` ${n0(manualBookings.length)} hand-made bookings already take seats.`}
           </span>
-        </div>
-        {preview && (
+        </div>}
+        {canApply && preview && (
           <div className="mt-3 rounded-xl border border-slate-300 bg-slate-50 p-3 text-xs">
             <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-600">What applying would write</div>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -216,7 +223,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             </div>
           </div>
         )}
-        <ChangeHistory changes={changes} onUndo={undo} pending={pending} />
+        <ChangeHistory changes={changes} onUndo={canApply ? undo : undefined} pending={pending} />
       </div>
 
       {/* ── Levers (Phase 8: results first; the levers fold away under a one-line summary of what is set) ── */}

@@ -272,9 +272,13 @@ Two ways a reviewer loads the site without a prompt:
    `DemoGate.tsx`, a **client-side** check that can be bypassed by disabling JavaScript or reading
    the served HTML, and that a crawler is meant to pass.
 
-Verdict: on Vercel the gate works as designed (server-enforced, digest cookie); the reported
-no-prompt is **could not reproduce** here and most likely case 1. The DEMO build's gate is
+Verdict at the time: on Vercel the gate works as designed (server-enforced, digest cookie); the
+reported no-prompt is **could not reproduce** here and most likely case 1. The DEMO build's gate is
 cosmetic and should be documented as such (it is a static snapshot by design).
+
+**Superseded by Phase 13 (§19):** the 30-day cookie, the repository-default password usable in
+production and the static demo's person-level pages were each a way the site opened without a
+prompt; all three are gone.
 
 ### 2.3 Does daily coverage read the same date-override data as the calendar?
 
@@ -644,3 +648,42 @@ Every hall count, group size, slot count and agreement tier is a planning estima
 What the tool says now that it could not before: Carteret's offerings place on the first run except 6 holiday shifts; Lenoir's many concurrent cohorts collide on the same halls (160 learner-shifts short at the secured sites) and 670 land on a day the cohort has class, which is a template defect (the Mon/Wed cohorts' clinical is coded on the class day) recorded for data entry; Roanoke-Chowan's 1:1 externship needs more secured slots than its two secured sites carry (250 of 286 unplaced until the asked and prospect sites sign). The exception queue no longer shows the "no clinical supply" blocker for any college.
 
 Tests: `test/partnersites.test.ts` (unique ids and names, gazetteer coverage, the right kinds of site per program, county coverage, sources and estimate flags). Suite: 58 files, 420 tests.
+
+## 19. Phase 13 — the product boundary, and the door (2026-09-19)
+
+The owner's redesign: Rosie is a strategic planning product for executives. It keeps the deep model of operational reality (calendars, sequences, faculty qualification supply, ratios, preceptors, agreement dates, assets, experience types, travel, holidays, rooms and equipment, retention, lead times, evidence, uncertainty) and stops presenting operational administration as the product. Everything that is not the executive question is classified as **(1) an imported input**, **(2) a diagnostic drill-down**, or **(3) a separately scoped operational module**.
+
+### Access control — the reported defect, and its causes
+
+"The site still opened directly in a fresh browser session without requiring the supplied password." Three real causes, each fixed in `src/lib/gate.ts`, `src/middleware.ts` and `src/app/api/login/route.ts`:
+
+| Cause | Before | Now |
+|---|---|---|
+| Cookie lifetime | 30-day persistent cookie: any browser profile that had ever signed in opened the site for a month | A **session cookie** (dropped when the browser closes) carrying a signed token that also **expires after 12 hours** (`GATE_TTL_SECONDS`) |
+| Default password in production | With no `SITE_PASSWORD` set, the repository default `Foundational` opened a production deployment; the cookie was a bare SHA-256 that could be minted from the source | In production there is **no default**: with nothing configured the site **fails closed** and the login page says "not configured". The token is an HMAC keyed by `SITE_SECRET` (else the password) and cannot be forged from the repository once a real password is set |
+| The static demo | The GitHub Pages snapshot's gate runs in the browser and protects nothing; it crawled every page, including student and people records | The crawler excludes `/students`, `/people`, `/calendar`, per-student pages and the pivot (`scripts/crawl-demo.mjs` EXCLUDED); DEPLOY.md says the demo is not access-controlled and holds no person-level record |
+
+Also: constant-time password comparison; a bad or expired cookie is cleared on redirect; gated responses carry `Cache-Control: private, no-store` and `X-Robots-Tag: noindex`; sign-out is a POST (a GET needs `?confirm=1`). Tests: `test/gate.test.ts` (round trip, wrong password, expiry, tamper).
+
+### The ten scope corrections
+
+| # | Correction | Where |
+|---|---|---|
+| 1 | Students, People and Calendar out of the primary navigation | `MainNav.tsx`: Home · Programs · Scenarios · Capacity · Setup · Glossary. The records stay reachable as drill-downs from Setup → Operational records and from a program's Students tab |
+| 2 | "Can it expand?" is a primary workflow, **Scenarios** | `/scenarios` (`src/app/scenarios/page.tsx`, `getScenarioHub`): every program, its target, baseline, shortfall and each saved scenario's answer, binding constraint, workers added, cost per placed worker, confidence. The program tab is renamed; the studio is unchanged beneath it |
+| 3 | Insights replaced by a focused **Capacity** area | `/capacity` (`src/app/(insights)/capacity/page.tsx`): staffing, clinical, facilities & equipment, pipeline, evidence & uncertainty — each with headline figures and its drill-downs. The tab strip leads with Capacity; `/insights` redirects there |
+| 4 | Home answers the six executive questions | `src/lib/executive.ts` + `src/app/goals/page.tsx`: targets at risk, expected shortfall (target − the baseline the engine measured), binding constraints rolled up by kind, highest-value interventions (feasible scenarios by cost per placed worker), evidence gaps (unverified and stale assumptions, provisional calendars, estimated site figures, engine risks), recent material changes (scenarios, assumptions, applied plans, program designs, 60 days). The exception queue moved to Setup → Exceptions; Home shows its count |
+| 5 | Learner-shift calculations stay in the engine; executives see root constraints | Nothing about the engine changed. The Home and Scenarios pages show the binding constraint's kind, shortfall, unit and fix — never the rows beneath |
+| 6 | The scheduler's "apply" is isolated | `SchedulerBoard` takes `canApply`; the strategic product renders the plan as a diagnostic with no preview / apply / undo / clear, and `applySchedulerLevers`, `undoChangeSet`, `clearSchedulerPlan` refuse on the server |
+| 7 | Individual competency logging out of core scope | `RequirementLog` takes `readOnly`: entries read as imported evidence; log / verify / delete are hidden and refused |
+| 8 | Offering records are read-mostly actuals | The offering page: no auto-assign, no hand-typed dates; staffing, rotations and the shift ledger render inside `<ReadOnly>` (a disabled fieldset) with a note; "create offering" is gone from the overview — a new run is a scenario |
+| 9 | Setup reduced to connections, mappings, assumptions, evidence review, exceptions | `src/app/orgs/[id]/page.tsx` rebuilt in that order: connection cards (calendar, program sheets, asset maps, student and staffing systems) → mappings (basics & geography, rooms & equipment, sites & assets, people & policies, programs) → the assumption registry's status → an evidence checklist (calendar provenance, requirement sets, site staff figures, asset confirmations, assumption verification) → this college's exceptions → operational records and diagnostics |
+| 10 | The generic Explore pivot off the main experience | Moved to `/insights/explore`, linked only from Setup → diagnostics |
+
+The boundary itself is one flag, `ROSIE_OPERATIONAL=1` (`src/lib/mode.ts`). Forty-three server actions that write the operating plan or a person-level record call `requireOperational()` first, so a hidden form cannot be replayed. The student page shows coded fields only (no name edit, e-mail, phone, address, date of birth, GPA) unless the module is on.
+
+### What "missing ≠ zero" means on the executive Home
+
+A target with no evaluated scenario is **not assessed**; its baseline and shortfall show `?`, never 0, and it sorts after the at-risk targets and before the covered ones. The baseline is the engine's measurement of what the offerings already planned yield — it exists only once a scenario has been evaluated for that program, which is why the page says so rather than inventing one.
+
+Tests: `test/executive.test.ts` (12: unassessed vs at-risk vs covered vs on-track, target-year fallback, recommended-first choice, binding roll-up, intervention ranking, evidence gaps, the guard) and `test/gate.test.ts` (4). Suite: 60 files, 436 tests.

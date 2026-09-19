@@ -3,20 +3,20 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-// Insights is one analytics workspace: every analysis page is a tab of it, and
-// every tab reads the same college — the one picked here, carried in ?inst=
-// ("all" reads every college together).
+// Capacity is one workspace (Phase 13): the hub first, then the diagnostic drill-downs beneath
+// it, every tab reading the same college — the one picked here, carried in ?inst=
+// ("all" reads every college together). The generic pivot is not a tab; Setup links to it.
 const TABS: { label: string; href: string }[] = [
-  { label: "Instructors & preceptors needed", href: "/insights/staffing-need" },
-  { label: "Daily coverage", href: "/insights/coverage" },
+  { label: "Capacity", href: "/capacity" },
+  { label: "Staffing need", href: "/insights/staffing-need" },
+  { label: "Clinical site capacity", href: "/insights/clinical-sites" },
   { label: "Clinical scheduler", href: "/scheduler" },
   { label: "Clinical site load", href: "/insights/site-load" },
-  { label: "Clinical site capacity", href: "/insights/clinical-sites" },
+  { label: "Daily coverage", href: "/insights/coverage" },
   { label: "Map", href: "/insights/map" },
   { label: "Room utilization", href: "/utilization" },
   { label: "Asset supply", href: "/supply" },
   { label: "Semester", href: "/semester" },
-  { label: "Explore", href: "/insights" },
 ];
 export const ALL = "all";
 
@@ -30,7 +30,7 @@ export function InsightsTabs({ institutions, defaultInstitutionId }: { instituti
     <div className="-mx-6 flex items-center gap-4 border-b border-slate-200 bg-white px-6">
       <nav className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
         {TABS.map((t) => {
-          const active = t.href === "/insights" ? pathname === "/insights" : pathname === t.href || pathname.startsWith(`${t.href}/`);
+          const active = pathname === t.href || pathname.startsWith(`${t.href}/`);
           return (
             <Link key={t.href} href={withInst(t.href)} className={`whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${active ? "border-rose-600 text-rose-700" : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700"}`}>{t.label}</Link>
           );

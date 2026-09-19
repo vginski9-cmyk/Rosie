@@ -1,21 +1,7 @@
-import { getInsightsFacts } from "@/lib/queries";
-import { PivotExplorer } from "@/components/PivotExplorer";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function InsightsPage() {
-  const facts = await getInsightsFacts();
-  const institutions = new Set(facts.map((f) => f.institution)).size;
-  const programs = new Set(facts.map((f) => f.program)).size;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Explore</h1>
-        <p className="text-sm text-slate-500">Pipeline and delivery metrics across {institutions} institution{institutions === 1 ? "" : "s"} and {programs} programs with offerings — pick two dimensions, switch the measure, click to drill.</p>
-      </div>
-
-      <PivotExplorer facts={facts} />
-    </div>
-  );
+// Insights became Capacity (Phase 13). The generic pivot moved to /insights/explore, reachable from
+// Setup → diagnostics, not from the main experience.
+export default function InsightsPage({ searchParams }: { searchParams: { inst?: string } }) {
+  redirect(searchParams.inst ? `/capacity?inst=${searchParams.inst}` : "/capacity");
 }

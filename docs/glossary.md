@@ -190,18 +190,18 @@ The line above every capacity, coverage, staffing and scheduler view saying what
 A named what-if for one program: a workforce target, a design (an additional cohort, a larger cohort, an accelerated or hybrid track, new geography, a shared regional cohort, or better retention), its dated proposed cohorts, its own assumption overrides and the saved answer. Nothing in a scenario touches the operating plan; one can be marked recommended.
 
 - **Not the same as:** An offering is a cohort the college has committed to run; a scenario's proposed cohorts are hypothetical until someone creates offerings from them.
-- **Where:** Can it expand?
+- **Where:** Scenarios
 
 ### Binding constraint
 
 The first thing that runs out when a scenario's cohorts are laid over every offering already planned: faculty FTE in the peak week, preceptor-shifts at secured sites, learner seats on a date × shift × setting (physical, or only the agreements), rooms, the accreditor's capacity, the pipeline of applicants, or time (the lead times cannot land before the first start). Each one says what it is, when it first bites, by how much, and the smallest change that would relieve it.
 
 - **Retired:** bottleneck (as a scenario verdict)
-- **Where:** Can it expand?
+- **Where:** Scenarios
 
 ### Assumption registry
 
 Every planning figure the answers depend on — pipeline rates, lags to a productive worker, lead times, costs, supervision ratios — with its value, range, source, owner, status (default, estimate, verified) and review date. Values resolve from the most specific scope set: program → job family → college → workspace → the shipped default. A default is always shown as a default.
 
 - **Not the same as:** A scenario override changes the figure for one scenario only and never writes to the registry.
-- **Where:** Can it expand?, Setup → Planning assumptions
+- **Where:** Scenarios, Setup → Planning assumptions

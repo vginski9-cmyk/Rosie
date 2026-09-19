@@ -20,6 +20,8 @@ import { ProvisionalDatesBanner, UnverifiedStandard } from "@/components/Evidenc
 import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
 import { BENCHMARK_RATES, type LadderRates } from "@/lib/northstar";
 import { alignOffering, SOURCE_LABEL, type DateSource } from "@/lib/termalign";
+import { OPERATIONAL } from "@/lib/mode";
+import { ReadOnly } from "@/components/ReadOnly";
 
 export const dynamic = "force-dynamic";
 
@@ -185,8 +187,12 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         </Collapse>
       )}
 
-      {/* ── One button: rooms, sites, staff and learners, all placed ─────────── */}
-      <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={enrolledNow} />
+      {/* ── One button: rooms, sites, staff and learners, all placed — the operational module only (Phase 13) ── */}
+      {OPERATIONAL ? (
+        <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={enrolledNow} />
+      ) : (
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>Read-mostly record.</strong> This offering&apos;s dates, rooms, staffing and student shifts are actuals — imported from the college&apos;s source systems or set in the operational module. Here they are evidence and inputs: {fmt.num(offering._count.meetings)} calendar meetings · {fmt.num(offering._count.sessionStaff)} staffed shifts · {fmt.num(offering._count.studentShifts)} student shifts on record.</p>
+      )}
 
       {/* ── Term dates for THIS offering (derived from the org's calendar; overridable here) ── */}
       {(() => {
@@ -259,7 +265,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
               </p>
             )}
 
-            <details className="mt-3">
+            {OPERATIONAL && <details className="mt-3">
               <summary className="cursor-pointer text-xs font-medium text-slate-600">Override by hand — or move the offering start and re-align</summary>
               <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="mt-2 flex flex-wrap items-end gap-3">
                 <label className="block">
@@ -285,7 +291,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
                 <button name="rederive" value="1" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" title="drop every typed date and put every term back on the academic calendar from the offering start">Re-align to the organization&apos;s calendar</button>
               </form>
               <p className="mt-1 text-[11px] text-slate-400">Leave a term blank to keep it on the calendar. A typed term is marked “typed by hand” and left alone by future calendar imports until you re-align.</p>
-            </details>
+            </details>}
           </Collapse>
         );
       })()}
@@ -337,9 +343,9 @@ export default async function OfferingPage({ params, searchParams }: { params: {
             {staffing && (
               <div>
                 <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Who covers this run</div>
-                <OfferingStaffing cohortId={offering.id} programId={program.id} enrolled={staffing.enrolled}
+                <ReadOnly what="Who covers this run"><OfferingStaffing cohortId={offering.id} programId={program.id} enrolled={staffing.enrolled}
                   terms={staffing.program.terms.map((t) => ({ id: t.id, name: t.name, courses: t.courses.map((c) => ({ id: c.id, code: c.code, name: c.name, sessions: c.sessions })) }))}
-                  assignments={staffing.assignments} people={staffing.people} loads={staffing.loads} />
+                  assignments={staffing.assignments} people={staffing.people} loads={staffing.loads} /></ReadOnly>
               </div>
             )}
           </div>
@@ -369,7 +375,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
             summary={rotations.plan ? <>{rotations.course?.code}: {rotations.plan.summary.placed} of {rotations.plan.summary.shifts} placed{rotations.plan.summary.studentsShort > 0 ? <> · <span className="text-rose-600">{rotations.plan.summary.studentsShort} short</span></> : <> · <span className="text-emerald-700">all hours reachable</span></>}{rotations.plan.bottlenecks.length > 0 ? <> · <span className="text-amber-700">{rotations.plan.bottlenecks.length} bottlenecks</span></> : null}</> : <>{rotations.courses.length} clinical course{rotations.courses.length === 1 ? "" : "s"} · no plan built yet</>}
             defaultOpen={!!searchParams?.course}
           >
-            <RotationBoard data={rotations} programId={program.id} />
+            <ReadOnly what="The rotation plan"><RotationBoard data={rotations} programId={program.id} /></ReadOnly>
           </Collapse>
         </div>
       )}
@@ -387,7 +393,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
             sub="Sections, preceptors and clinical hours logged, with anyone short or unprecepted flagged"
             summary={<>{active.length} enrolled · <span className="text-emerald-700">{n1(logged)} of {n1(required)} h logged</span>{short > 0 ? <> · <span className="text-rose-600">{short} short</span></> : null}{unpre > 0 ? <> · <span className="text-amber-700">{unpre} unprecepted</span></> : null}</>}
           >
-            <OfferingLedger ledger={ledger} programId={program.id} />
+            <ReadOnly what="The shift ledger"><OfferingLedger ledger={ledger} programId={program.id} /></ReadOnly>
           </Collapse>
         );
       })()}

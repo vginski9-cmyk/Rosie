@@ -1,7 +1,8 @@
 // Crawl the running (DEMO, basePath=/rosie) Next server into a static folder
 // for GitHub Pages. Server actions / API won't work on the static host — this is
 // a VIEW-ONLY snapshot — but every screen renders with real seeded data and the
-// client-side bits (charts, the capacity slider, drag-and-drop) still work.
+// client-side bits (charts, the capacity slider, drag-and-drop) still work. Person-level
+// records are excluded — see EXCLUDED below.
 //
 // Pages are discovered by following every same-site link from a seed list, so
 // new routes are picked up without editing this file.
@@ -14,7 +15,11 @@ const BASEPATH = process.env.PAGES_BASE_PATH || "/rosie";
 const OUT = "out";
 const MAX_PAGES = Number(process.env.DEMO_MAX_PAGES || 1500);
 
-const SEEDS = ["/", "/calendar", "/insights", "/insights/staffing-need", "/insights/coverage", "/insights/clinical-sites", "/semester", "/students", "/people", "/employers", "/facilities", "/courses", "/wbl", "/programs/new"];
+const SEEDS = ["/", "/scenarios", "/capacity", "/insights/staffing-need", "/insights/coverage", "/insights/clinical-sites", "/semester", "/employers", "/courses", "/setup", "/setup/exceptions", "/glossary"];
+// Person-level records never go into the static demo (Phase 13): the demo's gate runs in the
+// browser and protects nothing, so students, people and per-student pages are not crawled.
+const EXCLUDED = [/^\/students(\/|$)/, /^\/people(\/|$)/, /^\/calendar(\/|$)/, /\/students(\/|$)/, /^\/insights\/explore(\/|$)/];
+const excluded = (route) => EXCLUDED.some((re) => re.test(route));
 
 function save(route, html) {
   const rel = route === "/" ? "index.html" : `${route.replace(/^\//, "").replace(/\/$/, "")}/index.html`;
@@ -32,6 +37,7 @@ function linksIn(html) {
     if (!h.startsWith(BASEPATH + "/") && h !== BASEPATH) continue;
     const route = h.slice(BASEPATH.length) || "/";
     if (route.startsWith("/_next") || route.startsWith("/api") || route === "/login" || /\.[a-z0-9]+$/i.test(route)) continue;
+    if (excluded(route)) continue;
     out.add(route.replace(/\/$/, "") || "/");
   }
   return out;

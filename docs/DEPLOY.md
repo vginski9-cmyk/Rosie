@@ -6,9 +6,15 @@ Two hosted options. Both are no-terminal — your code is already on GitHub.
 
 ## Option A — Live view-only demo (GitHub Pages) · fastest
 
-A permanent URL that renders every screen with the real seeded data. You can
-click through everything and use the interactive bits (the capacity slider,
+A permanent URL that renders the strategic screens with the real seeded data. You
+can click through everything and use the interactive bits (the capacity slider,
 charts, drag-and-drop). It's a **snapshot**, so edits don't save.
+
+> **Not access-controlled.** A static site has no server, so its password prompt
+> runs in the browser and protects nothing. For that reason the snapshot
+> **excludes every person-level record** — no student pages, no people roster,
+> no master calendar — and is only suitable for a public repo. Anything
+> confidential belongs on Option B behind `SITE_PASSWORD`.
 
 > **Note:** GitHub Pages only works on a **public** repo (free plan) or a paid
 > GitHub plan. If the repo is private on the free plan, use Option B (Vercel),
@@ -54,8 +60,24 @@ assign staff, etc. Backed by a free hosted Postgres database.
    defaults. This automatically sets the `DATABASE_URL` environment variable.
    - *(Alternatively: create a free DB at neon.tech and paste its connection
      string into Vercel → Settings → Environment Variables as `DATABASE_URL`.)*
-4. Go to **Deployments → Redeploy** (so the build picks up `DATABASE_URL`).
-5. Open the deployment URL — Rosie is live and fully editable.
+4. Add the site password: **Settings → Environment Variables → `SITE_PASSWORD`**
+   (any value; it is the one password everyone types on the door). Without it a
+   production deployment **fails closed** — every page shows "not configured"
+   and nobody gets in. Optional: `SITE_SECRET` (a long random string) signs the
+   session cookie separately from the password, so changing one does not
+   require changing the other.
+5. Go to **Deployments → Redeploy** (so the build picks up `DATABASE_URL` and the password).
+6. Open the deployment URL — Rosie asks for the password, then shows the strategic product.
+
+### Access control (how the door works)
+- The password is checked on the server for every page and API route (`src/middleware.ts`).
+- A correct password sets a **session cookie** carrying a signed token: the cookie ends when the
+  browser closes, and the token expires on its own 12 hours after sign-in. A fresh browser
+  session always asks again. There is no default password in production.
+- The strategic product is the default. The operational module (applying schedules,
+  auto-assigning, logging competencies, editing offerings and students by hand) is switched on
+  only with `ROSIE_OPERATIONAL=1`; otherwise those screens are read-only and the server refuses
+  the writes.
 
 ### What the build does (already configured)
 `vercel.json` points the build at `npm run vercel-build`, which:
