@@ -57,7 +57,7 @@ export function AssumptionRegistry({ defs, resolved, own, scope, scopes, back }:
                   </td></tr>
                 );
                 return (
-                  <tr key={d.key} className={r.stale ? "bg-amber-50/30" : ""}>
+                  <tr key={d.key} id={d.key} className={r.stale ? "bg-amber-50/30" : ""}>
                     <td className="px-3 py-1.5"><span className="font-medium text-slate-800">{d.label}</span>{d.note && <span className="block text-[10px] text-slate-500">{d.note}</span>}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums font-medium text-slate-900">{show(r.value, d.unit)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{show(r.low, d.unit)} – {show(r.high, d.unit)}</td>

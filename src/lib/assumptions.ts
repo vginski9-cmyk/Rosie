@@ -54,6 +54,7 @@ export const ASSUMPTION_DEFS: AssumptionDef[] = [
   // Workload and supervision.
   { key: "preceptorShiftsPerWeek", label: "Shifts a week one preceptor takes students", category: "workload", unit: "shifts/wk", value: 4, low: 2, high: 5, source: "default assumption" },
   { key: "preceptorMaxStudentsPerShift", label: "Students one preceptor takes on a shift", category: "workload", unit: "students", value: 2, low: 1, high: 3, source: "default assumption — accreditor ratios vary by program" },
+  { key: "onlineContactHourFactor", label: "Faculty contact-hour credit for an online class hour (vs in person)", category: "workload", unit: "share", value: 1, low: 0.5, high: 1, source: "default assumption — an online hour counts the same as an in-person hour until the college's policy says otherwise", note: "Hybrid designs only. Clinical hours are never online." },
 ];
 export const ASSUMPTION_BY_KEY: Record<string, AssumptionDef> = Object.fromEntries(ASSUMPTION_DEFS.map((d) => [d.key, d]));
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveAssumptions, applyFamilyRates, ASSUMPTION_DEFS, confidenceOf, type AssumptionRow } from "../src/lib/assumptions";
-import { prepareExpansion, evaluateExpansion, proposeCohorts, DEFAULT_DESIGN, type ExpansionInput, type ExpansionDesign } from "../src/lib/expansion";
+import { prepareExpansion, evaluateExpansion, proposeCohorts, designRules, DEFAULT_DESIGN, type ExpansionInput, type ExpansionDesign } from "../src/lib/expansion";
 import type { SessionInput } from "../src/lib/capacitymodel";
 import type { AssetLite } from "../src/lib/assetmap";
 
@@ -139,9 +139,45 @@ describe("expansion analysis", () => {
     const r = evaluateExpansion(prepareExpansion(withBase), design({ seats: 8, cohortsPerYear: 0 }), { searchMax: false });
     const seats = r.constraints.find((c) => c.kind === "clinical-seats")!;
     expect(seats.severity).toBe("binding");
-    expect(seats.detail).toMatch(/27 learners vs 24 secured/);
+    expect(seats.detail).toMatch(/27 students vs 24 secured/);
     // The faculty roster also reads both cohorts' weeks together.
     expect(r.constraints.find((c) => c.kind === "faculty")!.demand).toBeGreaterThan(evaluateExpansion(prepareExpansion(inp), design({ seats: 8, cohortsPerYear: 0 }), { searchMax: false }).constraints.find((c) => c.kind === "faculty")!.demand!);
+    // The context is shown, not implied: who is on the binding date, what else runs in the window, and the busiest weeks.
+    expect(seats.demandBreakdown!.map((b) => [b.label, b.value, b.note])).toEqual([["Class of 2028", 21, "Radiography"], ["Proposed cohort 1 (Aug 16, 2027)", 6, "proposed"]]);
+    expect(seats.supplyBreakdown).toEqual([{ label: "Moore Regional", value: 24, note: "secured · 12 assets" }]);
+    expect(seats.how).toMatch(/date × shift × setting/);
+    expect(r.concurrent).toHaveLength(1);
+    expect(r.concurrent[0]).toMatchObject({ cohort: "Class of 2028", program: "Radiography", sameProgram: true, students: 30, overlapFrom: "2027-08-16" });
+    expect(r.concurrent[0].bySetting.GEN).toBeGreaterThan(0);
+    const fac = r.weeklyPeaks.filter((w) => w.resource === "faculty");
+    expect(fac.length).toBe(4);
+    expect(Math.abs(fac[0].total - (fac[0].baseline + fac[0].added))).toBeLessThan(0.11); // each figure rounded to 0.1
+    expect(fac[0].cohorts.reduce((n, c) => n + c.value, 0)).toBeCloseTo(fac[0].total, 0);
+    expect(r.constraints.every((c) => c.how.length > 20)).toBe(true);
+    expect(r.settingNames).toEqual({ GEN: "General" });
+    expect(r.supplySummary.faculty).toMatch(/2 active instructors/);
+  });
+
+  it("hybrid: online class hours drop room hours, keep the instructor, never touch clinical — and the rules say so", () => {
+    const inp = input();
+    const plain = evaluateExpansion(prepareExpansion(inp), design({ cohortsPerYear: 0 }), { searchMax: false });
+    const hybrid = evaluateExpansion(prepareExpansion(inp), design({ kind: "hybrid", onlineShare: 0.5, cohortsPerYear: 0 }), { searchMax: false });
+    const rooms = (r: typeof plain) => r.constraints.find((c) => c.kind === "rooms")!.demand!;
+    const faculty = (r: typeof plain) => r.constraints.find((c) => c.kind === "faculty")!.demand!;
+    const clinical = (r: typeof plain) => r.outputs.learnerShifts;
+    expect(rooms(hybrid)).toBeLessThan(rooms(plain));
+    expect(faculty(hybrid)).toBe(faculty(plain));           // credit factor defaults to 1: the instructor is still needed
+    expect(clinical(hybrid)).toBe(clinical(plain));         // clinical is never online
+    const half = evaluateExpansion(prepareExpansion({ ...inp, assumptions: { ...inp.assumptions, onlineContactHourFactor: { ...inp.assumptions.onlineContactHourFactor, value: 0.5 } } }), design({ kind: "hybrid", onlineShare: 0.5, cohortsPerYear: 0 }), { searchMax: false });
+    expect(faculty(half)).toBeLessThan(faculty(plain));
+    expect(hybrid.assumptionsUsed.some((a) => a.key === "onlineContactHourFactor")).toBe(true);
+    const rule = (r: typeof plain, aspect: string) => r.rules.find((x) => x.aspect === aspect)!;
+    expect(rule(hybrid, "Clinical sessions")).toMatchObject({ changed: false });
+    expect(rule(hybrid, "Clinical sessions").rule).toMatch(/never delivered online/);
+    expect(rule(hybrid, "Class sessions")).toMatchObject({ changed: true });
+    expect(rule(hybrid, "Faculty contact hours").rule).toMatch(/100% of an in-person hour/);
+    expect(rule(hybrid, "Operating plan").changed).toBe(false);
+    expect(designRules(design({ kind: "evening-cohort" })).find((x) => x.aspect === "Clinical sessions")!.rule).toMatch(/evening block/);
   });
 
   it("says when the start is too soon and gives the earliest feasible start from the longest lead item", () => {

@@ -45,7 +45,7 @@ export async function getExpansionInput(programId: string, overrides: Record<str
   const baselineCohorts = (cap?.cohorts ?? []).map((c) => {
     const idx = Object.keys(c.termStartByIndex).map(Number).sort((x, y) => x - y);
     const ends = Object.values(c.termEndByIndex ?? {}).filter((v): v is string => !!v).sort();
-    return { cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, seats: c.enrollmentByTerm[idx[0]] ?? 0, startIso: c.termStartByIndex[idx[0]]?.slice(0, 10) ?? null, endIso: ends[ends.length - 1]?.slice(0, 10) ?? null, productiveGoal: goalOf.get(c.cohortId)?.goal ?? 0, gradYear: goalOf.get(c.cohortId)?.gradYear ?? null };
+    return { cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, seats: c.enrollmentByTerm[idx[0]] ?? 0, startIso: c.termStartByIndex[idx[0]]?.slice(0, 10) ?? null, endIso: ends[ends.length - 1]?.slice(0, 10) ?? null, productiveGoal: goalOf.get(c.cohortId)?.goal ?? 0, gradYear: goalOf.get(c.cohortId)?.gradYear ?? null };
   });
 
   // Supply.
@@ -93,13 +93,21 @@ export async function getExpansionInput(programId: string, overrides: Record<str
 export async function getExpansionStudio(programId: string) {
   const program = await prisma.program.findUnique({ where: { id: programId }, select: { id: true, name: true, institutionId: true, defaultCohortSeats: true, launchTerms: true, family: { select: { id: true, name: true, goalPlan: true, familySites: { select: { employerId: true, agreementStatus: true, employer: { select: { name: true, _count: { select: { assets: true } } } } } } } }, institution: { select: { id: true, name: true, fallStart: true } }, terms: { select: { id: true } } } });
   if (!program) return null;
-  const scenarios = (await prisma.scenario.findMany({ where: { programId }, orderBy: { updatedAt: "desc" } })).map((s): ScenarioRow => ({ id: s.id, name: s.name, status: s.status, design: parse<ExpansionDesign>(s.design, { ...DEFAULT_DESIGN, targetYear: new Date().getUTCFullYear() + 3, startIso: "" }), overrides: parse<Record<string, number>>(s.overrides, {}), result: parse<ExpansionResult | null>(s.result, null), evaluatedAt: isoOf(s.evaluatedAt), notes: s.notes, updatedAt: s.updatedAt.toISOString() }));
+  const scenarios = (await prisma.scenario.findMany({ where: { programId }, orderBy: { updatedAt: "desc" } })).map((s): ScenarioRow => ({ id: s.id, name: s.name, status: s.status, design: parse<ExpansionDesign>(s.design, { ...DEFAULT_DESIGN, targetYear: new Date().getUTCFullYear() + 3, startIso: "" }), overrides: parse<Record<string, number>>(s.overrides, {}), result: (() => { const r = parse<ExpansionResult | null>(s.result, null); return r && Array.isArray(r.rules) && Array.isArray(r.concurrent) ? r : null; })(), evaluatedAt: isoOf(s.evaluatedAt), notes: s.notes, updatedAt: s.updatedAt.toISOString() }));
   const goals = parse<{ goalsByYear?: Record<string, number> }>(program.family?.goalPlan, {}).goalsByYear ?? {};
   const year = new Date().getUTCFullYear();
   const targetYear = year + 3;
   const nextFall = `${year + 1}-${program.institution.fallStart}`;
   const defaultDesign: ExpansionDesign = { ...DEFAULT_DESIGN, seats: Math.round(program.defaultCohortSeats ?? 24), targetWorkers: Math.round(goals[String(targetYear)] ?? 0), targetYear, startIso: nextFall };
+  // Where each prefilled figure comes from, so nothing on the form reads as a recommendation.
+  const defaultNotes = {
+    seats: program.defaultCohortSeats != null ? `the program's default cohort size (${Math.round(program.defaultCohortSeats)}) from its design page` : "a placeholder of 24 — the program has no default cohort size on record",
+    targetWorkers: goals[String(targetYear)] != null ? `the ${program.family?.name ?? "family"} North Star goal for ${targetYear} (${Math.round(goals[String(targetYear)])} productive workers)` : "not set — no North Star goal for that year; enter the workforce ask",
+    targetYear: `three years out (${targetYear})`,
+    startIso: `${program.institution.name}'s next fall semester start (${nextFall})`,
+    kind: "an additional annual cohort — the most common ask; pick another design to test something else",
+  };
   const sitePicks: SitePick[] = (program.family?.familySites ?? []).filter((s) => s.agreementStatus !== "secured").map((s) => ({ employerId: s.employerId, name: s.employer.name, agreementStatus: s.agreementStatus, assets: s.employer._count.assets })).sort((a, b) => b.assets - a.assets);
   const assumptionRows = await prisma.assumption.findMany({ where: { scope: { in: ["global", `inst:${program.institutionId}`, ...(program.family ? [`family:${program.family.id}`] : []), `program:${programId}`] } } });
-  return { program: { id: program.id, name: program.name, institutionId: program.institutionId, institution: program.institution.name, familyId: program.family?.id ?? null, family: program.family?.name ?? null, terms: program.terms.length }, scenarios, defaultDesign, sitePicks, assumptionRowCount: assumptionRows.length };
+  return { program: { id: program.id, name: program.name, institutionId: program.institutionId, institution: program.institution.name, familyId: program.family?.id ?? null, family: program.family?.name ?? null, terms: program.terms.length }, scenarios, defaultDesign, defaultNotes, sitePicks, assumptionRowCount: assumptionRows.length };
 }

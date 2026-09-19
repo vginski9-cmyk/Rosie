@@ -68,7 +68,7 @@ export interface ProgramTemplate {
   accreditedCapacity: number | null;
   defaultSeats: number | null;
 }
-export interface BaselineCohort { cohortId: string; cohort: string; programId: string; seats: number; startIso: string | null; endIso: string | null; productiveGoal: number; gradYear: number | null }
+export interface BaselineCohort { cohortId: string; cohort: string; programId: string; program?: string; seats: number; startIso: string | null; endIso: string | null; productiveGoal: number; gradYear: number | null }
 export interface InstructorLite { id: string; name: string; employmentType: string | null; contactHoursPerWeek: number }
 export interface SiteLite { employerId: string; siteName: string; agreementStatus: string; studentsAtOnce: number | null; approvedCapacity: number | null; preceptors: number }
 export interface RoomLite { id: string; name: string; kind: string; weeklyOpenHours: number; capacity: number | null }
@@ -87,6 +87,7 @@ export interface ExpansionInput {
 // ── What it answers ────────────────────────────────────────────────────────────────────────────
 export type ConstraintKind = "time" | "faculty" | "preceptors" | "clinical-seats" | "agreements" | "accreditor" | "rooms" | "pipeline" | "calendar" | "equipment";
 export type ConstraintSeverity = "binding" | "secondary" | "ok" | "unknown" | "info";
+export interface Breakdown { label: string; value: number; note?: string }
 export interface Constraint {
   kind: ConstraintKind; severity: ConstraintSeverity; label: string;
   /** Demand vs supply in the unit named. */
@@ -98,7 +99,17 @@ export interface Constraint {
   shortfall: number | null;
   /** How well the inputs behind it are known. */
   evidence: "verified" | "estimate" | "unknown";
+  /** One sentence: how the demand and supply figures are computed. */
+  how: string;
+  /** The demand at the binding point by cohort (baseline offerings and the proposed ones), and the supply by person, site, room or asset. */
+  demandBreakdown?: Breakdown[]; supplyBreakdown?: Breakdown[];
 }
+/** One rule of a design: what it changes, or explicitly leaves alone. */
+export interface DesignRule { aspect: string; rule: string; changed: boolean; assumptionKey?: string }
+/** An offering already planned or running that overlaps the scenario's window. */
+export interface ConcurrentCohort { cohortId: string; cohort: string; program: string; sameProgram: boolean; startIso: string; endIso: string; overlapFrom: string; overlapTo: string; overlapWeeks: number; students: number; peakFacultyFte: number; clinicalShiftsInOverlap: number; bySetting: Record<string, number> }
+/** One of the busiest weeks for a resource: what is already on it, what the scenario adds, who is on it. */
+export interface WeeklyPeak { resource: "faculty" | "preceptors" | "rooms"; week: string; baseline: number; added: number; total: number; supply: number | null; unit: string; cohorts: Breakdown[] }
 export interface ProposedCohort { id: string; label: string; startIso: string; endIso: string; seats: number; terms: { index: number; name: string; startIso: string; endIso: string; weeks: number; source: string }[]; ladder: { enrolled: number; completing: number; licensed: number; placed: number; productive: number }; productiveByIso: string; warnings: string[] }
 export interface CostLine { category: string; oneTime: number; recurring: number; basis: string; assumptionKeys: string[] }
 export interface Milestone { iso: string; what: string; owner: string; lateIfAfter: boolean }
@@ -126,6 +137,18 @@ export interface ExpansionResult {
   confidence: { share: number; verified: number; used: number; unverified: string[]; stale: string[]; risks: string[] };
   trace: { cohortId: string; courses: TraceCourse[] }[];
   summary: string;
+  /** What the design changes and leaves alone, every rule stated. */
+  rules: DesignRule[];
+  /** The offerings already planned or running that share the window. */
+  concurrent: ConcurrentCohort[];
+  /** The busiest weeks per resource, with who is on them. */
+  weeklyPeaks: WeeklyPeak[];
+  /** Setting code → setting name, from the assets on record. */
+  settingNames: Record<string, string>;
+  /** The dates the proposed cohorts span, and what the supply is as of. */
+  window: { from: string; to: string } | null; asOf: string;
+  /** The supply the answer was tested against, in one line each. */
+  supplySummary: { faculty: string; preceptors: string; sites: string; assets: string; rooms: string };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────────────────────
@@ -153,7 +176,7 @@ function designedSessions(p: ProgramTemplate, d: ExpansionDesign): ProgramTempla
       if (d.paceFactor !== 1 && s.week != null) out = { ...out, week: Math.max(1, Math.round(s.week * d.paceFactor)) };
       if (d.kind === "evening-cohort") out = { ...out, startTime: s.kind === "CLINICAL" ? "15:00" : "17:30" };
       if (d.kind === "weekend-cohort") out = { ...out, dayOfWeek: s.dayOfWeek ? WEEKEND[s.dayOfWeek] ?? s.dayOfWeek : (s.kind === "CLINICAL" ? "Sat" : "Sat"), startTime: s.kind === "CLINICAL" ? s.startTime ?? "07:00" : "09:00" };
-      if (d.kind === "hybrid" && s.kind === "CLASS" && d.onlineShare > 0) out = { ...out, lengthHours: s.lengthHours * (1 - d.onlineShare) };
+      // Hybrid: sessions keep their hours; the online share is applied to room hours and (per the registry's credit factor) faculty hours after dating — see proposeCohort.
       return out;
     }),
   }));
@@ -185,7 +208,12 @@ export function proposeCohort(input: ExpansionInput, d: ExpansionDesign, startIs
     cohortId: id, cohort: label, programId: p.id, program: p.name, enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays: input.holidays,
     courses: courses.map((c) => ({ code: c.code, title: c.name, courseId: c.id, termIndex: c.termIndex, termName: c.termName, sessions: c.sessions })),
   };
-  const rows = buildInstances(calInput, p.assumptions).filter((r) => r.dateIso != null);
+  let rows = buildInstances(calInput, p.assumptions).filter((r) => r.dateIso != null);
+  if (d.kind === "hybrid" && d.onlineShare > 0) {
+    // Online class hours need no room. They still need a faculty member: an online hour counts `onlineContactHourFactor` of an in-person hour toward load.
+    const credit = (1 - d.onlineShare) + d.onlineShare * a.onlineContactHourFactor.value;
+    rows = rows.map((r) => r.session.kind !== "CLASS" ? r : { ...r, computed: { ...r.computed, X: r.computed.X == null ? null : r.computed.X * (1 - d.onlineShare), Z: r.computed.Z == null ? null : r.computed.Z * credit, AA: r.computed.AA == null ? null : r.computed.AA * credit, AB: r.computed.AB == null ? null : r.computed.AB * credit } });
+  }
   const endIso = aligned.terms.reduce((m, t) => (t.endIso > m ? t.endIso : m), aligned.terms[0]?.endIso ?? startIso);
   const ladder = buildLadder(seats, rates);
   const productiveByIso = addMonths(addMonths(addMonths(endIso, a.licensureMonths.value), a.placementMonths.value), a.rampMonths.value);
@@ -213,6 +241,50 @@ export function proposeCohorts(input: ExpansionInput, d: ExpansionDesign): { coh
   return { cohorts, rows };
 }
 
+/** What a design changes and what it leaves alone — every rule the engine applies, stated so nothing is silent. Pure, so the page can show it before evaluating. */
+export function designRules(d: ExpansionDesign, ctx: { onlineContactHourFactor?: number; assumedSiteNames?: string[]; cohortCount?: number } = {}): DesignRule[] {
+  const k = d.kind;
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const rules: DesignRule[] = [];
+  const perYear = Math.max(0, Math.round(d.cohortsPerYear));
+  // Seats and cohorts.
+  if (k === "improve-retention") rules.push({ aspect: "Seats", rule: `No new seats. The completion rate of the cohorts already running rises by ${Math.round(d.retentionUplift * 100)} points; every other rate is unchanged.`, changed: true, assumptionKey: "completionRate" });
+  else if (k === "larger-cohort") rules.push({ aspect: "Seats", rule: `${d.seats} seats ADDED as extra sections that start ${fmtD(d.startIso)} and follow the program's term structure. The existing cohort's seats, dates and sessions are unchanged; the added sections are tested alongside it.`, changed: true });
+  else rules.push({ aspect: "Seats", rule: `${d.seats} seats per new cohort, enrolled at the registry's enrollment rate and thinning to the completion rate by the last term.`, changed: true, assumptionKey: "enrollmentRate" });
+  if (k !== "improve-retention") rules.push({ aspect: "Cohorts", rule: perYear === 0 ? `One new cohort only, starting ${fmtD(d.startIso)}.` : `First new cohort ${fmtD(d.startIso)}, then ${perYear === 1 ? "one a year" : `${perYear} a year`} through the ${d.targetYear} intake${ctx.cohortCount ? ` (${ctx.cohortCount} cohorts tested, all laid over the operating plan at once)` : ""}.`, changed: true });
+  // Term length.
+  rules.push(k === "accelerated" && d.paceFactor !== 1
+    ? { aspect: "Term length", rule: `Every term is ${pct(1 - d.paceFactor)} shorter; each session moves to week × ${d.paceFactor}. The same sessions in fewer weeks, so faculty, room and clinical load per week rise.`, changed: true }
+    : { aspect: "Term length", rule: "The program's terms and session weeks exactly as designed.", changed: false });
+  // Class, lab, clinical sessions.
+  if (k === "hybrid" && d.onlineShare > 0) rules.push({ aspect: "Class sessions", rule: `${pct(d.onlineShare)} of every class session's hours are delivered online. The sessions, their weeks and days are unchanged.`, changed: true });
+  else if (k === "evening-cohort") rules.push({ aspect: "Class sessions", rule: "Every class and lab session starts at 17:30 (after the working day); same days and weeks.", changed: true });
+  else if (k === "weekend-cohort") rules.push({ aspect: "Class sessions", rule: "Every class and lab session moves to Saturday or Sunday at 09:00; same weeks.", changed: true });
+  else rules.push({ aspect: "Class sessions", rule: "In person, as designed: same hours, days, weeks and section sizes.", changed: false });
+  rules.push(k === "evening-cohort" || k === "weekend-cohort"
+    ? { aspect: "Lab sessions", rule: k === "evening-cohort" ? "Labs move to 17:30 with the classes; hours and section sizes unchanged. Labs are never online." : "Labs move to the weekend with the classes; hours and section sizes unchanged. Labs are never online.", changed: true }
+    : { aspect: "Lab sessions", rule: "In person, as designed. Labs are never online.", changed: false });
+  if (k === "evening-cohort") rules.push({ aspect: "Clinical sessions", rule: "Every clinical shift moves to the evening block (15:00 start), same settings and rotation types — tested only against assets that run an evening shift. Clinical is never online.", changed: true });
+  else if (k === "weekend-cohort") rules.push({ aspect: "Clinical sessions", rule: "Every clinical shift moves to Saturday or Sunday, same shift block, settings and rotation types — tested only against assets that run on weekends. Clinical is never online.", changed: true });
+  else rules.push({ aspect: "Clinical sessions", rule: "Unchanged: on site, the same shifts, settings, rotation types, hours and students per preceptor as the program's design. Clinical hours are never delivered online in any design.", changed: false });
+  // Sites.
+  if ((k === "expanded-geography" || k === "shared-regional") && d.assumedSecuredSiteIds.length) rules.push({ aspect: "Clinical sites", rule: `Secured sites as of today, plus ${d.assumedSecuredSiteIds.length} site${d.assumedSecuredSiteIds.length === 1 ? "" : "s"} assumed secured for this scenario only (${(ctx.assumedSiteNames ?? []).join(", ") || "picked above"}). Their assets count as secured seats; their preceptors count toward supply. Nothing is written to the sites' records.`, changed: true, assumptionKey: "siteAgreementWeeks" });
+  else if (k === "expanded-geography" || k === "shared-regional") rules.push({ aspect: "Clinical sites", rule: "No site picked, so only the sites secured today count — the same as any other design.", changed: false });
+  else rules.push({ aspect: "Clinical sites", rule: "Only sites with a secured agreement today count as secured seats; every other site's assets count toward the physical ceiling only.", changed: false });
+  // Faculty contact hours.
+  if (k === "hybrid" && d.onlineShare > 0) { const f = ctx.onlineContactHourFactor ?? 1; rules.push({ aspect: "Faculty contact hours", rule: `An online class hour counts ${pct(f)} of an in-person hour toward faculty load (registry: online contact-hour credit${f === 1 ? ", default" : ""}). The instructor is still needed for every session.`, changed: true, assumptionKey: "onlineContactHourFactor" }); }
+  else rules.push({ aspect: "Faculty contact hours", rule: "The program's contact-hour policy, unchanged: contact hours = session hours × sections; FTE = contact hours ÷ a full-time load.", changed: false });
+  // Rooms.
+  if (k === "hybrid" && d.onlineShare > 0) rules.push({ aspect: "Rooms", rule: `Online class hours need no room; the remaining ${pct(1 - d.onlineShare)} of class hours and every lab hour are tested against this campus's coded rooms.`, changed: true });
+  else if (k === "additional-campus") rules.push({ aspect: "Rooms", rule: "A new location's rooms are not on record, so class and lab hours are tested against THIS campus's rooms — the new site's space is untested and its renovation lead time is applied.", changed: true });
+  else rules.push({ aspect: "Rooms", rule: "Class and lab hours are tested against this campus's coded open room-hours.", changed: false });
+  // Rates, approvals, operating plan.
+  rules.push(k === "improve-retention" ? { aspect: "Pipeline rates", rule: "Completion rate raised as above; enrollment, licensure, placement and productivity rates from the registry, unchanged.", changed: true } : { aspect: "Pipeline rates", rule: "Enrollment, completion, licensure, placement and productivity rates from the registry (family goal plan where set), unchanged.", changed: false, assumptionKey: "completionRate" });
+  rules.push(d.needsApproval || k === "additional-campus" ? { aspect: "Approvals", rule: "Program, location or accreditor approval is assumed needed: its lead time is added to the earliest start.", changed: true, assumptionKey: "approvalWeeks" } : { aspect: "Approvals", rule: "No approval assumed needed; nothing is added to the earliest start for it.", changed: false });
+  rules.push({ aspect: "Operating plan", rule: "Every offering already planned or running stays exactly as it is — dates, seats, sessions, bookings. The scenario is laid on top and shares faculty, preceptors, seats and rooms with it.", changed: false });
+  return rules;
+}
+
 // ── Prepared context: the expensive supply computations once per input ─────────────────────────
 export interface ExpansionContext {
   input: ExpansionInput;
@@ -238,6 +310,16 @@ function weeklyLoads(rows: DatedInstance[]): Map<string, { faculty: number; prec
 }
 
 // ── The evaluation ─────────────────────────────────────────────────────────────────────────────
+/** A quantity summed per cohort over rows — the demand at one point broken down by who is on it. */
+function perCohort(rows: DatedInstance[], value: (r: DatedInstance) => number, proposedIds: Set<string>): Breakdown[] {
+  const m = new Map<string, Breakdown>();
+  for (const r of rows) { const v = value(r); if (!v) continue; const b = m.get(r.cohortId) ?? { label: r.cohort, value: 0, note: proposedIds.has(r.cohortId) ? "proposed" : r.program }; b.value += v; m.set(r.cohortId, b); }
+  return [...m.values()].map((b) => ({ ...b, value: Math.round(b.value * 10) / 10 })).sort((x, y) => y.value - x.value);
+}
+const fteOf = (r: DatedInstance) => r.computed.AB ?? 0;
+const preceptorShiftsOf = (r: DatedInstance) => (r.session.kind === "CLINICAL" ? (r.computed.Y ?? 0) * (r.session.preceptorsNeeded ?? 0) : 0);
+const roomHoursOf = (r: DatedInstance) => (r.session.kind === "CLINICAL" ? 0 : r.computed.X ?? 0);
+
 export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opts: { searchMax?: boolean } = {}): ExpansionResult {
   const { input } = ctx;
   const a = input.assumptions;
@@ -254,6 +336,11 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
 
   // 4–5 · Dated cohorts under the program's structure.
   const { cohorts, rows: newRows } = proposeCohorts(input, d);
+  const proposedIds = new Set(cohorts.map((c) => c.id));
+  const settingNames: Record<string, string> = {};
+  for (const x of input.supply.assets) if (x.settingCode && !settingNames[x.settingCode]) settingNames[x.settingCode] = x.setting;
+  const settingLabel = (code: string) => (settingNames[code] && settingNames[code] !== code ? `${settingNames[code]} (${code})` : code);
+  if (d.kind === "hybrid" && d.onlineShare > 0) used.add("onlineContactHourFactor");
   const window = newRows.length ? { from: newRows.reduce((m, r) => (r.dateIso! < m ? r.dateIso! : m), newRows[0].dateIso!), to: newRows.reduce((m, r) => (r.dateIso! > m ? r.dateIso! : m), newRows[0].dateIso!) } : null;
 
   // 6–7 · Requirements against supply.
@@ -271,6 +358,9 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     detail: weeks.length === 0 ? "No dated sessions to staff." : `Peak concurrent need ${round1(facPeak.demand)} FTE (${round1(facPeak.added)} FTE from the new cohort${cohorts.length === 1 ? "" : "s"}) against ${round1(facSupplyFte)} FTE on the faculty roster (${input.supply.instructors.length} people). ${facShort > 1e-9 ? `${round1(facShort)} FTE short — at least ${Math.ceil(facShort - 1e-9)} more ${Math.ceil(facShort - 1e-9) === 1 ? "person" : "people"}.` : "Covered by the current roster in every week."}`,
     fix: facShort > 1e-9 ? `hire ${Math.ceil(facShort - 1e-9)} faculty (full-time ${a.facultyHireWeeks.value} weeks' lead, adjunct ${a.adjunctHireWeeks.value}) or move sessions off the ${facPeak.week ? fmtW(facPeak.week) : "peak week"}` : "none needed",
     shortfall: facShort > 1e-9 ? Math.ceil(facShort - 1e-9) : 0, evidence: "estimate",
+    how: `Each session's faculty contact hours = hours × sections; FTE = contact hours ÷ the program's full-time load of ${p.assumptions.facContactHours} hours a week. Demand is the week with the highest total across every offering in the plan plus the proposed cohorts; supply is every active instructor's policy hours ÷ ${p.assumptions.facContactHours}.`,
+    demandBreakdown: facPeak.week ? perCohort([...input.baselineRows, ...newRows].filter((r) => r.mondayIso === facPeak.week), fteOf, proposedIds) : [],
+    supplyBreakdown: input.supply.instructors.map((i) => ({ label: i.name, value: round1(i.contactHoursPerWeek / Math.max(1, p.assumptions.facContactHours)), note: `${i.employmentType ?? "type unknown"} · ${i.contactHoursPerWeek} h/wk` })).sort((x, y) => y.value - x.value),
   });
   // Preceptors: preceptor-shifts a week at the family's secured sites vs preceptors on record × shifts they take.
   const securedSites = input.supply.sites.filter((s) => s.agreementStatus === "secured" || d.assumedSecuredSiteIds.includes(s.employerId));
@@ -287,6 +377,9 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     detail: prePeak.demand === 0 ? "No clinical shifts need a preceptor." : `Peak ${Math.round(prePeak.demand)} preceptor-shifts a week (${Math.round(prePeak.added)} from the new cohort${cohorts.length === 1 ? "" : "s"}) against ${securedSites.reduce((n, s) => n + s.preceptors, 0)} preceptors on record at ${securedSites.length} secured sites × ${a.preceptorShiftsPerWeek.value} shifts a week = ${Math.round(preSupplyShifts)}. ${preShort > 1e-9 ? `${Math.round(preShort)} short — about ${Math.ceil(preShort / Math.max(1, a.preceptorShiftsPerWeek.value))} more preceptors.` : "Covered."}`,
     fix: preShort > 1e-9 ? `recruit ${Math.ceil(preShort / Math.max(1, a.preceptorShiftsPerWeek.value))} preceptors at secured sites (${a.preceptorOnboardWeeks.value} weeks' lead) or secure a site that brings its own` : "none needed",
     shortfall: preShort > 1e-9 ? Math.ceil(preShort / Math.max(1, a.preceptorShiftsPerWeek.value)) : 0, evidence: securedSites.some((s) => s.preceptors > 0) ? "estimate" : "unknown",
+    how: `A preceptor-shift is one preceptor supervising one clinical shift. Demand = clinical sections that week × preceptors each needs, for every offering in the plan plus the proposed cohorts; supply = preceptors on record at secured sites × ${a.preceptorShiftsPerWeek.value} shifts a week each (registry).`,
+    demandBreakdown: prePeak.week ? perCohort([...input.baselineRows, ...newRows].filter((r) => r.mondayIso === prePeak.week), preceptorShiftsOf, proposedIds) : [],
+    supplyBreakdown: securedSites.map((s) => ({ label: s.siteName, value: s.preceptors * a.preceptorShiftsPerWeek.value, note: `${s.preceptors} preceptor${s.preceptors === 1 ? "" : "s"} on record · ${s.agreementStatus === "secured" ? "secured" : "assumed secured"}` })).sort((x, y) => y.value - x.value),
   });
   // Clinical seats by date × shift × setting: physical vs secured, only where the new cohorts add demand.
   let learnerShifts = 0; const settingsNeeded = new Set<string>(); const sitesNeeded = new Set<string>();
@@ -319,19 +412,25 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
       const unsecuredSites = [...new Set(assets.filter((x) => x.settingCode === code && x.agreementStatus !== "secured" && x.status !== "archived").map((x) => x.facilityName))];
       const isAgreements = physicalOnly === cells.length && unsecuredSites.length > 0;
       for (const s of unsecuredSites) sitesNeeded.add(s);
+      const worstKey = `${worst.iso}|${worst.block}|${worst.settingCode}`;
+      const atWorst = [...baseInWindow, ...newDemand].filter((x) => `${x.iso}|${x.block}|${x.settingCode}` === worstKey);
+      const demandAtWorst = (() => { const m = new Map<string, Breakdown>(); for (const x of atWorst) { const b = m.get(x.cohortId) ?? { label: x.cohort, value: 0, note: proposedIds.has(x.cohortId) ? "proposed" : x.program }; b.value += x.students; m.set(x.cohortId, b); } return [...m.values()].sort((p1, p2) => p2.value - p1.value); })();
+      const supplyAtWorst = (() => { const m = new Map<string, Breakdown>(); for (const id of supply.get(worstKey)?.assetIds ?? []) { const x = assetById.get(id); if (!x) continue; const b = m.get(x.employerId) ?? { label: x.facilityName, value: 0, note: `${x.agreementStatus === "secured" ? "secured" : `not secured (${x.agreementStatus ?? "no agreement"})`} · 0 assets` }; b.value += x.learnersPerShift; b.note = `${x.agreementStatus === "secured" ? "secured" : `not secured (${x.agreementStatus ?? "no agreement"})`} · ${Number((b.note ?? "").match(/(\d+) assets/)?.[1] ?? 0) + 1} assets`; m.set(x.employerId, b); } return [...m.values()].sort((p1, p2) => p2.value - p1.value); })();
       constraints.push({
-        kind: isAgreements ? "agreements" : "clinical-seats", severity: "binding", label: isAgreements ? `Agreements — ${code}` : `Clinical seats — ${code}`,
-        demand: worst.demand, supply: isAgreements ? worst.learners : worst.securedLearners, unit: `learner seats on ${fmtD(worst.iso)} ${worst.block}`, where: `${fmtD(first.iso)} ${first.block} · ${code}`,
+        kind: isAgreements ? "agreements" : "clinical-seats", severity: "binding", label: isAgreements ? `Agreements — ${settingLabel(code)}` : `Clinical seats — ${settingLabel(code)}`,
+        demand: worst.demand, supply: isAgreements ? worst.learners : worst.securedLearners, unit: `student seats on ${fmtD(worst.iso)} ${worst.block}`, where: `${fmtD(first.iso)} ${first.block} · ${code}`,
+        how: `For every date × shift × setting the proposed cohorts need, demand = students rotating in ${code} that day and shift from every offering in the plan plus the proposed cohorts; the physical ceiling = assets of that setting operating that day and shift × students each takes; secured seats = the same at sites with a secured agreement${d.assumedSecuredSiteIds.length ? " or assumed secured here" : ""}. Only cells the scenario pushes short count — the plan's own shortfalls are not charged to it.`,
+        demandBreakdown: demandAtWorst, supplyBreakdown: supplyAtWorst,
         detail: isAgreements
-          ? `${cells.length} date-shifts of ${code} exceed secured seats but fit the physical ceiling: on ${fmtD(worst.iso)} ${worst.block} the cohorts need ${worst.demand}, secured sites seat ${worst.securedLearners}, all sites ${worst.learners}. Capacity exists; the agreements do not (${unsecuredSites.slice(0, 3).join(", ")}${unsecuredSites.length > 3 ? ", …" : ""}).`
-          : `${cells.length} date-shifts of ${code} exceed what any site can seat: worst ${fmtD(worst.iso)} ${worst.block}, ${worst.demand} learners vs ${worst.securedLearners} secured / ${worst.learners} physical. ${physicalOnly ? `${physicalOnly} of them fit the physical ceiling at unsecured sites.` : "No partner reports enough assets of this setting on those dates."}`,
+          ? `${cells.length} days × shifts of ${settingLabel(code)} exceed secured seats but fit the physical ceiling: on ${fmtD(worst.iso)} ${worst.block} the cohorts need ${worst.demand}, secured sites seat ${worst.securedLearners}, all sites ${worst.learners}. Capacity exists; the agreements do not (${unsecuredSites.slice(0, 3).join(", ")}${unsecuredSites.length > 3 ? ", …" : ""}).`
+          : `${cells.length} days × shifts of ${settingLabel(code)} exceed what any site can seat: worst ${fmtD(worst.iso)} ${worst.block}, ${worst.demand} students vs ${worst.securedLearners} secured / ${worst.learners} physical seats. ${physicalOnly ? `${physicalOnly} of them fit the physical ceiling at unsecured sites.` : "No partner reports enough assets of this setting on those dates."}`,
         fix: isAgreements ? `secure ${unsecuredSites.slice(0, 2).join(" or ")} (${a.siteAgreementWeeks.value} weeks' lead)` : `add ${code} assets at a partner, move the ${code} rotation to another shift or week, or split the section across sites`,
         shortfall: worst.shortSecured, evidence: assets.filter((x) => x.settingCode === code).every((x) => x.dataSource === "VERIFIED") ? "verified" : "estimate",
       });
     }
     used.add("siteAgreementWeeks");
-    if (shortSecuredCells.length === 0 && newDemand.length > 0) constraints.push({ kind: "clinical-seats", severity: "ok", label: "Clinical seats", demand: learnerShifts, supply: null, unit: "learner-shifts in the window", where: null, detail: `Every date, shift and setting the new cohort${cohorts.length === 1 ? "" : "s"} need fits within secured seats alongside the offerings already running (${learnerShifts} learner-shifts).`, fix: "none needed", shortfall: 0, evidence: assets.every((x) => x.dataSource === "VERIFIED") ? "verified" : "estimate" });
-    if (unmapped.length) constraints.push({ kind: "clinical-seats", severity: "unknown", label: "Unmapped rotation types", demand: null, supply: null, unit: "", where: null, detail: `Rotation types with no asset setting: ${unmapped.join(", ")} — their seats cannot be tested.`, fix: "map each rotation type to a setting on the clinical page", shortfall: null, evidence: "unknown" });
+    if (shortSecuredCells.length === 0 && newDemand.length > 0) constraints.push({ kind: "clinical-seats", severity: "ok", label: "Clinical seats", demand: Math.round(learnerShifts), supply: null, unit: "student clinical shifts a year", where: null, detail: `Every date, shift and setting the new cohort${cohorts.length === 1 ? "" : "s"} need fits within secured seats alongside the offerings already running (${Math.round(learnerShifts)} student clinical shifts a year).`, fix: "none needed", shortfall: 0, evidence: assets.every((x) => x.dataSource === "VERIFIED") ? "verified" : "estimate", how: "For every date × shift × setting the proposed cohorts need, students rotating (plan + proposed) were compared with secured seats (assets at secured sites operating that day and shift × students each takes); none came up short." });
+    if (unmapped.length) constraints.push({ kind: "clinical-seats", severity: "unknown", label: "Unmapped rotation types", demand: null, supply: null, unit: "", where: null, detail: `Rotation types with no asset setting: ${unmapped.join(", ")} — their seats cannot be tested.`, fix: "map each rotation type to a setting on the clinical page", shortfall: null, evidence: "unknown", how: "A clinical session names a rotation type; the clinical page maps each type to an asset setting. Without the mapping there is no seat count to test against." });
     void shortPhysicalCells;
     // Accreditor: students at once across the family's sites on any date.
     if (p.accreditedCapacity != null) {
@@ -339,8 +438,8 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
       for (const x of [...baseInWindow, ...newDemand]) perDate.set(x.iso, (perDate.get(x.iso) ?? 0) + x.students);
       const worst = [...perDate.entries()].sort((x, y) => y[1] - x[1])[0];
       const over = worst && worst[1] > p.accreditedCapacity;
-      constraints.push({ kind: "accreditor", severity: over ? "binding" : "ok", label: "Accreditor capacity", demand: worst?.[1] ?? 0, supply: p.accreditedCapacity, unit: "students on site at once", where: worst ? fmtD(worst[0]) : null, detail: over ? `On ${fmtD(worst[0])} ${worst[1]} students would be on site against an approved ${p.accreditedCapacity}.` : `Peak ${worst?.[1] ?? 0} students on site within the approved ${p.accreditedCapacity}.`, fix: over ? "request a capacity increase from the accreditor (add the approval lead time) or stagger the clinical weeks" : "none needed", shortfall: over ? worst[1] - p.accreditedCapacity : 0, evidence: "verified" });
-    } else constraints.push({ kind: "accreditor", severity: "unknown", label: "Accreditor capacity", demand: null, supply: null, unit: "", where: null, detail: "No accredited capacity is on record for this family — the accreditor's limit cannot be tested.", fix: "record the approved capacity on the family's clinical page", shortfall: null, evidence: "unknown" });
+      constraints.push({ kind: "accreditor", severity: over ? "binding" : "ok", label: "Accreditor capacity", demand: worst?.[1] ?? 0, supply: p.accreditedCapacity, unit: "students on site at once", where: worst ? fmtD(worst[0]) : null, detail: over ? `On ${fmtD(worst[0])} ${worst[1]} students would be on site against an approved ${p.accreditedCapacity}.` : `Peak ${worst?.[1] ?? 0} students on site within the approved ${p.accreditedCapacity}.`, fix: over ? "request a capacity increase from the accreditor (add the approval lead time) or stagger the clinical weeks" : "none needed", shortfall: over ? worst[1] - p.accreditedCapacity : 0, evidence: "verified", how: "Students at clinical sites on one date, every setting and shift together, for every offering in the plan plus the proposed cohorts, against the family's recorded accredited capacity.", demandBreakdown: worst ? (() => { const m = new Map<string, Breakdown>(); for (const x of [...baseInWindow, ...newDemand]) if (x.iso === worst[0]) { const b = m.get(x.cohortId) ?? { label: x.cohort, value: 0, note: proposedIds.has(x.cohortId) ? "proposed" : x.program }; b.value += x.students; m.set(x.cohortId, b); } return [...m.values()].sort((p1, p2) => p2.value - p1.value); })() : [] });
+    } else constraints.push({ kind: "accreditor", severity: "unknown", label: "Accreditor capacity", demand: null, supply: null, unit: "", where: null, detail: "No accredited capacity is on record for this family — the accreditor's limit cannot be tested.", fix: "record the approved capacity on the family's clinical page", shortfall: null, evidence: "unknown", how: "Would compare students on site at once against the family's recorded accredited capacity; none is recorded." });
   }
   // Rooms: campus hours a week against the schedulable hours of classrooms and labs.
   const roomSupply = input.supply.rooms.filter((r) => r.weeklyOpenHours > 0).reduce((n, r) => n + r.weeklyOpenHours, 0);
@@ -353,6 +452,9 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     detail: !roomsCoded ? "No room has coded open hours, so room capacity is unknown — not unlimited." : `Peak ${round1(roomPeak.demand)} class and lab room-hours a week (${round1(roomPeak.added)} added) against ${round1(roomSupply)} open room-hours across ${input.supply.rooms.filter((r) => r.weeklyOpenHours > 0).length} rooms.`,
     fix: !roomsCoded ? "code each room's open hours under Rooms, buildings & equipment" : roomPeak.demand > roomSupply ? `add ${round1(roomPeak.demand - roomSupply)} room-hours a week (evening use, a renovated lab: ${a.spaceRenovationWeeks.value} weeks' lead) or move class hours online` : "none needed",
     shortfall: roomsCoded ? Math.max(0, round1(roomPeak.demand - roomSupply)) : null, evidence: roomsCoded ? "estimate" : "unknown",
+    how: "Room-hours = each class or lab session's hours × sections, summed per week for every offering in the plan plus the proposed cohorts (online class hours excluded); supply = the sum of every active room's coded open hours a week. Room type and seat capacity are not matched — this is a total-hours test only.",
+    demandBreakdown: roomPeak.week ? perCohort([...input.baselineRows, ...newRows].filter((r) => r.mondayIso === roomPeak.week), roomHoursOf, proposedIds) : [],
+    supplyBreakdown: input.supply.rooms.filter((r) => r.weeklyOpenHours > 0).map((r) => ({ label: r.name, value: r.weeklyOpenHours, note: `${r.kind.toLowerCase()}${r.capacity ? ` · seats ${r.capacity}` : ""}` })).sort((x, y) => y.value - x.value),
   });
   // Pipeline: seats proposed vs the seats the target needs; the applicants those seats need.
   const seatsPerYear = d.kind === "improve-retention" ? 0 : d.seats * Math.max(1, d.cohortsPerYear);
@@ -363,12 +465,15 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     detail: d.targetWorkers <= 0 ? "No workforce target set — the seats are tested against capacity only." : `${d.targetWorkers} productive workers a year need ${Math.ceil(req.capacity - 1e-9)} seats a year at the current rates (${Math.ceil(req.interested - 1e-9)} interested → ${Math.ceil(req.qualified - 1e-9)} qualified → ${Math.ceil(req.offered - 1e-9)} offers → ${Math.ceil(req.capacity - 1e-9)} enrolled → ${Math.ceil(req.completing - 1e-9)} completing → ${Math.ceil(req.licensed - 1e-9)} licensed → ${Math.ceil(req.placed - 1e-9)} placed). The offerings already planned cover ${Math.ceil((req.capacity - seatsRequired) - 1e-9)}; this design adds ${seatsPerYear}.`,
     fix: seatsPerYear + 1e-9 < seatsRequired ? `add ${Math.ceil(seatsRequired - seatsPerYear - 1e-9)} more seats a year, or raise completion and placement` : "none needed",
     shortfall: Math.max(0, Math.ceil(seatsRequired - seatsPerYear - 1e-9)), evidence: "estimate",
+    how: `Worked backward from the target: productive ÷ productivity rate = placed; ÷ placement rate = licensed; ÷ licensure rate = completing; ÷ completion rate = enrolled seats; then the offer, qualified and interested surpluses. The offerings already planned for ${d.targetYear} are credited with their own productive goals, converted to seats the same way.`,
+    demandBreakdown: [{ label: "Seats the target needs a year", value: Math.ceil(req.capacity - 1e-9) }, { label: `Covered by offerings already planned for ${d.targetYear}`, value: Math.ceil((req.capacity - seatsRequired) - 1e-9), note: input.baselineCohorts.filter((c) => c.programId === p.id && c.gradYear === d.targetYear).map((c) => `${c.cohort} (${c.productiveGoal} productive)`).join(", ") || "no offering of this program is planned to graduate that year" }],
+    supplyBreakdown: seatsPerYear > 0 ? [{ label: "Seats this design adds a year", value: seatsPerYear }] : [],
   });
   // Calendar: sessions on holidays, informational.
   const holidayRows = newRows.filter((r) => r.holiday);
-  if (holidayRows.length) constraints.push({ kind: "calendar", severity: "info", label: "Calendar", demand: holidayRows.length, supply: null, unit: "sessions on holidays", where: fmtD(holidayRows[0].dateIso!), detail: `${holidayRows.length} sessions land on observed holidays (${[...new Set(holidayRows.map((r) => r.holiday))].slice(0, 3).join(", ")}) and would need moving.`, fix: "move them when the offering is designed", shortfall: null, evidence: "verified" });
+  if (holidayRows.length) constraints.push({ kind: "calendar", severity: "info", label: "Calendar", demand: holidayRows.length, supply: null, unit: "sessions on holidays", where: fmtD(holidayRows[0].dateIso!), detail: `${holidayRows.length} sessions land on observed holidays (${[...new Set(holidayRows.map((r) => r.holiday))].slice(0, 3).join(", ")}) and would need moving.`, fix: "move them when the offering is designed", shortfall: null, evidence: "verified", how: "Each proposed session's date is checked against the college's observed holidays on the academic calendar." });
   // Equipment: not modeled beyond an assumption.
-  constraints.push({ kind: "equipment", severity: "unknown", label: "Equipment", demand: null, supply: null, unit: "", where: null, detail: "Specialized equipment is not modeled; the cost line assumes one set per added section where rooms bind.", fix: "list the equipment each session needs on the design page", shortfall: null, evidence: "unknown" });
+  constraints.push({ kind: "equipment", severity: "unknown", label: "Equipment", demand: null, supply: null, unit: "", where: null, detail: "Specialized equipment is not modeled; the cost line assumes one set per added section where rooms bind.", fix: "list the equipment each session needs on the design page", shortfall: null, evidence: "unknown", how: "Not computed. Sessions do not yet list the equipment they need, so there is nothing to test against." });
 
   // 8 · Binding first, then secondary.
   const rank: Record<ConstraintSeverity, number> = { binding: 0, secondary: 1, unknown: 2, info: 3, ok: 4 };
@@ -388,7 +493,7 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
   const longest = leads.reduce((b, l) => (l.weeks > b.weeks ? l : b), leads[0]);
   const earliestStartIso = addWeeks(input.todayIso, longest.weeks);
   const feasibleInTime = d.startIso >= earliestStartIso;
-  if (!feasibleInTime) constraints.unshift({ kind: "time", severity: "binding", label: "Time", demand: null, supply: null, unit: "", where: fmtD(d.startIso), detail: `A start on ${fmtD(d.startIso)} leaves ${Math.max(0, Math.round((dateOf(d.startIso).getTime() - dateOf(input.todayIso).getTime()) / DAY / 7))} weeks; the longest lead item is ${longest.why} (${longest.weeks} weeks), so the earliest feasible start is ${fmtD(earliestStartIso)}.`, fix: `start on or after ${fmtD(earliestStartIso)}, or shorten the ${longest.why} lead`, shortfall: null, evidence: "estimate" });
+  if (!feasibleInTime) constraints.unshift({ kind: "time", severity: "binding", label: "Time", demand: null, supply: null, unit: "", where: fmtD(d.startIso), detail: `A start on ${fmtD(d.startIso)} leaves ${Math.max(0, Math.round((dateOf(d.startIso).getTime() - dateOf(input.todayIso).getTime()) / DAY / 7))} weeks; the longest lead item is ${longest.why} (${longest.weeks} weeks), so the earliest feasible start is ${fmtD(earliestStartIso)}.`, fix: `start on or after ${fmtD(earliestStartIso)}, or shorten the ${longest.why} lead`, shortfall: null, evidence: "estimate", how: `Each thing the constraints say must be put in place has a lead time in the registry (${leads.map((l) => `${l.why}: ${l.weeks} wk`).join("; ")}); the longest, counted from today, sets the earliest start.` });
   const feasible = bindingList.length === 0 && feasibleInTime;
 
   // 11 · Output at steady state, and when the first workers arrive.
@@ -457,7 +562,44 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     else { let lo = 0, hi = d.seats; while (hi - lo > 1) { const mid = Math.floor((lo + hi) / 2); if (bindsAt(mid)) hi = mid; else lo = mid; } currentMaxFeasibleSeats = lo; }
   }
 
-  const bindingSentence = binding ? `${binding.label.toLowerCase()} binds first${binding.where ? ` (${binding.where})` : ""}: ${binding.detail.split(". ")[0]}.` : "nothing binds.";
+  // Context: what else runs in the window, the busiest weeks, and the supply the answer was tested against.
+  const concurrent: ConcurrentCohort[] = [];
+  if (window) {
+    const byCohort = new Map<string, DatedInstance[]>();
+    for (const r of input.baselineRows) { if (!r.dateIso) continue; const l = byCohort.get(r.cohortId) ?? []; l.push(r); byCohort.set(r.cohortId, l); }
+    for (const [cohortId, rs] of byCohort) {
+      const dates = rs.map((r) => r.dateIso!).sort();
+      const startIso = dates[0], endIso = dates[dates.length - 1];
+      if (endIso < window.from || startIso > window.to) continue;
+      const overlapFrom = startIso > window.from ? startIso : window.from, overlapTo = endIso < window.to ? endIso : window.to;
+      const inOverlap = rs.filter((r) => r.dateIso! >= overlapFrom && r.dateIso! <= overlapTo);
+      const byWeek = new Map<string, number>();
+      for (const r of inOverlap) if (r.mondayIso) byWeek.set(r.mondayIso, (byWeek.get(r.mondayIso) ?? 0) + fteOf(r));
+      const bySetting: Record<string, number> = {};
+      let clinicalShifts = 0;
+      for (const r of inOverlap) if (r.session.kind === "CLINICAL") { const seats = Math.min(Math.round(r.computed.C), (r.computed.Y ?? 0) * Math.max(1, r.session.maxStudents)); clinicalShifts += seats; const code = codeOf.get((r.session.rotationType ?? "").trim().toLowerCase()) ?? r.session.rotationType ?? "(unspecified)"; bySetting[code] = (bySetting[code] ?? 0) + seats; }
+      concurrent.push({ cohortId, cohort: rs[0].cohort, program: rs[0].program, sameProgram: rs[0].programId === p.id, startIso, endIso, overlapFrom, overlapTo, overlapWeeks: Math.round((dateOf(overlapTo).getTime() - dateOf(overlapFrom).getTime()) / DAY / 7), students: Math.round(Math.max(0, ...rs.map((r) => r.computed.C))), peakFacultyFte: round1(Math.max(0, ...byWeek.values())), clinicalShiftsInOverlap: clinicalShifts, bySetting });
+    }
+    concurrent.sort((x, y) => (x.sameProgram === y.sameProgram ? x.startIso.localeCompare(y.startIso) : x.sameProgram ? -1 : 1));
+  }
+  const weeklyPeaks: WeeklyPeak[] = [];
+  const allRows = [...input.baselineRows, ...newRows];
+  const peakWeeks = (value: (r: DatedInstance) => number, resource: WeeklyPeak["resource"], supplyN: number | null, unit: string) => {
+    const totals = weeks.map((w) => ({ w, base: ctx.baselineWeekly.get(w), add: newWeekly.get(w) })).map(({ w, base, add }) => { const b = resource === "faculty" ? base?.faculty ?? 0 : resource === "preceptors" ? base?.preceptorShifts ?? 0 : base?.roomHours ?? 0; const n = resource === "faculty" ? add?.faculty ?? 0 : resource === "preceptors" ? add?.preceptorShifts ?? 0 : add?.roomHours ?? 0; return { w, b, n }; });
+    for (const t of totals.sort((x, y) => (y.b + y.n) - (x.b + x.n)).slice(0, 4)) weeklyPeaks.push({ resource, week: t.w, baseline: round1(t.b), added: round1(t.n), total: round1(t.b + t.n), supply: supplyN, unit, cohorts: perCohort(allRows.filter((r) => r.mondayIso === t.w), value, proposedIds) });
+  };
+  if (weeks.length) { peakWeeks(fteOf, "faculty", round1(facSupplyFte), "FTE"); peakWeeks(preceptorShiftsOf, "preceptors", Math.round(preSupplyShifts), "preceptor-shifts"); peakWeeks(roomHoursOf, "rooms", roomsCoded ? round1(roomSupply) : null, "room-hours"); }
+  const activeAssets = assets.filter((x) => x.status !== "archived");
+  const supplySummary = {
+    faculty: `${input.supply.instructors.length} active instructors on the roster, ${round1(facSupplyFte)} FTE at their policy hours (full-time load ${p.assumptions.facContactHours} h/wk)`,
+    preceptors: `${securedSites.reduce((n, s) => n + s.preceptors, 0)} preceptors on record at ${securedSites.length} secured${d.assumedSecuredSiteIds.length ? " or assumed-secured" : ""} sites × ${a.preceptorShiftsPerWeek.value} shifts a week`,
+    sites: `${input.supply.sites.filter((s) => s.agreementStatus === "secured").length} of ${input.supply.sites.length} family sites secured today${d.assumedSecuredSiteIds.length ? `; ${d.assumedSecuredSiteIds.length} more assumed secured in this scenario` : ""}`,
+    assets: `${activeAssets.length} clinical assets across ${Object.keys(settingNames).length} settings (${activeAssets.filter((x) => x.agreementStatus === "secured").length} at secured sites; ${activeAssets.filter((x) => x.dataSource === "VERIFIED").length} verified with the site)`,
+    rooms: roomsCoded ? `${input.supply.rooms.filter((r) => r.weeklyOpenHours > 0).length} rooms with coded hours, ${round1(roomSupply)} open room-hours a week` : "no room has coded open hours",
+  };
+  const rules = designRules(d, { onlineContactHourFactor: a.onlineContactHourFactor.value, assumedSiteNames: input.supply.sites.filter((s) => d.assumedSecuredSiteIds.includes(s.employerId)).map((s) => s.siteName), cohortCount: cohorts.length });
+
+  const bindingSentence = binding ? `${binding.label.charAt(0).toLowerCase()}${binding.label.slice(1)} binds first${binding.where ? ` (${binding.where})` : ""}: ${binding.detail.split(". ")[0]}.` : "nothing binds.";
   const headline = feasible
     ? `Feasible: ${seatsPerYear ? `${seatsPerYear} seats a year` : "the retention change"} from ${fmtD(d.startIso)} adds about ${Math.round(annualLadder.productive)} productive workers a year at steady state, the first entering the labor market in ${firstYearWorkersEnter ?? "—"}.`
     : `Not feasible as designed: ${bindingSentence}${!feasibleInTime ? ` Earliest feasible start ${fmtD(earliestStartIso)}.` : ""}`;
@@ -465,7 +607,7 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     headline,
     d.targetWorkers > 0 ? `The target of ${d.targetWorkers} productive workers by ${d.targetYear} needs ${Math.ceil(req.capacity - 1e-9)} seats a year at current rates; ${Math.ceil(seatsRequired - 1e-9) > 0 ? `${Math.ceil(seatsRequired - 1e-9)} beyond what is already planned` : "the planned offerings already cover it"}.` : "",
     bindingList.length ? `Constraints: ${bindingList.map((c) => c.label.toLowerCase()).join(", ")}.` : "",
-    `Faculty ${facultyFteAdded} FTE (${facultyPeopleAdded} people at the peak) and ${preceptorPeopleAdded} preceptors added; ${Math.round(learnerShifts)} learner-shifts across ${[...settingsNeeded].join(", ") || "no clinical settings"}.`,
+    `Faculty ${facultyFteAdded} FTE (${facultyPeopleAdded} people at the peak) and ${preceptorPeopleAdded} preceptors added; ${Math.round(learnerShifts)} student clinical shifts a year across ${[...settingsNeeded].map(settingLabel).join(", ") || "no clinical settings"}.`,
     lines.length ? `Cost about $${Math.round(recurring).toLocaleString("en-US")} a year recurring and $${Math.round(oneTime).toLocaleString("en-US")} one-time: $${annualLadder.completing > 0 ? Math.round(annualized / annualLadder.completing).toLocaleString("en-US") : "—"} per additional completer, $${annualLadder.placed > 0 ? Math.round(annualized / annualLadder.placed).toLocaleString("en-US") : "—"} per additional placed worker.` : "",
     `Confidence: ${conf.verified} of ${conf.used} assumptions used are verified${risks.length ? `; ${risks[0]}` : ""}.`,
     currentMaxFeasibleSeats != null ? `Largest cohort this design could run today without a new constraint: ${currentMaxFeasibleSeats} seats.` : "",
@@ -486,7 +628,7 @@ export function evaluateExpansion(ctx: ExpansionContext, d: ExpansionDesign, opt
     costs: { lines, oneTime, recurring, annualized, perAdditionalCompleter: annualLadder.completing > 0 ? annualized / annualLadder.completing : null, perAdditionalPlaced: annualLadder.placed > 0 ? annualized / annualLadder.placed : null },
     earliestStartIso, proposedStartIso: d.startIso, milestones, assumptionsUsed,
     confidence: { share: conf.share, verified: conf.verified, used: conf.used, unverified: conf.unverified.map((u) => u.key), stale: conf.stale.map((u) => u.key), risks },
-    trace, summary,
+    trace, summary, rules, concurrent, weeklyPeaks, settingNames, window, asOf: input.todayIso, supplySummary,
   };
 }
 
