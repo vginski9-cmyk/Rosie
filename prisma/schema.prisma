@@ -1946,3 +1946,47 @@ model ChangeSet {
 
   @@index([institutionId, createdAt])
 }
+
+/// A named, saved, versioned what-if (Phase 9, use case 1): a proposed expansion evaluated by the same
+/// engines the live pages use, kept apart from the operating plan. `design` is the ExpansionDesign JSON,
+/// `overrides` the assumption keys this scenario changes, `result` the last evaluation's summary.
+model Scenario {
+  id            String   @id @default(cuid())
+  institutionId String
+  programId     String
+  familyId      String?
+  name          String
+  kind          String   @default("expansion")
+  status        String   @default("draft") // draft | recommended | archived
+  design        String   @default("{}")
+  overrides     String   @default("{}")
+  result        String?
+  evaluatedAt   DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([institutionId, programId])
+}
+
+/// The assumption registry (Phase 9): every material planning assumption — a rate, a lead time, a cost,
+/// a workload figure — with its source, owner, date and verification status, scoped to the whole
+/// workspace, a college, a job family or a program (the most specific wins). Defaults live in code
+/// (lib/assumptions); a row here overrides them without touching any operating plan.
+model Assumption {
+  id         String   @id @default(cuid())
+  scope      String   // global | inst:<id> | family:<id> | program:<id>
+  key        String
+  value      Float
+  low        Float?
+  high       Float?
+  source     String?
+  owner      String?
+  status     String   @default("estimate") // default | estimate | verified
+  verifiedAt DateTime?
+  reviewBy   DateTime?
+  notes      String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([scope, key])
+}

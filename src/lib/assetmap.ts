@@ -64,6 +64,25 @@ export function overrideIndex(overrides: AssetDayOverride[]): Map<string, AssetD
   return new Map(overrides.map((o) => [overrideKey(o.assetId, o.date), o]));
 }
 
+/** The dates of a window with their weekdays, computed once per window rather than once per asset per day. */
+function dayIndex(from: string, to: string): { iso: string; wd: Weekday }[] {
+  const out: { iso: string; wd: Weekday }[] = [];
+  for (const iso of isoRange(from, to)) out.push({ iso, wd: weekdayOfIso(iso) });
+  return out;
+}
+/** Same answer as blocksOn on every date of the window, with the asset's rule parsed once. */
+function blocksAcross(a: AssetLite, days: { iso: string; wd: Weekday }[], ov: Map<string, AssetDayOverride>): { iso: string; blocks: ShiftBlock[] }[] {
+  const ruleDays = new Set(csv(a.days));
+  const ruleBlocks = csv(a.shiftBlocks).filter((b): b is ShiftBlock => (ASSET_BLOCKS as string[]).includes(b));
+  const out: { iso: string; blocks: ShiftBlock[] }[] = [];
+  for (const d of days) {
+    const o = ov.size ? ov.get(overrideKey(a.id, d.iso)) : undefined;
+    const blocks = o ? (csv(o.shiftBlocks) as ShiftBlock[]) : ruleDays.has(d.wd) ? ruleBlocks : [];
+    if (blocks.length) out.push({ iso: d.iso, blocks });
+  }
+  return out;
+}
+
 // ── Totals, the way the partner workbook reports them ─────────────────────────
 export interface SettingTotal { settingCode: string; setting: string; assets: number; day: number; evening: number; night: number; total: number; hours: number }
 export interface FacilityTotal { employerId: string; facility: string; settingCode: string; setting: string; assets: number; block: ShiftBlock; daysAvailable: number; assetShifts: number; hours: number }
@@ -73,14 +92,14 @@ export function assetTotals(assets: AssetLite[], overrides: AssetDayOverride[], 
   const ov = overrideIndex(overrides);
   const bySetting = new Map<string, SettingTotal>();
   const byFacility = new Map<string, FacilityTotal>();
-  let days = 0;
-  for (const _ of isoRange(from, to)) days++;
+  const dayList = dayIndex(from, to);
+  const days = dayList.length;
   for (const a of assets) {
     if (a.status === "archived") continue;
     const st = bySetting.get(a.settingCode) ?? { settingCode: a.settingCode, setting: a.setting, assets: 0, day: 0, evening: 0, night: 0, total: 0, hours: 0 };
     st.assets++;
     const perBlock: Record<ShiftBlock, number> = { Day: 0, Evening: 0, Night: 0 };
-    for (const iso of isoRange(from, to)) for (const b of blocksOn(a, iso, ov.get(overrideKey(a.id, iso)))) perBlock[b]++;
+    for (const d of blocksAcross(a, dayList, ov)) for (const b of d.blocks) perBlock[b]++;
     st.day += perBlock.Day; st.evening += perBlock.Evening; st.night += perBlock.Night;
     st.total += perBlock.Day + perBlock.Evening + perBlock.Night; st.hours += perBlock.Day * shiftHours(a, "Day") + perBlock.Evening * shiftHours(a, "Evening") + perBlock.Night * shiftHours(a, "Night");
     bySetting.set(a.settingCode, st);
@@ -106,11 +125,12 @@ export interface AssetSupplyCell {
 export function assetSupply(assets: AssetLite[], overrides: AssetDayOverride[], from: string, to: string): Map<string, AssetSupplyCell> {
   const ov = overrideIndex(overrides);
   const out = new Map<string, AssetSupplyCell>();
+  const dayList = dayIndex(from, to);
   for (const a of assets) {
     if (a.status === "archived" || a.facilityStatus === "archived") continue;
     const secured = a.agreementStatus === "secured";
-    for (const iso of isoRange(from, to)) {
-      for (const b of blocksOn(a, iso, ov.get(overrideKey(a.id, iso)))) {
+    for (const { iso, blocks } of blocksAcross(a, dayList, ov)) {
+      for (const b of blocks) {
         const k = `${iso}|${b}|${a.settingCode}`;
         const c = out.get(k) ?? { iso, block: b, settingCode: a.settingCode, assets: 0, learners: 0, securedAssets: 0, securedLearners: 0, assetIds: [] };
         c.assets++; c.learners += a.learnersPerShift; c.assetIds.push(a.id);
@@ -258,6 +278,7 @@ export function parseAssetMapWorkbook(sheets: Record<string, unknown[][]>): Pars
 export function assetMapWorkbook(assets: AssetLite[], overrides: AssetDayOverride[], from: string, to: string): Record<string, unknown[][]> {
   const t = assetTotals(assets, overrides, from, to);
   const ov = overrideIndex(overrides);
+  const exportDays = dayIndex(from, to);
   const TOTALS: unknown[][] = [
     [`Clinical asset map — ${from} → ${to}`], ["Physical ceiling only; learner and staffing rules are layered in Rosie."], [],
     ["Physical assets", t.grand.assets, "Available asset-shifts", t.grand.total, "Day shifts", t.grand.day, "Evening shifts", t.grand.evening, "Night shifts", t.grand.night, "Calendar days", t.days], [],
@@ -272,10 +293,9 @@ export function assetMapWorkbook(assets: AssetLite[], overrides: AssetDayOverrid
   for (const a of assets) {
     if (a.status === "archived") continue;
     const per: Record<ShiftBlock, number> = { Day: 0, Evening: 0, Night: 0 };
-    for (const iso of isoRange(from, to)) {
-      const bl = blocksOn(a, iso, ov.get(overrideKey(a.id, iso)));
+    for (const { iso, blocks: bl } of blocksAcross(a, exportDays, ov)) {
       for (const b of bl) per[b]++;
-      if (bl.length) SHIFT_MAP.push([`${a.externalId ?? a.id}-${iso}`, iso, DOW[weekdayOfIso(iso)], a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.settingCode, a.setting, a.assetType, a.assetNumber, bl.includes("Day") ? 1 : 0, bl.includes("Day") ? shiftHours(a, "Day") : 0, bl.includes("Evening") ? 1 : 0, bl.includes("Evening") ? shiftHours(a, "Evening") : 0, bl.includes("Night") ? 1 : 0, bl.includes("Night") ? shiftHours(a, "Night") : 0, bl.length, bl.reduce((n, b) => n + shiftHours(a, b), 0), a.serves ?? ""]);
+      SHIFT_MAP.push([`${a.externalId ?? a.id}-${iso}`, iso, DOW[weekdayOfIso(iso)], a.externalId ?? a.id, a.facilityExternalId ?? "", a.facilityName, a.settingCode, a.setting, a.assetType, a.assetNumber, bl.includes("Day") ? 1 : 0, bl.includes("Day") ? shiftHours(a, "Day") : 0, bl.includes("Evening") ? 1 : 0, bl.includes("Evening") ? shiftHours(a, "Evening") : 0, bl.includes("Night") ? 1 : 0, bl.includes("Night") ? shiftHours(a, "Night") : 0, bl.length, bl.reduce((n, b) => n + shiftHours(a, b), 0), a.serves ?? ""]);
     }
     const total = per.Day + per.Evening + per.Night;
     const hours = per.Day * shiftHours(a, "Day") + per.Evening * shiftHours(a, "Evening") + per.Night * shiftHours(a, "Night");

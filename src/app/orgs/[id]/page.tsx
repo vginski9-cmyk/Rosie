@@ -54,7 +54,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
             <h1 className="text-2xl font-semibold tracking-tight">{inst.name}</h1>
             <p className="text-sm text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")}</p>
           </div>
-          <Link href="/goals" className="text-sm text-rose-600 hover:underline">North Star goals →</Link>
+          <span className="flex flex-wrap gap-3 text-sm"><Link href={`/orgs/${inst.id}/assumptions`} className="text-rose-600 hover:underline">Planning assumptions →</Link><Link href="/goals" className="text-rose-600 hover:underline">North Star goals →</Link></span>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {steps.map((s) => <a key={s.label} href={s.href} className={`rounded-full px-2.5 py-1 text-xs font-medium ${s.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>{s.ok ? "✓" : "○"} {s.label}</a>)}

@@ -11,6 +11,7 @@ const TABS: { label: string; seg: string }[] = [
   { label: "Design & sequence", seg: "structure" },
   { label: "Clinical sites & requirements", seg: "clinical" },
   { label: "Goal & pipeline", seg: "goal" },
+  { label: "Can it expand?", seg: "expand" },
   { label: "Students", seg: "students" },
 ];
 

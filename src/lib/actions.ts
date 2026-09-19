@@ -2895,3 +2895,58 @@ export async function addStudentShiftsForCourse(studentId: string, formData: For
   for (const s of sessions) await prisma.studentShift.upsert({ where: { studentId_cohortId_sessionId: { studentId, cohortId, sessionId: s.id } }, update: { sectionIndex }, create: { studentId, cohortId, sessionId: s.id, sectionIndex } });
   revalidatePath(`/students/${studentId}`);
 }
+
+// ---------------------------------------------------------------------------
+// USE CASE 1 — expansion scenarios and the assumption registry (Phase 9)
+// ---------------------------------------------------------------------------
+
+/** Evaluate a design against the program's current supply and operating plan; store the result on a saved scenario when one is named. */
+export async function evaluateExpansion(programId: string, design: import("./expansion").ExpansionDesign, overrides: Record<string, number> = {}, scenarioId?: string | null): Promise<import("./expansion").ExpansionResult | null> {
+  const { getExpansionInput } = await import("./expansionquery");
+  const { prepareExpansion, evaluateExpansion: run } = await import("./expansion");
+  const input = await getExpansionInput(programId, overrides);
+  if (!input) return null;
+  const result = run(prepareExpansion(input), design);
+  if (scenarioId) await prisma.scenario.update({ where: { id: scenarioId }, data: { design: JSON.stringify(design), overrides: JSON.stringify(overrides), result: JSON.stringify(result), evaluatedAt: new Date() } });
+  revalidatePath(`/programs/${programId}/expand`);
+  return result;
+}
+
+/** Create or rename a saved scenario (its design, overrides and notes). */
+export async function saveScenario(programId: string, s: { id?: string | null; name: string; design: import("./expansion").ExpansionDesign; overrides?: Record<string, number>; notes?: string | null }): Promise<string> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, select: { institutionId: true, familyId: true } });
+  if (!program) throw new Error("Program not found");
+  const data = { name: s.name.trim() || "Untitled scenario", design: JSON.stringify(s.design), overrides: JSON.stringify(s.overrides ?? {}), notes: s.notes ?? null };
+  const row = s.id ? await prisma.scenario.update({ where: { id: s.id }, data }) : await prisma.scenario.create({ data: { ...data, programId, institutionId: program.institutionId, familyId: program.familyId, kind: "expansion" } });
+  revalidatePath(`/programs/${programId}/expand`);
+  return row.id;
+}
+export async function deleteScenario(id: string, programId: string): Promise<void> {
+  await prisma.scenario.delete({ where: { id } });
+  revalidatePath(`/programs/${programId}/expand`);
+}
+export async function setScenarioStatus(id: string, programId: string, status: "draft" | "recommended" | "archived"): Promise<void> {
+  if (status === "recommended") await prisma.scenario.updateMany({ where: { programId, status: "recommended" }, data: { status: "draft" } });
+  await prisma.scenario.update({ where: { id }, data: { status } });
+  revalidatePath(`/programs/${programId}/expand`);
+}
+
+/** Set an assumption at a scope (workspace, college, family or program): value, range, source, owner, status, review date. */
+export async function saveAssumption(formData: FormData): Promise<void> {
+  const scope = str(formData.get("scope")), key = str(formData.get("key"));
+  if (!scope || !key) return;
+  const value = Number(formData.get("value"));
+  if (!Number.isFinite(value)) return;
+  const status = str(formData.get("status")) || "estimate";
+  const d = (k: string) => { const v = str(formData.get(k)); return v ? new Date(v + "T00:00:00Z") : null; };
+  const data = { value, low: optNum(formData.get("low")), high: optNum(formData.get("high")), source: str(formData.get("source")) || null, owner: str(formData.get("owner")) || null, status, verifiedAt: status === "verified" ? d("verifiedAt") ?? new Date() : d("verifiedAt"), reviewBy: d("reviewBy"), notes: str(formData.get("notes")) || null };
+  await prisma.assumption.upsert({ where: { scope_key: { scope, key } }, update: data, create: { scope, key, ...data } });
+  const back = str(formData.get("back"));
+  revalidatePath("/", "layout");
+  if (back) redirect(back);
+}
+export async function deleteAssumption(scope: string, key: string, back?: string): Promise<void> {
+  await prisma.assumption.deleteMany({ where: { scope, key } });
+  revalidatePath("/", "layout");
+  if (back) redirect(back);
+}
