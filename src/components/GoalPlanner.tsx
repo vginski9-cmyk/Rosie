@@ -256,15 +256,20 @@ export function GoalPlanner({
    *  locked offering from an older plan (goal saved on the cohort, not the slot) counts, not 0. */
   const allocGoal = (a: Alloc) => slotsFor(a, 1).reduce((n, o) => n + slotTargets(o).goal, 0);
   /** Only the rate keys that differ from the family defaults count as "own". */
+  // Every offering the planner knows about, whatever year it graduates in (declared before the slot readers that use it).
+  const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
   const ownRatesOf = (r: Partial<LadderRates> | undefined): Partial<LadderRates> => { const out: Partial<LadderRates> = {}; for (const [k, v] of Object.entries(r ?? {})) if (typeof v === "number" && v !== s.goal[k as keyof LadderRates]) out[k as keyof LadderRates] = v; return out; };
   /** What a slot's editor shows: its own fields, else (locked, older plan) the cohort's saved plan. */
   const slotTargets = (o: OfferingSlot): OfferingTargets => {
-    if (o.goal == null && o.locked && o.cohortId) {
-      const inst = allInsts.find((x) => x.id === o.cohortId);
-      try { const saved = inst?.pipelineRates ? JSON.parse(inst.pipelineRates) as { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } : null; if (saved) return { goal: saved.goal ?? inst?.goalProductive ?? 0, termOverrides: saved.termOverrides ?? [], rates: ownRatesOf(saved.rates) }; } catch { /* fall through */ }
-      return { goal: inst?.goalProductive ?? 0, termOverrides: [], rates: {} };
-    }
-    return { goal: o.goal ?? 0, termOverrides: o.termOverrides ?? [], rates: o.rates ?? {} };
+    // A locked-in offering's own saved plan (its goal, per-term enrollment and health rates) is the
+    // truth for that slot, whether the slot came from the saved allocation or was merged in from the
+    // offering itself; a rate counts as the offering's own only where it differs from the family's.
+    const inst = o.locked && o.cohortId ? allInsts.find((x) => x.id === o.cohortId) : undefined;
+    let saved: { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } | null = null;
+    try { saved = inst?.pipelineRates ? JSON.parse(inst.pipelineRates) : null; } catch { saved = null; }
+    const ownSaved = ownRatesOf(saved?.rates);
+    if (o.goal == null && inst) return { goal: saved?.goal ?? inst.goalProductive ?? 0, termOverrides: saved?.termOverrides ?? [], rates: ownSaved };
+    return { goal: o.goal ?? 0, termOverrides: o.termOverrides?.length ? o.termOverrides : saved?.termOverrides ?? [], rates: o.rates && Object.keys(o.rates).length ? o.rates : ownSaved };
   };
   const allocated = allocs.reduce((n, a) => n + allocGoal(a), 0);
   const remaining = yearGoal - allocated;
@@ -279,7 +284,6 @@ export function GoalPlanner({
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
   // A lock-in or unlock that the server refuses says so here, instead of failing silently.
   const [actionError, setActionError] = useState<string | null>(null);
-  const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
   const router = useRouter();
 
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -491,6 +495,11 @@ export function GoalPlanner({
                   const nOfferings = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capNeeded / m.maxCapacity)) : 1;
                   const slots = slotsFor(a, nOfferings);
                   const lockedCount = slots.filter((o) => o.locked).length;
+                  // What the offerings actually need, each at its OWN health rates (a class planned at a 90%
+                  // completion rate needs fewer seats than the family's default says).
+                  const capOwn = slots.reduce((n, o) => { const tv = slotTargets(o); return n + seatsNeeded(deriveCohortTargets(Math.max(0, tv.goal), { ...s.goal, ...tv.rates }, Math.max(1, m.terms)).capacity); }, 0);
+                  const anyOwnRates = slots.some((o) => Object.keys(slotTargets(o).rates ?? {}).length > 0);
+                  const nSuggested = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capOwn / m.maxCapacity)) : 1;
                   const withSlots = (next: OfferingSlot[], extra: Partial<Alloc> = {}) =>
                     setAllocs(allocs.map((x, i) => (i === ai ? { ...x, ...extra, offerings: next, goal: next.reduce((n, o) => n + (o.goal ?? 0), 0), termOverrides: undefined, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
                   const setCount = (next: number) => withSlots(slots, { offeringCount: Math.max(1, lockedCount, next) });
@@ -519,13 +528,13 @@ export function GoalPlanner({
                       </div>
                       {/* How many offerings — suggested from the model's max cohort, but YOURS to add / subtract */}
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] tabular-nums">
-                        <span className="text-slate-500">at the family&apos;s rates that needs enrollment capacity <strong className="text-slate-700" title={fmt.calcTitle(t.capacity, fmt.atLeastPhrase(t.capacity))}>{fmt.atLeastPhrase(t.capacity)}</strong></span>
+                        <span className="text-slate-500">{anyOwnRates ? "at each offering's own rates that needs enrollment capacity" : "at the family's rates that needs enrollment capacity"} <strong className="text-slate-700" title={anyOwnRates ? `${fmt.num(capOwn)} seats, summed over the offerings at their own rates` : fmt.calcTitle(t.capacity, fmt.atLeastPhrase(t.capacity))}>{anyOwnRates ? fmt.num(capOwn) : fmt.atLeastPhrase(t.capacity)}</strong></span>
                         <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong></span>
                         <span className="inline-flex items-center gap-1">
                           <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
                           <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering of this model — give it its own goal and enrollment below">+ offering</button>
                         </span>
-                        {slots.length !== nOfferings && <span className="text-slate-400">math suggests {nOfferings} — your call</span>}
+                        {slots.length !== nSuggested && <span className="text-slate-400">math suggests {nSuggested} — your call</span>}
                       </div>
 
                       {/* THE OFFERINGS — each with its own start, goal, enrollment per term and rates */}
