@@ -56,6 +56,8 @@ export function distanceFrom(campus: LatLng & { source?: GeoSource | null }, sit
 /** Built-in gazetteer — North Carolina place centroids (city, state) used when no geocoder is reachable.
  *  Town-centre accuracy (a mile or two), which is enough to band a drive time; the stored source says so. */
 export const NC_PLACES: Record<string, LatLng> = {
+  // Lenoir / Greene / Jones, Carteret, and Hertford / Bertie / Gates / Northampton service areas.
+  "pollocksville": { lat: 35.0065, lng: -77.2208 }, "windsor": { lat: 35.9982, lng: -76.9461 }, "murfreesboro": { lat: 36.4421, lng: -77.0983 }, "colerain": { lat: 36.2004, lng: -76.7663 }, "gatesville": { lat: 36.4043, lng: -76.7522 }, "jackson": { lat: 36.3888, lng: -77.4214 }, "rich square": { lat: 36.2740, lng: -77.2833 }, "winton": { lat: 36.3957, lng: -76.9308 }, "cape carteret": { lat: 34.6929, lng: -77.0597 },
   "pinehurst": { lat: 35.1954, lng: -79.4695 }, "southern pines": { lat: 35.1740, lng: -79.3922 }, "aberdeen": { lat: 35.1315, lng: -79.4292 }, "carthage": { lat: 35.3460, lng: -79.4170 },
   "robbins": { lat: 35.4335, lng: -79.5870 }, "vass": { lat: 35.2543, lng: -79.2820 }, "west end": { lat: 35.2510, lng: -79.5160 }, "whispering pines": { lat: 35.2540, lng: -79.3710 }, "seven lakes": { lat: 35.2620, lng: -79.5710 },
   "sanford": { lat: 35.4799, lng: -79.1803 }, "fayetteville": { lat: 35.0527, lng: -78.8784 }, "hope mills": { lat: 34.9704, lng: -78.9453 }, "spring lake": { lat: 35.1679, lng: -78.9781 }, "fort liberty": { lat: 35.1400, lng: -79.0060 }, "fort bragg": { lat: 35.1400, lng: -79.0060 },

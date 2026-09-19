@@ -23,6 +23,7 @@ import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
+import { loadPartnerSites } from "./seed-partner-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
 import { avgCasesPerDay } from "../src/lib/surgvolume";
 import { seedInstitutions, goals, goalPlanJson, type CnaPacks } from "./seed-institutions";
@@ -1419,6 +1420,8 @@ async function main() {
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----
   console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPacks }));
+  // Clinical partners for the colleges the license file gives none: nursing halls and externship slots in their own program terms.
+  console.log("partner sites:", await loadPartnerSites(prisma));
 
   // ----- Dummy roster: rooms, faculty, preceptors, site agreements, and a few
   //       locked-in offerings with sections waiting for assignments ----------
