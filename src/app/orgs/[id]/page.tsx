@@ -34,7 +34,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   const { inst, assets, employersLite } = data;
   const familyIds = inst.programFamilies.map((f) => f.id);
   const programIds = inst.programFamilies.flatMap((f) => f.programs.map((p) => p.id));
-  const [assumptionRows, reqSets, sitesEstimate, sitesSecured, assetsEstimate, assetsTotal, students, cohorts, scenarios] = await Promise.all([
+  const [assumptionRows, reqSets, sitesEstimate, sitesSecured, assetsEstimate, assetsTotal, students, cohorts] = await Promise.all([
     prisma.assumption.findMany({ where: { scope: { in: [scopeOf.global, scopeOf.institution(inst.id), ...familyIds.map((id) => scopeOf.family(id)), ...programIds.map((id) => scopeOf.program(id))] } }, select: { scope: true, status: true, reviewBy: true } }),
     prisma.clinicalRequirementSet.findMany({ where: { familyId: { in: familyIds } }, select: { id: true, familyId: true, authority: true, verified: true, family: { select: { name: true, programs: { select: { id: true }, take: 1 } } } } }),
     prisma.familySite.count({ where: { familyId: { in: familyIds }, agreementStatus: "secured", staffCountSource: { not: "VERIFIED" } } }),
@@ -43,7 +43,6 @@ export default async function OrganizationPage({ params }: { params: { id: strin
     prisma.clinicalAsset.count({ where: { employer: { institutionId: inst.id }, status: { not: "archived" } } }),
     prisma.student.count({ where: { programId: { in: programIds } } }),
     prisma.cohort.count({ where: { programId: { in: programIds } } }),
-    prisma.scenario.count({ where: { institutionId: inst.id } }),
   ]);
   const roles = rolesRaw.map((r) => ({ id: r.id, institutionId: r.institutionId, institution: r.institution.name, key: r.key, label: r.label, family: r.family, notes: r.notes }));
   const codedStarts = inst.academicEvents.filter((e) => e.kind === "term_start");
@@ -83,7 +82,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   return (
     <div className="space-y-6">
       <div>
-        <PageHeader crumb={{ href: "/", label: "Home" }} title={<>{inst.name} — setup</>} lede="Connections, mappings, assumptions, evidence review and exceptions, in that order." meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
+        <PageHeader crumb={{ href: "/setup", label: "Setup" }} title={<>{inst.name} — setup</>} meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
         <div className="-mt-2 flex flex-wrap gap-1.5">
           {steps.map((s) => <a key={s.label} href={s.href} className={`rounded-full px-2.5 py-1 text-xs font-medium ${s.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>{s.ok ? "✓" : "○"} {s.label}</a>)}
         </div>
@@ -93,7 +92,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       <section id="connections" className="scroll-mt-16 space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">1 · Connections &amp; imports</h2>
-          <p className="text-xs text-slate-500">Where the records come from. Rosie reads the college&apos;s calendar, program sheets, clinical asset maps, rosters and staffing as imported actuals; none of it is typed here.</p>
+          <p className="text-xs text-slate-500">Where the records come from.</p>
         </div>
         <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
           {([
@@ -122,10 +121,10 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       <section id="mappings" className="scroll-mt-16 space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">2 · Mappings</h2>
-          <p className="text-xs text-slate-500">How the imported records sit on the model: the campus and its drive-time rings, rooms and equipment with open hours, partner sites and the assets a learner can be placed on, people with their roles and workload policies, and the programs built on all of it.</p>
+          <p className="text-xs text-slate-500">The campus, rooms, clinical sites, people and programs.</p>
         </div>
         <div id="basics">
-          <Collapse title="Basics & geography" sub="Name, type, home city, service area, the main campus and the drive-time rings every site is banded by" summary={<>{inst.shortName ?? inst.name}{inst.kind ? ` · ${inst.kind}` : ""} · {mainCampus?.lat != null ? "campus located" : "campus not located"} · rings {inst.ringCoreMinutes}/{inst.ringOneMinutes}/{inst.ringTwoMinutes} min</>}>
+          <Collapse title="Basics & geography" sub="Name, city, holiday rule, main campus and drive-time rings" summary={<>{inst.shortName ?? inst.name}{inst.kind ? ` · ${inst.kind}` : ""} · {mainCampus?.lat != null ? "campus located" : "campus not located"} · rings {inst.ringCoreMinutes}/{inst.ringOneMinutes}/{inst.ringTwoMinutes} min</>}>
             <form action={updateInstitution.bind(null, inst.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <label className="block"><span className={lbl}>Name</span><input name="name" defaultValue={inst.name} required className={inp} /></label>
               <label className="block"><span className={lbl}>Short name</span><input name="shortName" defaultValue={inst.shortName ?? ""} className={inp} /></label>
@@ -133,7 +132,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
               <label className="block"><span className={lbl}>City</span><input name="city" defaultValue={inst.city ?? ""} className={inp} /></label>
               <label className="block"><span className={lbl}>State</span><input name="state" defaultValue={inst.state ?? "NC"} className={inp} /></label>
               <label className="block"><span className={lbl}>Service area</span><input name="serviceArea" defaultValue={inst.serviceArea ?? ""} placeholder="counties / region the goals cover" className={inp} /></label>
-              <label className="block lg:col-span-2"><span className={lbl}>Holiday rule — class, lab and clinical</span><select name="holidayRule" defaultValue={inst.holidayRule} className={inp}>{HOLIDAY_RULES.map((r) => <option key={r.value} value={r.value} title={r.hint}>{r.label}</option>)}</select><span className="mt-1 block text-[11px] text-slate-500">{HOLIDAY_RULES.find((r) => r.value === inst.holidayRule)?.hint}. A day the same course already uses that week is never chosen; a whole-week break stays flagged.</span></label>
+              <label className="block lg:col-span-2"><span className={lbl}>Holiday rule — class, lab and clinical</span><select name="holidayRule" defaultValue={inst.holidayRule} className={inp}>{HOLIDAY_RULES.map((r) => <option key={r.value} value={r.value} title={r.hint}>{r.label}</option>)}</select><span className="mt-1 block text-[11px] text-slate-500">{HOLIDAY_RULES.find((r) => r.value === inst.holidayRule)?.hint}.</span></label>
               <div className="flex items-end"><button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Save basics</button></div>
             </form>
             <form action={updateInstitutionGeography.bind(null, inst.id)} className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
@@ -155,12 +154,12 @@ export default async function OrganizationPage({ params }: { params: { id: strin
           </Collapse>
         </div>
         <div id="rooms" className="scroll-mt-16">
-          <Collapse title="Campuses, buildings, rooms & equipment" sub="Campus → building → room, each room with coded open hours; equipment fixed, mobile or portable, assignable to rooms" summary={<>{ws.campuses.length} campus{ws.campuses.length === 1 ? "" : "es"} · {ws.buildings.length} buildings · {ws.rooms.length} rooms · {ws.equipment.reduce((n, e) => n + e.quantity, 0)} pieces of equipment{ws.rooms.some((r) => r.hours.length === 0) ? ` · ⚠ ${ws.rooms.filter((r) => r.hours.length === 0).length} rooms without hours` : ""}</>}>
+          <Collapse title="Campuses, buildings, rooms & equipment" sub="Rooms with their open hours, and the equipment in them" summary={<>{ws.campuses.length} campus{ws.campuses.length === 1 ? "" : "es"} · {ws.buildings.length} buildings · {ws.rooms.length} rooms · {ws.equipment.reduce((n, e) => n + e.quantity, 0)} pieces of equipment{ws.rooms.some((r) => r.hours.length === 0) ? ` · ⚠ ${ws.rooms.filter((r) => r.hours.length === 0).length} rooms without hours` : ""}</>}>
             <RoomsWorkspace rooms={ws.rooms} campuses={ws.campuses} buildings={ws.buildings} equipment={ws.equipment} institutions={institutions} defaultInstitutionId={inst.id} />
           </Collapse>
         </div>
         <div id="sites" className="scroll-mt-16">
-          <Collapse title="Clinical sites & their physical assets" sub="Partner organizations, agreements, and every room, unit and machine a learner can be placed on, by setting — each site auto-located, with its drive from the main campus and its ring" summary={<>{inst.employers.length} sites · {located} located · {assets.reduce((n, a) => n + a.count, 0)} assets · {[...agree.entries()].map(([k, n]) => `${n} ${AGREE_LABEL[k] ?? k}`).join(" · ")}</>}>
+          <Collapse title="Clinical sites & their assets" sub="Partner sites, their agreements, and what a learner can be placed on" summary={<>{inst.employers.length} sites · {located} located · {assets.reduce((n, a) => n + a.count, 0)} assets · {[...agree.entries()].map(([k, n]) => `${n} ${AGREE_LABEL[k] ?? k}`).join(" · ")}</>}>
             <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Assets by setting</div>
@@ -183,7 +182,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
           </Collapse>
         </div>
         <div id="people" className="scroll-mt-16">
-          <Collapse title="People, staff roles & workload policies" sub="Faculty, adjuncts, support staff, coordinators and the preceptors at partner sites — the roles they map to, and the policies that turn each person's assigned contact hours into load" summary={<>{inst.people.filter((p) => p.active).length} active people · {[...peopleByRole.entries()].map(([k, n]) => `${n} ${(ROLE_LABEL[k] ?? k).toLowerCase()}`).join(" · ")} · {ownPolicies.length} policies</>}>
+          <Collapse title="People, staff roles & workload policies" sub="Faculty, preceptors and support staff, their roles, and the policies that turn contact hours into load" summary={<>{inst.people.filter((p) => p.active).length} active people · {[...peopleByRole.entries()].map(([k, n]) => `${n} ${(ROLE_LABEL[k] ?? k).toLowerCase()}`).join(" · ")} · {ownPolicies.length} policies</>}>
             <div className="mb-3 flex flex-wrap gap-3 text-xs"><Link href="/people" className="text-rose-600 hover:underline">the people roster (imported record) →</Link></div>
             <div className="mb-3"><div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Staff roles</div><StaffRoles roles={roles} institutions={institutions} defaultInstitutionId={inst.id} /></div>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Workload policies</div>
@@ -191,7 +190,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
           </Collapse>
         </div>
         <div id="programs" className="scroll-mt-16">
-          <Collapse title="Programs built on this setup" sub="Each job and the program that delivers it" summary={<>{inst.programFamilies.length} jobs · {programs} programs · {fmt.num(scenarios)} scenarios</>}>
+          <Collapse title="Programs built on this setup" sub="Each job and the program that delivers it" summary={<>{inst.programFamilies.length} jobs · {programs} programs</>}>
             <div className="space-y-3">
               {inst.programFamilies.map((f) => (
                 <div key={f.id} className="rounded-xl border border-slate-200 bg-white p-3">
@@ -204,7 +203,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
                       <div key={p.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm">
                         <Link href={`/programs/${p.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{p.name}</Link>
                         <span className="text-xs text-slate-500">{p.credential ?? "—"} · {p.programType} · {p._count.terms} terms{p.defaultCohortSeats ? ` · up to ${p.defaultCohortSeats} seats` : ""} · {p._count.cohorts} offering{p._count.cohorts === 1 ? "" : "s"}</span>
-                        <span className="ml-auto flex gap-2 text-xs"><Link href={`/programs/${p.id}/structure`} className="text-rose-600 hover:underline">design</Link><Link href={`/programs/${p.id}/clinical`} className="text-rose-600 hover:underline">clinical sites</Link><Link href={`/programs/${p.id}/goal`} className="text-rose-600 hover:underline">goal</Link><Link href={`/programs/${p.id}/expand`} className="text-rose-600 hover:underline">scenarios</Link></span>
+                        <span className="ml-auto flex gap-2 text-xs"><Link href={`/programs/${p.id}/structure`} className="text-rose-600 hover:underline">design</Link><Link href={`/programs/${p.id}/clinical`} className="text-rose-600 hover:underline">clinical sites</Link><Link href={`/programs/${p.id}/goal`} className="text-rose-600 hover:underline">goal</Link></span>
                       </div>
                     ))}
                     {f.programs.length === 0 && <div className="px-3 py-2 text-xs text-slate-400">No program templates yet.</div>}
@@ -223,14 +222,14 @@ export default async function OrganizationPage({ params }: { params: { id: strin
           <h2 className="text-lg font-semibold text-slate-900">3 · Planning assumptions</h2>
           <Link href={`/orgs/${inst.id}/assumptions`} className="text-sm text-rose-600 hover:underline">open the registry →</Link>
         </div>
-        <p className="text-xs text-slate-500">The rates, lags, lead times, costs and workload figures every scenario rests on, with a value, range, source, owner, status and review date each. The most specific scope wins: program over job family over college over workspace.</p>
-        <p className="mt-2 text-sm text-slate-800">{ownAssumptions.length === 0 ? <span className="text-amber-700">No figure set for this college yet — every scenario here rests on workspace defaults, which are labelled as defaults, never as verified.</span> : <>{fmt.num(ownAssumptions.length)} figures set at the college, family or program scope · {fmt.num(verifiedAssumptions)} verified{staleAssumptions ? <span className="text-rose-700"> · {fmt.num(staleAssumptions)} past their review date</span> : null}</>}</p>
+        <p className="text-xs text-slate-500">The rates, lags, costs and workload figures the answers rest on. The most specific scope wins: program over job family over college over workspace.</p>
+        <p className="mt-2 text-sm text-slate-800">{ownAssumptions.length === 0 ? <span className="text-amber-700">No figure set for this college yet; every answer rests on workspace defaults.</span> :<>{fmt.num(ownAssumptions.length)} figures set at the college, family or program scope · {fmt.num(verifiedAssumptions)} verified{staleAssumptions ? <span className="text-rose-700"> · {fmt.num(staleAssumptions)} past their review date</span> : null}</>}</p>
       </section>
 
       {/* 4 · Evidence review */}
       <section id="evidence" className="scroll-mt-16 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">4 · Evidence review</h2>
-        <p className="text-xs text-slate-500">What is verified and what is only estimated or defaulted, in the inputs the answers rest on. An estimate counts as potential, never as confirmed capacity.</p>
+        <p className="text-xs text-slate-500">What is verified and what is only estimated.</p>
         <ul className="mt-3 space-y-1.5 text-sm">
           {evidenceItems.map((e, i) => <li key={i} className={`flex flex-wrap items-baseline gap-x-2 rounded-lg border px-3 py-2 ${e.ok ? "border-emerald-100 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}`}><span className={e.ok ? "text-emerald-700" : "text-amber-700"}>{e.ok ? "✓" : "○"}</span><span className="text-slate-800">{e.label}</span>{!e.ok && <Link href={e.href} className="ml-auto text-xs font-medium text-rose-700 hover:underline">fix: {e.fix} →</Link>}</li>)}
         </ul>
@@ -245,7 +244,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
       {/* Operational records — drill-downs, not destinations */}
       <section id="operational" className="scroll-mt-16 rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
         <h2 className="text-sm font-semibold text-slate-700">Operational records &amp; diagnostics</h2>
-        <p className="text-xs text-slate-500">{OPERATIONAL ? "The operational module is on: these screens write the operating plan." : "Read-only in the strategic product: imported actuals shown as evidence, and diagnostic drill-downs. Person-level detail is kept to coded fields."}</p>
+        <p className="text-xs text-slate-500">{OPERATIONAL ? "The operational module is on: these screens write the operating plan." : "Read-only records and diagnostic drill-downs."}</p>
         <ul className="mt-2 flex flex-wrap gap-1.5 text-xs">
           {([["Students (roster)", "/students"], ["Learner analytics", "/students/analytics"], ["People", "/people"], ["Master calendar", "/calendar"], ["Semester view", `/semester?inst=${inst.id}`], ["Clinical scheduler", `/scheduler?inst=${inst.id}`], ["Partner organizations", "/employers"], ["Explore (diagnostic pivot)", "/insights/explore"]] as [string, string][]).map(([l, h]) => <li key={h}><Link href={h} className="rounded-full bg-white px-2.5 py-1 font-medium text-slate-600 ring-1 ring-slate-200 hover:text-rose-700 hover:ring-rose-300">{l}</Link></li>)}
         </ul>

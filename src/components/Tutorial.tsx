@@ -15,7 +15,7 @@ const TOURS: Tour[] = [
     { h: "Where to go next", b: "Programs: colleges, then jobs, then programs and their offerings. Capacity: staffing, clinical, facilities, pipeline, evidence. Setup: connections, mappings, assumptions, evidence review, exceptions." },
   ] },
   { key: "program", match: /^\/programs\/[^/]+$/, title: "A program", steps: [
-    { h: "One tab per job to do", b: "Overview lists the offerings that run this program (imported actuals). Design & sequence is the template. Clinical sites & requirements is the program's network. Goal & pipeline is the multi-year North Star. Students is the roster, as a drill-down." },
+    { h: "One tab per job to do", b: "Offerings lists every run of this program. Design & sequence is the template. Clinical sites is the program's network and the credentialing body's requirements. Goal & pipeline is the multi-year North Star. Students is the roster, as a drill-down." },
   ] },
   { key: "structure", match: /^\/programs\/[^/]+\/structure$/, title: "Design & sequence", steps: [
     { h: "One row per course", b: "Every course is one closed row: code, hours per week, session counts, clinical settings, and what it costs at the planned enrollment. Open a row to edit its sessions — every class, lab and clinical with its length, capacity, staffing, day and time." },

@@ -61,7 +61,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
 
       {/* 1 · Programs this site serves */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">1 · Programs this site serves <span className="text-sm font-normal text-slate-400">— agreement, recognition, availability and what it provides are set per program</span></h2>
+        <h2 className="text-lg font-semibold">Programs this site serves</h2>
         {fit.length === 0 ? <p className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-400">No program scores this site yet. Add it from a program&apos;s <Link href="/clinical" className="text-rose-600 hover:underline">clinical sites</Link> page.</p> : (
           <div className="grid gap-3 md:grid-cols-2">
             {fit.map((f) => f.sets.map((set) => {
@@ -88,21 +88,21 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       {/* 2 · Assets & shift structures */}
       <section className="space-y-2">
         <div className="flex flex-wrap items-end justify-between gap-2">
-          <h2 className="text-lg font-semibold">2 · Assets &amp; shift structures <span className="text-sm font-normal text-slate-400">— every room, unit and machine, which days and shifts it runs, and the learners a shift takes</span></h2>
+          <h2 className="text-lg font-semibold">Assets &amp; shifts <span className="text-sm font-normal text-slate-400">— what a student can be placed on, and when</span></h2>
           <span className="text-xs text-slate-500">{Object.entries(seatsBySetting).map(([k, v]) => `${k} ${v} seats`).join(" · ") || "none yet"}</span>
         </div>
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <AssetRoster employerId={e.id} siteName={e.name} siteExternalId={e.externalId} assets={rosterAssets} settings={settings} programName="" organizationHref="#exceptions" />
         </div>
         <div id="exceptions" className="scroll-mt-16">
-          <Collapse title="Closures, exceptions & per-asset detail" sub="Close assets for a date range, the accreditor class of each room, and the year's shift totals" summary={<>{e.assetOverrides.length} exception day{e.assetOverrides.length === 1 ? "" : "s"} · <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${year}`} className="text-rose-600 hover:underline">workbook ↓</a></>}>
+          <Collapse title="Closures & per-asset detail" sub="Closed dates, accreditor class and the year's shift totals" summary={<>{e.assetOverrides.length} exception day{e.assetOverrides.length === 1 ? "" : "s"} · <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${year}`} className="text-rose-600 hover:underline">workbook ↓</a></>}>
             <AssetBuilder employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={year} assets={rosterAssets} overrides={e.assetOverrides} settings={settings} />
           </Collapse>
         </div>
       </section>
 
       {/* 3 · Details */}
-      <Collapse title="3 · Details & contact" sub="Name, address, facility type, beds and operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.annualSurgicalCases != null ? `${fmt.num(e.annualSurgicalCases)} cases/yr` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
+      <Collapse title="Details & contact" sub="Address, facility type, beds, operating rooms, contact" summary={<>{[e.facilityType, e.county ? `${e.county} County` : null, e.licensedBeds != null ? `${e.licensedBeds} beds` : null, e.operatingRooms != null ? `${e.operatingRooms} ORs` : null, e.annualSurgicalCases != null ? `${fmt.num(e.annualSurgicalCases)} cases/yr` : null, e.contactName].filter(Boolean).join(" · ") || "not filled in"}</>}>
         <form action={updateEmployer.bind(null, e.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field name="name" label="Name" defaultValue={e.name} required />
           <Field name="organization" label="Organization / system" defaultValue={e.organization} />
@@ -136,7 +136,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
 
       {/* 4 · Location */}
       <div id="location" className="scroll-mt-16">
-        <Collapse title="4 · Location & drive time" sub={`Auto-coded from the address; the ring follows the drive from ${campus?.name ?? "the main campus"}`} summary={<>{e.ring ?? "not located"}{e.driveMinutes != null ? ` · ${fmt.minutes(e.driveMinutes)}` : ""}{e.lat != null && e.lng != null ? ` · ${dec(e.lat, 3)}, ${dec(e.lng, 3)}` : ""}</>}>
+        <Collapse title="Location & drive time" sub={`Drive from ${campus?.name ?? "the main campus"}, and the ring it puts the site in`} summary={<>{e.ring ?? "not located"}{e.driveMinutes != null ? ` · ${fmt.minutes(e.driveMinutes)}` : ""}{e.lat != null && e.lng != null ? ` · ${dec(e.lat, 3)}, ${dec(e.lng, 3)}` : ""}</>}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
             <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Ring</div><div className="text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{e.ring}</span> : <span className="text-amber-600">—</span>}</div><div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "set by hand" : `from the drive time · Core ≤ ${e.institution.ringCoreMinutes} · Ring 1 ≤ ${e.institution.ringOneMinutes} · Ring 2 ≤ ${e.institution.ringTwoMinutes} min`}</div></div>
             <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Drive from campus</div><div className="text-lg font-semibold tabular-nums">{fmt.minutes(e.driveMinutes)}</div><div className="text-[11px] text-slate-500">{e.distanceMiles != null ? `${dec(e.distanceMiles, 1)} mi straight-line` : "not computed"}</div></div>
@@ -159,7 +159,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       ))}
 
       {/* 6 · Functional units */}
-      <Collapse title="Functional units" sub="Beds, rooms and stations by unit with shift blocks and students per shift — the older grain some bookings still point at" summary={<>{e.units.length} unit{e.units.length === 1 ? "" : "s"}</>}>
+      <Collapse title="Functional units" sub="Beds, rooms and stations by unit" summary={<>{e.units.length} unit{e.units.length === 1 ? "" : "s"}</>}>
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full text-xs">
             <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
@@ -198,7 +198,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
       </Collapse>
 
       {/* 7 · Section bookings & work-based learning placements */}
-      <Collapse title="Booked here" sub="Clinical section bookings on the calendar at this site, and the students on work-based learning placements here" summary={<>{e.meetings.length} section booking{e.meetings.length === 1 ? "" : "s"} · {e.placements.length} work-based learning placement{e.placements.length === 1 ? "" : "s"} · {secured} secured</>}>
+      <Collapse title="Booked here" sub="Clinical sections and work-based learning placements at this site" summary={<>{e.meetings.length} section booking{e.meetings.length === 1 ? "" : "s"} · {e.placements.length} work-based learning placement{e.placements.length === 1 ? "" : "s"} · {secured} secured</>}>
         <div className="space-y-4">
           {e.meetings.length === 0 ? <p className="text-sm text-slate-400">No clinical section booking here yet.</p> : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">

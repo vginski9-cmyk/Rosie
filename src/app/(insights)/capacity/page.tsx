@@ -52,24 +52,24 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
 
   return (
     <div className="space-y-6">
-      <PageHeader title={<>Capacity</>} lede={<>What constrains expansion: the people, the clinical seats, the rooms, the pipeline, and how well each is known.</>} />
+      <PageHeader title={<>Capacity</>} lede={<>The people, clinical seats, rooms and pipeline that limit how many students can run.</>} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <Area title="Staffing capacity" sub="Qualified faculty hours and precepted shifts, against what every planned offering needs in its peak week"
-          headline={<>{fmt.num(instructors)} active instructors · {fmt.num(preceptors)} preceptors at partner sites · {fmt.num(policies)} workload polic{policies === 1 ? "y" : "ies"} turning assigned contact hours into load</>}
-          links={[["Instructors & preceptors needed", q("/insights/staffing-need"), "FTE demanded by week, who fills it, and the gap"], ["People", q("/people"), "the roster of faculty, adjuncts and preceptors — an imported input"], ["Workload policies", "/setup#people", "contact hours per week, work week, term weeks"]]} />
-        <Area title="Clinical capacity" sub="Learner seats on a date, shift and setting at sites with a secured agreement; the experiences each site confirms"
-          headline={<>{fmt.num(sitesSecured)} secured program–site agreements across {fmt.num(sitesTotal)} partner organizations · {fmt.num(assets)} physical assets a learner can be placed on · {fmt.num(planned)} offerings planned or running</>}
-          links={[["Clinical site capacity", q("/insights/clinical-sites"), "the per-date ceiling of hostable seats"], ["Clinical scheduler", q("/scheduler"), `every dated shift placed on supply — the readiness funnel${OPERATIONAL ? "" : " (read-only: the strategic product does not write plans)"}`], ["Clinical site load", q("/insights/site-load"), "actual student-shifts by site, including completed cohorts"], ["Daily coverage", q("/insights/coverage"), "who is where, day by day"], ["Sites & requirements by program", "/clinical", "agreements, experience confirmations, accreditor requirement sets"], ["Map", q("/insights/map"), "campuses and booked sites"]]} />
-        <Area title="Facilities & equipment capacity" sub="Lab and classroom hours in the peak week, and equipment units per learner"
-          headline={<>{fmt.num(rooms)} rooms{roomsNoHours ? <span className="text-amber-700"> · {fmt.num(roomsNoHours)} without coded open hours</span> : null} · {fmt.num(equipment)} equipment records</>}
-          links={[["Room utilization", q("/utilization"), "booked hours against open hours, by room"], ["Asset supply", q("/supply"), "seats per shift at every site asset, by setting"], ["Rooms, buildings & equipment", "/setup#rooms", "the mapped inventory and its open hours"]]} />
-        <Area title="Pipeline capacity" sub="Applicants, enrolment, completion, licensure and placement — the ladder from interest to a productive worker"
-          headline={<>{fmt.num(students)} students enrolled now · the goal ladder for each program works the {new Date().getUTCFullYear() + 3} target back to the seats it needs</>}
-          links={[["Programs", "/programs", "each program's goal & pipeline planner"], ["Learner analytics", "/students/analytics", "completion and withdrawal by cohort and demographic — a diagnostic drill-down"], ["Semester view", q("/semester"), "what runs when"]]} />
+        <Area title="Staffing" sub="Instructors and preceptors against what every offering needs"
+          headline={<>{fmt.num(instructors)} instructors · {fmt.num(preceptors)} preceptors · {fmt.num(policies)} workload polic{policies === 1 ? "y" : "ies"}</>}
+          links={[["Instructors & preceptors needed", q("/insights/staffing-need"), "by week, who fills it, and the gap"], ["People", q("/people"), "the roster"], ["Workload policies", "/setup#people", "contact hours per week"]]} />
+        <Area title="Clinical seats" sub="Where students can be placed, and how much room there is"
+          headline={<>{fmt.num(sitesSecured)} secured agreements at {fmt.num(sitesTotal)} sites · {fmt.num(assets)} placeable assets · {fmt.num(planned)} offerings planned or running</>}
+          links={[["Clinical scheduler", q("/scheduler"), `supply against demand, shift by shift${OPERATIONAL ? "" : " (read-only)"}`], ["Clinical site capacity", q("/insights/clinical-sites"), "seats a site can host on a date"], ["Clinical site load", q("/insights/site-load"), "student-shifts by site"], ["Daily coverage", q("/insights/coverage"), "who is where, day by day"], ["Sites by program", "/clinical", "agreements and requirements"], ["Map", q("/insights/map"), "campuses and booked sites"]]} />
+        <Area title="Rooms & equipment" sub="Lab and classroom hours, and equipment per student"
+          headline={<>{fmt.num(rooms)} rooms{roomsNoHours ? <span className="text-amber-700"> · {fmt.num(roomsNoHours)} without open hours</span> : null} · {fmt.num(equipment)} equipment records</>}
+          links={[["Room utilization", q("/utilization"), "booked hours against open hours"], ["Asset supply", q("/supply"), "seats per shift at every site asset"], ["Rooms, buildings & equipment", "/setup#rooms", "the inventory and its open hours"]]} />
+        <Area title="Pipeline" sub="From applicant to productive worker"
+          headline={<>{fmt.num(students)} students enrolled now</>}
+          links={[["Programs", "/programs", "each program's goal and pipeline"], ["Learner analytics", "/students/analytics", "completion and withdrawal by cohort"], ["Semester view", q("/semester"), "what runs when"]]} />
         <div className="lg:col-span-2">
-          <Area title="Evidence & uncertainty" sub="How well the inputs behind every answer are known: verified, estimated or defaulted"
-            headline={<>{fmt.num(verifiedAssumptions)} of {fmt.num(assumptions)} registry assumptions verified · {fmt.num(unverifiedStandards)} of {fmt.num(req.length)} accreditor requirement sets unverified · {fmt.num(sitesEstimate)} secured sites without a verified staff-on-shift figure · {provisional.length ? <span className="text-amber-700">{provisional.map((c) => `${c.name}: ${c.verdict.level === "provisional" ? "term dates provisional" : "some term dates set by hand"}`).join(" · ")}</span> : "term dates from the college calendars"}</>}
-            links={[["Evidence review", "/setup#evidence", "every unverified input, where it is used, and where it gets confirmed"], ["Planning assumptions", "/setup#assumptions", "the registry: value, range, source, owner, status, review date"], ["Exceptions", "/setup/exceptions", "the operational blocker queue — over-capacity days, unsecured placements, holiday sessions"]]} />
+          <Area title="How well the inputs are known" sub="Verified, estimated or defaulted"
+            headline={<>{fmt.num(verifiedAssumptions)} of {fmt.num(assumptions)} assumptions verified · {fmt.num(unverifiedStandards)} of {fmt.num(req.length)} requirement sets unverified · {fmt.num(sitesEstimate)} secured sites with an estimated staff figure · {provisional.length ? <span className="text-amber-700">{provisional.map((c) => `${c.name}: ${c.verdict.level === "provisional" ? "term dates provisional" : "some term dates set by hand"}`).join(" · ")}</span> : "term dates from the college calendars"}</>}
+            links={[["Evidence review", "/setup#evidence", "every unverified input"], ["Planning assumptions", "/setup#assumptions", "the registry"], ["Exceptions", "/setup/exceptions", "what the records raise"]]} />
         </div>
       </div>
     </div>

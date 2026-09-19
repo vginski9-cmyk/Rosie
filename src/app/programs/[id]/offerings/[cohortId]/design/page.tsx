@@ -7,8 +7,7 @@ import { OfferingDesign, type DsTerm, type DsMeeting, type DsOverride } from "@/
 import { holidayMap } from "@/lib/academiccalendar";
 import { isHolidayRule } from "@/lib/holidayrule";
 import { SheetImport } from "@/components/SheetImport";
-import { ProvisionalDatesBanner } from "@/components/Evidence";
-import { getCalendarProvenance } from "@/lib/queries";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +21,6 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
   // This offering's per-term enrollment targets + workload assumptions —
   // they drive column C and every formula column on the sheet below.
   const capCohort = capModel?.cohorts.find((c) => c.cohortId === cohort.id) ?? null;
-  const provenance = (await getCalendarProvenance(program.institutionId)).all;
 
   const ctByTerm = new Map(cohort.cohortTerms.map((ct) => [ct.termId, ct]));
   const terms: DsTerm[] = [...program.terms].sort((a, b) => a.index - b.index).map((t) => ({
@@ -67,24 +65,21 @@ export default async function OfferingDesignPage({ params }: { params: { id: str
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link href={`/programs/${program.id}/offerings/${cohort.id}`} className="text-sm text-slate-500 hover:text-slate-700">← {cohort.name}</Link>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">Design &amp; sequence — {cohort.name}</h2>
-        <p className="text-sm text-slate-500">This offering&apos;s copy of the <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">template</Link>: every session with its real date, time, place and staff, at this run&apos;s enrollment. Edits here update the calendar.</p>
-      </div>
+      <PageHeader crumb={{ href: `/programs/${program.id}/offerings/${cohort.id}`, label: cohort.name }} title={<>Design &amp; sequence — {cohort.name}</>} lede={<>This offering&apos;s copy of the <Link href={`/programs/${program.id}/structure`} className="text-rose-700 hover:underline">template</Link>, with every session&apos;s real date, time, place and staff.</>} />
 
       {meetings.length === 0 && (
         <div className="rounded-xl border border-dashed border-rose-200 bg-rose-50/30 p-5">
-          <p className="text-sm text-slate-600">
-            This offering isn&apos;t calendarized yet — sessions have no bookable day/time/location until it is.
-          </p>
+          <p className="text-sm text-slate-600">Not calendarized yet: sessions have no day, time or place until it is.</p>
           <form action={calendarizeCohort.bind(null, cohort.id, program.id)} className="mt-3">
             <button className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700">Calendarize this offering →</button>
           </form>
         </div>
       )}
 
-      <SheetImport mode="offering" programId={program.id} cohortId={cohort.id} />
+      <details className="rounded-xl border border-slate-200 bg-white">
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700">Import from a spreadsheet</summary>
+        <div className="border-t border-slate-100 p-4"><SheetImport mode="offering" programId={program.id} cohortId={cohort.id} /></div>
+      </details>
 
       <OfferingDesign
         programId={program.id}

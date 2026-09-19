@@ -65,7 +65,6 @@ export default async function StudentPage({ params }: { params: { id: string } }
             {student.clinicalSite && <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700">{student.clinicalSite}</span>}
           </div>
         </div>
-        {!OPERATIONAL && <p className="mt-3 text-xs text-slate-500">An imported student record (Phase 13): cohort, seat and status come from the college&apos;s student system. Contact details are not shown in the strategic product.</p>}
         {OPERATIONAL && <form action={updateStudentEnrollment.bind(null, student.id)} className="mt-3 flex flex-wrap items-end gap-2 text-xs">
           <label className="block"><span className={lbl}>Cohort</span><select name="cohortId" defaultValue={student.cohortId ?? ""} className="rounded-lg border border-slate-300 px-2 py-1 text-sm"><option value="">— unassigned —</option>{cohorts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           <label className="block"><span className={lbl}>Seat number</span><input name="sectionIndex" type="number" min={1} defaultValue={student.sectionIndex} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-sm tabular-nums" /></label>
@@ -76,12 +75,12 @@ export default async function StudentPage({ params }: { params: { id: string } }
 
       {requirements && requirements.sets.length > 0 && (
         <section id="requirements" className="scroll-mt-16 rounded-xl border border-rose-200 bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-sm font-semibold text-slate-800">Completion requirements <span className="font-normal text-slate-400">— {requirements.sets.map((s) => s.authority.split(" · ")[0]).join(" · ")}: what is logged, what is missing, and where it can be had</span></h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-800">Completion requirements <span className="font-normal text-slate-400">— {requirements.sets.map((s) => s.authority.split(" · ")[0]).join(" · ")}</span></h2>
           <RequirementLog data={requirements} readOnly={!OPERATIONAL} />
         </section>
       )}
 
-      <Collapse title="Sections, preceptors & clinical shifts" sub="Which section this student sits in for each course, who staffs it, and every clinical shift with its site, preceptor and hours" summary={<>{completedShifts} of {clinicalShifts} clinical shifts logged</>}>
+      <Collapse title="Sections, preceptors & clinical shifts" sub="Each course's section and every clinical shift" summary={<>{completedShifts} of {clinicalShifts} clinical shifts logged</>}>
         <ReadOnly what="This student&apos;s sections and shifts"><StudentAssignments studentId={student.id} cohort={assignments.cohort} courses={assignments.courses} sections={assignments.sections} staff={assignments.staff} shifts={assignments.shifts} assets={assignments.assets} seat={student.sectionIndex} today={assignments.today} /></ReadOnly>
       </Collapse>
 
@@ -133,7 +132,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
         </div>
       </Collapse>
 
-      <Collapse title="Profile & demographics" sub="Coded fields, so learners aggregate cleanly in Learner analytics" summary={<>{[student.sex, student.raceEthnicity, student.county ? `${student.county} County` : null, OPERATIONAL && student.dob ? `age ${ageOn(iso(student.dob), todayIso)}` : null].filter(Boolean).join(" · ") || "not coded yet"}</>}>
+      <Collapse title="Profile & demographics" sub="Coded fields" summary={<>{[student.sex, student.raceEthnicity, student.county ? `${student.county} County` : null, OPERATIONAL && student.dob ? `age ${ageOn(iso(student.dob), todayIso)}` : null].filter(Boolean).join(" · ") || "not coded yet"}</>}>
         {!OPERATIONAL ? (
           <dl className="grid gap-x-4 gap-y-2 text-xs sm:grid-cols-3 lg:grid-cols-4">
             {([["Sex", student.sex], ["Race / ethnicity", student.raceEthnicity], ["County", student.county ? `${student.county} County` : null], ["Residency", student.residency], ["Prior education", student.priorEducation], ["Employment", student.employmentStatus], ["First generation", yn(student.firstGeneration) || "unknown"], ["Veteran", yn(student.veteran) || "unknown"], ["Pell eligible", yn(student.pellEligible) || "unknown"], ["Started", student.startDate ? dateFmt(student.startDate) : null], ["Completed", student.completionDate ? dateFmt(student.completionDate) : null], ["Withdrawal reason", student.withdrawalReason]] as [string, string | null][]).map(([k, v]) => <div key={k}><dt className={lbl}>{k}</dt><dd className="text-slate-700">{v || <span className="text-slate-400">—</span>}</dd></div>)}
@@ -167,7 +166,7 @@ export default async function StudentPage({ params }: { params: { id: string } }
         </form>}
       </Collapse>
 
-      <Collapse title="Work-based learning placements" sub="Employment-style placements at partner sites — not the clinical shifts above" summary={<>{student.placements.length} work-based learning placement{student.placements.length === 1 ? "" : "s"}</>}>
+      <Collapse title="Work-based learning placements" sub="Employment-style placements at partner sites" summary={<>{student.placements.length} work-based learning placement{student.placements.length === 1 ? "" : "s"}</>}>
         <ReadOnly what="A work-based learning placement"><div className="space-y-1.5">
           {student.placements.map((p) => (
             <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 text-[13px]">

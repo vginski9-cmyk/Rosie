@@ -7,9 +7,9 @@ import { usePathname } from "next/navigation";
 // design it, set up its clinical network, set the goal, run offerings, follow the students.
 
 const TABS: { label: string; seg: string }[] = [
-  { label: "Overview & offerings", seg: "" },
+  { label: "Offerings", seg: "" },
   { label: "Design & sequence", seg: "structure" },
-  { label: "Clinical sites & requirements", seg: "clinical" },
+  { label: "Clinical sites", seg: "clinical" },
   { label: "Goal & pipeline", seg: "goal" },
   { label: "Students", seg: "students" },
 ];

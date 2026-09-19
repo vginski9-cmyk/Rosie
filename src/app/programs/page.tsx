@@ -109,7 +109,7 @@ export default async function ProgramsPage({ searchParams }: { searchParams: { i
   // ── Level 1: the colleges ──────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      <PageHeader title="Programs" lede="Determine whether each program can meet its workforce target, identify its binding constraints, and compare the investments that would expand production." actions={<Link href="/programs/new" className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">+ New program</Link>} />
+      <PageHeader title="Programs" lede="Open a college for its jobs, a job for its programs and every offering." actions={<Link href="/programs/new" className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">+ New program</Link>} />
       <div className="grid gap-3 md:grid-cols-2">
         {institutions.map((i) => (
           <Link key={i.id} href={`/programs?inst=${i.id}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:border-rose-300">
