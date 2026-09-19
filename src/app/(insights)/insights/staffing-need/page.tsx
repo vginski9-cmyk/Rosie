@@ -1,6 +1,7 @@
 import { getCapacityModel, datedStaffAssignments, getCalendarProvenance } from "@/lib/queries";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,7 @@ export default async function StaffingNeedPage({ searchParams }: { searchParams:
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Instructors &amp; preceptors needed</h1>
-        <p className="text-sm text-slate-500">Every bar is a real week; session hours become people through each program&apos;s workload assumptions, across every offering at {data.institution.name}. Click any bar to see which people fill it and what is still unfilled.</p>
-      </div>
+      <PageHeader title={<>Instructors &amp; preceptors needed</>} lede={<>How many instructors and preceptors every week needs, who fills them, and what is still unfilled. Click a bar.</>} />
       <ScopeStrip
         provisional={provenance}
         shows="Requirements — the instructors and preceptors the sessions need, week by week, from session hours through each program's workload assumptions; then who is assigned by name."

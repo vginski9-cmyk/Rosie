@@ -3,6 +3,7 @@ import { schedulerWindow } from "@/lib/schedulerplan";
 import { prisma } from "@/lib/db";
 import { SiteLoadExplorer } from "@/components/SiteLoadExplorer";
 import { ScopeStrip } from "@/components/ScopeStrip";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,7 @@ export default async function SiteLoadPage({ searchParams }: { searchParams: { i
   for (const p of programs) programIds[p.name] = (p.familyId ? await getFamilyProgramId(p.familyId) : null) ?? p.id;
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical site load</h1>
-        <p className="text-sm text-slate-500">Every clinical shift on the calendar at {data.institution.name}, queried any way: by date, year, semester, term, day of week, cohort, class, student, site, system, county, ring, setting, agreement or status — then who carries the load, any pivot, and CSV out.</p>
-      </div>
+      <PageHeader title={<>Clinical site load</>} lede={<>Who carries the clinical load: every shift on the calendar, sliced any way, with CSV out.</>} />
       <ScopeStrip
         provisional={provenance}
         bridge={bridge} self="load"

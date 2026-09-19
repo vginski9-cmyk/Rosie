@@ -3,6 +3,7 @@ import { presetWindow } from "@/lib/supplyexplorer";
 import { SupplyExplorer } from "@/components/SupplyExplorer";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { getCalendarProvenance } from "@/lib/queries";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +20,7 @@ export default async function SupplyPage({ searchParams }: { searchParams: { ins
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Asset supply</h1>
-        <p className="text-sm text-slate-500">Every site&apos;s assets shift by shift for any window: seats offered, booked and open — by asset, site, setting or period. Click a row to drill in.</p>
-      </div>
+      <PageHeader title={<>Asset supply</>} lede={<>Seats offered, booked and open at every site asset, shift by shift.</>} />
       <ScopeStrip
         provisional={provenance}
         shows="A physical ceiling with the applied plan on it — every asset-shift in the window (seats offered), the asset bookings on them (booked), and what is left (open)."

@@ -1,4 +1,5 @@
 import { GLOSSARY } from "@/lib/glossary";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-static";
 
@@ -7,8 +8,7 @@ export default function GlossaryPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Glossary</h1>
-        <p className="mt-1 text-sm text-slate-500">One term per concept, used the same way on every screen. Retired words used to mean the same thing somewhere in Rosie and no longer appear.</p>
+        <PageHeader title="Glossary" lede="One term per concept, used the same way on every screen." />
         <nav className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
           {GLOSSARY.flatMap((s) => s.terms).map((t) => <a key={t.key} href={`#${t.key}`} className="text-rose-700 hover:underline">{t.term}</a>)}
         </nav>

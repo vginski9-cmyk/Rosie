@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getInstitutionsHome, getFamiliesClinical } from "@/lib/queries";
 import { fmt } from "@/lib/format";
 import { CoverageHeadline } from "@/components/Evidence";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,7 @@ export default async function ProgramsPage() {
   const families = institutions.flatMap((i) => i.families.map((f) => ({ ...f, institution: i.name })));
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Programs</h1>
-          <p className="text-sm text-slate-500">Determine whether each program can meet its workforce target, identify its binding constraints, and compare the investments that would expand production.</p>
-        </div>
-        <Link href="/programs/new" className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">+ New program</Link>
-      </div>
+      <PageHeader title="Programs" lede="Determine whether each program can meet its workforce target, identify its binding constraints, and compare the investments that would expand production." actions={<Link href="/programs/new" className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">+ New program</Link>} />
       <div className="grid gap-4 lg:grid-cols-2">
         {families.map((f) => {
           const cl = clinical.find((c) => c.id === f.id);

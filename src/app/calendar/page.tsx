@@ -3,6 +3,7 @@ import { getMasterCalendar } from "@/lib/queries";
 import { MasterCalendar } from "@/components/MasterCalendar";
 import { ProvisionalDatesBanner } from "@/components/Evidence";
 import { getCalendarProvenance } from "@/lib/queries";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +13,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: { i
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Master calendar</h1>
-        <p className="text-sm text-slate-500">Campus classes and labs and every clinical rotation on one timeline. Clinical blocks show each shift where it actually lands after the scheduler&apos;s plan — the date, the site, the preceptors and the students on it. Click a block to see or move it; the change flows back to the offering. <Link href={`/utilization${data.institutionId ? `?inst=${data.institutionId}` : ""}`} className="text-rose-600 hover:underline">Room utilization →</Link></p>
-      </div>
+      <PageHeader title={<>Master calendar</>} lede={<>Classes, labs and every clinical shift on one timeline, where each actually lands. Click a block to see or move it.</>} />
       <ProvisionalDatesBanner provenance={provenance} />
       {data.institutionId == null ? (
         <p className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-400">No scheduled meetings yet.</p>

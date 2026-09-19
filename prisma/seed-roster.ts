@@ -166,9 +166,16 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   // Radiography and Surgical Technology launches are the partner's 29 and 14)
   // and, exactly like lock-in, inherits the family's talent-pipeline rates —
   // so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
+  // Radiography: every class the goal ladder counts on, each on the college's Fall first day —
+  // the Classes of 2026 and 2027 (15 productive workers each; graduated / in program) and the
+  // Classes of 2028, 2029 and 2030 (30 each, planned at a 90% completion rate).
   const offerings = await seedOfferings(prisma, institutionId, [
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
-    { program: "Radiography", start: "2026-08-17", goal: 29 },
+    { program: "Radiography", start: "2024-08-19", goal: 15 },
+    { program: "Radiography", start: "2025-08-18", goal: 15 },
+    { program: "Radiography", start: "2026-08-17", goal: 30, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2027-08-16", goal: 30, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2028-08-21", goal: 30, rates: { completionRate: 0.9 } },
   ]);
 
   return {
@@ -187,7 +194,7 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
  *  with its funnel stage targets derived from the goal through the family's pipeline rates.
  *  `seats` pins the planned seats (a Nurse Aide I class is capped by its template) — otherwise
  *  the capacity the goal works back to. Named "Class of <end year>" (numbered when repeated). */
-export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number }[]): Promise<number> {
+export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES> }[]): Promise<number> {
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
   // The college's coded calendar dates the terms (semester ends, session starts, holidays), exactly as lock-in does.
@@ -198,6 +205,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     if (!program) continue;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
+    if (o.rates) rates = { ...rates, ...o.rates };
     const t = deriveCohortTargets(o.goal, rates, Math.max(1, program.terms.length));
     const capacity = o.seats ?? t.capacity;
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
@@ -207,8 +215,9 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     let name = `Class of ${endYear}`;
     if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }
     const startD = new Date(o.start + "T00:00:00Z");
-    // An offering whose first day has passed is running; one still ahead is planned (recruiting).
-    const status = startD <= new Date() ? "active" : "planned";
+    // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
+    const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
+    const status = new Date(endIso + "T00:00:00Z") < new Date() ? "completed" : startD <= new Date() ? "active" : "planned";
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }) } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });

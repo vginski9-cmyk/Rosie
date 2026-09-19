@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getFamily, getProgramFamilyId } from "@/lib/queries";
 import { GoalPlanner } from "@/components/GoalPlanner";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -67,8 +68,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Goal &amp; pipeline <span className="text-sm font-normal text-slate-400">— {family.occupation?.title ?? family.name}: fully productive workers per year, and the offerings that deliver them</span></h2>
-        <p className="text-sm text-slate-500">Set the goal for each year, then say which offering delivers it; every rate in the ladder recomputes live.</p>
+        <h2 className="text-lg font-semibold">Goal &amp; pipeline <span className="text-sm font-normal text-slate-500">— {family.occupation?.title ?? family.name}: fully productive workers a year, and the class that delivers each year</span></h2>
       </div>
       <GoalPlanner
         familyId={family.id} familyName={family.name} seedYears={seedYears} seedGoalsByYear={goalByYear}

@@ -3,6 +3,7 @@ import { presetWindow } from "@/lib/supplyexplorer";
 import { UtilizationExplorer } from "@/components/UtilizationExplorer";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { getCalendarProvenance } from "@/lib/queries";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,7 @@ export default async function UtilizationPage({ searchParams }: { searchParams: 
     : presetWindow(preset, today, data.semesters);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Room utilization</h1>
-        <p className="text-sm text-slate-500">Booked room-hours against each room&apos;s open hours, by period, room, building, program or session type. Click a row to drill in.</p>
-      </div>
+      <PageHeader title={<>Room utilization</>} lede={<>Booked room-hours against open hours, by period, room, building, program or session type.</>} />
       <ScopeStrip
         provisional={provenance}
         shows="The applied plan on the calendar — booked room-hours of every section booking and per-date move, against each room's open hours."

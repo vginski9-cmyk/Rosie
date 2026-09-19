@@ -1,6 +1,7 @@
 import { getCapacityModel, getCalendarProvenance } from "@/lib/queries";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +11,7 @@ export default async function CoveragePage({ searchParams }: { searchParams: { i
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Daily coverage</h1>
-        <p className="text-sm text-slate-500">Every shift on every date, by semester, month, week or day; drag a chip to move it, open a day to edit time, place and staff.</p>
-      </div>
+      <PageHeader title={<>Daily coverage</>} lede={<>Every shift on every date. Drag a chip to move it; open a day for its time, place and staff.</>} />
       <ScopeStrip
         provisional={provenance}
         shows="The applied plan on the calendar — every dated session of every offering, on the day its weekly booking or a per-date move puts it, with the site, room and staff booked."

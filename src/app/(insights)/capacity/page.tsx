@@ -4,6 +4,7 @@ import { getCalendarProvenance } from "@/lib/queries";
 import { provisionalVerdict } from "@/lib/evidence";
 import { fmt } from "@/lib/format";
 import { OPERATIONAL } from "@/lib/mode";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -51,10 +52,7 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Capacity</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">What constrains expansion, in five kinds: the people to teach and precept, the clinical seats and agreements, the rooms and equipment, the pipeline of applicants, and how well each of those is known. Each area opens the diagnostics beneath it; the scenarios that test a design against all five are under <Link href="/scenarios" className="text-rose-700 hover:underline">Scenarios</Link>.</p>
-      </div>
+      <PageHeader title={<>Capacity</>} lede={<>What constrains expansion: the people, the clinical seats, the rooms, the pipeline, and how well each is known.</>} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Area title="Staffing capacity" sub="Qualified faculty hours and precepted shifts, against what every planned offering needs in its peak week"
           headline={<>{fmt.num(instructors)} active instructors · {fmt.num(preceptors)} preceptors at partner sites · {fmt.num(policies)} workload polic{policies === 1 ? "y" : "ies"} turning assigned contact hours into load</>}

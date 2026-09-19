@@ -13,7 +13,7 @@ import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohor
 import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
 import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
-import { goalTiming, infeasibleGoal, TIMING_SOURCE } from "@/lib/goaltiming";
+import { goalTiming } from "@/lib/goaltiming";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the offerings
@@ -235,7 +235,9 @@ export function GoalPlanner({
     const legacy: OfferingSlot[] = a.offerings ?? (a.startDate != null || a.locked ? [{ startDate: a.startDate ?? null, locked: a.locked, cohortId: a.cohortId, cohortName: a.cohortName }] : []);
     const m = models.find((x) => x.programId === a.programId);
     const lockedCount = legacy.filter((o) => o.locked).length;
-    const target = Math.max(1, lockedCount, a.offeringCount ?? suggested);
+    // The math's suggested count fills an EMPTY allocation; once an offering is locked in, no extra
+    // empty slot appears unless the reader adds one.
+    const target = Math.max(1, lockedCount, a.offeringCount ?? (lockedCount ? lockedCount : suggested));
     const out = [...legacy];
     while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null), goal: 0, termOverrides: [] });
     while (out.length > target && !out[out.length - 1].locked) out.pop();
@@ -356,7 +358,7 @@ export function GoalPlanner({
       {/* Multi-year goals — clean numbers, offerings under each year */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-400">The goal: fully productive workers in regional jobs, per year. Click a year to say who delivers it.</p>
+          <p className="text-xs text-slate-400">Fully productive workers wanted in regional jobs each year. Click a year to plan the class that delivers it.</p>
           <div className="flex items-center gap-1">
             <button onClick={() => addYear(-1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[0] - 1} before the first year`}>+ {s.years[0] - 1}</button>
             <button onClick={() => addYear(1)} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50" title={`add ${s.years[s.years.length - 1] + 1} after the last year`}>+ {s.years[s.years.length - 1] + 1}</button>
@@ -370,7 +372,6 @@ export function GoalPlanner({
               const selected = year === s.selectedYear;
               const goalVal = s.anchor === "northstar" ? (s.goalsByYear[String(year)] ?? 0) : (s.capByYear[String(year)] ?? 0);
               const insts = offeringsByYear[year] ?? [];
-              const feas = infeasibleGoal(year, s.goalsByYear[String(year)] ?? 0, models, insts.length, todayIso);
               return (
                 <div key={year} role="button" tabIndex={0} onClick={() => selectYear(year)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") selectYear(year); }}
                   className={`relative cursor-pointer rounded-xl border p-3 text-left ${selected ? "border-rose-400 bg-rose-50/50 ring-1 ring-rose-200" : "border-slate-200 bg-white hover:border-rose-200"} ${year === nowYear ? "outline outline-1 outline-offset-2 outline-rose-200" : ""}`}>
@@ -385,24 +386,11 @@ export function GoalPlanner({
                     className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-2xl font-bold tabular-nums text-slate-800 focus:border-rose-400 focus:outline-none"
                   />
                   <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-slate-400">fully productive workers</span>
-                  {feas.infeasible && <span className="mt-1 block rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium leading-tight text-rose-800" title={`No offering delivers ${year}, and a cohort starting today would not be productive before ${feas.earliestYear} (${TIMING_SOURCE}).`}>not feasible — earliest delivery {feas.earliestYear}</span>}
                 </div>
               );
             })}
           </div>
         </div>
-
-        {/* Working backward from the goal year (Phase 6): when a cohort must start to deliver it. */}
-        {models.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{s.selectedYear} — working backward from the goal <span className="font-normal normal-case text-slate-400" title={TIMING_SOURCE}>· {TIMING_SOURCE}</span></div>
-            <ul className="space-y-0.5 text-slate-600">
-              {models.map((m) => { const g = goalTiming(s.selectedYear, m, todayIso); return (
-                <li key={m.programId}><span className="font-medium text-slate-800">{m.name}</span> ({g.programWeeks} weeks incl. breaks): productive by {fmtMY(g.productiveBy)} → placed by {fmtMY(g.placedBy)} → licensed by {fmtMY(g.licensedBy)} → complete by {fmtMY(g.completeBy)} → <strong className={g.feasible ? "text-slate-800" : "text-rose-700"}>cohort must start by {fmtMY(g.startBy)}</strong>{g.feasible ? "" : ` — already past; the earliest a cohort starting today delivers is ${g.earliestYear}`}</li>
-              ); })}
-            </ul>
-          </div>
-        )}
 
         {/* The selected year's offerings — the ones delivering that goal. */}
         <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -453,11 +441,7 @@ export function GoalPlanner({
             <strong className={remaining === 0 ? "text-emerald-600" : remaining > 0 ? "text-amber-600" : "text-rose-600"}>{remaining === 0 ? "fully covered" : remaining > 0 ? `${remaining} uncovered` : `${-remaining} over`}</strong>
           </span>
         </div>
-        <p className="mb-3 text-[11px] text-slate-400">
-          Drag a program into the box (or click +) and split the {yearGoal || "—"} fully-productive workers across
-          the offerings responsible for delivering them. Each program&apos;s <strong>max cohort enrollment capacity</strong> is
-          the gating criterion — if the pipeline math needs more seats than a cohort can hold, the box flags it.
-        </p>
+        <p className="mb-3 text-[11px] text-slate-500">Add a program, give each of its offerings the workers it covers, set the start date, lock it in. A cohort that would need more seats than the program can hold is flagged.</p>
         <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
           {/* Program cards (drag sources) */}
           <div className="space-y-2">

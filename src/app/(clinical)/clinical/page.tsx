@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getFamiliesClinical, getFamilyProgramId } from "@/lib/queries";
 import { CoverageHeadline } from "@/components/Evidence";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,7 @@ export default async function ClinicalByProgramPage() {
   };
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical sites by program</h1>
-        <p className="text-sm text-slate-500">Each program keeps its own sites, set up the way that program counts them.</p>
-      </div>
+      <PageHeader title={<>Clinical sites by program</>} lede={<>Each program's own clinical network, counted the way that program counts it.</>} />
       <div className="grid gap-3 md:grid-cols-2">{live.map((f) => <Card key={f.id} f={f} />)}</div>
       {empty.length > 0 && (
         <details className="rounded-xl border border-dashed border-slate-300 p-4">

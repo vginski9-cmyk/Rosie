@@ -1415,7 +1415,11 @@ async function main() {
   // enrolled → completing → licensed → placed → fully productive). Sandhills
   // carries only these two jobs.
   const flat = (base: number) => Object.fromEntries(Object.keys(goals(base)).map((y) => [Number(y), base])) as Record<number, number>;
-  await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(flat(29), RAD_PIPELINE_RATES) } });
+  // Radiography's target steps up: 15 productive workers a year for the two classes already in
+  // motion, 30 a year from the Class of 2028 on (the partner's revised ask, September 2026).
+  const radYears = Object.keys(goals(29)).map(Number).sort();
+  const radGoals = Object.fromEntries(radYears.map((y, i) => [y, [15, 15, 30, 30, 30][i] ?? 30])) as Record<number, number>;
+  await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(radGoals, RAD_PIPELINE_RATES) } });
   await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(flat(14), SURG_PIPELINE_RATES) } });
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----

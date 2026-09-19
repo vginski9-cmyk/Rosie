@@ -4,6 +4,7 @@ import { fmt, dec } from "@/lib/format";
 
 import { ProvisionalDatesBanner } from "@/components/Evidence";
 import { getCalendarProvenance } from "@/lib/queries";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +36,7 @@ export default async function SemesterPage({ searchParams }: { searchParams: { s
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Semester</h1>
-        <p className="text-sm text-slate-500">Every offering in session in one term, side by side, with seats and the combined staffing footprint.</p>
-      </div>
+      <PageHeader title={<>Semester</>} lede={<>Every offering in session in one term, side by side, with its staffing footprint.</>} />
 
       <ProvisionalDatesBanner provenance={provenance} />
       {/* Semester selector */}

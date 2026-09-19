@@ -15,6 +15,7 @@ import { scopeOf } from "@/lib/assumptions";
 import { OPERATIONAL } from "@/lib/mode";
 import { dec, fmt } from "@/lib/format";
 import { HOLIDAY_RULES } from "@/lib/holidayrule";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -82,15 +83,8 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   return (
     <div className="space-y-6">
       <div>
-        <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">← Home</Link>
-        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{inst.name} — setup</h1>
-            <p className="text-sm text-slate-500">{[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")}</p>
-          </div>
-          <span className="flex flex-wrap gap-3 text-sm"><Link href={`/orgs/${inst.id}/assumptions`} className="text-rose-600 hover:underline">Planning assumptions →</Link><Link href="/setup/exceptions" className="text-rose-600 hover:underline">All exceptions →</Link></span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <PageHeader crumb={{ href: "/", label: "Home" }} title={<>{inst.name} — setup</>} lede="Connections, mappings, assumptions, evidence review and exceptions, in that order." meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
+        <div className="-mt-2 flex flex-wrap gap-1.5">
           {steps.map((s) => <a key={s.label} href={s.href} className={`rounded-full px-2.5 py-1 text-xs font-medium ${s.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>{s.ok ? "✓" : "○"} {s.label}</a>)}
         </div>
       </div>

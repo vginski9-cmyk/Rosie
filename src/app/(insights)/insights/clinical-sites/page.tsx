@@ -5,6 +5,7 @@ import { CapacityBoard } from "@/components/CapacityBoard";
 import { ClinicalSupplyBoard } from "@/components/ClinicalSupplyBoard";
 import { AssetMapBoard } from "@/components/AssetMapBoard";
 import { Collapse } from "@/components/Collapse";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +22,7 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
   const bridge = await getCapacityBridge(data.institution.id, from, to);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical site capacity</h1>
-        <p className="text-sm text-slate-500">Every asset on every calendar day against the learners booked on it — can the sites absorb the cohorts?</p>
-      </div>
+      <PageHeader title={<>Clinical site capacity</>} lede={<>Can the sites absorb the cohorts? Every asset on every day against the learners booked on it.</>} />
       <ScopeStrip
         provisional={provenance}
         bridge={bridge} self="capacity"

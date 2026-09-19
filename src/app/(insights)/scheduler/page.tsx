@@ -4,6 +4,7 @@ import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { listChangeSets } from "@/lib/changesets";
 import { OPERATIONAL } from "@/lib/mode";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +23,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   const changes = await listChangeSets(data.institution.id);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Clinical scheduler</h1>
-        <p className="text-sm text-slate-500">Every dated clinical shift (demand) placed onto every site&apos;s assets (supply), with the reason for each clinical placement and what would fix each gap. {OPERATIONAL ? "Nothing is written until you apply the plan." : "A diagnostic: nothing here is written to the calendar."}</p>
-      </div>
+      <PageHeader title={<>Clinical scheduler</>} lede={<>Every clinical shift placed on every site's assets: what fits, what binds, what would fix it.</>} />
       <ScopeStrip
         provisional={provenance}
         bridge={bridge} self="scheduler"

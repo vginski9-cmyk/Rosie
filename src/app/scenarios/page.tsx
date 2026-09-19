@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getScenarioHub } from "@/lib/executive";
 import { fmt } from "@/lib/format";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,7 @@ export default async function ScenariosPage() {
   const hub = await getScenarioHub();
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Scenarios — expansion planning</h1>
-        <p className="mt-1 max-w-3xl text-sm text-slate-500">
-          For each program: can it meet the {hub.targetYear} workforce target, what binds first, and which investment would expand production at what cost. A scenario is a named what-if laid over every offering already planned; nothing here touches the operating plan.
-        </p>
-        <p className="mt-1 text-xs text-slate-500">{fmt.num(hub.totals.programs)} programs · {fmt.num(hub.totals.scenarios)} scenarios saved · {fmt.num(hub.totals.evaluated)} evaluated · {fmt.num(hub.totals.recommended)} recommended</p>
-      </div>
+      <PageHeader title={<>Scenarios — expansion planning</>} lede={<>For each program: can it meet the target, what binds first, and which investment would expand it at what cost.</>} meta={<>{fmt.num(hub.totals.programs)} programs · {fmt.num(hub.totals.scenarios)} scenarios saved · {fmt.num(hub.totals.evaluated)} evaluated · {fmt.num(hub.totals.recommended)} recommended</>} />
 
       {hub.institutions.map((inst) => (
         <section key={inst.id} className="rounded-2xl border border-slate-200 bg-white shadow-sm">
