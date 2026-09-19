@@ -19,6 +19,8 @@ import { ChangeHistory } from "@/components/ChangeHistory";
 import { dec, fmt } from "@/lib/format";
 
 const n0 = (v: number) => dec(v);
+const signed = (v: number) => (v > 0 ? `+${dec(v)}` : v < 0 ? `−${dec(Math.abs(v))}` : "0");
+const times = (v: number | null) => (v == null ? "—" : `${fmt.mult(v)}×`);
 const pct = (v: number) => fmt.pct(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 const fmtW = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -159,6 +161,41 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Tile label="Preceptors" v={`${n0(s.preceptorsAssigned)} / ${n0(s.preceptorShifts)}`} sub={`preceptor-shifts staffed by name${s.preceptorShifts > s.preceptorsAssigned ? ` · ${n0(s.preceptorShifts - s.preceptorsAssigned)} placed with nobody to precept` : ""}`} tone={s.preceptorShifts > 0 && s.preceptorsAssigned < s.preceptorShifts ? "amber" : undefined} />
           <Tile label="Instructors" v={`${n0(s.instructorsAssigned)} / ${n0(s.instructorShifts)}`} sub="instructor-led shifts staffed" tone={s.instructorShifts > 0 && s.instructorsAssigned < s.instructorShifts ? "amber" : undefined} />
         </div>
+        {/* Supply against demand under these levers (Phase 13): how much spare clinical capacity there is. */}
+        {(() => {
+          const c = s.capacity;
+          const agreementsLabel = policy.agreements === "secured" ? "secured agreements only" : policy.agreements === "secured+asked" ? "secured and asked" : "any agreement status";
+          const ringLabel = policy.maxRing === "any" ? "any drive ring" : `up to ${policy.maxRing}`;
+          const tone = (v: number) => (v < 0 ? "text-rose-700" : v === 0 ? "text-amber-700" : "text-emerald-700");
+          return (
+            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/40 p-3">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-900">Supply against demand <span className="font-normal normal-case text-slate-500">— learner-shifts (one learner on one shift){c.window ? `, ${c.window.from} → ${c.window.to}` : ""} · supply counts every asset-shift at the sites that count under the levers ({agreementsLabel}, {ringLabel}) × learners per shift; it moves as you change them</span></div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Theoretical supply</div>
+                  <div className="text-xl font-bold tabular-nums text-slate-900">{n0(c.supplySeats)}</div>
+                  <div className="text-[10px] text-slate-500">{n0(c.supplySeatsPhysical)} at every live site regardless of agreement or ring{c.supplySeatsBooked ? ` · ${n0(c.supplySeatsBooked)} already taken by hand-made bookings` : ""}</div>
+                </div>
+                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Demand</div>
+                  <div className="text-xl font-bold tabular-nums text-slate-900">{n0(c.demandSeats)}</div>
+                  <div className="text-[10px] text-slate-500">{n0(s.demandShifts)} shifts (section × date) at each term&apos;s enrollment target</div>
+                </div>
+                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Headroom, whole window</div>
+                  <div className={`text-xl font-bold tabular-nums ${tone(c.headroom)}`}>{signed(c.headroom)} <span className="text-sm font-medium text-slate-500">· {times(c.ratio)} demand</span></div>
+                  <div className="text-[10px] text-slate-500">supply − demand across every day and shift block in the window, including days no section needs</div>
+                </div>
+                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
+                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Headroom on the days demand uses</div>
+                  <div className={`text-xl font-bold tabular-nums ${tone(c.headroomOnDemandDays)}`}>{signed(c.headroomOnDemandDays)} <span className="text-sm font-medium text-slate-500">· {times(c.ratioOnDemandDays)} demand</span></div>
+                  <div className="text-[10px] text-slate-500">{n0(c.supplySeatsOnDemandDays)} seats on the dates and shift blocks sections actually fall on ({policy.flexibleDays ? `±${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact dates"}, {policy.flexibleShift ? "any shift block" : "the session's shift block"}), less hand-made bookings, less demand — the honest spare capacity</div>
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] text-slate-600">{c.settingsWithoutSupply.length > 0 ? <span className="text-rose-700">No supply at all under these levers for {c.settingsWithoutSupply.join(", ")} — those shifts cannot be placed whatever the headroom elsewhere. </span> : null}Seats are the physical ceiling; staffing is a separate one — the Preceptors and Instructors tiles say how much of the placed demand is staffed by name. Per setting, the balance table below shows the same headroom.</p>
+            </div>
+          );
+        })()}
         {/* The readiness funnel: each rung keeps only what passed every rung before it. */}
         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Readiness funnel <span className="font-normal normal-case text-slate-400">— learner-shifts that pass each check and every check before it; the theoretical ceiling is {n0(s.supplySeatsAllowed)} seats (every asset-shift at allowed sites), not usable capacity</span></div>
@@ -320,7 +357,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-xs">
               <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Placed</th><th className="px-3 py-2 text-right font-semibold">Unplaced</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
+                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold" title="allowed seats on the dates and shift blocks this setting's demand uses, honouring the Day and Shift levers">Supply on demand days</th><th className="px-3 py-2 text-right font-semibold" title="supply on demand days − hand-made bookings − demand learner-shifts">Headroom</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Placed</th><th className="px-3 py-2 text-right font-semibold">Unplaced</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {plan.balance.map((b) => (
@@ -331,6 +368,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
                     <td className="px-3 py-1.5 text-right tabular-nums">{n0(b.demandSeats)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{n0(b.demandHours)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{n0(b.seatsAllowed)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{n0(b.seatsOnDemandDays)}{b.seatsBooked ? <span className="text-slate-400" title="taken by hand-made bookings"> − {n0(b.seatsBooked)}</span> : null}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${b.demandShifts === 0 ? "" : b.headroom < 0 ? "font-semibold text-rose-700" : b.headroom === 0 ? "text-amber-700" : "text-emerald-700"}`}>{b.demandShifts === 0 ? "—" : signed(b.headroom)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{n0(b.supplyShiftsAllowed)} / {n0(b.supplyShiftsPhysical)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">{n0(b.placedSeats)}</td>
                     <td className={`px-3 py-1.5 text-right tabular-nums ${b.unmetShifts ? "font-semibold text-rose-700" : ""}`}>{n0(b.unmetShifts)}</td>

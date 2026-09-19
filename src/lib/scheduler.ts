@@ -171,7 +171,38 @@ export interface SettingBalance {
   settingCode: string; setting: string; rotationTypes: string[];
   demandShifts: number; demandHours: number; demandSeats: number;
   supplyShiftsPhysical: number; supplyShiftsAllowed: number; supplyHoursAllowed: number; seatsAllowed: number;
+  /** Learner seats on every asset-shift in the window regardless of agreement or ring (the physical ceiling). */
+  seatsPhysical: number;
+  /** Of the allowed seats, those on a date and shift block this setting's demand actually uses (a shift block on a day no section needs cannot host anything); honours the Day and Shift levers. */
+  seatsOnDemandDays: number;
+  /** Allowed seats already taken by hand-made bookings in the window. */
+  seatsBooked: number;
+  /** seatsOnDemandDays − seatsBooked − demandSeats: the spare learner-shifts (negative = short before any placement is attempted). */
+  headroom: number;
   placedShifts: number; placedSeats: number; unmetShifts: number; utilization: number; verdict: "fits" | "tight" | "short" | "none";
+}
+/** Supply against demand under the current levers, in learner-shifts (Phase 13). */
+export interface CapacityHeadroom {
+  demandSeats: number;
+  /** Every asset-shift in the demand window at a site the Sites-that-count and Drive-ring levers allow, × learners per shift. */
+  supplySeats: number;
+  /** The same count at every live site, whatever its agreement or ring. */
+  supplySeatsPhysical: number;
+  /** Allowed seats on the dates and shift blocks demand uses (the honest ceiling: supply on a day nothing is scheduled cannot be used). */
+  supplySeatsOnDemandDays: number;
+  /** Allowed seats hand-made bookings already take. */
+  supplySeatsBooked: number;
+  /** supplySeats − demandSeats. */
+  headroom: number;
+  /** supplySeatsOnDemandDays − supplySeatsBooked − demandSeats. */
+  headroomOnDemandDays: number;
+  /** supplySeats ÷ demandSeats (null with no demand). */
+  ratio: number | null;
+  /** supplySeatsOnDemandDays ÷ demandSeats (null with no demand). */
+  ratioOnDemandDays: number | null;
+  /** Settings demanded that have no allowed supply at all. */
+  settingsWithoutSupply: string[];
+  window: { from: string; to: string } | null;
 }
 export interface SiteLoad {
   employerId: string; siteName: string; agreementStatus: string; ring: string | null; county: string | null;
@@ -201,7 +232,7 @@ export interface Plan {
   rosters: StudentRoster[];
   studentStats: StudentStat[];
   preceptorStats: PreceptorStat[];
-  summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string;
+  summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; capacity: CapacityHeadroom; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string;
     /** The readiness funnel in learner-shifts (Phase 5): location assigned → agreement eligible → staffed by name → experience supported → conflict-free → ready. The headline is `ready`. */
     readiness: { locationAssigned: number; agreementEligible: number; staffedByName: number; experienceSupported: number; conflictFree: number; ready: number; readyShare: number } };
   /** What would block applying this plan (Phase 5): placements at unsecured sites, on holidays, over a site's cap, unprecepted. */
@@ -587,11 +618,27 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const families = [...new Set(input.demand.map((u) => u.familyId))];
 
   // Supply over the demand window, by setting (physical and allowed).
-  const supplyBySetting = new Map<string, { physShifts: number; allowedShifts: number; allowedHours: number; seatsAllowed: number; setting: string }>();
+  const supplyBySetting = new Map<string, { physShifts: number; allowedShifts: number; allowedHours: number; seatsAllowed: number; seatsPhysical: number; seatsOnDemandDays: number; seatsBooked: number; setting: string }>();
+  // The date × shift block pairs each setting's demand uses, widened by the Day (± days) and Shift (any block) levers.
+  const demandSlots = new Map<string, Set<string>>();
+  for (const u of input.demand) {
+    const code = u.settingCode ?? "(unmapped)";
+    const set = demandSlots.get(code) ?? new Set<string>();
+    for (let dd = -policy.flexibleDays; dd <= policy.flexibleDays; dd++) { const d = isoAdd(u.date, dd); for (const b of policy.flexibleShift ? BLOCKS : [u.block]) set.add(`${d}|${b}`); }
+    demandSlots.set(code, set);
+  }
   if (from && to) for (const a of live) {
-    const s = supplyBySetting.get(a.settingCode) ?? { physShifts: 0, allowedShifts: 0, allowedHours: 0, seatsAllowed: 0, setting: a.setting };
+    const s = supplyBySetting.get(a.settingCode) ?? { physShifts: 0, allowedShifts: 0, allowedHours: 0, seatsAllowed: 0, seatsPhysical: 0, seatsOnDemandDays: 0, seatsBooked: 0, setting: a.setting };
     const allowed = families.some((f) => allowedAsset(a, f));
-    for (let d = from; d <= to; d = isoAdd(d, 1)) for (const b of blocksOn(a, d, ov.get(overrideKey(a.id, d)))) { s.physShifts++; if (allowed) { s.allowedShifts++; s.allowedHours += shiftHours(a, b); s.seatsAllowed += a.learnersPerShift; } }
+    const slots = demandSlots.get(a.settingCode);
+    for (let d = from; d <= to; d = isoAdd(d, 1)) for (const b of blocksOn(a, d, ov.get(overrideKey(a.id, d)))) {
+      s.physShifts++; s.seatsPhysical += a.learnersPerShift;
+      if (allowed) {
+        s.allowedShifts++; s.allowedHours += shiftHours(a, b); s.seatsAllowed += a.learnersPerShift;
+        if (slots?.has(`${d}|${b}`)) s.seatsOnDemandDays += a.learnersPerShift;
+        s.seatsBooked += input.existingBookings.filter((k) => k.assetId === a.id && k.date === d && k.block === b).reduce((n, k) => n + k.students, 0);
+      }
+    }
     supplyBySetting.set(a.settingCode, s);
   }
 
@@ -608,6 +655,8 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
       settingCode: code, setting: sup?.setting ?? live.find((a) => a.settingCode === code)?.setting ?? code, rotationTypes: [...new Set(ds.map((u) => u.rotationType))],
       demandShifts: ds.length, demandHours: ds.reduce((n, u) => n + u.hours * u.seats, 0), demandSeats,
       supplyShiftsPhysical: sup?.physShifts ?? 0, supplyShiftsAllowed: sup?.allowedShifts ?? 0, supplyHoursAllowed: sup?.allowedHours ?? 0, seatsAllowed: sup?.seatsAllowed ?? 0,
+      seatsPhysical: sup?.seatsPhysical ?? 0, seatsOnDemandDays: sup?.seatsOnDemandDays ?? 0, seatsBooked: sup?.seatsBooked ?? 0,
+      headroom: (sup?.seatsOnDemandDays ?? 0) - (sup?.seatsBooked ?? 0) - demandSeats,
       placedShifts: as.length, placedSeats: as.reduce((n, x) => n + x.seats, 0), unmetShifts: um.length, utilization, verdict,
     };
   }).sort((a, b) => b.demandShifts - a.demandShifts);
@@ -752,7 +801,16 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const instructorShifts = assignments.filter((x) => x.unit.facultyNeeded >= 1).length;
   const instructorsAssigned = assignments.filter((x) => x.instructorId).length;
   const supplySeatsAllowed = balance.reduce((n, b) => n + b.seatsAllowed, 0);
-  const supplySeatsPhysical = [...supplyBySetting.values()].reduce((n, s) => n + s.physShifts, 0);
+  const supplySeatsPhysical = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysical, 0);
+  const supplySeatsOnDemandDays = balance.reduce((n, b) => n + b.seatsOnDemandDays, 0);
+  const supplySeatsBooked = balance.reduce((n, b) => n + b.seatsBooked, 0);
+  const capacity: CapacityHeadroom = {
+    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked,
+    headroom: supplySeatsAllowed - demandSeats, headroomOnDemandDays: supplySeatsOnDemandDays - supplySeatsBooked - demandSeats,
+    ratio: demandSeats > 0 ? supplySeatsAllowed / demandSeats : null, ratioOnDemandDays: demandSeats > 0 ? supplySeatsOnDemandDays / demandSeats : null,
+    settingsWithoutSupply: balance.filter((b) => b.demandShifts > 0 && b.seatsAllowed === 0).map((b) => b.settingCode),
+    window: from && to ? { from, to } : null,
+  };
   const sitesUsed = new Set(assignments.map((x) => x.employerId)).size;
   const placedShare = demandSeats > 0 ? placedSeats / demandSeats : 0;
   const topReasons = (() => { const m = new Map<UnmetReason, number>(); for (const x of unmet) m.set(x.reason, (m.get(x.reason) ?? 0) + x.unit.seats); return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3); })();
@@ -766,5 +824,5 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
       (placedSeats > 0 ? ` Ready to run: ${pct(demandSeats > 0 ? readiness.ready / demandSeats : 0)} — ${num(readiness.ready)} learner-shifts pass every check (secured agreement, named staff, confirmed experience, no conflicts).` : "");
 
   readiness.readyShare = demandSeats > 0 ? readiness.ready / demandSeats : 0;
-  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, summary: { demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
+  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, summary: { capacity, demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
 }

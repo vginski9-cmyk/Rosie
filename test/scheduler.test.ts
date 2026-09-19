@@ -257,3 +257,45 @@ describe("preceptor levers — their own site only, stints, ceilings", () => {
     expect(recommendPlan(base({ demand: [pair], assets: [big], preceptors: [pat, quinn] }, { studentsPerPreceptor: 1 })).assignments[0].preceptorIds).toHaveLength(2);
   });
 });
+
+describe("supply against demand (Phase 13)", () => {
+  // Two assets: one secured in the core ring, one only asked and far away. Demand: one section of 2
+  // seats on one Day shift. The theoretical supply counts every weekday Day shift in the window at
+  // the sites the levers allow; the honest headroom counts only the date × block demand uses.
+  const secured = asset({ id: "a1", employerId: "e1", facilityName: "Core Hospital", learnersPerShift: 3 });
+  const asked = asset({ id: "a2", employerId: "e2", facilityName: "Far Clinic", agreementStatus: "asked", ring: "Ring 3", learnersPerShift: 5 });
+  const demand = [unit({ id: "u1", date: "2027-08-23", seats: 2 }), unit({ id: "u2", date: "2027-08-25", seats: 2, sectionIndex: 2 })];
+  it("counts allowed seats over the window, allowed seats on demand days, and the headroom", () => {
+    const plan = recommendPlan(base({ demand, assets: [secured, asked] }));
+    const c = plan.summary.capacity;
+    // Window Mon 23 → Wed 25: three weekday Day shifts at the secured asset × 3 learners.
+    expect(c.window).toEqual({ from: "2027-08-23", to: "2027-08-25" });
+    expect(c.supplySeats).toBe(9);
+    expect(c.supplySeatsPhysical).toBe(9 + 15);
+    expect(c.demandSeats).toBe(4);
+    expect(c.headroom).toBe(5);
+    expect(c.ratio).toBeCloseTo(9 / 4);
+    // Only Mon and Wed Day carry demand: 2 asset-shifts × 3 seats.
+    expect(c.supplySeatsOnDemandDays).toBe(6);
+    expect(c.headroomOnDemandDays).toBe(2);
+    expect(c.settingsWithoutSupply).toEqual([]);
+    const gen = plan.balance.find((b) => b.settingCode === "GEN")!;
+    expect(gen.seatsOnDemandDays).toBe(6); expect(gen.headroom).toBe(2); expect(gen.seatsPhysical).toBe(24);
+  });
+  it("widens with the Sites-that-count and Day levers, and subtracts hand-made bookings", () => {
+    const any = recommendPlan(base({ demand, assets: [secured, asked] }, { agreements: "any", maxRing: "any" }));
+    expect(any.summary.capacity.supplySeats).toBe(24);
+    expect(any.summary.capacity.supplySeatsOnDemandDays).toBe(16);
+    const flexible = recommendPlan(base({ demand, assets: [secured, asked] }, { flexibleDays: 1 }));
+    // ±1 day around Mon and Wed reaches Tue as well: all three weekday shifts count.
+    expect(flexible.summary.capacity.supplySeatsOnDemandDays).toBe(9);
+    const booked = recommendPlan(base({ demand, assets: [secured, asked], existingBookings: [{ id: "bk1", assetId: "a1", cohortId: "other", sessionId: null, sectionIndex: 1, date: "2027-08-23", block: "Day", students: 1 }] }));
+    expect(booked.summary.capacity.supplySeatsBooked).toBe(1);
+    expect(booked.summary.capacity.headroomOnDemandDays).toBe(1);
+  });
+  it("names a demanded setting that has no allowed supply", () => {
+    const plan = recommendPlan(base({ demand: [unit({ id: "u3", settingCode: "OR" })], assets: [secured] }));
+    expect(plan.summary.capacity.settingsWithoutSupply).toEqual(["OR"]);
+    expect(plan.summary.capacity.headroomOnDemandDays).toBe(-2);
+  });
+});
