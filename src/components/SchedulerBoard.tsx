@@ -14,6 +14,7 @@ import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetm
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
 import { applySchedulerLevers, clearSchedulerPlan, previewSchedulerApply, undoChangeSet, type SchedulerPreview } from "@/lib/actions";
+import { SchedulerCapacity } from "@/components/SchedulerCapacity";
 import type { ChangeSetRow } from "@/lib/changesets";
 import { ChangeHistory } from "@/components/ChangeHistory";
 import { dec, fmt } from "@/lib/format";
@@ -150,65 +151,13 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {/* ── The statement, the readiness funnel and the apply flow ────────── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {computing && <div role="status" aria-live="polite" className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />{hydrated ? "Recomputing the plan under the new levers — the numbers below are the previous plan's." : `Building the plan for ${n0(demand.length)} clinical shifts in your browser…`}</div>}
-        <p className="text-base leading-relaxed text-slate-800">{hydrated ? s.statement : `${n0(demand.length)} clinical shifts (${n0(demand.reduce((n, u) => n + u.seats, 0))} learner-shifts) between ${window.from} and ${window.to} are being placed — the readiness funnel appears in a moment.`}</p>
-        <p className="mt-1 text-xs text-slate-500">A <strong>proposed scenario</strong> under the levers above — nothing is written until you apply it. Demand is every dated clinical shift (session × section) at each term&apos;s enrollment target, not the roster. The headline is <strong>ready</strong>: placed at a secured site, staffed by name, at a site that has confirmed the experience, with no conflicts. {!policy.requirePreceptor && <span className="text-amber-700">Seats only (exploratory): a shift counts as placed with nobody to precept it; the readiness funnel shows what is actually staffable.</span>}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          <Tile label="Demand" v={`${n0(s.demandSeats)} learner-shifts`} sub={`${n0(s.demandShifts)} shifts (section × date) · ${n0(s.demandHours)} learner-hours`} />
-          <Tile label="Ready to run" v={pct(rd.readyShare)} sub={`${n0(rd.ready)} learner-shifts pass every check`} strong />
-          <Tile label={policy.requirePreceptor ? "Placed" : "Placed (seats only)"} v={pct(s.placedShare)} sub={`${n0(s.placedSeats)} learner-shifts at ${s.sitesUsed} sites${policy.requirePreceptor ? "" : " · exploratory — nobody need be free to precept"}`} />
-          <Tile label="Unplaced" v={n0(s.unmetShifts)} sub={s.unmetShifts ? `shifts — see bottlenecks` : "nothing left over"} tone={s.unmetShifts ? "rose" : "emerald"} />
-          <Tile label="Blockers" v={n0(blocking.reduce((n, b) => n + b.shifts, 0))} sub={blocking.length ? `shifts that stop an apply: ${blocking.map((b) => b.kind.replace(/-/g, " ")).join(", ")}` : "nothing stops an apply"} tone={blocking.length ? "rose" : "emerald"} />
-          <Tile label="Preceptors" v={`${n0(s.preceptorsAssigned)} / ${n0(s.preceptorShifts)}`} sub={`preceptor-shifts staffed by name${s.preceptorShifts > s.preceptorsAssigned ? ` · ${n0(s.preceptorShifts - s.preceptorsAssigned)} placed with nobody to precept` : ""}`} tone={s.preceptorShifts > 0 && s.preceptorsAssigned < s.preceptorShifts ? "amber" : undefined} />
-          <Tile label="Instructors" v={`${n0(s.instructorsAssigned)} / ${n0(s.instructorShifts)}`} sub="instructor-led shifts staffed" tone={s.instructorShifts > 0 && s.instructorsAssigned < s.instructorShifts ? "amber" : undefined} />
-        </div>
-        {/* Supply against demand under these levers (Phase 13): how much spare clinical capacity there is. */}
-        {(() => {
-          const c = s.capacity;
-          const agreementsLabel = policy.agreements === "secured" ? "secured agreements only" : policy.agreements === "secured+asked" ? "secured and asked" : "any agreement status";
-          const ringLabel = policy.maxRing === "any" ? "any drive ring" : `up to ${policy.maxRing}`;
-          const tone = (v: number) => (v < 0 ? "text-rose-700" : v === 0 ? "text-amber-700" : "text-emerald-700");
-          return (
-            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/40 p-3">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-900">Supply against demand <span className="font-normal normal-case text-slate-500">— learner-shifts (one learner on one shift){c.window ? `, ${c.window.from} → ${c.window.to}` : ""} · supply counts every asset-shift at the sites that count under the levers ({agreementsLabel}, {ringLabel}) × learners per shift; it moves as you change them</span></div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Theoretical supply</div>
-                  <div className="text-xl font-bold tabular-nums text-slate-900">{n0(c.supplySeats)}</div>
-                  <div className="text-[10px] text-slate-500">{n0(c.supplySeatsPhysical)} at every live site regardless of agreement or ring{c.supplySeatsBooked ? ` · ${n0(c.supplySeatsBooked)} already taken by hand-made bookings` : ""}</div>
-                </div>
-                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Demand</div>
-                  <div className="text-xl font-bold tabular-nums text-slate-900">{n0(c.demandSeats)}</div>
-                  <div className="text-[10px] text-slate-500">{n0(s.demandShifts)} shifts (section × date) at each term&apos;s enrollment target</div>
-                </div>
-                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Headroom, whole window</div>
-                  <div className={`text-xl font-bold tabular-nums ${tone(c.headroom)}`}>{signed(c.headroom)} <span className="text-sm font-medium text-slate-500">· {times(c.ratio)} demand</span></div>
-                  <div className="text-[10px] text-slate-500">supply − demand across every day and shift block in the window, including days no section needs</div>
-                </div>
-                <div className="rounded-lg bg-white p-2.5 ring-1 ring-sky-100">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-500">Headroom on the days demand uses</div>
-                  <div className={`text-xl font-bold tabular-nums ${tone(c.headroomOnDemandDays)}`}>{signed(c.headroomOnDemandDays)} <span className="text-sm font-medium text-slate-500">· {times(c.ratioOnDemandDays)} demand</span></div>
-                  <div className="text-[10px] text-slate-500">{n0(c.supplySeatsOnDemandDays)} seats on the dates and shift blocks sections actually fall on ({policy.flexibleDays ? `±${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact dates"}, {policy.flexibleShift ? "any shift block" : "the session's shift block"}), less hand-made bookings, less demand — the honest spare capacity</div>
-                </div>
-              </div>
-              <p className="mt-1.5 text-[11px] text-slate-600">{c.settingsWithoutSupply.length > 0 ? <span className="text-rose-700">No supply at all under these levers for {c.settingsWithoutSupply.join(", ")} — those shifts cannot be placed whatever the headroom elsewhere. </span> : null}Seats are the physical ceiling; staffing is a separate one — the Preceptors and Instructors tiles say how much of the placed demand is staffed by name. Per setting, the balance table below shows the same headroom.</p>
-            </div>
-          );
-        })()}
-        {/* The readiness funnel: each rung keeps only what passed every rung before it. */}
-        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Readiness funnel <span className="font-normal normal-case text-slate-400">— learner-shifts that pass each check and every check before it; the theoretical ceiling is {n0(s.supplySeatsAllowed)} seats (every asset-shift at allowed sites), not usable capacity</span></div>
-          <div className="grid gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
-            {([["Location assigned", rd.locationAssigned, "placed on a real asset on a date"], ["Agreement eligible", rd.agreementEligible, "the site's agreement for this program is secured on that date"], ["Staffed by name", rd.staffedByName, "a named preceptor (and instructor where the session needs one)"], ["Experience supported", rd.experienceSupported, "the site has confirmed it provides this setting — inferred does not count"], ["Conflict-free", rd.conflictFree, "under the site's students-at-once, not on a holiday, students not in two places"], ["Ready", rd.ready, "every check above"]] as [string, number, string][]).map(([label, v, why], i) => (
-              <div key={label} className={`rounded-lg px-2.5 py-2 ${i === 5 ? "bg-slate-800 text-white" : "bg-white ring-1 ring-slate-200"}`} title={why}>
-                <div className={`text-[10px] uppercase tracking-wide ${i === 5 ? "text-slate-300" : "text-slate-400"}`}>{label}</div>
-                <div className="text-lg font-bold leading-tight tabular-nums">{n0(v)} <span className={`text-xs font-normal ${i === 5 ? "text-slate-300" : "text-slate-400"}`}>{pct(s.demandSeats > 0 ? v / s.demandSeats : 0)}</span></div>
-                <div className={`mt-1 h-1 rounded ${i === 5 ? "bg-slate-600" : "bg-slate-100"}`}><div className={`h-1 rounded ${i === 5 ? "bg-emerald-400" : "bg-slate-500"}`} style={{ width: `${Math.min(100, (s.demandSeats > 0 ? v / s.demandSeats : 0) * 100)}%` }} /></div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <p className="text-xs text-slate-500">A <strong>proposed plan</strong> under the levers{canApply ? " — nothing is written until you apply it" : " — a diagnostic; nothing is written"}. Demand is every dated clinical shift of every planned and running offering at each term&apos;s enrollment target, not the roster.{!policy.requirePreceptor && <span className="text-amber-700"> The Preceptors lever is off: a shift counts as placed with nobody to precept it; the rings show what is actually staffable.</span>}</p>
+        {/* The capacity picture (Phase 13): the rings and the bars, in plain words. */}
+        <SchedulerCapacity plan={plan} policy={policy} window={window} onOpenLevers={() => setShowLevers(true)} />
+        <details className="mt-3 text-xs text-slate-500">
+          <summary className="cursor-pointer hover:text-slate-800">The engine&apos;s own summary, in full</summary>
+          <p className="mt-1 leading-relaxed text-slate-700">{hydrated ? s.statement : "…"}</p>
+        </details>
         {/* Blockers: what stops an apply, and the non-blocking warnings beside them. */}
         {plan.blockers.length > 0 && (
           <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/40 p-3">

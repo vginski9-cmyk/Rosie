@@ -293,6 +293,16 @@ describe("supply against demand (Phase 13)", () => {
     expect(booked.summary.capacity.supplySeatsBooked).toBe(1);
     expect(booked.summary.capacity.headroomOnDemandDays).toBe(1);
   });
+  it("counts the seats every site would offer on demand days, and the seats a preceptor on the roster could cover", () => {
+    // Secured site: 3 seats per Day shift on Mon and Wed, one preceptor on its roster at the asset's ratio (3 learners : 1 preceptor).
+    const one = recommendPlan(base({ demand, assets: [secured, asked], preceptors: [{ id: "p1", name: "A", employerId: "e1", role: "preceptor" }] }));
+    expect(one.summary.capacity.supplySeatsPhysicalOnDemandDays).toBe(6 + 10);
+    expect(one.summary.capacity.supplySeatsStaffableOnDemandDays).toBe(6);
+    // No preceptor on the roster: nothing is staffable, however many seats exist.
+    expect(recommendPlan(base({ demand, assets: [secured, asked] })).summary.capacity.supplySeatsStaffableOnDemandDays).toBe(0);
+    // The Students-per-preceptor lever caps it: one preceptor × 1 student × 2 demand shifts.
+    expect(recommendPlan(base({ demand, assets: [secured, asked], preceptors: [{ id: "p1", name: "A", employerId: "e1", role: "preceptor" }] }, { studentsPerPreceptor: 1 })).summary.capacity.supplySeatsStaffableOnDemandDays).toBe(2);
+  });
   it("names a demanded setting that has no allowed supply", () => {
     const plan = recommendPlan(base({ demand: [unit({ id: "u3", settingCode: "OR" })], assets: [secured] }));
     expect(plan.summary.capacity.settingsWithoutSupply).toEqual(["OR"]);

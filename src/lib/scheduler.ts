@@ -194,6 +194,10 @@ export interface CapacityHeadroom {
   supplySeatsOnDemandDays: number;
   /** Allowed seats hand-made bookings already take. */
   supplySeatsBooked: number;
+  /** Seats on the dates and shift blocks demand uses at EVERY live site, whatever its agreement or ring — what loosening the Sites-that-count and Drive-ring levers all the way would count. */
+  supplySeatsPhysicalOnDemandDays: number;
+  /** Of the allowed seats on demand days, those a preceptor on the site's roster could cover: per site and shift, preceptors on hand × students per preceptor (the Students-per-preceptor lever, else each asset's own ratio). An estimate of the staffed ceiling. */
+  supplySeatsStaffableOnDemandDays: number;
   /** supplySeats − demandSeats. */
   headroom: number;
   /** supplySeatsOnDemandDays − supplySeatsBooked − demandSeats. */
@@ -622,7 +626,11 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const families = [...new Set(input.demand.map((u) => u.familyId))];
 
   // Supply over the demand window, by setting (physical and allowed).
-  const supplyBySetting = new Map<string, { physShifts: number; allowedShifts: number; allowedHours: number; seatsAllowed: number; seatsPhysical: number; seatsOnDemandDays: number; seatsBooked: number; setting: string }>();
+  const supplyBySetting = new Map<string, { physShifts: number; allowedShifts: number; allowedHours: number; seatsAllowed: number; seatsPhysical: number; seatsOnDemandDays: number; seatsPhysicalOnDemandDays: number; seatsBooked: number; setting: string }>();
+  // Staffable seats: per site × date × block, the allowed seats on demand days capped by the preceptors the site has on its roster.
+  const preceptorsAtSite = new Map<string, number>();
+  for (const p of input.preceptors) if (p.employerId) preceptorsAtSite.set(p.employerId, (preceptorsAtSite.get(p.employerId) ?? 0) + 1);
+  const siteShiftSeats = new Map<string, { seats: number; ratioSum: number; n: number; employerId: string }>();
   // The date × shift block pairs each setting's demand uses, widened by the Day (± days) and Shift (any block) levers.
   const demandSlots = new Map<string, Set<string>>();
   for (const u of input.demand) {
@@ -632,19 +640,27 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     demandSlots.set(code, set);
   }
   if (from && to) for (const a of live) {
-    const s = supplyBySetting.get(a.settingCode) ?? { physShifts: 0, allowedShifts: 0, allowedHours: 0, seatsAllowed: 0, seatsPhysical: 0, seatsOnDemandDays: 0, seatsBooked: 0, setting: a.setting };
+    const s = supplyBySetting.get(a.settingCode) ?? { physShifts: 0, allowedShifts: 0, allowedHours: 0, seatsAllowed: 0, seatsPhysical: 0, seatsOnDemandDays: 0, seatsPhysicalOnDemandDays: 0, seatsBooked: 0, setting: a.setting };
     const allowed = families.some((f) => allowedAsset(a, f));
     const slots = demandSlots.get(a.settingCode);
     for (let d = from; d <= to; d = isoAdd(d, 1)) for (const b of blocksOn(a, d, ov.get(overrideKey(a.id, d)))) {
       s.physShifts++; s.seatsPhysical += a.learnersPerShift;
+      const onDemandDay = !!slots?.has(`${d}|${b}`);
+      if (onDemandDay) s.seatsPhysicalOnDemandDays += a.learnersPerShift;
       if (allowed) {
         s.allowedShifts++; s.allowedHours += shiftHours(a, b); s.seatsAllowed += a.learnersPerShift;
-        if (slots?.has(`${d}|${b}`)) s.seatsOnDemandDays += a.learnersPerShift;
+        if (onDemandDay) {
+          s.seatsOnDemandDays += a.learnersPerShift;
+          const k = `${a.employerId}|${d}|${b}`; const ss = siteShiftSeats.get(k) ?? { seats: 0, ratioSum: 0, n: 0, employerId: a.employerId };
+          ss.seats += a.learnersPerShift; ss.ratioSum += policy.studentsPerPreceptor ?? (a.learnersPerShift / Math.max(1, a.preceptorsPerShift || 1)); ss.n++; siteShiftSeats.set(k, ss);
+        }
         s.seatsBooked += input.existingBookings.filter((k) => k.assetId === a.id && k.date === d && k.block === b).reduce((n, k) => n + k.students, 0);
       }
     }
     supplyBySetting.set(a.settingCode, s);
   }
+  let supplySeatsStaffableOnDemandDays = 0;
+  for (const ss of siteShiftSeats.values()) { const ratio = ss.n ? ss.ratioSum / ss.n : 1; supplySeatsStaffableOnDemandDays += Math.min(ss.seats, (preceptorsAtSite.get(ss.employerId) ?? 0) * ratio); }
 
   const codes = [...new Set([...input.demand.map((u) => u.settingCode ?? "(unmapped)"), ...supplyBySetting.keys()])].sort((a, b) => a.localeCompare(b));
   const balance: SettingBalance[] = codes.map((code) => {
@@ -808,8 +824,9 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const supplySeatsPhysical = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysical, 0);
   const supplySeatsOnDemandDays = balance.reduce((n, b) => n + b.seatsOnDemandDays, 0);
   const supplySeatsBooked = balance.reduce((n, b) => n + b.seatsBooked, 0);
+  const supplySeatsPhysicalOnDemandDays = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysicalOnDemandDays, 0);
   const capacity: CapacityHeadroom = {
-    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked,
+    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays,
     headroom: supplySeatsAllowed - demandSeats, headroomOnDemandDays: supplySeatsOnDemandDays - supplySeatsBooked - demandSeats,
     ratio: demandSeats > 0 ? supplySeatsAllowed / demandSeats : null, ratioOnDemandDays: demandSeats > 0 ? supplySeatsOnDemandDays / demandSeats : null,
     settingsWithoutSupply: balance.filter((b) => b.demandShifts > 0 && b.seatsAllowed === 0).map((b) => b.settingCode),
