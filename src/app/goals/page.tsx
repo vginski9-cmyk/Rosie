@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getInstitutionsHome, getInstitutionsLite } from "@/lib/queries";
-import { getExecutiveSummary, CONSTRAINT_LABEL, type TargetAtRisk, type TargetStatus } from "@/lib/executive";
+import { getExecutiveSummary, type TargetAtRisk, type TargetStatus } from "@/lib/executive";
 import { deleteNorthStarGoal } from "@/lib/actions";
 import { NewGoalForm } from "@/components/NewGoalForm";
 import { fmt } from "@/lib/format";
