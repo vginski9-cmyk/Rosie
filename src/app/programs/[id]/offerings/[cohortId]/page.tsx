@@ -191,7 +191,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {OPERATIONAL ? (
         <AutoAssignButton cohortId={offering.id} programId={program.id} meetings={offering._count.meetings} staffedShifts={offering._count.sessionStaff} studentShifts={offering._count.studentShifts} students={enrolledNow} />
       ) : (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>Read-mostly record.</strong> This offering&apos;s dates, rooms, staffing and student shifts are actuals — imported from the college&apos;s source systems or set in the operational module. Here they are evidence and inputs: {fmt.num(offering._count.meetings)} calendar meetings · {fmt.num(offering._count.sessionStaff)} staffed shifts · {fmt.num(offering._count.studentShifts)} student shifts on record.</p>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600"><strong>Read-mostly record.</strong> This offering&apos;s rooms, staffing and student shifts are actuals — imported from the college&apos;s source systems or set in the operational module. {offering.status === "planned" ? "Its start and term dates are a planning decision and can be set below. " : ""}Here they are evidence and inputs: {fmt.num(offering._count.meetings)} calendar meetings · {fmt.num(offering._count.sessionStaff)} staffed shifts · {fmt.num(offering._count.studentShifts)} student shifts on record.</p>
       )}
 
       {/* ── Term dates for THIS offering (derived from the org's calendar; overridable here) ── */}
@@ -265,7 +265,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
               </p>
             )}
 
-            {OPERATIONAL && <details className="mt-3">
+            {(OPERATIONAL || offering.status === "planned") && <details className="mt-3">
               <summary className="cursor-pointer text-xs font-medium text-slate-600">Override by hand — or move the offering start and re-align</summary>
               <form action={updateOfferingDates.bind(null, offering.id, program.id)} className="mt-2 flex flex-wrap items-end gap-3">
                 <label className="block">

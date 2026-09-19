@@ -52,7 +52,7 @@ export function OfferingTargetsEditor({ value, termNames, defaultRates, onChange
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <label className="flex items-center gap-1.5">
           <span className="font-medium text-slate-700">covers</span>
-          <input type="number" min={0} value={value.goal} disabled={disabled} onChange={(e) => onChange({ goal: Math.max(0, Number(e.target.value) || 0) })} className={`${inp} w-16 font-semibold`} />
+          <input type="number" min={0} aria-label="Productive workers this offering covers" value={value.goal} disabled={disabled} onChange={(e) => onChange({ goal: Math.max(0, Number(e.target.value) || 0) })} className={`${inp} w-16 font-semibold`} />
           <span className="text-slate-500">productive</span>
         </label>
         <span className="tabular-nums text-slate-500">

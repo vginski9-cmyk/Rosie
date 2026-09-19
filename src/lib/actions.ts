@@ -2,6 +2,10 @@
 
 import { prisma } from "./db";
 import { requireOperational } from "./mode";
+// Planning decisions — locking a goal-year cohort in or out, creating a planned offering, setting a
+// planned offering's dates and deriving its term dates and calendar meetings from the college
+// calendar — are the strategic product's own and are never guarded; the guard is on the actions
+// that write the operating plan's placements and staffing, or a person-level record.
 import { ASSUMPTION_BY_KEY } from "./assumptions";
 import { SCRUB_ROLES, joinScrubRoles } from "./surgvolume";
 import { revalidatePath } from "next/cache";
@@ -177,7 +181,6 @@ export interface AlignSummary { offerings: number; termsMoved: number; courseWin
  *  institution's coded academic calendar from its chosen first day. Terms typed
  *  by hand stay put unless `resetManual`; course windows typed by hand stay put. */
 export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignReport | null> {
-  requireOperational();
   const { alignOffering, endYearOf } = await import("./termalign");
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
@@ -1218,7 +1221,6 @@ const csvFromCheckboxes = (fd: FormData, name: string, fallback: string) => {
  *  start date, the canonical funnel, and per-term dates cascaded from each
  *  template term's week-span. Then you assign instructors and enroll students. */
 export async function createOffering(programId: string, formData: FormData) {
-  requireOperational();
   const name = str(formData.get("name")) || "New Offering";
   const startStr = str(formData.get("startDate"));
   const startD = startStr ? new Date(startStr) : null;
@@ -1245,7 +1247,6 @@ export async function lockInInstantiation(
   input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number> },
 ): Promise<{
   cohortId: string; name: string }> {
-  requireOperational();
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
 
@@ -1427,7 +1428,6 @@ export async function clearSessionOverride(cohortId: string, sessionId: string, 
  *  first day. Calendars, capacity insights, and timing all derive from these
  *  live, so a shift here moves everything at once. */
 export async function updateOfferingDates(cohortId: string, programId: string, formData: FormData) {
-  requireOperational();
   const startStr = str(formData.get("startDate"));
   await prisma.cohort.update({
     where: { id: cohortId },
@@ -1811,7 +1811,6 @@ export async function saveCohortPipeline(
  *  enrolled students are detached, never deleted. The slot goes back to a
  *  plannable start date. */
 export async function unlockInstantiation(cohortId: string): Promise<void> {
-  requireOperational();
   const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } } } });
   if (!co) return;
   await prisma.cohort.delete({ where: { id: cohortId } });
@@ -1927,7 +1926,6 @@ export interface AlignmentTagInput {
 // ---------------------------------------------------------------------------
 
 export async function calendarizeCohort(cohortId: string, programId: string): Promise<void> {
-  requireOperational();
   const { calendarizeCore } = await import("./autoassign");
   const made = await calendarizeCore(cohortId);
   if (!made) return;

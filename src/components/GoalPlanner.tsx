@@ -146,8 +146,9 @@ export function GoalPlanner({
           goalsByYear: { ...base.goalsByYear, ...saved.goalsByYear }, capByYear: { ...base.capByYear, ...saved.capByYear },
         };
         if (!merged.years.includes(merged.selectedYear)) merged.selectedYear = merged.years[merged.years.length - 1];
-        // A saved year with neither an offering nor student data (the seed's default) yields to the year that has them.
-        if (!(offeringsByYear[merged.selectedYear]?.length) && !(actualByYear[merged.selectedYear]?.interested) && pool.length) merged.selectedYear = defaultYear;
+        // A year the reader chose stays chosen — even an empty one, since choosing it is how a new offering
+        // gets planned there. Only a plan saved without a choice (the seed) opens on the year with data.
+        if (saved.selectedYear == null && !(offeringsByYear[merged.selectedYear]?.length) && !(actualByYear[merged.selectedYear]?.interested) && pool.length) merged.selectedYear = defaultYear;
         return merged;
       } catch { /* fall through */ }
     }
@@ -219,8 +220,10 @@ export function GoalPlanner({
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
     const m = models.find((x) => x.programId === programId);
-    // A new model starts empty — every offering's goal is typed in on its own slot.
-    setAllocs([...allocs, { programId, goal: 0, offerings: [{ startDate: m ? suggestStart(m) : null, goal: 0, termOverrides: [] }] }]);
+    // A new model's first offering starts with whatever the year's goal still leaves uncovered, so it
+    // can be locked in at once; the figure is editable on the slot.
+    const remaining = Math.max(0, yearGoal - allocs.reduce((n, a) => n + allocGoal(a), 0));
+    setAllocs([...allocs, { programId, goal: remaining, offerings: [{ startDate: m ? suggestStart(m) : null, goal: remaining, termOverrides: [] }] }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —
@@ -272,6 +275,8 @@ export function GoalPlanner({
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
+  // A lock-in or unlock that the server refuses says so here, instead of failing silently.
+  const [actionError, setActionError] = useState<string | null>(null);
   const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
   const router = useRouter();
 
@@ -296,12 +301,14 @@ export function GoalPlanner({
     const slot = slots[oi];
     if (!slot?.locked) return;
     if (!window.confirm(`Unlock ${slot.cohortName ?? "this offering"}?\n\nThe offering is deleted — its schedule, bookings, session overrides and pipeline targets go with it. Enrolled students are kept but detached. The slot returns to a plannable start date.`)) return;
-    setUnlockingId(`${a.programId}:${oi}`);
+    setUnlockingId(`${a.programId}:${oi}`); setActionError(null);
     try {
       if (slot.cohortId) await unlockInstantiation(slot.cohortId);
       const next = slots.map((x, j) => (j === oi ? { startDate: x.startDate ?? null } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
+    } catch (e) {
+      setActionError(`Could not unlock: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setUnlockingId(null);
     }
@@ -313,12 +320,14 @@ export function GoalPlanner({
     const slot = slots[oi];
     if (!m || !slot?.startDate || slot.locked) return;
     const tv = slotTargets(slot);
-    setLockingId(`${a.programId}:${oi}`);
+    setLockingId(`${a.programId}:${oi}`); setActionError(null);
     try {
       const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? ({ ...s.goal, ...tv.rates } as unknown as Record<string, number>) : undefined });
       const next = slots.map((x, i) => (i === oi ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
+    } catch (e) {
+      setActionError(`Could not lock in: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLockingId(null);
     }
@@ -338,6 +347,7 @@ export function GoalPlanner({
 
   return (
     <div className="space-y-5">
+      {actionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{actionError}</p>}
       {/* Save state */}
       <div className="flex flex-wrap items-center justify-end gap-3">
         <span className="text-[11px] text-slate-400">{saveState === "saving" ? "saving…" : saveState === "saved" ? "✓ saved" : ""}</span>
@@ -561,7 +571,8 @@ export function GoalPlanner({
                                     </label>
                                     <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
                                     <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}</span>
-                                    <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className="ml-auto rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real offering with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
+                                    {(!o.startDate || tv.goal <= 0) && <span className="ml-auto text-[11px] text-amber-700">{!o.startDate ? "set a start date to lock in" : "enter how many productive workers this offering covers to lock in"}</span>}
+                                    <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className={`${!o.startDate || tv.goal <= 0 ? "" : "ml-auto "}rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400`} title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real offering with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
                                     {slots.length > 1 && <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>}
                                   </>
                                 )}
