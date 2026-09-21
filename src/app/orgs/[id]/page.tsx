@@ -17,6 +17,7 @@ import { dec, fmt } from "@/lib/format";
 import { HOLIDAY_RULES, BREAK_RULE_TEXT } from "@/lib/holidayrule";
 import { DRIVE_BAND_TONE } from "@/lib/geo";
 import { PageHeader } from "@/components/PageHeader";
+import { HashScroll } from "@/components/HashScroll";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
 
   return (
     <div className="space-y-6">
+      <HashScroll />
       <div>
         <PageHeader crumb={{ href: "/setup", label: "Setup" }} title={<>{inst.name} — setup</>} meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><a href="#sites" className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">Clinical sites &amp; partners ↓</a><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
         <div className="-mt-2 flex flex-wrap gap-1.5">
