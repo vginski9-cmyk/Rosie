@@ -85,7 +85,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
   return (
     <div className="space-y-6">
       <div>
-        <PageHeader crumb={{ href: "/setup", label: "Setup" }} title={<>{inst.name} — setup</>} meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
+        <PageHeader crumb={{ href: "/setup", label: "Setup" }} title={<>{inst.name} — setup</>} meta={[inst.kind, [inst.city, inst.state].filter(Boolean).join(", "), inst.serviceArea].filter(Boolean).join(" · ")} actions={<><a href="#sites" className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700">Clinical sites &amp; partners ↓</a><Link href={`/orgs/${inst.id}/assumptions`} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Planning assumptions →</Link><Link href="/setup/exceptions" className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">All exceptions →</Link></>} />
         <div className="-mt-2 flex flex-wrap gap-1.5">
           {steps.map((s) => <a key={s.label} href={s.href} className={`rounded-full px-2.5 py-1 text-xs font-medium ${s.ok ? "bg-emerald-100 text-emerald-800" : "bg-amber-50 text-amber-800 ring-1 ring-amber-200"}`}>{s.ok ? "✓" : "○"} {s.label}</a>)}
         </div>

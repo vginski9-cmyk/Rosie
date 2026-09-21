@@ -28,9 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </header>
           <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
           <Tutorial />
-          <footer className="mx-auto max-w-7xl px-6 py-8 text-xs text-slate-400">
-            Rosie v0.2 — authored in-app: demand · program structure · talent funnel · capacity.
-          </footer>
         </div>
       </body>
     </html>
