@@ -229,7 +229,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       </div>
 
       {/* ── The answer: the share placed, the rings, and why not 100% ── */}
-      <SchedulerCapacity plan={plan} policy={policy} window={window} computing={computing} onShowBottlenecks={() => setTab("bottlenecks")} onOpenLevers={() => setShowLevers(true)} />
+      <SchedulerCapacity plan={plan} policy={policy} window={window} computing={computing} mode={canApply ? "operational" : "diagnostic"} onShowBottlenecks={() => setTab("bottlenecks")} onOpenLevers={() => setShowLevers(true)} />
 
       {/* ── Apply flow (operational module only) ── */}
       {canApply && (
@@ -270,7 +270,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
       {/* ── Tabs ─────────────────────────────────────────────────────────── */}
       <div className="inline-flex flex-wrap overflow-hidden rounded-lg border border-slate-300 text-sm">
-        {([["bottlenecks", `Bottlenecks & fixes (${plan.bottlenecks.length})`], ["overview", "Week by week"], ["sites", `Sites (${plan.sites.filter((x) => x.sections > 0).length})`], ["plan", `Every shift (${n0(plan.assignments.length)})`], ["students", `By student (${plan.rosters.length})`], ["preceptors", `By preceptor (${plan.preceptorStats.length})`]] as [Tab, string][]).map(([k, l]) => (
+        {([["bottlenecks", `Bottlenecks & fixes (${plan.bottlenecks.length})`], ["overview", "Week by week"], ["sites", `Sites (${plan.sites.filter((x) => x.sections > 0).length})`], ["plan", `Every shift — where it could go (${n0(plan.assignments.length)})`], ["students", `By student (${plan.rosters.length})`], ["preceptors", `By preceptor (${plan.preceptorStats.length})`]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={`px-3 py-1.5 ${tab === k ? "bg-rose-600 font-medium text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{l}</button>
         ))}
       </div>
@@ -280,7 +280,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="min-w-full text-xs">
               <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
-                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold" title="allowed seats on the dates and shift blocks this setting's demand uses, honouring the Day and Shift levers">Supply on demand days</th><th className="px-3 py-2 text-right font-semibold" title="supply on demand days − hand-made bookings − demand learner-shifts">Headroom</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Placed</th><th className="px-3 py-2 text-right font-semibold">Unplaced</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
+                <tr><th className="px-3 py-2 font-semibold">Setting</th><th className="px-3 py-2 font-semibold">Rotation types</th><th className="px-3 py-2 text-right font-semibold">Demand · shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-shifts</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 text-right font-semibold">Supply seats (allowed)</th><th className="px-3 py-2 text-right font-semibold" title="allowed seats on the dates and shift blocks this setting's demand uses, honouring the Day and Shift levers">Supply on demand days</th><th className="px-3 py-2 text-right font-semibold" title="supply on demand days − hand-made bookings − demand learner-shifts">Headroom</th><th className="px-3 py-2 text-right font-semibold">Asset-shifts allowed / physical</th><th className="px-3 py-2 text-right font-semibold">Can be placed</th><th className="px-3 py-2 text-right font-semibold">Cannot</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 font-semibold">Verdict</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {plan.balance.map((b) => (
@@ -307,7 +307,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           {/* Week × setting heat map */}
           {weekMondays.length > 0 && settingCodes.length > 0 && (
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-1 text-sm font-semibold text-slate-800">Week by week, setting by setting <span className="text-xs font-normal text-slate-500">· each cell: placed / demanded learner-shifts (supply seats that week underneath) · click a red cell for its bottleneck</span></div>
+              <div className="mb-1 text-sm font-semibold text-slate-800">Week by week, setting by setting <span className="text-xs font-normal text-slate-500">· each cell: learner-shifts that can be placed / needed that week (seats of supply that week underneath) · click a red cell for its bottleneck</span></div>
               <div className="overflow-x-auto">
                 <table className="text-[10px]">
                   <thead><tr><th className="sticky left-0 bg-white px-2 py-1 text-left font-semibold text-slate-500">Setting</th>{weekMondays.map((m) => <th key={m} className="px-1 py-1 text-center font-normal text-slate-400">{fmtW(m)}</th>)}</tr></thead>
@@ -320,7 +320,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
                           if (!c || c.demand === 0) return <td key={m} className="px-0.5 py-0.5"><div className="h-9 w-12 rounded bg-slate-50" title={c ? `${n0(c.supply)} seats of supply, no demand` : "no supply, no demand"} /></td>;
                           const ratio = c.placed / c.demand;
                           const bg = ratio >= 1 ? "bg-emerald-200 text-emerald-900" : ratio >= 0.7 ? "bg-amber-200 text-amber-900" : "bg-rose-300 text-rose-950";
-                          return <td key={m} className="px-0.5 py-0.5"><button onClick={() => { if (c.unmet > 0) { setTab("bottlenecks"); setShowWhy(`${code}|${m}`); } }} className={`h-9 w-12 rounded ${bg} leading-tight`} title={`${settingName(code)} · week of ${fmtW(m)}: ${n0(c.placed)} of ${n0(c.demand)} learner-shifts placed · ${n0(c.supply)} seats of supply`}><span className="block font-semibold">{n0(c.placed)}/{n0(c.demand)}</span><span className="block opacity-70">{n0(c.supply)}</span></button></td>;
+                          return <td key={m} className="px-0.5 py-0.5"><button onClick={() => { if (c.unmet > 0) { setTab("bottlenecks"); setShowWhy(`${code}|${m}`); } }} className={`h-9 w-12 rounded ${bg} leading-tight`} title={`${settingName(code)} · week of ${fmtW(m)}: ${n0(c.placed)} of ${n0(c.demand)} learner-shifts can be placed · ${n0(c.supply)} seats of supply`}><span className="block font-semibold">{n0(c.placed)}/{n0(c.demand)}</span><span className="block opacity-70">{n0(c.supply)}</span></button></td>;
                         })}
                       </tr>
                     ))}
@@ -340,7 +340,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             const rows = [...byReason.values()].sort((a, b) => b.seats - a.seats);
             return (
               <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-4">
-                <div className="mb-2 text-sm font-semibold text-slate-800">Root causes, biggest first <span className="text-xs font-normal text-slate-500">· what is keeping learner-shifts unplaced, and the fix that would recover the most</span></div>
+                <div className="mb-2 text-sm font-semibold text-slate-800">Root causes, biggest first <span className="text-xs font-normal text-slate-500">· what keeps learner-shifts from a seat, and the fix that would recover the most</span></div>
                 <div className="space-y-2">
                   {rows.map((r) => (
                     <div key={r.reason} className="rounded-lg bg-white p-3 ring-1 ring-rose-100">
@@ -368,7 +368,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           ))}
           {plan.unmet.length > 0 && (
             <details className="rounded-xl border border-slate-200 bg-white p-4 text-xs">
-              <summary className="cursor-pointer font-medium text-slate-700">Every unplaced shift ({plan.unmet.length})</summary>
+              <summary className="cursor-pointer font-medium text-slate-700">Every shift without a seat ({plan.unmet.length})</summary>
               <div className="mt-2 overflow-x-auto"><table className="min-w-full"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="px-2 py-1">Date</th><th className="px-2 py-1">Shift</th><th className="px-2 py-1">Offering</th><th className="px-2 py-1">Course</th><th className="px-2 py-1">Section</th><th className="px-2 py-1">Setting</th><th className="px-2 py-1 text-right">Seats</th><th className="px-2 py-1">Why, specifically</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">{plan.unmet.map((x) => <tr key={x.unit.id}><td className="whitespace-nowrap px-2 py-1">{fmtD(x.unit.date)}{x.unit.holiday ? <span className="ml-1 text-amber-700">({x.unit.holiday})</span> : null}</td><td className="px-2 py-1">{x.unit.block}</td><td className="px-2 py-1">{x.unit.cohort}</td><td className="px-2 py-1">{x.unit.courseCode}</td><td className="px-2 py-1">{x.unit.sectionIndex}/{x.unit.sectionCount}</td><td className="px-2 py-1">{x.unit.settingCode ?? <span className="text-amber-700">{x.unit.rotationType} (unmapped)</span>}</td><td className="px-2 py-1 text-right">{x.unit.seats}</td><td className="px-2 py-1 text-slate-600">{x.detail}</td></tr>)}</tbody></table></div>
             </details>
