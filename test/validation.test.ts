@@ -70,17 +70,19 @@ describe("validation fixtures", () => {
     expect(any.blockers.find((b) => b.kind === "unsecured-site")).toMatchObject({ blocking: true, shifts: 1 });
   });
 
-  it("4 · a site over its approved students-at-once is a conflict, not a placement", () => {
+  it("4 · a site is never placed over its students-at-once — the extra student is left unplaced", () => {
     // Two sections of 2 on the same day at a site the family may use for 3 students at once.
     const rooms = [1, 2].map((n) => asset({ id: `r${n}`, employerId: "e1", facilityName: "Moore Regional", assetNumber: n }));
     const demand = [unit({ id: "u1" }), unit({ id: "u2", sessionId: "s2", sectionIndex: 2, sectionCount: 2 })];
     const plan = recommendPlan(base({ demand, assets: rooms, preceptors: preceptors("e1", 2), confirmedSettings: [{ employerId: "e1", settingCode: "GEN" }], siteCaps: [{ employerId: "e1", familyId: "fam1", studentsAtOnce: 3, approvedCapacity: null }] }));
-    expect(seats(plan)).toBe(4);
-    expect(plan.summary.readiness.conflictFree).toBe(0);
-    expect(plan.summary.readiness.ready).toBe(0);
-    const over = plan.blockers.find((b) => b.kind === "over-capacity")!;
-    expect(over).toMatchObject({ blocking: true, shifts: 2, seats: 4 });
-    expect(over.examples[0]).toMatch(/Moore Regional: 4 vs 3 approved on 2027-08-24 Day/);
+    // The site's students-at-once is a hard limit while placing: 3 seats are placed, the 4th student is left
+    // unplaced (the site is full for this family), and nothing is ever placed over the limit.
+    expect(seats(plan)).toBe(3);
+    expect(plan.blockers.find((b) => b.kind === "over-capacity")).toBeUndefined();
+    expect(plan.unmet.length).toBe(1);
+    expect(plan.unmet[0].unit.seats).toBe(1);
+    expect(plan.unmet[0].reason).toBe("full");
+    expect(plan.summary.readiness.conflictFree).toBe(3);
     // The same students in two places at once is never placed: the second shift is left unplaced and says why.
     const twice = recommendPlan(base({ demand: [unit({ id: "u1" }), unit({ id: "u1b", sessionId: "s2" })], assets: rooms, preceptors: preceptors("e1", 2), confirmedSettings: [{ employerId: "e1", settingCode: "GEN" }] }));
     expect(twice.blockers.find((b) => b.kind === "student-overlap")).toBeUndefined();

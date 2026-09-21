@@ -336,6 +336,17 @@ export function recommendPlan(input: SchedulerInput): Plan {
   const busyAt = (date: string, block: string) => { const k = `${date}|${block}`; let s = busy.get(k); if (!s) { s = new Set(); busy.set(k, s); } return s; };
   const freePreceptors = (employerId: string, date: string, block: string) => (preceptorsBySite.get(employerId) ?? []).filter((p) => !busyAt(date, block).has(p.id));
 
+  // A site's students-at-once (what it may hold for a family, per shift) is a HARD limit while placing:
+  // the seats a site still has for a family on a date × block are its assets' free seats, capped by
+  // that limit less what this plan (and hand-made bookings on its assets) already put there.
+  const capOf = new Map((input.siteCaps ?? []).map((c) => [`${c.familyId ?? ""}|${c.employerId}`, c]));
+  const siteCapFor = (employerId: string, familyId: string | null): number | null => { const c = capOf.get(`${familyId ?? ""}|${employerId}`) ?? capOf.get(`|${employerId}`) ?? null; return c ? (c.studentsAtOnce ?? c.approvedCapacity) : null; };
+  const atSite = new Map<string, number>(); // `${employerId}|${familyId}|${date}|${block}` → this family's learners placed there by this plan (the limit is the family's agreement)
+  const assetOwner = new Map(assets.map((a) => [a.id, a.employerId]));
+  const bookedAtSite = new Map<string, number>();
+  for (const b of input.existingBookings) { const e = assetOwner.get(b.assetId); if (!e) continue; const k = `${e}|${b.date}|${b.block}`; bookedAtSite.set(k, (bookedAtSite.get(k) ?? 0) + b.students); }
+  const siteRoom = (employerId: string, familyId: string | null, date: string, block: ShiftBlock): number | null => { const cap = siteCapFor(employerId, familyId); if (cap == null) return null; return Math.max(0, cap - (atSite.get(`${employerId}|${familyId ?? ""}|${date}|${block}`) ?? 0) - (bookedAtSite.get(`${employerId}|${date}|${block}`) ?? 0)); };
+
   // Site load, for the spread lever and the analytics.
   const siteUsed = new Map<string, number>();
   const siteCap = new Map<string, number>();
@@ -351,8 +362,10 @@ export function recommendPlan(input: SchedulerInput): Plan {
     const blocks = campusByDay.get(`${u.cohortId}|${date}`);
     if (!blocks?.length) return false;
     if (moved) return true;
-    const start = block === u.block ? toMin(u.startTime) : block === "Day" ? 7 * 60 : block === "Evening" ? 15 * 60 : 23 * 60;
-    if (start == null) return true;
+    // The shift's hours: its own start time on its own block, else the block's usual start (a shift with no
+    // stated time is still a Day / Evening / Night shift, not "all day").
+    const blockStart = block === "Day" ? 7 * 60 : block === "Evening" ? 15 * 60 : 23 * 60;
+    const start = (block === u.block ? toMin(u.startTime) : null) ?? blockStart;
     const end = start + Math.max(1, u.hours) * 60;
     return blocks.some((c) => start < c.endMin && c.startMin < end);
   };
@@ -448,6 +461,8 @@ export function recommendPlan(input: SchedulerInput): Plan {
       pools.set(k, P);
     }
     if (!pools.size) return none("closed-that-day", eligibleSites);
+    // The site's students-at-once caps every pool at that site — never exceeded, whatever the rooms hold.
+    for (const P of pools.values()) { const room = siteRoom(P.employerId, u.familyId, P.date, P.block); if (room != null && room < P.free) P.free = room; }
     // Structural ceiling: the most seats any one site has of this setting on one of these shifts, ignoring what is booked.
     const biggest = [...pools.values()].map((P) => ({ site: P.siteName, seats: P.assets.reduce((n, x) => n + x.a.learnersPerShift, 0) })).sort((a, b) => b.seats - a.seats)[0] ?? null;
     const staffedOk = (P: Pool) => !(pol.requirePreceptor && u.preceptorsNeeded > 0) || freePreceptors(P.employerId, P.date, P.block).length >= Math.ceil(u.preceptorsNeeded);
@@ -522,6 +537,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
       parts.push({ assetId: x.a.id, asset: x.a, seats: take });
     }
     siteUsed.set(P.employerId, (siteUsed.get(P.employerId) ?? 0) + seats);
+    { const k = `${P.employerId}|${u.familyId ?? ""}|${P.date}|${P.block}`; atSite.set(k, (atSite.get(k) ?? 0) + seats); }
     for (const n of seatsOf(u, seatOffset, seats)) busySeatsAt(u.cohortId, P.date, P.block).add(n);
     const hm = home.get(sectionKey(u)) ?? new Map<string, number>(); hm.set(P.employerId, (hm.get(P.employerId) ?? 0) + 1); home.set(sectionKey(u), hm);
     const hw = homeWeeks.get(sectionKey(u)) ?? new Map<string, Set<string>>(); seenSet(hw, P.employerId).add(u.weekMonday); homeWeeks.set(sectionKey(u), hw);
@@ -817,8 +833,8 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const siteCapFor = (employerId: string, familyId: string | null) => capOf.get(`${familyId ?? ""}|${employerId}`) ?? capOf.get(`|${employerId}`) ?? null;
   const confirmed = new Set((input.confirmedSettings ?? []).map((c) => `${c.employerId}|${c.settingCode}`));
   const confirmedKnown = input.confirmedSettings != null;
-  const atOnce = new Map<string, number>(); // employerId|date|block → seats placed
-  for (const x of assignments) { const k = `${x.employerId}|${x.date}|${x.block}`; atOnce.set(k, (atOnce.get(k) ?? 0) + x.seats); }
+  const atOnce = new Map<string, number>(); // employerId|family|date|block → this family's seats placed (the limit is the family's agreement with the site)
+  for (const x of assignments) { const k = `${x.employerId}|${x.unit.familyId ?? ""}|${x.date}|${x.block}`; atOnce.set(k, (atOnce.get(k) ?? 0) + x.seats); }
   // Safety net: the plan never places a seat twice at once (a hard rule while placing); this catches it if it ever did.
   const seatRange = (x: Assignment) => ({ lo: x.unit.seatStart + x.seatOffset, hi: x.unit.seatStart + x.seatOffset + x.seats - 1 });
   const byCohortAt = new Map<string, Assignment[]>();
@@ -838,7 +854,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     if (!experienceSupported) { issues.push(confirmedKnown ? `${x.siteName} has not confirmed it provides ${x.unit.settingCode ?? "this"} experiences` : "experience support unknown"); addBlocker("experience-unconfirmed", "the site has not confirmed the experience (inferred only)", false, x, `${x.siteName} · ${x.unit.settingCode ?? "?"}`); }
     const cap = siteCapFor(x.employerId, x.unit.familyId);
     const capN = cap ? (cap.studentsAtOnce ?? cap.approvedCapacity) : null;
-    const here = atOnce.get(`${x.employerId}|${x.date}|${x.block}`) ?? 0;
+    const here = atOnce.get(`${x.employerId}|${x.unit.familyId ?? ""}|${x.date}|${x.block}`) ?? 0;
     let conflictFree = true;
     if (capN != null && here > capN) { conflictFree = false; issues.push(`${num(here)} students at ${x.siteName} at once vs ${num(capN)} approved`); addBlocker("over-capacity", "a site over its approved students-at-once", true, x, `${x.siteName}: ${num(here)} vs ${num(capN)} approved on ${x.date} ${x.block}`); }
     if (x.unit.holiday && !x.movedDays) { conflictFree = false; issues.push(`on ${x.unit.holiday}`); addBlocker("holiday", "a shift placed on an observed holiday", true, x, `${x.unit.holiday} ${x.date}`); }

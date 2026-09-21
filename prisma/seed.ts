@@ -1499,6 +1499,8 @@ async function main() {
   console.log("requirement logs:", await seedRequirementLogs(prisma, sandhills.id));
   // Stage actuals read from the records above.
   { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
+  // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
+  { const { confirmSiteExperiences } = await import("./seed-confirm"); console.log("site experiences confirmed:", await confirmSiteExperiences(prisma)); }
   // Every college's partner record points at the shared site registry (one record per site in the world).
   { const { linkSiteRegistry } = await import("../src/lib/siteregistry"); console.log("site registry:", await linkSiteRegistry(prisma)); }
 
