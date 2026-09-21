@@ -23,7 +23,7 @@ export default async function ProgramsPage({ searchParams }: { searchParams: { i
       id: true, name: true, shortName: true, kind: true, city: true, state: true,
       programFamilies: { orderBy: { name: "asc" }, select: { id: true, name: true, goalPlan: true, occupation: { select: { title: true, socCode: true } }, _count: { select: { familySites: true } },
         programs: { orderBy: { name: "asc" }, select: { id: true, name: true, credential: true, programType: true, launchTerms: true, defaultCohortSeats: true, _count: { select: { terms: true } },
-          cohorts: { orderBy: [{ startDate: "asc" }, { name: "asc" }], select: { id: true, name: true, status: true, startDate: true, _count: { select: { students: true } }, stages: { where: { stageKey: "productive" }, select: { targetNumber: true } } } } } } } },
+          cohorts: { orderBy: [{ startDate: "asc" }, { name: "asc" }], select: { id: true, name: true, status: true, startDate: true, locationNote: true, campus: { select: { name: true } }, _count: { select: { students: true } }, stages: { where: { stageKey: "productive" }, select: { targetNumber: true } } } } } } } },
     },
   });
   const inst = searchParams.inst ? institutions.find((i) => i.id === searchParams.inst) : undefined;
@@ -56,13 +56,14 @@ export default async function ProgramsPage({ searchParams }: { searchParams: { i
               </div>
               {p.cohorts.length === 0 ? <p className="px-5 py-3 text-sm text-slate-400">No offerings yet — lock one in from the goal planner.</p> : (
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-2">Offering</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Starts</th><th className="px-3 py-2 text-right">Goal</th><th className="px-3 py-2 text-right">Students</th></tr></thead>
+                  <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-5 py-2">Offering</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Starts</th><th className="px-3 py-2">Where</th><th className="px-3 py-2 text-right">Goal</th><th className="px-3 py-2 text-right">Students</th></tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {p.cohorts.map((c) => (
                       <tr key={c.id} className="hover:bg-slate-50/60">
                         <td className="px-5 py-2"><Link href={`/programs/${p.id}/offerings/${c.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{c.name}</Link></td>
                         <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[c.status] ?? "bg-slate-100 text-slate-600"}`}>{STATUS_LABEL[c.status] ?? c.status}</span></td>
                         <td className="px-3 py-2 text-slate-600">{dateOf(c.startDate)}</td>
+                        <td className="px-3 py-2 text-slate-600">{c.campus?.name ?? <span className="text-slate-300">—</span>}{c.locationNote ? <span className="block text-[10px] text-slate-400">{c.locationNote}</span> : null}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt.num(c.stages[0]?.targetNumber ?? 0)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-slate-700">{fmt.num(c._count.students)}</td>
                       </tr>

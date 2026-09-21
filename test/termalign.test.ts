@@ -128,3 +128,31 @@ describe("alignOffering", () => {
     expect([early.startIso, early.endIso]).toEqual(["2026-08-17", "2026-10-09"]);
   });
 });
+
+// A continuing-education class (calendarMode "continuous") runs its template weeks from the day it is
+// given, across semester boundaries: no snapping to a semester start, no semester end, the next term
+// the Monday after the previous one ends; holidays and closed weeks still apply.
+describe("continuous calendar mode", () => {
+  const anchors = { springStart: "01-11", summerStart: "05-31", fallStart: "08-16" };
+  const events = [
+    { iso: "2026-08-17", endIso: null, label: "Fall semester begins", kind: "term_start", season: "Fall" },
+    { iso: "2026-12-11", endIso: null, label: "Fall semester ends", kind: "term_end", season: "Fall" },
+    { iso: "2026-12-21", endIso: "2027-01-01", label: "Winter break", kind: "holiday", season: null },
+  ];
+  const terms = [{ id: "t1", index: 1, name: "Term 1", startWeek: 1, endWeek: 16 }];
+  it("a 16-week class starting mid-November runs into March, past the semester's end", () => {
+    const a = alignOffering({ startIso: "2026-11-16", terms, courses: [], anchors, events, calendarMode: "continuous" });
+    expect(a.terms[0]).toMatchObject({ startIso: "2026-11-16", startSource: "chosen", endSource: "template", calendarWeeks: 16 });
+    // 16 open weeks from Nov 16, the two closed winter-break weeks (Dec 21, Dec 28) skipped: the last week starts Mar 15 2027.
+    expect(a.terms[0].endIso).toBe("2027-03-19");
+    expect(a.warnings).toEqual([]);
+    // The same start under the semester mode is cut at the coded semester end.
+    expect(alignOffering({ startIso: "2026-11-16", terms, courses: [], anchors, events }).terms[0].endIso).toBe("2026-12-11");
+  });
+  it("a two-term class: term 2 starts the Monday after term 1 ends", () => {
+    const two = [{ id: "t1", index: 1, name: "Part 1", startWeek: 1, endWeek: 6 }, { id: "t2", index: 2, name: "Part 2", startWeek: 7, endWeek: 12 }];
+    const a = alignOffering({ startIso: "2026-10-07", terms: two, courses: [], anchors, events, calendarMode: "continuous" });
+    expect(a.terms[0]).toMatchObject({ startIso: "2026-10-07", endIso: "2026-11-13" });
+    expect(a.terms[1]).toMatchObject({ startIso: "2026-11-16", endIso: "2027-01-08", startSource: "template" });
+  });
+});

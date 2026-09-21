@@ -15,6 +15,8 @@ export interface OfferingSlot {
   termOverrides?: (number | null)[];
   /** THIS offering's own health rates (only the keys that differ from the family defaults). */
   rates?: Partial<LadderRates>;
+  /** Where this run meets (a campus of the college), chosen before lock-in. */
+  campusId?: string | null;
   /** Locked in: the real cohort this run became. */
   locked?: boolean;
   cohortId?: string | null;
@@ -68,4 +70,23 @@ export function yearAllocations(saved: Alloc[], offerings: OfferingLite[]): Allo
 /** What the allocations add up to, reading each slot the way its card does. */
 export function allocatedTotal(allocs: Alloc[], slotGoal: (a: Alloc, o: OfferingSlot) => number, slotsOf: (a: Alloc) => OfferingSlot[]): number {
   return allocs.reduce((n, a) => n + slotsOf(a).reduce((m, o) => m + slotGoal(a, o), 0), 0);
+}
+
+/** A goal split evenly over n offerings in whole workers: 30 over 4 → 8, 8, 7, 7. */
+export function spreadGoal(total: number, n: number): number[] {
+  const count = Math.max(1, Math.floor(n));
+  const whole = Math.max(0, Math.round(total));
+  const base = Math.floor(whole / count), extra = whole - base * count;
+  return Array.from({ length: count }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+/** How many offerings a goal takes when each seats at most `maxCapacity` in term 1. */
+export function offeringsNeeded(seatsNeeded: number, maxCapacity: number | null | undefined): number {
+  return maxCapacity != null && maxCapacity > 0 ? Math.max(1, Math.ceil(seatsNeeded / maxCapacity - 1e-9)) : 1;
+}
+
+/** Sections a session runs as for an enrollment, by kind: the smallest session of each kind sets it. */
+export function sectionsFor(seats: number, sessionMax: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>> | undefined): { kind: "CLASS" | "LAB" | "CLINICAL"; sections: number; max: number }[] {
+  if (!sessionMax) return [];
+  return (["CLASS", "LAB", "CLINICAL"] as const).filter((k) => sessionMax[k] != null && sessionMax[k]! > 0).map((k) => ({ kind: k, max: sessionMax[k]!, sections: Math.max(1, Math.ceil(seats / sessionMax[k]! - 1e-9)) }));
 }

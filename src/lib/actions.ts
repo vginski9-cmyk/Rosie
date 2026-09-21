@@ -186,11 +186,12 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
-      program: { select: { id: true, name: true, institutionId: true, terms: { orderBy: { index: "asc" }, include: { courses: { select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } } } }, cohorts: { select: { id: true, name: true } } } },
+      program: { select: { id: true, name: true, institutionId: true, calendarMode: true, terms: { orderBy: { index: "asc" }, include: { courses: { select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } } } }, cohorts: { select: { id: true, name: true } } } },
       cohortTerms: true, courseDates: true,
     },
   });
   if (!cohort || !cohort.startDate) return null;
+  const calendarMode = cohort.program.calendarMode === "continuous" ? "continuous" as const : "semester" as const;
   const inst = await prisma.institution.findUnique({
     where: { id: cohort.program.institutionId },
     select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } },
@@ -204,7 +205,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     courses: cohort.program.terms.flatMap((t) => t.courses),
     anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
     events: (inst?.academicEvents ?? []).map((e) => ({ iso: isoOf(e.date)!, endIso: isoOf(e.endDate), label: e.label, kind: e.kind, season: e.season })),
-    manual,
+    manual, calendarMode,
   });
   const changed: AlignedTermChange[] = [];
   for (const t of a.terms) {
@@ -1222,11 +1223,22 @@ const csvFromCheckboxes = (fd: FormData, name: string, fallback: string) => {
  *  start date, the canonical funnel, and per-term dates cascaded from each
  *  template term's week-span. Then you assign instructors and enroll students. */
 export async function createOffering(programId: string, formData: FormData) {
-  const name = str(formData.get("name")) || "New Offering";
   const startStr = str(formData.get("startDate"));
   const startD = startStr ? new Date(startStr) : null;
+  const campusId = str(formData.get("campusId")) || null;
+  const locationNote = str(formData.get("locationNote")) || null;
+  // A blank name is filled in the way lock-in names an offering: by class year, or by start month and place.
+  let name = str(formData.get("name"));
+  if (!name) {
+    const { offeringName, shortTermProgram, campusLabel } = await import("./offeringname");
+    const program = await prisma.program.findUnique({ where: { id: programId }, select: { launchCadence: true, terms: { select: { startWeek: true, endWeek: true } }, cohorts: { select: { name: true } } } });
+    const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId }, select: { name: true, city: true, isMain: true } }) : null;
+    const spanWeeks = (program?.terms ?? []).reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
+    const startIso = startD ? startD.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program?.launchCadence, spanWeeks }), startIso, endIso: startIso, campus: campusLabel(campus), existing: (program?.cohorts ?? []).map((c) => c.name) });
+  }
   const cohort = await prisma.cohort.create({
-    data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null },
+    data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null, campusId, locationNote },
   });
   await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
   const terms = await prisma.term.findMany({ where: { programId }, orderBy: { index: "asc" } });
@@ -1245,17 +1257,19 @@ export async function createOffering(programId: string, formData: FormData) {
 export async function lockInInstantiation(
   programId: string,
   familyId: string,
-  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number> },
+  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number>; /** Where the offering meets (a campus of the college). */ campusId?: string | null; locationNote?: string | null },
 ): Promise<{
   cohortId: string; name: string }> {
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
+  const { offeringName, shortTermProgram, campusLabel } = await import("./offeringname");
 
   const program = await prisma.program.findUnique({
     where: { id: programId },
     include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } } },
   });
   if (!program) throw new Error("Program not found");
+  const campus = input.campusId ? await prisma.campus.findFirst({ where: { id: input.campusId, institutionId: program.institutionId }, select: { id: true, name: true, city: true, isMain: true } }) : null;
 
   // The SAME rates the goal planner saves — one plan, every surface reads it.
   let rates = { ...BENCHMARK_RATES };
@@ -1284,22 +1298,20 @@ export async function lockInInstantiation(
     courses: [],
     anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
     events: (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season })),
+    calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester",
   });
   const endYear = endYearOf(preview.terms);
 
-  // Name it by the year it lands its graduates; disambiguate within the program.
-  let name = `Class of ${endYear}`;
-  if (program.cohorts.some((c) => c.name === name)) {
-    let n = 2;
-    while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++;
-    name = `${name} (${n})`;
-  }
+  // Named by the year it lands its graduates, or — a short-term program — by when and where it starts.
+  const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
+  const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: input.startDate, endIso: `${endYear}-01-01`, campus: campusLabel(campus), existing: program.cohorts.map((c) => c.name) });
 
   const startD = new Date(input.startDate);
   const cohort = await prisma.cohort.create({
     data: {
       programId, name, status: "planned", startDate: startD,
       entryYear: startD.getUTCFullYear(), isExplicit: true,
+      campusId: campus?.id ?? null, locationNote: input.locationNote?.trim() || null,
       plannedSeats: Math.round(term1),
       // The slot's own plan travels with the offering: goal, per-term enrollment, rates.
       pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides }),
@@ -1428,6 +1440,27 @@ export async function clearSessionOverride(cohortId: string, sessionId: string, 
 /** Adjust a locked-in offering's real dates/** Adjust a locked-in offering's real dates: the start date and each term's
  *  first day. Calendars, capacity insights, and timing all derive from these
  *  live, so a shift here moves everything at once. */
+/** Where an offering meets: a campus of its college and a note (building, room). A planning decision, never guarded. */
+export async function updateOfferingLocation(cohortId: string, programId: string, formData: FormData) {
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { program: { select: { institutionId: true } } } });
+  if (!co) return;
+  const campusId = str(formData.get("campusId")) || null;
+  const campus = campusId ? await prisma.campus.findFirst({ where: { id: campusId, institutionId: co.program.institutionId }, select: { id: true } }) : null;
+  await prisma.cohort.update({ where: { id: cohortId }, data: { campusId: campus?.id ?? null, locationNote: str(formData.get("locationNote")) || null, code: str(formData.get("code")) || null } });
+  revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
+  revalidatePath(`/programs/${programId}`);
+}
+
+/** How a program's terms sit on the calendar: with the semester, or straight through from the chosen day (a continuing-education class). Re-aligns every planned offering. */
+export async function setProgramCalendarMode(programId: string, formData: FormData) {
+  const mode = str(formData.get("calendarMode")) === "continuous" ? "continuous" : "semester";
+  await prisma.program.update({ where: { id: programId }, data: { calendarMode: mode } });
+  const planned = await prisma.cohort.findMany({ where: { programId, status: "planned", startDate: { not: null } }, select: { id: true } });
+  for (const c of planned) await alignOfferingToCalendar(c.id);
+  revalidatePath(`/programs/${programId}`);
+  revalidatePath(`/programs/${programId}/structure`);
+}
+
 export async function updateOfferingDates(cohortId: string, programId: string, formData: FormData) {
   const startStr = str(formData.get("startDate"));
   await prisma.cohort.update({

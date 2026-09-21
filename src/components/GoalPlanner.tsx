@@ -11,7 +11,7 @@ import {
 import { deriveCohortTargets } from "@/lib/pipeline";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
-import { yearAllocations, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
+import { yearAllocations, spreadGoal, offeringsNeeded, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 import { goalTiming } from "@/lib/goaltiming";
 
@@ -39,6 +39,8 @@ export interface OfferingSummary {
   terms?: number;
   /** ISO first day of the offering, when dated — the planner shows it instead of the saved plan's slot date. */
   startDate?: string | null;
+  /** Where it meets (campus, building or room), when set. */
+  location?: string | null;
   phase: string;              // recruiting | in-program | graduated | unscheduled
   currentTerm: string | null; // current term name (when in-program)
   endLabel: string | null;    // expected-end label, e.g. "ends May 2026"
@@ -82,6 +84,8 @@ export interface ProgramOption {
   /** Max cohort enrollment capacity — the gating criterion when splitting a goal. */
   maxCapacity: number | null;
   running: number;
+  /** The smallest session of each kind in the template: what one offering's enrollment splits into sections by. */
+  sessionMax?: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>>;
 }
 
 interface Persisted {
@@ -107,7 +111,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, offeringsByYear = {}, actualByYear = {}, nowYear, models = [],
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, offeringsByYear = {}, actualByYear = {}, nowYear, models = [], campuses = [],
 }: {
   familyId: string;
   familyName: string;
@@ -118,6 +122,8 @@ export function GoalPlanner({
   actualByYear?: Record<number, ActualFunnel>;
   nowYear: number;
   models?: ProgramOption[];
+  /** The college's campuses and centers — where an offering can meet. */
+  campuses?: { id: string; name: string; city?: string | null }[];
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -220,10 +226,19 @@ export function GoalPlanner({
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
     const m = models.find((x) => x.programId === programId);
-    // A new model's first offering starts with whatever the year's goal still leaves uncovered, so it
-    // can be locked in at once; the figure is editable on the slot.
+    // A new model takes whatever the year's goal still leaves uncovered — split evenly over as many
+    // offerings as its class size needs (30 workers at 10 a class is not one offering of 30), each
+    // ready to lock in; every figure is editable on its slot.
     const remaining = Math.max(0, yearGoal - allocs.reduce((n, a) => n + allocGoal(a), 0));
-    setAllocs([...allocs, { programId, goal: remaining, offerings: [{ startDate: m ? suggestStart(m) : null, goal: remaining, termOverrides: [] }] }]);
+    const terms = Math.max(1, m?.terms ?? 1);
+    const n = m ? offeringsNeeded(seatsNeeded(deriveCohortTargets(remaining, s.goal, terms).capacity), m.maxCapacity) : 1;
+    const goals = spreadGoal(remaining, n);
+    // Several offerings do not all start the same day: they are spaced back through the year from the
+    // latest start that still delivers the goal (never before today). Each date is yours to change.
+    const last = m ? suggestStart(m) : null;
+    const spacingDays = Math.max(14, Math.floor(364 / n));
+    const startFor = (i: number) => { if (!last) return null; const d = new Date(last + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (n - 1 - i) * spacingDays); const iso = d.toISOString().slice(0, 10); return iso < todayIso ? todayIso : iso; };
+    setAllocs([...allocs, { programId, goal: remaining, offeringCount: n, offerings: goals.map((g, i) => ({ startDate: startFor(i), goal: g, termOverrides: [], campusId: campuses.length === 1 ? campuses[0].id : null })) }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —
@@ -328,7 +343,7 @@ export function GoalPlanner({
     const tv = slotTargets(slot);
     setLockingId(`${a.programId}:${oi}`); setActionError(null);
     try {
-      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? ({ ...s.goal, ...tv.rates } as unknown as Record<string, number>) : undefined });
+      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? ({ ...s.goal, ...tv.rates } as unknown as Record<string, number>) : undefined, campusId: slot.campusId ?? null });
       const next = slots.map((x, i) => (i === oi ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
@@ -445,7 +460,7 @@ export function GoalPlanner({
             <strong className={remaining === 0 ? "text-emerald-600" : remaining > 0 ? "text-amber-600" : "text-rose-600"}>{remaining === 0 ? "fully covered" : remaining > 0 ? `${remaining} uncovered` : `${-remaining} over`}</strong>
           </span>
         </div>
-        <p className="mb-3 text-[11px] text-slate-500">Add a program, give each of its offerings the workers it covers, set the start date, lock it in. A cohort that would need more seats than the program can hold is flagged.</p>
+        <p className="mb-3 text-[11px] text-slate-500">Add a program: the goal is split over as many offerings as its class size needs, each with its own start, place and share. Change any of it, then lock each offering in.</p>
         <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
           {/* Program cards (drag sources) */}
           <div className="space-y-2">
@@ -502,7 +517,20 @@ export function GoalPlanner({
                   const nSuggested = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capOwn / m.maxCapacity)) : 1;
                   const withSlots = (next: OfferingSlot[], extra: Partial<Alloc> = {}) =>
                     setAllocs(allocs.map((x, i) => (i === ai ? { ...x, ...extra, offerings: next, goal: next.reduce((n, o) => n + (o.goal ?? 0), 0), termOverrides: undefined, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
-                  const setCount = (next: number) => withSlots(slots, { offeringCount: Math.max(1, lockedCount, next) });
+                  // Add or remove an offering: the unlocked slots then share the unlocked goal evenly again.
+                  const respread = (list: OfferingSlot[]): OfferingSlot[] => {
+                    const open = list.filter((o) => !o.locked);
+                    const total = open.reduce((n, o) => n + (slotTargets(o).goal ?? 0), 0);
+                    const parts = spreadGoal(total, open.length); let i = 0;
+                    return list.map((o) => (o.locked ? o : { ...o, goal: parts[i++] ?? 0 }));
+                  };
+                  const setCount = (next: number) => {
+                    const target = Math.max(1, lockedCount, next);
+                    let list = [...slots];
+                    while (list.length < target) list.push({ startDate: list[list.length - 1]?.startDate ?? suggestStart(m), goal: 0, termOverrides: [], campusId: list[list.length - 1]?.campusId ?? null });
+                    while (list.length > target && !list[list.length - 1].locked) list.pop();
+                    withSlots(respread(list), { offeringCount: target });
+                  };
                   const removeSlot = (oi: number) => { if (slots[oi]?.locked) return; const next = slots.filter((_, j) => j !== oi); withSlots(next, { offeringCount: Math.max(1, next.length) }); };
                   const setSlot = (oi: number, patch: Partial<OfferingSlot>) => withSlots(slots.map((o, j) => (j === oi ? { ...o, ...patch } : o)));
                   const setSlotTargets = (oi: number, patch: Partial<OfferingTargets>) => {
@@ -534,8 +562,10 @@ export function GoalPlanner({
                           <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
                           <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering of this model — give it its own goal and enrollment below">+ offering</button>
                         </span>
-                        {slots.length !== nSuggested && <span className="text-slate-400">math suggests {nSuggested} — your call</span>}
+                        {slots.length !== nSuggested && <span className="text-slate-400">the class size says {nSuggested} — your call</span>}
+                        {slots.filter((o) => !o.locked).length > 1 && <button onClick={() => withSlots(respread(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title="give the unlocked offerings equal shares of their goal">spread evenly</button>}
                       </div>
+                      <p className="mt-1 text-[11px] text-slate-500">One offering is one class of up to <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong> students{m.sessionMax && Object.keys(m.sessionMax).length ? <>, run as sections where a session holds fewer ({(["CLASS", "LAB", "CLINICAL"] as const).filter((k) => m.sessionMax?.[k]).map((k) => `${k.toLowerCase()} ${fmt.num(m.sessionMax![k]!)}`).join(" · ")})</> : null}. A bigger goal takes more offerings, not a bigger class.</p>
 
                       {/* THE OFFERINGS — each with its own start, goal, enrollment per term and rates */}
                       <div className="mt-2 space-y-2">
@@ -551,7 +581,7 @@ export function GoalPlanner({
                                 {o.locked ? (
                                   <>
                                     <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
-                                    <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
+                                    <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}{(() => { const loc = allInsts.find((x) => x.id === o.cohortId)?.location; return loc ? ` · ${loc}` : ""; })()}</span>
                                     {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
                                     <span className="text-[10px] text-slate-400">edits below save to this offering</span>
                                     <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the offering (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
@@ -563,7 +593,8 @@ export function GoalPlanner({
                                       <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
                                     </label>
                                     <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
-                                    <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}</span>
+                                    <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}{(() => { const secs = sectionsFor(seats, m.sessionMax).filter((x) => x.sections > 1); return secs.length ? ` · runs as ${secs.map((x) => `${fmt.num(x.sections)} ${x.kind.toLowerCase()} sections`).join(", ")}` : ""; })()}</span>
+                                    {campuses.length > 0 && <label className="flex items-center gap-1.5"><span className="text-slate-500">at</span><select value={o.campusId ?? ""} onChange={(e) => setSlot(oi, { campusId: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none"><option value="">— where? —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
                                     {(!o.startDate || tv.goal <= 0) && <span className="ml-auto text-[11px] text-amber-700">{!o.startDate ? "set a start date to lock in" : "enter how many productive workers this offering covers to lock in"}</span>}
                                     <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className={`${!o.startDate || tv.goal <= 0 ? "" : "ml-auto "}rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400`} title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real offering with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>
                                     {slots.length > 1 && <button onClick={() => removeSlot(oi)} className="text-slate-300 hover:text-rose-600" title="remove this offering slot">✕</button>}

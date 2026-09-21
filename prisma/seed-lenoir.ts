@@ -13,6 +13,7 @@ import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { seasonOfDate } from "../src/lib/term";
 import { holidayMap } from "../src/lib/academiccalendar";
+import { offeringName, runDetail, campusLabel } from "../src/lib/offeringname";
 
 interface Row { cohort: string; start: string; end: string; days: string; time: string; location: string; given?: string }
 
@@ -215,6 +216,8 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
   const startsInYear = new Map<number, number>();
   for (const r of rows) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
   const byStatus: Record<string, number> = {}; const byModel: Record<string, number> = {}; let patterns = 0;
+  // Names: "Jan 2026 · Greene County Center" — the sheet's "Cohort 26 - 76811" becomes the offering's code (76811).
+  const namesByProgram = new Map<string, string[]>();
   for (const r of rows) {
     const start = iso(r.start), end = iso(r.end);
     const status = end < today ? "completed" : start <= today ? "active" : "planned";
@@ -228,7 +231,14 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     // Each cohort carries its share of the year's North-Star goal across the cohorts starting that year.
     const goal = Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
     const t = deriveCohortTargets(goal, rates, 1);
-    const cohort = await prisma.cohort.create({ data: { programId: program.id, name: r.cohort, status, startDate: start, entryYear: year, isExplicit: true, plannedSeats: seats, pipelineRates: JSON.stringify({ goal, rates, termOverrides: [] }) } });
+    const loc0 = parseLocation(r.location);
+    const existing = namesByProgram.get(program.id) ?? [];
+    const name = offeringName({ shortTerm: true, startIso: r.start, endIso: r.end, campus: campusLabel({ name: loc0.campus, city: loc0.city, isMain: loc0.campus === "Main Campus" }), detail: runDetail(parseDays(r.days), parseTime(r.time).start), existing });
+    existing.push(name); namesByProgram.set(program.id, existing);
+    const code = /^Cohort \d+ - (\d+)/.exec(r.cohort)?.[1] ?? null;
+    // The note says only what the campus does not: a room, or a building with its own name.
+    const locationNote = loc0.roomNumber ? `${loc0.building}, Rm ${loc0.roomNumber}` : loc0.building === loc0.campus ? null : loc0.building.replace(`${loc0.campus} — `, "");
+    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: start, entryYear: year, isExplicit: true, plannedSeats: seats, pipelineRates: JSON.stringify({ goal, rates, termOverrides: [] }), campusId: campusId.get(loc0.campus) ?? null, locationNote, code } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: seats, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
     await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: term.id, startDate: start, endDate: end, source: "chosen", semester: seasonOfDate(start) } });

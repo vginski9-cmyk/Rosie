@@ -6,7 +6,8 @@ import { CohortRequirementProgress } from "@/components/CohortRequirementProgres
 import { OfferingLedger } from "@/components/OfferingLedger";
 import { OfferingStaffing } from "@/components/OfferingStaffing";
 import { AutoAssignButton } from "@/components/AutoAssignButton";
-import { updateOfferingDates, saveCourseDates } from "@/lib/actions";
+import { updateOfferingDates, saveCourseDates, updateOfferingLocation } from "@/lib/actions";
+import { prisma } from "@/lib/db";
 import { FunnelChart } from "@/components/FunnelChart";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { fmt, dec } from "@/lib/format";
@@ -41,7 +42,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   const offering = await getOffering(params.cohortId);
   if (!offering || offering.programId !== params.id) notFound();
   const program = offering.program;
-  const [capModel, staffing, ledger, rotations, reqProgress] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null), getCohortRequirementProgress(params.cohortId)]);
+  const [capModel, staffing, ledger, rotations, reqProgress, campuses] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null), getCohortRequirementProgress(params.cohortId), prisma.campus.findMany({ where: { institutionId: program.institutionId }, orderBy: [{ isMain: "desc" }, { name: "asc" }], select: { id: true, name: true, city: true } })]);
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
@@ -129,6 +130,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           : timing.phase === "recruiting" ? <>Starts {exactDate(offering.startDate ?? timing.startDate)} and runs {timing.totalWeeks} weeks. Last day {exactDate(lastDay ?? timing.endDate)}.</>
           : timing.phase === "graduated" ? <>Ran {exactDate(offering.startDate ?? timing.startDate)} to {exactDate(lastDay ?? timing.endDate)}.</>
           : <>No start date yet.</>}
+        meta={[offering.campus ? `Meets at ${offering.campus.name}${offering.locationNote && offering.locationNote !== offering.campus.name ? `, ${offering.locationNote}` : ""}` : offering.locationNote ? `Meets at ${offering.locationNote}` : null, offering.code ? `College reference ${offering.code}` : null, program.calendarMode === "continuous" ? "runs straight through, across semesters" : null].filter(Boolean).join(" · ") || undefined}
         actions={<>
           <a href={`/api/offerings/${offering.id}/rotations`} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" title="every clinical course's rotation schedule as a workbook">Rotations ↓</a>
           <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Design &amp; sequence →</Link>
@@ -151,6 +153,15 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Tile label="Goal" value={fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} sub="fully productive workers" />
         <Tile label="Students" value={fmt.num(enrolledNow)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? (() => { const o = outcomeStats(ledger.students); return `${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`; })() : undefined} />
       </div>
+
+      {/* Where it meets — a planning decision (campus, building or room, the college's own reference) */}
+      <form action={updateOfferingLocation.bind(null, offering.id, program.id)} className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs">
+        <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Where it meets</span>
+        <label className="block"><span className="mb-0.5 block text-[10px] text-slate-400">Campus / center</span><select name="campusId" defaultValue={offering.campusId ?? ""} className="rounded-lg border border-slate-300 px-2 py-1 text-sm"><option value="">— not set —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city && !c.name.includes(c.city) ? ` · ${c.city}` : ""}</option>)}</select></label>
+        <label className="block"><span className="mb-0.5 block text-[10px] text-slate-400">Building / room</span><input name="locationNote" defaultValue={offering.locationNote ?? ""} placeholder="e.g. Bullock Bldg, Rm 173" className="w-52 rounded-lg border border-slate-300 px-2 py-1 text-sm" /></label>
+        <label className="block"><span className="mb-0.5 block text-[10px] text-slate-400">College reference</span><input name="code" defaultValue={offering.code ?? ""} placeholder="section no." className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm" /></label>
+        <button className="rounded-lg border border-slate-300 px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50">Save</button>
+      </form>
 
       {/* This run's funnel — right under the timing tiles */}
       {offering.stages.length > 0 && (
@@ -189,6 +200,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           anchors: { springStart: inst.springStart, summerStart: inst.summerStart, fallStart: inst.fallStart },
           events,
           manual: Object.fromEntries(offering.cohortTerms.filter((ct) => ct.source === "manual" && ct.startDate).map((ct) => [ct.termId, { startIso: isoD(ct.startDate)!, endIso: isoD(ct.endDate) }])),
+          calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester",
         }) : null;
         const ctByTerm = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct]));
         const SRC_TONE: Record<string, string> = { calendar: "bg-emerald-100 text-emerald-800", pattern: "bg-sky-100 text-sky-800", template: "bg-slate-100 text-slate-600", chosen: "bg-slate-100 text-slate-600", manual: "bg-amber-100 text-amber-800" };
@@ -197,7 +209,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         return (
           <Collapse
             title="Term dates"
-            sub={codedStarts ? `From ${inst.name}'s academic calendar` : `From ${inst.name}'s semester pattern`}
+            sub={program.calendarMode === "continuous" ? "Straight through from the first day, across semesters" : codedStarts ? `From ${inst.name}'s academic calendar` : `From ${inst.name}'s semester pattern`}
             summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
           >
             <div className="overflow-x-auto">

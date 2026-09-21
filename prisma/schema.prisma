@@ -88,6 +88,7 @@ model Campus {
   createdAt     DateTime @default(now())
 
   buildings Building[]
+  cohorts   Cohort[]
 
   @@index([institutionId])
 }
@@ -388,6 +389,10 @@ model Program {
   launchIntervalYears Int @default(1)
   /// Fallback planned seats per cohort when a year has no explicit target.
   defaultCohortSeats Float?
+  /// semester | continuous — whether each term ends with the college's semester (a credit program on the academic
+  /// calendar) or runs its template weeks straight from the chosen start, across semester boundaries (a
+  /// continuing-education class). Holidays and closed weeks apply either way.
+  calendarMode  String   @default("semester")
   // --- Workload assumption cells (clinical capacity model AH–AN) ---
   /// "Full time faculty student contact hours" — cell AI2.
   facContactHours   Float @default(16)
@@ -691,6 +696,13 @@ model Cohort {
   /// Cohort-specific talent-pipeline plan: { goal, rates, termOverrides } JSON —
   /// set from the goal page's per-offering panel; overrides the family defaults.
   pipelineRates String?
+  /// Where this offering meets: a campus of the college (the main campus, a county center, a partner high school). Null = not set.
+  campusId      String?
+  campus        Campus? @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  /// Where on that campus, in the college's own words ("Bullock Bldg, Rm 173").
+  locationNote  String?
+  /// The college's own reference for the offering (a section or course number), kept beside the readable name.
+  code          String?
 
   stages      FunnelStage[]
   assetBookings AssetBooking[]

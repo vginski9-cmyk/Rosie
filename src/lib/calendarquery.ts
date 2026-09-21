@@ -88,7 +88,7 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
       id: true, name: true,
       terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ week: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, deliveryMode: true, location: true, lengthHours: true, maxStudents: true, facultyNeeded: true, facultyContactPolicy: true, supportStaffNeeded: true, supportContactPolicy: true, week: true, dayOfWeek: true, startTime: true, notes: true, preceptorsNeeded: true, preceptorContactPolicy: true, rotationType: true, clinicalMode: true } } } } } },
       cohorts: { where: { status: { not: "archived" } }, orderBy: { name: "asc" }, select: {
-        id: true, name: true, status: true, plannedSeats: true, _count: { select: { students: true } },
+        id: true, name: true, status: true, plannedSeats: true, campus: { select: { name: true } }, locationNote: true, _count: { select: { students: true } },
         cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
         courseDates: { select: { courseId: true, startDate: true, endDate: true } },
         sessionOverrides: true,
@@ -232,7 +232,7 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
     ...people.map((x) => ({ kind: "person" as EntityKind, id: x.id, name: x.name, sub: [x.role, x.employer?.name].filter(Boolean).join(" · ") })),
     ...employers.map((e) => ({ kind: "site" as EntityKind, id: e.id, name: e.name, sub: [e.setting, e.city].filter(Boolean).join(" · ") })),
     ...rooms.map((r) => ({ kind: "room" as EntityKind, id: r.id, name: r.name, sub: [r.kind.toLowerCase(), r.building].filter(Boolean).join(" · ") })),
-    ...programs.flatMap((p) => p.cohorts.map((c) => ({ kind: "cohort" as EntityKind, id: c.id, name: c.name, sub: `${p.name} · ${c.status}` }))),
+    ...programs.flatMap((p) => p.cohorts.map((c) => ({ kind: "cohort" as EntityKind, id: c.id, name: c.name, sub: [p.name, c.campus?.name, c.status].filter(Boolean).join(" · ") }))),
     ...programs.map((p) => ({ kind: "program" as EntityKind, id: p.id, name: p.name, sub: "program" })),
     ...programs.flatMap((p) => p.terms.flatMap((t) => t.courses.map((c) => ({ kind: "course" as EntityKind, id: c.id, name: c.code ? `${c.code} · ${c.name}` : c.name, sub: `${p.name} · ${t.name}` })))),
   ];

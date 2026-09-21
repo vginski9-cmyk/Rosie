@@ -14,6 +14,7 @@ import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
 import { sessionDate } from "../src/lib/term";
 import { holidayMap } from "../src/lib/academiccalendar";
+import { offeringName, shortTermProgram, campusLabel } from "../src/lib/offeringname";
 import { clinicalHostsFor } from "../src/lib/hosts";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
@@ -194,15 +195,17 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
  *  with its funnel stage targets derived from the goal through the family's pipeline rates.
  *  `seats` pins the planned seats (a Nurse Aide I class is capped by its template) — otherwise
  *  the capacity the goal works back to. Named "Class of <end year>" (numbered when repeated). */
-export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES> }[]): Promise<number> {
+export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES>; /** Where it meets: a campus of the college by name (default: the main campus). */ campus?: string; locationNote?: string; code?: string }[]): Promise<number> {
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
   // The college's coded calendar dates the terms (semester ends, session starts, holidays), exactly as lock-in does.
   const events = (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season }));
+  const campuses = await prisma.campus.findMany({ where: { institutionId }, orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, city: true, isMain: true } });
   let made = 0;
   for (const o of offerings) {
     const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
+    const campus = (o.campus ? campuses.find((c) => c.name === o.campus) : null) ?? campuses.find((c) => c.isMain) ?? campuses[0] ?? null;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
     if (o.rates) rates = { ...rates, ...o.rates };
@@ -210,15 +213,16 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const capacity = o.seats ?? t.capacity;
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
     const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
-    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events });
-    const endYear = Number(aligned.terms.map((t) => t.endIso).sort().at(-1)!.slice(0, 4));
-    let name = `Class of ${endYear}`;
-    if (program.cohorts.some((c) => c.name === name)) { let n = 2; while (program.cohorts.some((c) => c.name === `${name} (${n})`)) n++; name = `${name} (${n})`; }
+    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events, calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester" });
+    const lastEnd = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
+    // Named the way lock-in names an offering: by class year, or by start month and place for a short-term program.
+    const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
+    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), existing: program.cohorts.map((c) => c.name) });
     const startD = new Date(o.start + "T00:00:00Z");
     // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
     const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
     const status = new Date(endIso + "T00:00:00Z") < new Date() ? "completed" : startD <= new Date() ? "active" : "planned";
-    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }) } });
+    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }), campusId: campus?.id ?? null, locationNote: o.locationNote ?? null, code: o.code ?? null } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
     for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });

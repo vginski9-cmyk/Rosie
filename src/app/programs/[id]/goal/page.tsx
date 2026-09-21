@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getFamily, getProgramFamilyId } from "@/lib/queries";
 import { GoalPlanner } from "@/components/GoalPlanner";
+import { prisma } from "@/lib/db";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
   const data = familyId ? await getFamily(familyId) : null;
   if (!data) notFound();
   const { family, demand } = data;
+  const campuses = await prisma.campus.findMany({ where: { institutionId: family.institutionId }, orderBy: [{ isMain: "desc" }, { name: "asc" }], select: { id: true, name: true, city: true } });
 
   const cohortGradYears = family.programs.flatMap((p) => p.cohorts.map((co) => gradYearOf(co.name) || co.entryYear || 0)).filter((y) => y > 0);
   const demandByYear: Record<number, number> = {};
@@ -58,6 +60,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
         pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length, startDate: co.startDate ? co.startDate.toISOString().slice(0, 10) : null,
+        location: [co.campus?.name, co.locationNote].filter(Boolean).join(", ") || null,
         phase: tm.phase, currentTerm: tm.currentTermName,
         endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
       });
@@ -75,7 +78,9 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
           spanWeeks: p.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0),
           maxCapacity: p.defaultCohortSeats ?? p.yearTargets.reduce<number | null>((m, t) => (t.cohortCapacity != null && (m == null || t.cohortCapacity > m) ? t.cohortCapacity : m), null),
           running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length,
+          sessionMax: (() => { const mx: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>> = {}; for (const t of p.terms) for (const c of t.courses) for (const x of c.sessions) { const k = x.kind as "CLASS" | "LAB" | "CLINICAL"; if (x.maxStudents > 0) mx[k] = Math.min(mx[k] ?? Infinity, x.maxStudents); } return mx; })(),
         }))}
+        campuses={campuses.map((c) => ({ id: c.id, name: c.name, city: c.city }))}
       />
     </div>
   );

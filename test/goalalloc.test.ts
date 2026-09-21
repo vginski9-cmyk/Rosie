@@ -34,3 +34,21 @@ describe("a year's goal allocations (audit §1.10)", () => {
     expect(offeringGoal({ goalProductive: 12, pipelineRates: "{not json" })).toBe(12);
   });
 });
+
+import { spreadGoal, offeringsNeeded, sectionsFor } from "../src/lib/goalalloc";
+// A goal dropped on a program is split over as many offerings as its class size needs, evenly.
+describe("spreading a goal over offerings", () => {
+  it("splits in whole workers, the first offerings taking the remainder", () => {
+    expect(spreadGoal(30, 4)).toEqual([8, 8, 7, 7]);
+    expect(spreadGoal(55, 11)).toEqual(Array(11).fill(5));
+    expect(spreadGoal(0, 3)).toEqual([0, 0, 0]);
+    expect(spreadGoal(7, 0)).toEqual([7]);
+  });
+  it("counts the offerings a seat need takes at a class size", () => {
+    expect(offeringsNeeded(108, 10)).toBe(11); expect(offeringsNeeded(10, 10)).toBe(1); expect(offeringsNeeded(43, 41)).toBe(2); expect(offeringsNeeded(43, null)).toBe(1);
+  });
+  it("says how many sections an enrollment runs as, by the smallest session of each kind", () => {
+    expect(sectionsFor(41, { CLASS: 41, LAB: 14, CLINICAL: 1 })).toEqual([{ kind: "CLASS", max: 41, sections: 1 }, { kind: "LAB", max: 14, sections: 3 }, { kind: "CLINICAL", max: 1, sections: 41 }]);
+    expect(sectionsFor(10, undefined)).toEqual([]);
+  });
+});

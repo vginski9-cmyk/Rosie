@@ -8,7 +8,7 @@ const firstWeekOf = (sessions: { week: number | null }[]) => (sessions.length ? 
 const isOnlineSession = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
 const mondayMs = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
 const DAY_MS_SEM = 86400000;
-import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, SEASON_ORDER as SEASON_RANK } from "./term";
+import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, semesterAt, nextSemesterStart, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
 import { resolveSessionDay } from "./capacitymodel";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, resolveHolidays, holidayOn, type HolidayRule } from "./holidayrule";
@@ -872,7 +872,7 @@ export async function getFamily(familyId: string) {
           terms: { include: { courses: { include: { sessions: true } } } },
           cohorts: {
             orderBy: { name: "asc" },
-            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true } } },
+            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true } }, campus: { select: { name: true } } },
           },
         },
       },
@@ -1043,6 +1043,7 @@ export async function getProgramOfferings(programId: string) {
       _count: { select: { students: true, sessionStaff: true } },
       cohortTerms: { include: { term: { select: { index: true, name: true } } }, orderBy: { term: { index: "asc" } } },
       stages: { orderBy: { sortOrder: "asc" } },
+      campus: { select: { id: true, name: true, city: true, isMain: true } },
     },
   });
 }
@@ -1057,6 +1058,7 @@ export async function getOffering(cohortId: string) {
       cohortTerms: { include: { term: true } },
       courseDates: true,
       stages: { orderBy: { sortOrder: "asc" } },
+      campus: { select: { id: true, name: true, city: true, isMain: true } },
       _count: { select: { students: true, sessionStaff: true, meetings: true, studentShifts: true } },
     },
   });
@@ -1486,7 +1488,7 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
       term: { include: { courses: { include: { sessions: true } } } },
       cohort: {
         include: {
-          program: { include: { institution: { select: { name: true } }, family: { select: { id: true, name: true } } } },
+          program: { include: { institution: { select: { name: true, springStart: true, summerStart: true, fallStart: true } }, family: { select: { id: true, name: true } } } },
         },
       },
     },
@@ -1503,6 +1505,16 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     if (yr == null) continue;
     // The offering's own aligned semester first (Summer stays Summer), then the template term's, then the start date.
     const season = seasonOfTerm({ semester: ct.semester, name: null }, null) ?? seasonOfTerm(ct.term, ct.startDate) ?? "Fall";
+    // A term that runs past its semester (a continuing-education class started in November) is in session in
+    // every semester it touches, so it is listed under each of them, not only the one it started in.
+    const anchors = { springStart: p.institution.springStart, summerStart: p.institution.summerStart, fallStart: p.institution.fallStart };
+    const semestersTouched: { sem: string; year: number }[] = [{ sem: season, year: yr }];
+    if (ct.startDate && ct.endDate) {
+      for (let d = new Date(nextSemesterStart(new Date(ct.startDate.getTime() + 86400000), anchors)); d <= ct.endDate; d = nextSemesterStart(new Date(d.getTime() + 86400000), anchors)) {
+        const s = semesterAt(d, anchors);
+        if (!semestersTouched.some((x) => x.sem === s.season && x.year === s.year)) semestersTouched.push({ sem: s.season, year: s.year });
+      }
+    }
     const sessions = ct.term.courses.flatMap((c) => c.sessions.map((s) => ({ id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded })));
     const enrollment = Math.round(co.plannedSeats ?? p.defaultCohortSeats ?? 40);
     const t = sessions.length ? courseService(sessions, enrollment, DEFAULT_SERVICE).totals : null;
@@ -1511,8 +1523,8 @@ export async function getSemesterView(sem?: string, year?: number): Promise<Seme
     // The offering's coded last day when the calendar carries one (exclusive bound = the day after), else the template span.
     const endDate = ct.endDate ? new Date(ct.endDate.getTime() + DAY_MS_SEM) : ct.startDate ? new Date(ct.startDate.getTime() + termWeeks * WEEK_MS) : null;
     const inSessionNow = !!(ct.startDate && endDate && today >= ct.startDate && today < endDate);
-    rows.push({
-      sem: season, year: yr,
+    for (const touched of semestersTouched) rows.push({
+      sem: touched.sem, year: touched.year,
       cohortId: co.id, cohortName: co.name, programId: p.id, programName: p.name,
       family: p.family?.name ?? null, familyId: p.family?.id ?? null, institution: p.institution.name,
       termName: ct.term.name, termIndex: ct.term.index, enrollment,

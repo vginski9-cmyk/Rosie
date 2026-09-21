@@ -1260,6 +1260,9 @@ export async function createCnaProgram(institutionId: string, occupationId: stri
       name: tpl.name, programType: tpl.programType, credential: tpl.credential,
       monthsToFullProductivity: 1, status: "active",
       launchCadence: semesters.length ? "ANNUAL" : "MULTI_PER_YEAR", launchTerms: semesters[0] ?? "FALL,SPRING,SUMMER", termSlots: "FALL,SPRING,SUMMER",
+      // A delivery model with no semester of its own is a continuing-education class: it runs its weeks
+      // straight from the day it starts, across semester boundaries, on the college's holidays.
+      calendarMode: semesters.length ? "semester" : "continuous",
       defaultCohortSeats: tpl.maxCohort,
       facContactHours: tpl.assumptions.facContactHours, facWorkWeekHours: tpl.assumptions.facWorkWeekHours, facTermWeeks: tpl.assumptions.facTermWeeks,
       preContactHours: tpl.assumptions.preContactHours, preWorkWeekHours: tpl.assumptions.preWorkWeekHours, preTermWeeks: tpl.assumptions.preTermWeeks,

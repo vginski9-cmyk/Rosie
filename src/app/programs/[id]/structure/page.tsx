@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProgramFull } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
+import { setProgramCalendarMode } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,17 @@ export default async function StructureEditor({ params }: { params: { id: string
   }));
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-500">The template every offering runs. Open a course to edit its sessions.</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">The template every offering runs. Open a course to edit its sessions.</p>
+        <form action={setProgramCalendarMode.bind(null, program.id)} className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">Terms sit on the calendar</span>
+          <select name="calendarMode" defaultValue={program.calendarMode} className="rounded-lg border border-slate-300 px-2 py-1 text-xs" title="semester: each term ends with the college's semester. continuous: a continuing-education class runs its weeks straight from the day it starts, across semester boundaries.">
+            <option value="semester">with the semester</option>
+            <option value="continuous">straight through (continuing education)</option>
+          </select>
+          <button className="rounded-lg border border-slate-300 px-2 py-1 font-medium text-slate-700 hover:bg-slate-50">Apply to planned offerings</button>
+        </form>
+      </div>
       <ProgramDesigner
         programId={program.id}
         programName={program.name}
