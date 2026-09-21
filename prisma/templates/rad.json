@@ -6,7 +6,7 @@
  "sourceSheet": "RADIOLOGIC TECHNOLOGISTS",
  "institution": "Sandhills Community College",
  "modeledEnrollment": 41,
- "maxCohort": 41,
+ "maxCohort": 23,
  "weeklyHoursNote": "weekly course hours = the sheet's session hours per course and kind ÷ term weeks (term weeks = highest session week in the term)",
  "assumptions": {
   "facContactHours": 16,

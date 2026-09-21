@@ -4,7 +4,8 @@ import { offeringName, shortTermProgram, campusLabel, runDetail } from "../src/l
 describe("offering names", () => {
   it("a class-a-year program names by the year the last term ends, numbered when repeated", () => {
     expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: [] })).toBe("Class of 2028");
-    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: ["Class of 2028"] })).toBe("Class of 2028 (2)");
+    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: ["Class of 2028"] })).toBe("Class of 2028 · 2nd class");
+    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: ["Class of 2028", "Class of 2028 · 2nd class", "Class of 2028 · 3rd class"] })).toBe("Class of 2028 · 3rd class (2)");
   });
   it("a short-term program names by its start month and where it meets", () => {
     expect(offeringName({ shortTerm: true, startIso: "2026-01-05", endIso: "2026-06-08", campus: "Greene County Center", existing: [] })).toBe("Jan 2026 · Greene County Center");
@@ -16,7 +17,9 @@ describe("offering names", () => {
     expect(offeringName({ shortTerm: true, startIso: "2025-03-25", endIso: "2025-07-24", campus: "La Grange Center", detail: "Tue & Thu evening", existing: [...existing, "Mar 2025 · La Grange Center · Tue & Thu evening"] })).toBe("Mar 2025 · La Grange Center · Tue & Thu evening (2)");
   });
   it("which programs are short-term", () => {
-    expect(shortTermProgram({ launchCadence: "MULTI_PER_YEAR", spanWeeks: 80 })).toBe(true);
+    expect(shortTermProgram({ launchCadence: "MULTI_PER_YEAR", spanWeeks: 72 })).toBe(false); // Radiography launches Fall and Spring, but is a two-year class
+    expect(shortTermProgram({ launchCadence: "MULTI_PER_YEAR", spanWeeks: 20 })).toBe(true);
+    expect(shortTermProgram({ launchCadence: "ON_DEMAND", spanWeeks: 40 })).toBe(true);
     expect(shortTermProgram({ launchCadence: "ANNUAL", spanWeeks: 28 })).toBe(false); // Medical Assisting's two 14-week parts, once a year: a class year
     expect(shortTermProgram({ launchCadence: "ANNUAL", spanWeeks: 16 })).toBe(true);
     expect(shortTermProgram({ launchCadence: "ANNUAL", spanWeeks: 80 })).toBe(false);

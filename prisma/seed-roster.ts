@@ -168,15 +168,19 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   // and, exactly like lock-in, inherits the family's talent-pipeline rates —
   // so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
   // Radiography: every class the goal ladder counts on, each on the college's Fall first day —
-  // the Classes of 2026 and 2027 (15 productive workers each; graduated / in program) and the
-  // Classes of 2028, 2029 and 2030 (30 each, planned at a 90% completion rate).
+  // the Classes of 2026 and 2027 (15 productive workers each; graduated / in program) and, for the
+  // 30-a-year goals of 2028, 2029 and 2030, TWO Fall classes a year of 15 each at a 90% completion
+  // rate (about 21 seats each): the program's maximum cohort is 23, so one class cannot carry 30.
   const offerings = await seedOfferings(prisma, institutionId, [
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
     { program: "Radiography", start: "2024-08-19", goal: 15 },
     { program: "Radiography", start: "2025-08-18", goal: 15 },
-    { program: "Radiography", start: "2026-08-17", goal: 30, rates: { completionRate: 0.9 } },
-    { program: "Radiography", start: "2027-08-16", goal: 30, rates: { completionRate: 0.9 } },
-    { program: "Radiography", start: "2028-08-21", goal: 30, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2026-08-17", goal: 15, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2026-08-17", goal: 15, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2027-08-16", goal: 15, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2027-08-16", goal: 15, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2028-08-21", goal: 15, rates: { completionRate: 0.9 } },
+    { program: "Radiography", start: "2028-08-21", goal: 15, rates: { completionRate: 0.9 } },
   ]);
 
   return {

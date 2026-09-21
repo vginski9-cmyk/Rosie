@@ -12,8 +12,9 @@
 
 export interface NamingProgram { launchCadence: string | null | undefined; /** The template's instructional weeks across its terms. */ spanWeeks: number }
 
-/** A program whose runs are named by their start, not by a class year: several a year, or a term or less long. */
-export const shortTermProgram = (p: NamingProgram): boolean => p.launchCadence === "MULTI_PER_YEAR" || p.launchCadence === "ON_DEMAND" || p.spanWeeks <= 20;
+/** A program whose runs are named by their start, not by a class year: a term or less long (twenty weeks),
+ *  or run on demand. A two-year AAS that launches every Fall and Spring is still "Class of 2028". */
+export const shortTermProgram = (p: NamingProgram): boolean => p.launchCadence === "ON_DEMAND" || p.spanWeeks <= 20;
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 export const monthYearOf = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; };
@@ -43,7 +44,8 @@ export function offeringName(o: {
   /** Names its siblings in the program already use. */
   existing: string[];
 }): string {
-  if (!o.shortTerm) return unique([`Class of ${o.endIso.slice(0, 4)}`], o.existing);
+  // A second class graduating the same year is a parallel class, and says so.
+  if (!o.shortTerm) { const base = `Class of ${o.endIso.slice(0, 4)}`; return unique([base, `${base} · 2nd class`, `${base} · 3rd class`], o.existing); }
   const base = [monthYearOf(o.startIso), o.campus].filter(Boolean).join(" · ");
   return unique(o.detail ? [base, `${base} · ${o.detail}`] : [base], o.existing);
 }
