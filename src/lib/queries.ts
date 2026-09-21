@@ -873,7 +873,7 @@ export async function getFamily(familyId: string) {
           terms: { include: { courses: { include: { sessions: true } } } },
           cohorts: {
             orderBy: { name: "asc" },
-            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true } }, campus: { select: { name: true } } },
+            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, campus: { select: { name: true } } },
           },
         },
       },
@@ -1254,6 +1254,7 @@ export async function getEmployer(id: string) {
     where: { id },
     include: {
       institution: { select: { id: true, name: true, ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true, campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], take: 1, select: { id: true, name: true, address: true, city: true, lat: true, lng: true, geoSource: true } } } },
+      site: { select: { id: true, partners: { select: { id: true, institutionId: true, agreementStatus: true, driveMinutes: true, institution: { select: { id: true, name: true } } } } } },
       units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
       people: { where: { active: true }, select: { id: true } },
       assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } },
@@ -3249,4 +3250,22 @@ export async function getCapacityBridge(institutionId: string, from: string, to:
     capacity: { label: "Clinical site capacity", href: "/insights/clinical-sites", value: capacityDemand, unit: "learner-shifts", why: "the same targets on the same dates, before any move — identical to the scheduler by definition" },
     load: { label: "Clinical site load", href: "/insights/site-load", value: loadShifts, unit: "student-shifts", why: `the roster's assigned student-shifts in the window (named students, including completed cohorts; ${load?.withdrawn.excluded ?? 0} future shifts of withdrawn students left out)` },
   };
+}
+
+// ── THE SHARED SITE REGISTRY ─────────────────────────────────────────────────────────────────────
+/** Every clinical site in the world the platform knows, with each college's relationship to it. */
+export async function getSiteRegistry() {
+  const [sites, institutions] = await Promise.all([
+    prisma.clinicalSite.findMany({ orderBy: [{ name: "asc" }], select: {
+      id: true, name: true, organization: true, facilityType: true, address: true, city: true, county: true, zip: true, lat: true, licensedBeds: true, operatingRooms: true,
+      partners: { select: { id: true, institutionId: true, agreementStatus: true, status: true, driveMinutes: true, ring: true, institution: { select: { id: true, name: true } }, assets: { where: { status: { not: "archived" } }, select: { learnersPerShift: true } }, _count: { select: { people: true, familySites: true } } } },
+    } }),
+    prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+  ]);
+  return { sites, institutions };
+}
+
+/** Registry sites a college has not yet made a partner record for — what its Setup page offers to add. */
+export async function getRegistryCandidates(institutionId: string) {
+  return prisma.clinicalSite.findMany({ where: { partners: { none: { institutionId } } }, orderBy: [{ name: "asc" }], select: { id: true, name: true, city: true, facilityType: true, partners: { select: { institution: { select: { name: true } }, agreementStatus: true } } } });
 }

@@ -55,6 +55,10 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {e.ring ? <a href="#location" className={`rounded-full px-3 py-1 font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.driveMinutes != null ? `${fmt.minutes(e.driveMinutes)} from campus` : driveBandLabel(e.ring, bands)}</a> : <a href="#location" className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">not located</a>}
             <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">{e.status}</span>
+            {e.site && (() => { const others = e.site.partners.filter((p) => p.id !== e.id); return (
+              <span className="rounded-full bg-indigo-50 px-3 py-1 text-indigo-800 ring-1 ring-indigo-200" title="one site record shared by every college; this page is this college's own relationship with it">
+                <Link href="/sites" className="hover:underline">shared site record</Link>{others.length ? <> · also a partner of {others.map((p, i) => <span key={p.id}>{i ? ", " : ""}<Link href={`/employers/${p.id}`} className="font-medium hover:underline">{p.institution.name.replace(/ Community College$/, "")}</Link> ({p.agreementStatus})</span>)}</> : " · no other college yet"}
+              </span>); })()}
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{liveAssets.length} assets · {e.people.length} people</span>
             {volumeLine && <span className="rounded-full bg-violet-50 px-3 py-1 text-violet-800 ring-1 ring-violet-200" title={e.surgicalCaseSource ?? ""}>{volumeLine}</span>}
           </div>

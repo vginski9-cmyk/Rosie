@@ -66,19 +66,24 @@ export function computeCohortTiming(
    *  assuming the instructional weeks run back-to-back. This is the accurate path
    *  and keeps "expected to finish {year}" consistent with the cohort's grad year. */
   realTermStarts?: (Date | null)[],
+  /** Real calendar END dates per term (the aligned "semester ends" / last template Friday), aligned to
+   *  `terms` sorted by index. With these, the offering ends on its last term's real last day — the one
+   *  date the planner, the offering page and the calendar all show — not start + weeks. */
+  realTermEnds?: (Date | null)[],
 ): CohortTiming {
   const ordered = [...terms].sort((a, b) => a.index - b.index);
 
   // --- Real-calendar path: terms anchored to actual dates (preferred) ----------
   if (realTermStarts && realTermStarts.length === ordered.length && realTermStarts.some((d) => d)) {
     const items = ordered
-      .map((t, i) => ({ t, start: realTermStarts[i], weeks: termWeeks(t) }))
-      .filter((x): x is { t: TimingTerm; start: Date; weeks: number } => x.start != null)
+      .map((t, i) => ({ t, start: realTermStarts[i], weeks: termWeeks(t), end: realTermEnds?.[i] ?? null }))
+      .filter((x): x is { t: TimingTerm; start: Date; weeks: number; end: Date | null } => x.start != null)
       .sort((a, b) => a.start.getTime() - b.start.getTime());
     if (items.length) {
       const first = items[0].start;
       const lastItem = items[items.length - 1];
-      const endDate = new Date(lastItem.start.getTime() + lastItem.weeks * WEEK_MS);
+      // The real last day when the calendar gave one (a term ends on its Friday, not the Monday after).
+      const endDate = lastItem.end ?? new Date(lastItem.start.getTime() + lastItem.weeks * WEEK_MS);
       const totalWeeks = Math.max(1, Math.round((endDate.getTime() - first.getTime()) / WEEK_MS));
       if (today < first) {
         return { startDate: first, endDate, totalWeeks, currentTermIndex: null, currentTermName: null, weeksElapsed: null, pctElapsed: null, phase: "recruiting" };
@@ -89,7 +94,7 @@ export function computeCohortTiming(
       let currentTermIndex: number | null = null;
       let currentTermName: string | null = null;
       for (const it of items) {
-        const e = new Date(it.start.getTime() + it.weeks * WEEK_MS);
+        const e = it.end ? new Date(it.end.getTime() + 86400000) : new Date(it.start.getTime() + it.weeks * WEEK_MS);
         if (today >= it.start && today < e) { currentTermIndex = it.t.index; currentTermName = it.t.name; break; }
       }
       if (currentTermName == null) {

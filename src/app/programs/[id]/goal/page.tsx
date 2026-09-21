@@ -54,12 +54,13 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
         }
       }
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
-      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
-      const tm = computeCohortTiming(co.startDate, timingTerms, today, orderedTerms.map((t) => ctById.get(t.id) ?? null));
+      const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
+      const tm = computeCohortTiming(co.startDate, timingTerms, today, orderedTerms.map((t) => ctById.get(t.id)?.startDate ?? null), orderedTerms.map((t) => ctById.get(t.id)?.endDate ?? null));
       (offeringsByYear[gy] ??= []).push({
         id: co.id, name: co.name, programId: p.id, program: p.name,
         goalProductive, students: co._count.students, enrolled, completed, placed, status: co.status,
         pipelineRates: co.pipelineRates ?? null, terms: orderedTerms.length, startDate: co.startDate ? co.startDate.toISOString().slice(0, 10) : null,
+        endDate: tm.endDate ? tm.endDate.toISOString().slice(0, 10) : null,
         location: [co.campus?.name, co.locationNote].filter(Boolean).join(", ") || null,
         phase: tm.phase, currentTerm: tm.currentTermName,
         endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
@@ -78,9 +79,15 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
           spanWeeks: p.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0),
           maxCapacity: p.defaultCohortSeats ?? p.yearTargets.reduce<number | null>((m, t) => (t.cohortCapacity != null && (m == null || t.cohortCapacity > m) ? t.cohortCapacity : m), null),
           running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length,
+          calendarMode: p.calendarMode === "continuous" ? "continuous" as const : "semester" as const,
+          termList: [...p.terms].sort((a, b) => a.index - b.index).map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek, semester: t.semester })),
           sessionMax: (() => { const mx: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>> = {}; for (const t of p.terms) for (const c of t.courses) for (const x of c.sessions) { const k = x.kind as "CLASS" | "LAB" | "CLINICAL"; if (x.maxStudents > 0) mx[k] = Math.min(mx[k] ?? Infinity, x.maxStudents); } return mx; })(),
         }))}
         campuses={campuses.map((c) => ({ id: c.id, name: c.name, city: c.city }))}
+        calendar={{
+          anchors: { springStart: family.institution.springStart ?? "01-08", summerStart: family.institution.summerStart ?? "05-28", fallStart: family.institution.fallStart ?? "08-15" },
+          events: family.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate ? e.endDate.toISOString().slice(0, 10) : null, label: e.label, kind: e.kind, season: e.season })),
+        }}
       />
     </div>
   );

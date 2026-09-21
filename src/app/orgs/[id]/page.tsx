@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getOrganization, getWorkloadPolicies, getInstitutionsLite, getStaffRoles, getAssetsLite, getRoomsWorkspace, getCalendarProvenance } from "@/lib/queries";
-import { updateInstitution, updateInstitutionGeography, createEmployer } from "@/lib/actions";
+import { getOrganization, getWorkloadPolicies, getInstitutionsLite, getStaffRoles, getAssetsLite, getRoomsWorkspace, getCalendarProvenance, getRegistryCandidates } from "@/lib/queries";
+import { updateInstitution, updateInstitutionGeography, createEmployer, addSiteAsPartner } from "@/lib/actions";
 import { AcademicCalendar } from "@/components/AcademicCalendar";
 import { WorkloadPolicies } from "@/components/WorkloadPolicies";
 import { StaffRoles } from "@/components/StaffRoles";
@@ -30,7 +30,7 @@ const ROLE_LABEL: Record<string, string> = { instructor: "Faculty", preceptor: "
 const AGREE_LABEL: Record<string, string> = { secured: "secured", asked: "asked", prospect: "prospect", none: "no agreement" };
 
 export default async function OrganizationPage({ params }: { params: { id: string } }) {
-  const [data, policies, institutions, rolesRaw, assetsLite, ws, exceptionsAll, provenance] = await Promise.all([getOrganization(params.id), getWorkloadPolicies(), getInstitutionsLite(), getStaffRoles(), getAssetsLite(), getRoomsWorkspace(params.id), getExceptionQueue(), getCalendarProvenance(params.id)]);
+  const [data, policies, institutions, rolesRaw, assetsLite, ws, exceptionsAll, provenance, registryCandidates] = await Promise.all([getOrganization(params.id), getWorkloadPolicies(), getInstitutionsLite(), getStaffRoles(), getAssetsLite(), getRoomsWorkspace(params.id), getExceptionQueue(), getCalendarProvenance(params.id), getRegistryCandidates(params.id)]);
   if (!data) notFound();
   const { inst, assets, employersLite } = data;
   const familyIds = inst.programFamilies.map((f) => f.id);
@@ -207,6 +207,7 @@ export default async function OrganizationPage({ params }: { params: { id: strin
             <Link href="/clinical" className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Sites &amp; requirements by program →</Link>
             <Link href={`/scheduler?inst=${inst.id}`} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Clinical scheduler →</Link>
             <Link href={`/insights/map?inst=${inst.id}`} className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">Map →</Link>
+            <Link href="/sites" className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50" title="every site the platform knows, whichever college approaches it">Site registry →</Link>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
@@ -237,7 +238,18 @@ export default async function OrganizationPage({ params }: { params: { id: strin
         </div>
         <details className="rounded-xl border border-dashed border-slate-300 bg-white">
           <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700">+ Add a clinical site or partner</summary>
+          {registryCandidates.length > 0 && (
+            <form action={addSiteAsPartner} className="flex flex-wrap items-end gap-2 border-t border-slate-100 bg-indigo-50/40 p-4 text-xs">
+              <input type="hidden" name="institutionId" value={inst.id} />
+              <label className="block min-w-[18rem] flex-1"><span className={lbl}>A site another college already knows (the shared registry)</span>
+                <select name="siteId" required className={inp}><option value="">— pick a site —</option>{registryCandidates.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` · ${c.city}` : ""}{c.facilityType ? ` · ${c.facilityType}` : ""}{c.partners.length ? ` — partner of ${c.partners.map((p) => p.institution.name.replace(/ Community College$/, "")).join(", ")}` : ""}</option>)}</select></label>
+              <label className="block"><span className={lbl}>Your agreement</span><select name="agreementStatus" className={inp}>{["prospect", "asked", "secured", "none"].map((a) => <option key={a} value={a}>{AGREE_LABEL[a] ?? a}</option>)}</select></label>
+              <button className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Add as {inst.name.replace(/ Community College$/, "")}&apos;s partner</button>
+              <p className="w-full text-[11px] text-slate-500">The site&apos;s identity (address, type, beds) is shared with every college; your agreement, contacts, drive time from your campus and the assets you are granted are yours alone.</p>
+            </form>
+          )}
           <form action={createEmployer} className="grid gap-2 border-t border-slate-100 p-4 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <p className="text-[11px] font-medium text-slate-500 sm:col-span-2 lg:col-span-4">Or a site nobody has recorded yet:</p>
             <input type="hidden" name="institutionId" value={inst.id} />
             <label className="block lg:col-span-2"><span className={lbl}>Site name</span><input name="name" required placeholder="FirstHealth Moore Regional Hospital" className={inp} /></label>
             <label className="block"><span className={lbl}>Organization / system</span><input name="organization" placeholder="optional" className={inp} /></label>

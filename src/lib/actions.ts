@@ -984,12 +984,17 @@ export async function assignSectionSite(meetingId: string, employerId: string | 
 export async function createEmployer(formData: FormData): Promise<void> {
   const institutionId = str(formData.get("institutionId"));
   if (!institutionId) return;
+  const { ensureSite } = await import("./siteregistry");
+  const identity = { name: str(formData.get("name")) || "New partner", organization: str(formData.get("organization")) || null, facilityType: str(formData.get("facilityType")) || null, address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || null, zip: str(formData.get("zip")) || null };
+  // One record per site in the world: a second college adding the same hospital links to the same registry record.
+  const siteId = await ensureSite(prisma, identity);
   const created = await prisma.employer.create({
     data: {
       institutionId,
-      name: str(formData.get("name")) || "New partner",
-      organization: str(formData.get("organization")) || null,
-      facilityType: str(formData.get("facilityType")) || null,
+      siteId,
+      name: identity.name,
+      organization: identity.organization,
+      facilityType: identity.facilityType,
       agreementStatus: str(formData.get("agreementStatus")) || "none",
       setting: str(formData.get("setting")) || null,
       address: str(formData.get("address")) || null,
@@ -1006,7 +1011,38 @@ export async function createEmployer(formData: FormData): Promise<void> {
   });
   await geocodeInstitutionSites(institutionId, created.id);
   revalidatePath("/employers");
+  revalidatePath("/sites");
   revalidatePath(`/orgs/${institutionId}`);
+}
+
+/** A college takes a site from the shared registry as its own partner: a partner record is made from the
+ *  site's identity (agreement as chosen), located from the site's address and timed from the college's campus. */
+export async function addSiteAsPartner(formData: FormData): Promise<void> {
+  const institutionId = str(formData.get("institutionId")); const siteId = str(formData.get("siteId"));
+  if (!institutionId || !siteId) return;
+  const site = await prisma.clinicalSite.findUnique({ where: { id: siteId } });
+  if (!site) return;
+  const already = await prisma.employer.findFirst({ where: { institutionId, siteId }, select: { id: true } });
+  if (already) return;
+  const agreementStatus = str(formData.get("agreementStatus")) || "prospect";
+  const created = await prisma.employer.create({ data: {
+    institutionId, siteId, name: site.name, organization: site.organization, facilityType: site.facilityType, setting: site.facilityType, county: site.county,
+    address: site.address, city: site.city, state: site.state, zip: site.zip, lat: site.lat, lng: site.lng, geoSource: site.geoSource,
+    licensedBeds: site.licensedBeds, nursingHomeBeds: site.nursingHomeBeds, adultCareBeds: site.adultCareBeds, operatingRooms: site.operatingRooms, annualSurgicalCases: site.annualSurgicalCases, externalId: site.externalId,
+    status: agreementStatus === "secured" ? "active" : "prospect", agreementStatus, sourceNote: "added from the shared site registry",
+  }, select: { id: true } });
+  await geocodeInstitutionSites(institutionId, created.id);
+  revalidatePath("/employers"); revalidatePath("/sites"); revalidatePath(`/orgs/${institutionId}`);
+}
+
+/** A new site in the shared registry — no college's partner yet unless one is named. */
+export async function createRegistrySite(formData: FormData): Promise<void> {
+  const { ensureSite } = await import("./siteregistry");
+  const name = str(formData.get("name")); if (!name) return;
+  const siteId = await ensureSite(prisma, { name, organization: str(formData.get("organization")) || null, facilityType: str(formData.get("facilityType")) || null, address: str(formData.get("address")) || null, city: str(formData.get("city")) || null, state: str(formData.get("state")) || "NC", zip: str(formData.get("zip")) || null, county: str(formData.get("county")) || null });
+  const institutionId = str(formData.get("institutionId"));
+  if (institutionId) { const fd = new FormData(); fd.set("institutionId", institutionId); fd.set("siteId", siteId); fd.set("agreementStatus", str(formData.get("agreementStatus")) || "prospect"); await addSiteAsPartner(fd); }
+  revalidatePath("/sites");
 }
 
 export async function updateEmployer(employerId: string, formData: FormData): Promise<void> {
@@ -1038,8 +1074,10 @@ export async function updateEmployer(employerId: string, formData: FormData): Pr
       agreementStatus: str(formData.get("agreementStatus")) || "none",
       agreementNotes: str(formData.get("agreementNotes")) || null,
     },
-    select: { address: true, city: true, state: true, zip: true, institutionId: true },
+    select: { address: true, city: true, state: true, zip: true, institutionId: true, siteId: true, name: true, organization: true, facilityType: true, county: true, licensedBeds: true, nursingHomeBeds: true, adultCareBeds: true, operatingRooms: true, annualSurgicalCases: true },
   });
+  // The site's identity is shared: what this college corrects, every college sees.
+  if (after.siteId) await prisma.clinicalSite.update({ where: { id: after.siteId }, data: { name: after.name, organization: after.organization, facilityType: after.facilityType, county: after.county, address: after.address, city: after.city, state: after.state, zip: after.zip, licensedBeds: after.licensedBeds, nursingHomeBeds: after.nursingHomeBeds, adultCareBeds: after.adultCareBeds, operatingRooms: after.operatingRooms, annualSurgicalCases: after.annualSurgicalCases } }).catch(() => undefined);
   // The address moved → the location, drive time and ring are recoded (a hand-pinned coordinate is released).
   if (before && (before.address !== after.address || before.city !== after.city || before.state !== after.state || before.zip !== after.zip)) {
     await prisma.employer.update({ where: { id: employerId }, data: { geoSource: null } });

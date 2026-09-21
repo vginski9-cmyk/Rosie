@@ -147,10 +147,17 @@ The conversion rates between pipeline stages (enrollment rate, completion rate, 
 
 ### Clinical site (partner)
 
-An employer that hosts clinical shifts. Its agreement with the college is none, prospect, asked, secured or declined; a family may hold its own agreement with the site, which wins over the institution's.
+An employer that hosts clinical shifts. Its agreement with the college is none, prospect, asked, secured or declined; a family may hold its own agreement with the site, which wins over the institution's. A college's partner record is its own relationship with the site: the agreement, contacts, the drive time from its campus and the assets it may use.
 
 - **Retired:** employer (as the noun for a hosting site)
-- **Where:** Clinical sites, a site's page, the family's site setup
+- **Not the same as:** The site itself, which lives once in the site registry whichever colleges approach it.
+- **Where:** Setup › Clinical sites & partners, a site's page, the family's site setup
+
+### Site registry
+
+Every clinical site in the world the platform knows, once: its name, system, facility type, address and beds. Several colleges can court the same hospital; each keeps its own partner record linked to the one registry record, and sees the others doing it.
+
+- **Where:** Capacity › Site registry, the Setup page's "add a site" picker, the shared-site chip on a site's page
 
 ### Asset and setting
 

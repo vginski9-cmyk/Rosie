@@ -46,12 +46,14 @@ export default async function OfferingPage({ params, searchParams }: { params: {
 
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
+  const termEnd = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.endDate]));
 
   const today = new Date();
   const orderedTerms = [...program.terms].sort((a, b) => a.index - b.index);
   const timingTerms: TimingTerm[] = orderedTerms.map((t) => ({ index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek }));
   const realTermStarts = orderedTerms.map((t) => termDate.get(t.id) ?? null);
-  const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today, realTermStarts);
+  // The offering ends on its last term's real last day — the same date the goal planner and the calendar show.
+  const timing = computeCohortTiming(offering.startDate ?? null, timingTerms, today, realTermStarts, orderedTerms.map((t) => termEnd.get(t.id) ?? null));
   const exactDate = (d: Date | null) => (d ? d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 
   // ── Real end date + holiday collisions for THIS offering (same engine
@@ -126,9 +128,9 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       <PageHeader
         crumb={{ href: `/programs/${program.id}`, label: program.name }}
         title={<>{offering.name} <span className={`ml-2 align-middle rounded-full px-2.5 py-0.5 text-xs font-medium ${PHASE_BADGE[timing.phase]}`}>{PHASE_LABEL[timing.phase]}</span></>}
-        lede={timing.phase === "in-program" && timing.currentTermName ? <>Now in {timing.currentTermName}, week {(timing.weeksElapsed ?? 0) + 1} of {timing.totalWeeks}. Last day {exactDate(lastDay ?? timing.endDate)}.</>
-          : timing.phase === "recruiting" ? <>Starts {exactDate(offering.startDate ?? timing.startDate)} and runs {timing.totalWeeks} weeks. Last day {exactDate(lastDay ?? timing.endDate)}.</>
-          : timing.phase === "graduated" ? <>Ran {exactDate(offering.startDate ?? timing.startDate)} to {exactDate(lastDay ?? timing.endDate)}.</>
+        lede={timing.phase === "in-program" && timing.currentTermName ? <>Now in {timing.currentTermName}, week {(timing.weeksElapsed ?? 0) + 1} of {timing.totalWeeks}. Ends {exactDate(timing.endDate)}.</>
+          : timing.phase === "recruiting" ? <>Starts {exactDate(offering.startDate ?? timing.startDate)} and runs {timing.totalWeeks} weeks, ending {exactDate(timing.endDate)}.</>
+          : timing.phase === "graduated" ? <>Ran {exactDate(offering.startDate ?? timing.startDate)} to {exactDate(timing.endDate)}.</>
           : <>No start date yet.</>}
         meta={[offering.campus ? `Meets at ${offering.campus.name}${offering.locationNote && offering.locationNote !== offering.campus.name ? `, ${offering.locationNote}` : ""}` : offering.locationNote ? `Meets at ${offering.locationNote}` : null, offering.code ? `College reference ${offering.code}` : null, program.calendarMode === "continuous" ? "runs straight through, across semesters" : null].filter(Boolean).join(" · ") || undefined}
         actions={<>
@@ -149,7 +151,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
       {/* Counts + timing */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
-        <Tile label="Last day" value={exactDate(lastDay ?? timing.endDate)} sub={timing.phase === "in-program" ? `now in ${timing.currentTermName ?? "—"}` : undefined} />
+        <Tile label="Ends" value={exactDate(timing.endDate)} sub={timing.phase === "in-program" ? `now in ${timing.currentTermName ?? "—"}` : lastDay && timing.endDate && lastDay.getTime() !== timing.endDate.getTime() ? `last class meets ${exactDate(lastDay)}` : undefined} />
         <Tile label="Goal" value={fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} sub="fully productive workers" />
         <Tile label="Students" value={fmt.num(enrolledNow)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? (() => { const o = outcomeStats(ledger.students); return `${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`; })() : undefined} />
       </div>
@@ -210,7 +212,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           <Collapse
             title="Term dates"
             sub={program.calendarMode === "continuous" ? "Straight through from the first day, across semesters" : codedStarts ? `From ${inst.name}'s academic calendar` : `From ${inst.name}'s semester pattern`}
-            summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(lastDay ?? timing.endDate)} · {orderedTerms.length} terms{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
+            summary={<>{offering.startDate ? dateFmt(offering.startDate) : "no start"} → {exactDate(timing.endDate)} · {orderedTerms.length} terms{typedWindows ? ` · ${typedWindows} typed` : ""}</>}
           >
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -395,7 +397,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Collapse
           title="Calendar"
           sub="Every date, time and place"
-          summary={<>{exactDate(offering.startDate ?? timing.startDate)} → {exactDate(lastDay ?? timing.endDate)}</>}
+          summary={<>{exactDate(offering.startDate ?? timing.startDate)} → {exactDate(timing.endDate)}</>}
         >
           <CapacityBoard cohorts={[capCohort]} view="coverage" sites={sites} rooms={capModel?.rooms ?? []} people={capModel?.people ?? []} />
         </Collapse>

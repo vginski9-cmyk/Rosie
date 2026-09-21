@@ -5,7 +5,8 @@ import { usePathname } from "next/navigation";
 
 const TABS: { label: string; href: string; hint: string }[] = [
   { label: "By program", href: "/clinical", hint: "each program's sites, set up the way that program counts them" },
-  { label: "All organizations", href: "/employers", hint: "the shared records: addresses, assets, people" },
+  { label: "All organizations", href: "/employers", hint: "each college's partner records: agreement, drive time, assets, people" },
+  { label: "Site registry", href: "/sites", hint: "every clinical site in the world the platform knows, whichever colleges approach it" },
 ];
 
 export function ClinicalTabs() {

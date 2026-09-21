@@ -1259,6 +1259,11 @@ model Employer {
   agreementStatus String @default("none")
   agreementNotes  String?
   sourceNote    String?
+  /// The shared site record this partner record is a college's view of. Several colleges can approach the
+  /// same hospital: each keeps its own Employer row (agreement, contacts, drive time from ITS campus, the
+  /// assets it has been granted) and they all point at one ClinicalSite.
+  siteId        String?
+  site          ClinicalSite? @relation(fields: [siteId], references: [id], onDelete: SetNull)
 
   units ClinicalUnit[]
   assets ClinicalAsset[]
@@ -1275,6 +1280,7 @@ model Employer {
   shiftMoves ShiftMove[]
 
   @@index([institutionId])
+  @@index([siteId])
 }
 
 /// A work-based-learning placement: a student hosted by an employer for a rotation
@@ -2004,4 +2010,35 @@ model Assumption {
   updatedAt  DateTime @updatedAt
 
   @@unique([scope, key])
+}
+
+/// A clinical site as it exists in the world, shared by every college: one hospital, one record. Colleges
+/// do not own it; each college's relationship with it (approached, asked, secured, its drive time, the assets
+/// it may use) is that college's Employer row, linked here by siteId.
+model ClinicalSite {
+  id            String   @id @default(cuid())
+  name          String
+  organization  String?  // licensee / health system
+  facilityType  String?
+  address       String?
+  city          String?
+  state         String?
+  zip           String?
+  county        String?
+  lat           Float?
+  lng           Float?
+  geoSource     String?  // census | gazetteer | manual
+  licensedBeds  Int?
+  nursingHomeBeds Int?
+  adultCareBeds Int?
+  operatingRooms Int?
+  annualSurgicalCases Int?
+  externalId    String?  // a facility id from a state file, when it has one
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  partners Employer[]
+
+  @@index([name])
 }

@@ -10,7 +10,7 @@ import { usePathname } from "next/navigation";
 const ITEMS: { label: string; href: string; match: (p: string) => boolean }[] = [
   { label: "Home", href: "/", match: (p) => p === "/" || p === "/goals" },
   { label: "Programs", href: "/programs", match: (p) => p.startsWith("/programs") || p.startsWith("/courses") || p.startsWith("/families/") || p.startsWith("/students") || p.startsWith("/scenarios") },
-  { label: "Capacity", href: "/capacity", match: (p) => p.startsWith("/capacity") || p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") || p.startsWith("/clinical") || p.startsWith("/employers") || p.startsWith("/people") },
+  { label: "Capacity", href: "/capacity", match: (p) => p.startsWith("/capacity") || p.startsWith("/insights") || p.startsWith("/scheduler") || p.startsWith("/supply") || p.startsWith("/utilization") || p.startsWith("/semester") || p.startsWith("/clinical") || p.startsWith("/employers") || p.startsWith("/sites") || p.startsWith("/people") },
   { label: "Calendar", href: "/calendar", match: (p) => p.startsWith("/calendar") },
   { label: "Setup", href: "/setup", match: (p) => p.startsWith("/setup") || p.startsWith("/orgs") },
   { label: "Glossary", href: "/glossary", match: (p) => p.startsWith("/glossary") },

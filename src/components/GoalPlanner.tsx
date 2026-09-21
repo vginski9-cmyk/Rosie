@@ -14,6 +14,8 @@ import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/comp
 import { yearAllocations, spreadGoal, offeringsNeeded, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 import { goalTiming } from "@/lib/goaltiming";
+import { candidateStarts, offeringEnd, suggestedStarts, type PlannerCalendar, type PlannerModel } from "@/lib/goaldates";
+import type { TermLite } from "@/lib/termalign";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
 // stairstep up / hold / shrink. Under each year sit the offerings
@@ -39,6 +41,8 @@ export interface OfferingSummary {
   terms?: number;
   /** ISO first day of the offering, when dated — the planner shows it instead of the saved plan's slot date. */
   startDate?: string | null;
+  /** ISO last day of the offering's last term, as its own page dates it. */
+  endDate?: string | null;
   /** Where it meets (campus, building or room), when set. */
   location?: string | null;
   phase: string;              // recruiting | in-program | graduated | unscheduled
@@ -86,6 +90,9 @@ export interface ProgramOption {
   running: number;
   /** The smallest session of each kind in the template: what one offering's enrollment splits into sections by. */
   sessionMax?: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>>;
+  /** How this program sits on the calendar (semester | continuous) and its terms — what dates a start implies. */
+  calendarMode?: "semester" | "continuous";
+  termList?: TermLite[];
 }
 
 interface Persisted {
@@ -111,7 +118,7 @@ function attainColor(a: number | null): string {
 }
 
 export function GoalPlanner({
-  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, offeringsByYear = {}, actualByYear = {}, nowYear, models = [], campuses = [],
+  familyId, familyName, seedYears, seedGoalsByYear, savedPlan, offeringsByYear = {}, actualByYear = {}, nowYear, models = [], campuses = [], calendar,
 }: {
   familyId: string;
   familyName: string;
@@ -124,6 +131,8 @@ export function GoalPlanner({
   models?: ProgramOption[];
   /** The college's campuses and centers — where an offering can meet. */
   campuses?: { id: string; name: string; city?: string | null }[];
+  /** The college's academic calendar (semester anchors and coded events) — what a start date implies for the end. */
+  calendar?: PlannerCalendar;
 }) {
   const initial: Persisted = useMemo(() => {
     const years = (seedYears.length ? seedYears : [new Date().getFullYear() + 2]).slice().sort((a, b) => a - b);
@@ -233,12 +242,10 @@ export function GoalPlanner({
     const terms = Math.max(1, m?.terms ?? 1);
     const n = m ? offeringsNeeded(seatsNeeded(deriveCohortTargets(remaining, s.goal, terms).capacity), m.maxCapacity) : 1;
     const goals = spreadGoal(remaining, n);
-    // Several offerings do not all start the same day: they are spaced back through the year from the
-    // latest start that still delivers the goal (never before today). Each date is yours to change.
-    const last = m ? suggestStart(m) : null;
-    const spacingDays = Math.max(14, Math.floor(364 / n));
-    const startFor = (i: number) => { if (!last) return null; const d = new Date(last + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (n - 1 - i) * spacingDays); const iso = d.toISOString().slice(0, 10); return iso < todayIso ? todayIso : iso; };
-    setAllocs([...allocs, { programId, goal: remaining, offeringCount: n, offerings: goals.map((g, i) => ({ startDate: startFor(i), goal: g, termOverrides: [], campusId: campuses.length === 1 ? campuses[0].id : null })) }]);
+    // Several offerings do not all start the same day: their starts are spaced through the goal year, each
+    // one finishing inside it (never before today). Each date is yours to change.
+    const starts = m ? startsFor(m, n) : [];
+    setAllocs([...allocs, { programId, goal: remaining, offeringCount: n, offerings: goals.map((g, i) => ({ startDate: starts[i] ?? null, goal: g, termOverrides: [], campusId: campuses.length === 1 ? campuses[0].id : null })) }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —
@@ -254,7 +261,7 @@ export function GoalPlanner({
     // empty slot appears unless the reader adds one.
     const target = Math.max(1, lockedCount, a.offeringCount ?? (lockedCount ? lockedCount : suggested));
     const out = [...legacy];
-    while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? suggestStart(m) : null), goal: 0, termOverrides: [] });
+    while (out.length < target) out.push({ startDate: out[out.length - 1]?.startDate ?? (m ? startsFor(m, 1)[0] ?? null : null), goal: 0, termOverrides: [] });
     while (out.length > target && !out[out.length - 1].locked) out.pop();
     // Legacy plans kept ONE goal and ONE set of term overrides per program —
     // split them evenly so every offering owns its own numbers from here on.
@@ -302,18 +309,31 @@ export function GoalPlanner({
   const router = useRouter();
 
   const todayIso = new Date().toISOString().slice(0, 10);
-  /** Suggested start: the latest a cohort may start and still have its graduates productive in the selected year (Phase 6). */
-  const suggestStart = (m: ProgramOption): string => goalTiming(s.selectedYear, m, todayIso).startBy;
+  /** The program on the college's calendar, when the page gave us both — else dates fall back to a rough count of weeks. */
+  const plannerModel = (m: ProgramOption): PlannerModel | null => (calendar && m.termList?.length ? { calendarMode: m.calendarMode ?? "semester", terms: m.termList } : null);
+  /** Starts for n offerings that graduate in the selected year, spaced through it. Without a calendar: the
+   *  latest start that still has graduates productive in the year (Phase 6), for every slot. */
+  const startsFor = (m: ProgramOption, n: number): string[] => {
+    const pm = plannerModel(m);
+    if (pm && calendar) return suggestedStarts(s.selectedYear, n, pm, calendar, todayIso);
+    return Array.from({ length: n }, () => goalTiming(s.selectedYear, m, todayIso).startBy);
+  };
+  /** Every start that would graduate in the selected year — the choices a slot's start offers. */
+  const startChoices = (m: ProgramOption): string[] => { const pm = plannerModel(m); return pm && calendar ? candidateStarts(s.selectedYear, pm, calendar, todayIso) : []; };
+  /** The offering's last day, aligned to the college's calendar exactly as its own page aligns it. */
   const stopDateOf = (startIso: string | null | undefined, m: ProgramOption): string | null => {
     if (!startIso) return null;
     const d = new Date(startIso + "T00:00:00Z");
     if (isNaN(d.getTime())) return null;
+    const pm = plannerModel(m);
+    if (pm && calendar) return offeringEnd(startIso, pm, calendar).endIso;
     // instructional weeks + ~2-week breaks between terms
     d.setUTCDate(d.getUTCDate() + (m.spanWeeks + Math.max(0, m.terms - 1) * 2) * 7);
     return d.toISOString().slice(0, 10);
   };
   // A fixed locale: the server and the browser must render the same text or React reports a hydration mismatch (418/423/425).
   const fmtMY = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) : "—");
+  const fmtD = (iso: string | null) => (iso ? new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "—");
 
   /** Undo a lock-in: deletes the offering (confirmed), slot returns to a
    *  plannable start date. Students are detached, never deleted. */
@@ -527,10 +547,17 @@ export function GoalPlanner({
                   const setCount = (next: number) => {
                     const target = Math.max(1, lockedCount, next);
                     let list = [...slots];
-                    while (list.length < target) list.push({ startDate: list[list.length - 1]?.startDate ?? suggestStart(m), goal: 0, termOverrides: [], campusId: list[list.length - 1]?.campusId ?? null });
+                    while (list.length < target) list.push({ startDate: null, goal: 0, termOverrides: [], campusId: list[list.length - 1]?.campusId ?? null });
                     while (list.length > target && !list[list.length - 1].locked) list.pop();
-                    withSlots(respread(list), { offeringCount: target });
+                    withSlots(respace(respread(list)), { offeringCount: target });
                   };
+                  // The unlocked offerings take their places through the goal year again (a locked one keeps its real dates).
+                  const respace = (list: OfferingSlot[]): OfferingSlot[] => {
+                    const open = list.filter((o) => !o.locked);
+                    const starts = startsFor(m, open.length); let i = 0;
+                    return list.map((o) => (o.locked ? o : { ...o, startDate: starts[i++] ?? o.startDate ?? null }));
+                  };
+                  const choices = startChoices(m);
                   const removeSlot = (oi: number) => { if (slots[oi]?.locked) return; const next = slots.filter((_, j) => j !== oi); withSlots(next, { offeringCount: Math.max(1, next.length) }); };
                   const setSlot = (oi: number, patch: Partial<OfferingSlot>) => withSlots(slots.map((o, j) => (j === oi ? { ...o, ...patch } : o)));
                   const setSlotTargets = (oi: number, patch: Partial<OfferingTargets>) => {
@@ -564,6 +591,8 @@ export function GoalPlanner({
                         </span>
                         {slots.length !== nSuggested && <span className="text-slate-400">the class size says {nSuggested} — your call</span>}
                         {slots.filter((o) => !o.locked).length > 1 && <button onClick={() => withSlots(respread(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title="give the unlocked offerings equal shares of their goal">spread evenly</button>}
+                        {slots.some((o) => !o.locked) && choices.length > 0 && <button onClick={() => withSlots(respace(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title={`space the unlocked offerings' starts through ${s.selectedYear} so each finishes inside it`}>space the starts across {s.selectedYear}</button>}
+                        {choices.length === 0 && plannerModel(m) && <span className="text-amber-700">no start left can finish in {s.selectedYear} — pick a later year</span>}
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500">One offering is one class of up to <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong> students{m.sessionMax && Object.keys(m.sessionMax).length ? <>, run as sections where a session holds fewer ({(["CLASS", "LAB", "CLINICAL"] as const).filter((k) => m.sessionMax?.[k]).map((k) => `${k.toLowerCase()} ${fmt.num(m.sessionMax![k]!)}`).join(" · ")})</> : null}. A bigger goal takes more offerings, not a bigger class.</p>
 
@@ -581,7 +610,7 @@ export function GoalPlanner({
                                 {o.locked ? (
                                   <>
                                     <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
-                                    <span className="tabular-nums text-slate-500">starts {fmtMY(o.startDate ?? null)} · ends ~{fmtMY(stopDateOf(o.startDate, m))}{(() => { const loc = allInsts.find((x) => x.id === o.cohortId)?.location; return loc ? ` · ${loc}` : ""; })()}</span>
+                                    <span className="tabular-nums text-slate-500">{fmtD(o.startDate ?? null)} → {(() => { const inst = allInsts.find((x) => x.id === o.cohortId); return inst?.endDate ? fmtD(inst.endDate) : fmtD(stopDateOf(o.startDate, m)); })()}{(() => { const loc = allInsts.find((x) => x.id === o.cohortId)?.location; return loc ? ` · ${loc}` : ""; })()}</span>
                                     {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
                                     <span className="text-[10px] text-slate-400">edits below save to this offering</span>
                                     <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the offering (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
@@ -590,9 +619,16 @@ export function GoalPlanner({
                                   <>
                                     <label className="flex items-center gap-1.5">
                                       <span className="text-slate-500">starts</span>
-                                      <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" />
+                                      {choices.length > 0 ? (
+                                        <select value={o.startDate && choices.includes(o.startDate) ? o.startDate : o.startDate ? "__custom" : ""} onChange={(e) => { if (e.target.value === "__custom") return; setSlot(oi, { startDate: e.target.value || null }); }} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" title={`every start that finishes inside ${s.selectedYear}`}>
+                                          <option value="">— pick a start —</option>
+                                          {o.startDate && !choices.includes(o.startDate) && <option value="__custom">{fmtD(o.startDate)} (your own date)</option>}
+                                          {choices.map((c) => <option key={c} value={c}>{fmtD(c)}</option>)}
+                                        </select>
+                                      ) : null}
+                                      <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className={`rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none ${choices.length > 0 ? "w-[7.5rem] text-[11px] text-slate-500" : ""}`} title="or type any date" />
                                     </label>
-                                    <span className="tabular-nums text-slate-500">ends ~{fmtMY(stopDateOf(o.startDate, m))}</span>
+                                    {(() => { const end = stopDateOf(o.startDate, m); const endYear = end ? Number(end.slice(0, 4)) : null; const off = endYear != null && plannerModel(m) && endYear !== s.selectedYear; return <span className={`tabular-nums ${off ? "font-medium text-amber-700" : "text-slate-500"}`}>ends {fmtD(end)}{off ? ` — that graduates in ${endYear}, not ${s.selectedYear}` : ""}</span>; })()}
                                     <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}{(() => { const secs = sectionsFor(seats, m.sessionMax).filter((x) => x.sections > 1); return secs.length ? ` · runs as ${secs.map((x) => `${fmt.num(x.sections)} ${x.kind.toLowerCase()} sections`).join(", ")}` : ""; })()}</span>
                                     {campuses.length > 0 && <label className="flex items-center gap-1.5"><span className="text-slate-500">at</span><select value={o.campusId ?? ""} onChange={(e) => setSlot(oi, { campusId: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none"><option value="">— where? —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
                                     {(!o.startDate || tv.goal <= 0) && <span className="ml-auto text-[11px] text-amber-700">{!o.startDate ? "set a start date to lock in" : "enter how many productive workers this offering covers to lock in"}</span>}
