@@ -35,7 +35,7 @@ const toMin = (t: string | null | undefined) => { if (!t) return null; const [h,
 
 /** Every dated session of every offering, split two ways: the clinical sections that need a
  *  home (demand) and the campus classes and labs the cohort is in (when a clinical cannot be). */
-export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCodeRow[]): { demand: DemandUnit[]; campus: CampusBlock[] } {
+export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCodeRow[]): { demand: DemandUnit[]; campus: CampusBlock[]; holidays: Record<string, string> } {
   const rows: DatedInstance[] = cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
@@ -52,7 +52,7 @@ export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCod
     campus.push({ cohortId: r.cohortId, date: r.dateIso, startMin: start, endMin: start + Math.round(hours * 60), label: `${r.courseCode ?? r.courseTitle} ${r.session.kind === "LAB" ? "lab" : "class"}` });
   }
   const holidays = Object.assign({}, ...cohorts.map((c) => c.holidays ?? {})) as Record<string, string>;
-  return { demand: demandUnits(rows, rotations, moves, familyByCohort, holidays), campus };
+  return { demand: demandUnits(rows, rotations, moves, familyByCohort, holidays), campus, holidays };
 }
 
 /** The demand the levers leave: chosen offerings (none chosen = all) inside the window. */
@@ -62,15 +62,15 @@ export function filterDemand(demand: DemandUnit[], levers: Pick<SchedulerLevers,
 }
 
 /** The recommended plan for this demand against this supply under these levers. Hand-made bookings take seats; an earlier applied plan does not (it is about to be replaced). */
-export function planFor(demand: DemandUnit[], supply: SchedulerSupply, policy: Policy, campus: CampusBlock[] = []): Plan {
+export function planFor(demand: DemandUnit[], supply: SchedulerSupply, policy: Policy, campus: CampusBlock[] = [], holidays: Record<string, string> = {}): Plan {
   const manualBookings = supply.bookings.filter((b) => b.note !== AUTO_PLAN_NOTE);
-  return recommendPlan({ demand, campus, assets: supply.assets, overrides: supply.overrides, existingBookings: manualBookings, preceptors: supply.preceptors, instructors: supply.instructors, students: supply.students, familyAgreements: supply.familyAgreements, siteCaps: supply.siteCaps, confirmedSettings: supply.confirmedSettings, policy });
+  return recommendPlan({ demand, campus, holidays, assets: supply.assets, overrides: supply.overrides, existingBookings: manualBookings, preceptors: supply.preceptors, instructors: supply.instructors, students: supply.students, familyAgreements: supply.familyAgreements, siteCaps: supply.siteCaps, confirmedSettings: supply.confirmedSettings, policy });
 }
 
 /** The whole path in one call, for the server: offerings + supply + levers → the plan. */
 export function buildSchedulerPlan(cohorts: CapacityCohort[], supply: SchedulerSupply, levers: SchedulerLevers): Plan {
-  const { demand, campus } = schedulerModel(cohorts, supply.rotations);
-  return planFor(filterDemand(demand, levers), supply, levers.policy, campus);
+  const { demand, campus, holidays } = schedulerModel(cohorts, supply.rotations);
+  return planFor(filterDemand(demand, levers), supply, levers.policy, campus, holidays);
 }
 
 /** A placed section as the apply action writes it: what was booked, plus everything the calendar

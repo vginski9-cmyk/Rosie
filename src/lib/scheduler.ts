@@ -126,6 +126,8 @@ export interface SchedulerInput {
   demand: DemandUnit[];
   /** Campus classes and labs, dated — a clinical never moves onto a day the cohort is in class, and never overlaps one on its own day. */
   campus?: CampusBlock[];
+  /** Observed holidays (ISO date → label): a shift never moves onto one, and a shift that falls on one moves off it when the Day lever allows. */
+  holidays?: Record<string, string>;
   assets: AssetLite[];
   overrides: AssetDayOverride[];
   /** Bookings already on the books that are NOT part of this plan (they consume seats). */
@@ -396,8 +398,18 @@ export function recommendPlan(input: SchedulerInput): Plan {
   type CandResult = { cands: Cand[]; partial: Cand[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null; /** Sites still eligible at the stage everything was eliminated (Phase 5). */ eligible: string[] };
   const sitesOf = (pool: AssetLite[]) => [...new Set(pool.map((a) => a.facilityName))].sort();
   const candidates = (u: DemandUnit, pol: Policy): CandResult => {
+    const r = candidatesInner(u, pol);
+    // A holiday shift that found nowhere else in its week is still "on a holiday, needs moving": that is the
+    // fix the reader can make, and the seat shortage on the other days is the reason it could not move itself.
+    if (pol.skipHolidays && u.holiday && !r.cands.length && r.reason && r.reason !== "holiday") return { ...r, reason: "holiday", partial: [] };
+    return r;
+  };
+  const candidatesInner = (u: DemandUnit, pol: Policy): CandResult => {
     const none = (reason: UnmetReason, eligible: string[] = []): CandResult => ({ cands: [], partial: [], reason, biggest: null, eligible });
-    if (pol.skipHolidays && u.holiday) return none("holiday");
+    // A shift on an observed holiday: left for moving with the Day lever at exact dates; with ± days it moves
+    // off the holiday inside its week (never onto another holiday) like any other move.
+    const onHoliday = !!(pol.skipHolidays && u.holiday);
+    if (onHoliday && pol.flexibleDays === 0) return none("holiday");
     if (!u.settingCode) return none("unmapped-setting");
     let pool = live.filter((a) => a.settingCode === u.settingCode);
     if (!pool.length) return none("no-asset-for-setting");
@@ -415,8 +427,9 @@ export function recommendPlan(input: SchedulerInput): Plan {
       if (!pool.length) return none("drive", before);
     }
     const eligibleSites = sitesOf(pool);
-    const dates: { date: string; movedDays: number }[] = [{ date: u.date, movedDays: 0 }];
-    for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday) dates.push({ date, movedDays: sign * d }); }
+    const dates: { date: string; movedDays: number }[] = onHoliday ? [] : [{ date: u.date, movedDays: 0 }];
+    for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday && !(pol.skipHolidays && input.holidays?.[date])) dates.push({ date, movedDays: sign * d }); }
+    if (!dates.length) return none("holiday");
     const blocks = pol.flexibleShift ? [u.block, ...BLOCKS.filter((b) => b !== u.block)] : [u.block];
     // Every date × block the cohort is free for: never a moved date the cohort is on campus, never an overlap on its own day.
     const notInClass = dates.flatMap((d) => blocks.filter((b) => !campusClash(u, d.date, b, d.movedDays !== 0)).map((b) => ({ ...d, block: b })));
@@ -483,8 +496,10 @@ export function recommendPlan(input: SchedulerInput): Plan {
     return { cands, partial, reason: null, biggest, eligible: [...new Set(staffed.map((P) => P.siteName))].sort() };
   };
 
-  // Constrained-first: fewest candidates first, then earliest date.
-  const order = input.demand.map((u) => ({ u, n: candidates(u, policy).cands.length })).sort((a, b) => (a.n === 0 ? 1e9 : a.n) - (b.n === 0 ? 1e9 : b.n) || a.u.date.localeCompare(b.u.date) || a.u.sectionIndex - b.u.sectionIndex).map((x) => x.u);
+  // Constrained-first: fewest candidates first, then earliest date. A shift that is only moving because it
+  // fell on a holiday goes last of all: it takes the seats left over, never a regular shift's own seat.
+  const displaced = (u: DemandUnit) => (policy.skipHolidays && u.holiday ? 1 : 0);
+  const order = input.demand.map((u) => ({ u, n: candidates(u, policy).cands.length })).sort((a, b) => displaced(a.u) - displaced(b.u) || (a.n === 0 ? 1e9 : a.n) - (b.n === 0 ? 1e9 : b.n) || a.u.date.localeCompare(b.u.date) || a.u.sectionIndex - b.u.sectionIndex).map((x) => x.u);
 
   const assignments: Assignment[] = [];
   const unmet: Unmet[] = [];
@@ -589,7 +604,7 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
     case "drive": return `${who}: every allowed site is farther than the students' drive cap from home.`;
     case "class-day": return `${who}: the cohort is in class or lab during that shift.`;
     case "student-busy": return `${who}: these students are already placed on another clinical shift then.`;
-    case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving.`;
+    case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving${eligible.length ? `, and no other day that week under the Day lever has a free seat at ${sites}` : ""}.`;
     case "unmapped-setting": return `${who}: rotation type "${u.rotationType}" is not mapped to an asset setting.`;
     case "no-asset-for-setting": return `${who}: no partner reports an asset of setting ${u.settingCode}.`;
   }
@@ -602,7 +617,12 @@ function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit
     const b = candidates(u, { ...DEFAULT_POLICY, agreements: "any", maxRing: "any" }).biggest;
     fixes.push(`a ${u.seats}-student section needs ${u.seats} ${u.settingCode} seats at one site on one shift; the largest site has ${b?.seats ?? 0}${b ? ` (${b.site})` : ""} — lower students per section on this session, raise learners per shift on the rooms, or let preceptor-led sections split across sites`);
   }
-  if (reason === "holiday") return ["move this shift off the holiday (design & sequence — this offering)"];
+  if (reason === "holiday") {
+    const fixes: string[] = [];
+    for (const t of [{ label: "allow ± 1 day inside the week", pol: { flexibleDays: 1 as const } }, { label: "allow ± 2 days inside the week", pol: { flexibleDays: 2 as const } }]) if (candidates(u, { ...DEFAULT_POLICY, ...t.pol }).cands.length > 0) { fixes.push(t.label); break; }
+    fixes.push("move this shift off the holiday (design & sequence — this offering)");
+    return fixes;
+  }
   if (reason === "class-day" || reason === "student-busy") {
     for (const t of [{ label: "allow ± 1 day inside the week", pol: { flexibleDays: 1 as const } }, { label: "allow ± 2 days inside the week", pol: { flexibleDays: 2 as const } }, { label: "allow a different shift block", pol: { flexibleShift: true } }]) if (candidates(u, { ...DEFAULT_POLICY, ...t.pol }).cands.length > 0) fixes.push(t.label);
     fixes.push(reason === "student-busy" ? "two clinical sessions put the same students on the same shift — move one to another day or shift block (design & sequence — this offering)" : "move the class or lab off this shift's hours, or put the clinical on a day the cohort is not on campus (design & sequence — this offering)");

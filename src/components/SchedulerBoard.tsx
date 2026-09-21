@@ -89,7 +89,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   // stale) while the new plan is built, instead of freezing with the old numbers.
   const builtLevers = useDeferredValue(levers);
   const builtDemand = useMemo(() => (hydrated ? filterDemand(demandAll, builtLevers) : []), [demandAll, builtLevers, hydrated]);
-  const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus), [builtDemand, supply, builtLevers.policy, model.campus]);
+  const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus, model.holidays), [builtDemand, supply, builtLevers.policy, model.campus, model.holidays]);
   const recomputing = builtLevers !== levers;
   const computing = !hydrated || recomputing;
   const s = plan.summary;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Plan, Policy } from "@/lib/scheduler";
+import { REASON_LABEL, type Plan, type Policy } from "@/lib/scheduler";
 import { fmt, dec } from "@/lib/format";
 import { driveBandPhrase } from "@/lib/geo";
 
@@ -78,7 +78,11 @@ export function SchedulerCapacity({ plan, policy, window, onOpenLevers }: { plan
   const ring = policy.maxRing === "any" ? "any drive time" : `a ${driveBandPhrase(policy.maxRing) ?? policy.maxRing}`;
   const days = policy.flexibleDays ? `±${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact dates";
   const shift = policy.flexibleShift ? "any shift block" : "the session's shift block";
-  const verdict = need === 0 ? "Nothing is scheduled in this window." : have >= need && staffable >= need ? `You have enough seats and enough preceptors for every shift — ${n0(have - need)} seats to spare.` : have >= need ? `You have enough seats (${n0(have - need)} to spare) but not enough preceptors on the rosters to staff them all — about ${n0(need - staffable)} learner-shifts would go unstaffed.` : `You are ${n0(need - have)} seats short on the days you need them, before staffing is even considered.`;
+  // What the plan actually left unplaced, by reason — the verdict never says "enough" while shifts sit unplaced.
+  const unmetByReason = (() => { const m = new Map<string, number>(); for (const u of plan.unmet) m.set(u.reason, (m.get(u.reason) ?? 0) + u.unit.seats); return [...m.entries()].sort((a, b) => b[1] - a[1]); })();
+  const unmetSeats = unmetByReason.reduce((n, [, v]) => n + v, 0);
+  const unmetClause = unmetByReason.map(([r, v]) => `${n0(v)} ${REASON_LABEL[r as keyof typeof REASON_LABEL]?.split(" — ")[0] ?? r}`).join("; ");
+  const verdict = need === 0 ? "Nothing is scheduled in this window." : unmetSeats > 0 ? `${n0(unmetSeats)} of ${n0(need)} learner-shifts could not be placed under these levers: ${unmetClause}. Seats overall are ${have >= need ? `not the problem (${n0(have - need)} to spare across the window)` : `also short (${n0(need - have)} short on the days you need them)`}.` : have >= need && staffable >= need ? `Every shift found a seat, with ${n0(have - need)} seats to spare across the window and enough preceptors on the rosters.` : have >= need ? `Every shift found a seat (${n0(have - need)} to spare) but not enough preceptors on the rosters to staff them all — about ${n0(need - staffable)} learner-shifts would go unstaffed.` : `You are ${n0(need - have)} seats short on the days you need them, before staffing is even considered.`;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -115,7 +119,7 @@ export function SchedulerCapacity({ plan, policy, window, onOpenLevers }: { plan
 
       {/* What is left over */}
       <div className="mt-4 grid gap-2 text-xs sm:grid-cols-3">
-        <div className={`rounded-lg px-3 py-2 ${s.unmetShifts ? "bg-rose-50 text-rose-900" : "bg-emerald-50 text-emerald-900"}`}><div className="text-[10px] uppercase tracking-wide opacity-70">Shifts with no seat</div><div className="text-lg font-bold">{n0(s.unmetShifts)}</div><div className="opacity-80">{s.unmetShifts ? `${signed(c.headroomOnDemandDays)} seats overall — a shortage on particular days, settings or sites; the bottlenecks tab says which` : "every shift found a seat"}</div></div>
+        <div className={`rounded-lg px-3 py-2 ${s.unmetShifts ? "bg-rose-50 text-rose-900" : "bg-emerald-50 text-emerald-900"}`}><div className="text-[10px] uppercase tracking-wide opacity-70">Shifts left unplaced</div><div className="text-lg font-bold">{n0(s.unmetShifts)}</div><div className="opacity-80">{s.unmetShifts ? `${unmetClause} — the bottlenecks tab says what would place each (${signed(c.headroomOnDemandDays)} seats across the window is not the same as a seat on the day)` : "every shift found a seat"}</div></div>
         <div className={`rounded-lg px-3 py-2 ${s.preceptorShifts > s.preceptorsAssigned ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-900"}`}><div className="text-[10px] uppercase tracking-wide opacity-70">Placed but nobody to precept</div><div className="text-lg font-bold">{n0(Math.max(0, s.preceptorShifts - s.preceptorsAssigned))}</div><div className="opacity-80">preceptor-shifts with no named preceptor{!policy.requirePreceptor ? " (the Preceptors lever is off, so seats count without one)" : ""}</div></div>
         <div className={`rounded-lg px-3 py-2 ${plan.blockers.some((b) => b.blocking) ? "bg-rose-50 text-rose-900" : "bg-emerald-50 text-emerald-900"}`}><div className="text-[10px] uppercase tracking-wide opacity-70">Would stop an apply</div><div className="text-lg font-bold">{n0(plan.blockers.filter((b) => b.blocking).reduce((n, b) => n + b.shifts, 0))}</div><div className="opacity-80">{plan.blockers.filter((b) => b.blocking).map((b) => b.kind.replace(/-/g, " ")).join(", ") || "nothing"}</div></div>
       </div>

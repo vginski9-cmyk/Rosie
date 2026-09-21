@@ -113,6 +113,23 @@ describe("recommendPlan", () => {
     expect(recommendPlan(base({ demand: [h], assets: [A] })).unmet[0].reason).toBe("holiday");
     expect(recommendPlan(base({ demand: [h], assets: [A] }, { skipHolidays: false })).assignments).toHaveLength(1);
   });
+  it("with ± days allowed, a holiday shift moves off the holiday inside its week — never onto another holiday", () => {
+    const h = unit({ id: "u1", holiday: "Labor Day" }); // Mon 2027-08-23
+    const moved = recommendPlan(base({ demand: [h], assets: [A], holidays: { "2027-08-23": "Labor Day" } }, { flexibleDays: 1 }));
+    expect(moved.assignments).toHaveLength(1);
+    expect(moved.assignments[0].date).toBe("2027-08-24");
+    expect(moved.assignments[0].movedDays).toBe(1);
+    expect(moved.blockers.find((b) => b.kind === "holiday")).toBeUndefined();
+    // Tuesday is a holiday too: with ± 1 day nothing is left; ± 2 reaches Wednesday.
+    const two = { "2027-08-23": "Labor Day", "2027-08-24": "Observed" };
+    expect(recommendPlan(base({ demand: [h], assets: [A], holidays: two }, { flexibleDays: 1 })).unmet[0]?.reason).toBe("holiday");
+    expect(recommendPlan(base({ demand: [h], assets: [A], holidays: two }, { flexibleDays: 2 })).assignments[0]?.date).toBe("2027-08-25");
+    // An ordinary shift that may move never moves onto a holiday either.
+    const tue = unit({ id: "u2", date: "2027-08-24", weekMonday: "2027-08-23" });
+    const closedTue = asset({ id: "a9", employerId: "e9", facilityName: "Wed-only", days: "Wed", agreementStatus: "secured" });
+    const p = recommendPlan(base({ demand: [tue], assets: [closedTue], holidays: { "2027-08-23": "Labor Day" } }, { flexibleDays: 1 }));
+    expect(p.assignments[0]?.date).toBe("2027-08-25");
+  });
 
   it("continuity keeps a section at its earlier site; spread balances instead", () => {
     const A2 = asset({ id: "a2", employerId: "e1", facilityName: "Moore Regional" });
