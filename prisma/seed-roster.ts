@@ -14,7 +14,7 @@ import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
 import { sessionDate } from "../src/lib/term";
 import { holidayMap } from "../src/lib/academiccalendar";
-import { offeringName, shortTermProgram, campusLabel } from "../src/lib/offeringname";
+import { offeringName, shortTermProgram, campusLabel, programDetail } from "../src/lib/offeringname";
 import { clinicalHostsFor } from "../src/lib/hosts";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
@@ -209,6 +209,8 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
   for (const o of offerings) {
     const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
+    // Names are unique across the family (one delivery model per program at the Nurse Aide colleges), the model's label telling two same-month runs apart.
+    const familyNames = program.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : program.cohorts.map((c) => c.name);
     const campus = (o.campus ? campuses.find((c) => c.name === o.campus) : null) ?? campuses.find((c) => c.isMain) ?? campuses[0] ?? null;
     let rates = { ...BENCHMARK_RATES };
     if (program.family?.goalPlan) { try { const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
@@ -221,7 +223,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const lastEnd = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
     // Named the way lock-in names an offering: by class year, or by start month and place for a short-term program.
     const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
-    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), existing: program.cohorts.map((c) => c.name) });
+    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), detail: programDetail(program.name), existing: familyNames });
     const startD = new Date(o.start + "T00:00:00Z");
     // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
     const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;

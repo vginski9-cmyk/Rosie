@@ -2253,8 +2253,11 @@ async function capacityModelFor(institution: { id: string; name: string }) {
   const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId: institution.id, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
     .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
   // The college's holiday rule (lib/holidayrule): how a session that lands on one of those days moves.
-  const holidayRuleRaw = (await prisma.institution.findUnique({ where: { id: institution.id }, select: { holidayRule: true } }))?.holidayRule;
+  const instRow = await prisma.institution.findUnique({ where: { id: institution.id }, select: { holidayRule: true, springStart: true, summerStart: true, fallStart: true } });
+  const holidayRuleRaw = instRow?.holidayRule;
   const holidayRule: HolidayRule = isHolidayRule(holidayRuleRaw) ? holidayRuleRaw : DEFAULT_HOLIDAY_RULE;
+  // The college's semester anchors: the boards bucket each week by the calendar semester its date falls in.
+  const anchors = { springStart: instRow?.springStart ?? "01-08", summerStart: instRow?.summerStart ?? "05-28", fallStart: instRow?.fallStart ?? "08-15" };
 
   const programs = await prisma.program.findMany({
     where: { institutionId: institution.id, cohorts: { some: { status: { in: ["planned", "active"] } } } },
@@ -2359,7 +2362,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         institutionId: institution.id, institution: institution.name,
         students: co._count.students,
-        enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays, holidayRule,
+        enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays, holidayRule, anchors,
         // One row per booked section — the calendar's draggable shift instances.
         meetings: co.meetings.map((m) => ({
           id: m.id, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
@@ -3207,9 +3210,11 @@ export async function getFamilyClinicalHoursBridge(familyId: string): Promise<{ 
  *  the program pattern. `institutionId` omitted or "all" → every institution. */
 export async function getCalendarProvenance(institutionId?: string | null) {
   const where = institutionId && institutionId !== ALL_INSTITUTIONS ? { id: institutionId } : {};
-  const insts = await prisma.institution.findMany({ where, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { academicEvents: { where: { kind: "term_start" } } } }, programs: { select: { cohorts: { where: { status: { in: ["planned", "active"] } }, select: { cohortTerms: { select: { source: true } } } } } } } });
+  const insts = await prisma.institution.findMany({ where, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { academicEvents: { where: { kind: "term_start" } } } }, programs: { select: { calendarMode: true, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { cohortTerms: { select: { source: true } } } } } } } });
   const per = insts.map((i) => {
-    const terms = i.programs.flatMap((p) => p.cohorts.flatMap((c) => c.cohortTerms));
+    // A continuing-education class (calendarMode continuous) is dated by its own first day, not by a semester the
+    // calendar could have supplied: its chosen dates count as taken from the calendar, not as hand-set stand-ins.
+    const terms = i.programs.flatMap((p) => p.cohorts.flatMap((c) => c.cohortTerms.map((t) => ({ source: p.calendarMode === "continuous" && (t.source === "chosen" || t.source === "manual") ? "calendar" : t.source }))));
     const n = (src: string[]) => terms.filter((t) => src.includes(t.source ?? "")).length;
     return { id: i.id, name: i.name, calendarImported: i._count.academicEvents > 0, termsTotal: terms.length, termsFromCalendar: n(["calendar"]), termsHandSet: n(["chosen", "manual"]), termsPattern: n(["pattern", "template", ""]) };
   });

@@ -58,3 +58,11 @@ export function runDetail(days: string[], startTime?: string | null): string {
   const tod = h >= 17 ? "evening" : h >= 12 ? "afternoon" : "daytime";
   return d ? `${d} ${tod}` : tod;
 }
+
+/** What tells one delivery model from another inside a family: the part of the program's name after the dash,
+ *  without the word "offering" — "Nurse Aide Level I — 11-week daytime offering" → "11-week daytime". */
+export function programDetail(programName: string): string | null {
+  const m = /[—–-]\s*(.+)$/.exec(programName);
+  const d = (m ? m[1] : "").replace(/\boffering\b/i, "").replace(/\s+/g, " ").trim();
+  return d || null;
+}

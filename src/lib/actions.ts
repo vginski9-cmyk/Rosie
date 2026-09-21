@@ -1230,12 +1230,13 @@ export async function createOffering(programId: string, formData: FormData) {
   // A blank name is filled in the way lock-in names an offering: by class year, or by start month and place.
   let name = str(formData.get("name"));
   if (!name) {
-    const { offeringName, shortTermProgram, campusLabel } = await import("./offeringname");
-    const program = await prisma.program.findUnique({ where: { id: programId }, select: { launchCadence: true, terms: { select: { startWeek: true, endWeek: true } }, cohorts: { select: { name: true } } } });
+    const { offeringName, shortTermProgram, campusLabel, programDetail } = await import("./offeringname");
+    const program = await prisma.program.findUnique({ where: { id: programId }, select: { name: true, familyId: true, launchCadence: true, terms: { select: { startWeek: true, endWeek: true } }, cohorts: { select: { name: true } } } });
+    const familyNames = program?.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : (program?.cohorts ?? []).map((c) => c.name);
     const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId }, select: { name: true, city: true, isMain: true } }) : null;
     const spanWeeks = (program?.terms ?? []).reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
     const startIso = startD ? startD.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program?.launchCadence, spanWeeks }), startIso, endIso: startIso, campus: campusLabel(campus), existing: (program?.cohorts ?? []).map((c) => c.name) });
+    name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program?.launchCadence, spanWeeks }), startIso, endIso: startIso, campus: campusLabel(campus), detail: program ? programDetail(program.name) : null, existing: familyNames });
   }
   const cohort = await prisma.cohort.create({
     data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null, campusId, locationNote },
@@ -1262,13 +1263,15 @@ export async function lockInInstantiation(
   cohortId: string; name: string }> {
   const { deriveCohortTargets } = await import("./pipeline");
   const { BENCHMARK_RATES } = await import("./northstar");
-  const { offeringName, shortTermProgram, campusLabel } = await import("./offeringname");
+  const { offeringName, shortTermProgram, campusLabel, programDetail } = await import("./offeringname");
 
   const program = await prisma.program.findUnique({
     where: { id: programId },
     include: { terms: { orderBy: { index: "asc" } }, family: { select: { goalPlan: true } }, cohorts: { select: { name: true } } },
   });
   if (!program) throw new Error("Program not found");
+  // Names are unique across the family, the delivery model's label telling two same-month runs apart.
+  const familyNames = program.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : program.cohorts.map((c) => c.name);
   const campus = input.campusId ? await prisma.campus.findFirst({ where: { id: input.campusId, institutionId: program.institutionId }, select: { id: true, name: true, city: true, isMain: true } }) : null;
 
   // The SAME rates the goal planner saves — one plan, every surface reads it.
@@ -1304,7 +1307,7 @@ export async function lockInInstantiation(
 
   // Named by the year it lands its graduates, or — a short-term program — by when and where it starts.
   const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
-  const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: input.startDate, endIso: `${endYear}-01-01`, campus: campusLabel(campus), existing: program.cohorts.map((c) => c.name) });
+  const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: input.startDate, endIso: `${endYear}-01-01`, campus: campusLabel(campus), detail: programDetail(program.name), existing: familyNames });
 
   const startD = new Date(input.startDate);
   const cohort = await prisma.cohort.create({

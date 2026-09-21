@@ -8,6 +8,7 @@ import {
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
 import { dec, fmt } from "@/lib/format";
+import { semesterAt } from "@/lib/term";
 import { MultiSelect } from "@/components/MultiSelect";
 import { drillDown, type DrillAssignment, type DrillResult, type DrillScale } from "@/lib/staffingdrill";
 import type { ColLeaf } from "@/components/FteCharts";
@@ -56,6 +57,8 @@ export interface CapacityCohort {
   holidays?: Record<string, string>;
   /** The college's holiday rule (lib/holidayrule) — how a session on a holiday is moved. */
   holidayRule?: import("@/lib/holidayrule").HolidayRule;
+  /** The college's semester anchors (MM-DD): the boards bucket each week by the calendar semester its date falls in. */
+  anchors?: { springStart: string; summerStart: string; fallStart: string };
   meetings?: ShiftMeeting[];
   /** Per-occurrence shift moves for this cohort (one chip, one date). */
   moves?: ShiftMoveInfo[];
@@ -278,7 +281,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         </div>
       </div>
 
-      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} assignments={assignments} assumptionsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.assumptions]))} />}
+      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} assignments={assignments} assumptionsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.assumptions]))} anchorsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.anchors]))} />}
       {view === "sites" && <SitesView rows={instances} sites={sites} />}
       {view === "coverage" && <CoverageView rows={instances} cohorts={cohorts} rooms={rooms} people={people} sites={sites} />}
     </div>
@@ -290,7 +293,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
 // narrative with the conversion math, a what-to-do list with real deadlines,
 // then week-by-week (people OR contact hours, split class/lab/clinical) with a
 // day-by-day drill-down inside every week.
-function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null; assignments: DrillAssignment[]; assumptionsByCohort: Map<string, WorkloadAssumptions> }) {
+function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anchorsByCohort }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null; assignments: DrillAssignment[]; assumptionsByCohort: Map<string, WorkloadAssumptions>; /** Each cohort's college semester anchors — a week is bucketed by the calendar semester its date falls in. */ anchorsByCohort: Map<string, { springStart: string; summerStart: string; fallStart: string } | undefined> }) {
   const weekly = useMemo(() => weeklyNeedByKind(rows), [rows]);
   // Drill-down: the bar clicked (its rows), and who fills it.
   const [drill, setDrill] = useState<{ key: string; label: string; scale: DrillScale } | null>(null);
@@ -380,13 +383,22 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
   const KIND_ORDER = ["CLASS", "LAB", "CLINICAL"];
   const KIND_NAME: Record<string, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
 
+  // A week belongs to the calendar semester its date falls in (the college's own anchors), not to the
+  // season its term started in: a 20-week class that starts in November has Fall weeks and Spring weeks.
+  const semOf = (r: DatedInstance): { year: string; sem: string } => {
+    const d = r.dateIso ?? r.mondayIso;
+    if (!d) return { year: r.mondayIso?.slice(0, 4) ?? "", sem: r.semester };
+    const s = semesterAt(new Date(d + "T00:00:00Z"), anchorsByCohort.get(r.cohortId));
+    return { year: String(s.year), sem: s.season };
+  };
+
   /** Faculty & preceptor FTEs (semesterly): Year → Semester → Session Type. */
   const semBands: ColBand[] = useMemo(() => {
     const acc = new Map<string, Map<string, Map<string, [number, number]>>>();
     for (const r of rows) {
-      const year = r.mondayIso!.slice(0, 4);
+      const { year, sem } = semOf(r);
       const y = acc.get(year) ?? new Map(); acc.set(year, y);
-      const s = y.get(r.semester) ?? new Map(); y.set(r.semester, s);
+      const s = y.get(sem) ?? new Map(); y.set(sem, s);
       const k = s.get(r.session.kind) ?? [0, 0];
       k[0] += nz2(r.computed.AA); k[1] += nz2(r.computed.AD);
       s.set(r.session.kind, k);
@@ -394,7 +406,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
     // The semester's real span: first dated session → last dated session (a
     // summer term fitted into ten weeks ends in early August, not September).
     const spanOf = (year: string, sem: string) => {
-      const ds = rows.filter((r) => r.mondayIso!.slice(0, 4) === year && r.semester === sem && r.dateIso).map((r) => r.dateIso as string).sort();
+      const ds = rows.filter((r) => { const x = semOf(r); return x.year === year && x.sem === sem && r.dateIso; }).map((r) => r.dateIso as string).sort();
       return ds.length ? `${fmtMD(ds[0])} → ${fmtMD(ds[ds.length - 1])}` : undefined;
     };
     return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
@@ -413,9 +425,9 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
   const weekBands: ColBand[] = useMemo(() => {
     const acc = new Map<string, Map<string, Map<string, [number, number]>>>();
     for (const r of rows) {
-      const year = r.mondayIso!.slice(0, 4);
+      const { year, sem } = semOf(r);
       const y = acc.get(year) ?? new Map(); acc.set(year, y);
-      const s = y.get(r.semester) ?? new Map(); y.set(r.semester, s);
+      const s = y.get(sem) ?? new Map(); y.set(sem, s);
       const k = s.get(r.mondayIso!) ?? [0, 0];
       k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
       s.set(r.mondayIso!, k);
@@ -440,7 +452,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
     // band key `${year} ${sem}` → week mondayIso → rotation → [facFTE, preFTE, days/times]
     const acc = new Map<string, Map<string, Map<string, { v: [number, number]; when: Set<string> }>>>();
     for (const r of clin) {
-      const bandKey = `${r.semester} ${r.mondayIso!.slice(0, 4)}`;
+      const bandKey = (({ year, sem }) => `${sem} ${year}`)(semOf(r));
       const b = acc.get(bandKey) ?? new Map(); acc.set(bandKey, b);
       const w = b.get(r.mondayIso!) ?? new Map(); b.set(r.mondayIso!, w);
       const rot = r.session.rotationType ?? "(unspecified)";
@@ -464,22 +476,28 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
     }));
   }, [rows]);
 
-  // Staffing plan by term: peak weekly need per term.
-  const byTerm = useMemo(() => {
-    const idxs = [...new Set(rows.map((r) => r.termIndex))].sort((a, b) => a - b);
-    return idxs.map((ti) => {
-      const tr = rows.filter((r) => r.termIndex === ti);
+  // Staffing plan by semester: the peak weekly need inside each calendar semester, and which offerings
+  // (and which of their terms) are in session then — the number to hand to scheduling and budgeting.
+  const bySemester = useMemo(() => {
+    const keys = new Map<string, { year: string; sem: string }>();
+    for (const r of rows) { const x = semOf(r); keys.set(`${x.year}|${x.sem}`, x); }
+    return [...keys.values()].sort((a, b) => a.year.localeCompare(b.year) || (SEM_ORDER[a.sem] ?? 9) - (SEM_ORDER[b.sem] ?? 9)).map(({ year, sem }) => {
+      const tr = rows.filter((r) => { const x = semOf(r); return x.year === year && x.sem === sem; });
       const w = weeklyNeed(tr);
       const pf = Math.max(0, ...w.map((x) => x.facultyFte));
       const pp = Math.max(0, ...w.map((x) => x.preceptorFte));
-      const weeks = w.filter((x) => x.facultyFte > 0 || x.preceptorFte > 0);
+      const dates = tr.map((r) => r.dateIso).filter((d): d is string => !!d).sort();
+      const cohortTerms = new Map<string, Set<string>>();
+      for (const r of tr) { const s = cohortTerms.get(r.cohort) ?? new Set<string>(); s.add(r.termName); cohortTerms.set(r.cohort, s); }
+      const oneTerm = tr.every((r) => r.termIndex === 1) && new Set(tr.map((r) => r.termName)).size <= 1;
       return {
-        termIndex: ti, termName: tr[0]?.termName ?? `Term ${ti}`,
+        key: `${year}|${sem}`, label: `${sem} ${year}`,
         peakFacFte: pf, peakPreFte: pp, facHeads: Math.ceil(pf - 1e-9), preHeads: Math.ceil(pp - 1e-9),
-        from: tr.map((r) => r.dateIso).filter((d): d is string => !!d).sort()[0] ?? weeks[0]?.mondayIso ?? null, to: tr.map((r) => r.dateIso).filter((d): d is string => !!d).sort().at(-1) ?? weeks[weeks.length - 1]?.mondayIso ?? null,
-        cohorts: [...new Set(tr.map((r) => r.cohort))],
+        from: dates[0] ?? null, to: dates.at(-1) ?? null,
+        cohorts: [...cohortTerms.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([c, terms]) => (oneTerm ? c : `${c} (${[...terms].join(", ")})`)),
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
   if (!rows.length) return <p className="text-sm text-slate-400">Nothing in this slice — turn a chip back on.</p>;
@@ -502,7 +520,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
           ))}
         </div>
         <span className="text-xs text-slate-400">
-          {altitude === "semester" ? "the budgeting view — FTEs per semester and the staffing plan by term"
+          {altitude === "semester" ? "the budgeting view — FTEs per semester and the staffing plan by semester"
             : altitude === "week" ? "the scheduling view — FTEs per real calendar week and clinical staffing by rotation"
             : "the ground view — every shift, day by day, and who staffs it"}
         </span>
@@ -664,26 +682,26 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort }: {
       {/* Staffing plan by term */}
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-700">Staffing plan by term — who you need, in people</h2>
-          <p className="text-[11px] text-slate-400">Hand this to scheduling: the peak simultaneous need for each term across the cohorts in the slice.</p>
+          <h2 className="text-sm font-semibold text-slate-700">Staffing plan by semester — who you need, in people</h2>
+          <p className="text-[11px] text-slate-400">Hand this to scheduling: the peak simultaneous need in each semester, across every offering in session then.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <th className="px-3 py-2 font-semibold">Term</th>
+                <th className="px-3 py-2 font-semibold">Semester</th>
                 <th className="px-3 py-2 text-right font-semibold">Peak faculty FTE</th>
                 <th className="px-3 py-2 text-right font-semibold">Faculty (people)</th>
                 <th className="px-3 py-2 text-right font-semibold">Peak preceptor FTE</th>
                 <th className="px-3 py-2 text-right font-semibold">Preceptors (people)</th>
                 <th className="px-3 py-2 font-semibold">Window</th>
-                <th className="px-3 py-2 font-semibold">Cohorts</th>
+                <th className="px-3 py-2 font-semibold">Offerings in session</th>
               </tr>
             </thead>
             <tbody>
-              {byTerm.map((t) => (
-                <tr key={t.termIndex} className="border-b border-slate-100">
-                  <td className="px-3 py-1.5 font-medium text-slate-800">{t.termName}</td>
+              {bySemester.map((t) => (
+                <tr key={t.key} className="border-b border-slate-100">
+                  <td className="px-3 py-1.5 font-medium text-slate-800">{t.label}</td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n1(t.peakFacFte)}</td>
                   <td className="px-3 py-1.5 text-right font-mono font-semibold tabular-nums text-emerald-700">{t.facHeads}</td>
                   <td className="px-3 py-1.5 text-right font-mono tabular-nums">{n1(t.peakPreFte)}</td>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { offeringName, shortTermProgram, campusLabel, runDetail } from "../src/lib/offeringname";
+import { offeringName, shortTermProgram, campusLabel, runDetail, programDetail } from "../src/lib/offeringname";
 
 describe("offering names", () => {
   it("a class-a-year program names by the year the last term ends, numbered when repeated", () => {
@@ -31,5 +31,11 @@ describe("offering names", () => {
     expect(runDetail(["Mon", "Wed"], "17:30")).toBe("Mon & Wed evening");
     expect(runDetail(["Tue", "Thu"], "08:00")).toBe("Tue & Thu daytime");
     expect(runDetail(["Tue", "Thu"], null)).toBe("Tue & Thu");
+  });
+  it("a delivery model's label tells two programs' same-month runs apart", () => {
+    expect(programDetail("Nurse Aide Level I — 11-week daytime offering")).toBe("11-week daytime");
+    expect(programDetail("Nurse Aide Level I — Monday & Wednesday 20-week Offering")).toBe("Monday & Wednesday 20-week");
+    expect(programDetail("Radiography")).toBeNull();
+    expect(offeringName({ shortTerm: true, startIso: "2026-08-17", endIso: "2026-11-10", campus: "Morehead City", detail: "11-week daytime", existing: ["Aug 2026 · Morehead City"] })).toBe("Aug 2026 · Morehead City · 11-week daytime");
   });
 });

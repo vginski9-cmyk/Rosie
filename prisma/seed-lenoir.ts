@@ -217,7 +217,9 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
   for (const r of rows) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
   const byStatus: Record<string, number> = {}; const byModel: Record<string, number> = {}; let patterns = 0;
   // Names: "Jan 2026 · Greene County Center" — the sheet's "Cohort 26 - 76811" becomes the offering's code (76811).
-  const namesByProgram = new Map<string, string[]>();
+  // Unique across the family (every delivery model is its own program): two runs starting the same month at the
+  // same place are told apart by their days and time of day.
+  const familyNames: string[] = [];
   for (const r of rows) {
     const start = iso(r.start), end = iso(r.end);
     const status = end < today ? "completed" : start <= today ? "active" : "planned";
@@ -232,9 +234,8 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     const goal = Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
     const t = deriveCohortTargets(goal, rates, 1);
     const loc0 = parseLocation(r.location);
-    const existing = namesByProgram.get(program.id) ?? [];
-    const name = offeringName({ shortTerm: true, startIso: r.start, endIso: r.end, campus: campusLabel({ name: loc0.campus, city: loc0.city, isMain: loc0.campus === "Main Campus" }), detail: runDetail(parseDays(r.days), parseTime(r.time).start), existing });
-    existing.push(name); namesByProgram.set(program.id, existing);
+    const name = offeringName({ shortTerm: true, startIso: r.start, endIso: r.end, campus: campusLabel({ name: loc0.campus, city: loc0.city, isMain: loc0.campus === "Main Campus" }), detail: runDetail(parseDays(r.days), parseTime(r.time).start), existing: familyNames });
+    familyNames.push(name);
     const code = /^Cohort \d+ - (\d+)/.exec(r.cohort)?.[1] ?? null;
     // The note says only what the campus does not: a room, or a building with its own name.
     const locationNote = loc0.roomNumber ? `${loc0.building}, Rm ${loc0.roomNumber}` : loc0.building === loc0.campus ? null : loc0.building.replace(`${loc0.campus} — `, "");
