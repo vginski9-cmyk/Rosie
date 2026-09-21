@@ -8,11 +8,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { driveBandLabel, DRIVE_BAND_TONE } from "@/lib/geo";
 import { applyFilter, optionsOf, pivot, siteStats, siteByPeriod, concentration, rowsToCsv, pivotToCsv, DIM_LABEL, MEASURE_LABEL, isTimeDim, type LoadRow, type SiteSeats, type LoadDim, type LoadMeasure, type LoadFilter, type SiteStat } from "@/lib/siteload";
 import { dec, fmt } from "@/lib/format";
 
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
-const RING: Record<string, string> = { Core: "bg-emerald-50 text-emerald-800", "Ring 1": "bg-sky-50 text-sky-800", "Ring 2": "bg-amber-50 text-amber-800", "Ring 3": "bg-rose-50 text-rose-800" };
 const fmtP = (p: string) => (/^\d{4}-\d{2}$/.test(p) ? new Date(p + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" }) : /^\d{4}-\d{2}-\d{2}$/.test(p) ? `${Number(p.slice(5, 7))}/${Number(p.slice(8, 10))}/${p.slice(2, 4)}` : p);
 const n1 = (v: number) => dec(v, 1);
 const pct = (v: number) => fmt.pct(v);
@@ -157,7 +157,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                       <td className={`px-2 py-1.5 text-right tabular-nums ${s.utilization == null ? "text-slate-300" : s.utilization > 1 ? "font-semibold text-rose-600" : s.utilization > 0.75 ? "text-amber-700" : "text-emerald-700"}`}>{s.utilization == null ? "—" : pct(s.utilization)}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{s.preceptorsUsed}<span className="text-slate-400"> / {s.preceptorsOnRecord ?? "—"}</span>{s.preceptorsUsed === 0 && <span className="block text-[10px] text-amber-600">none named</span>}</td>
                       <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${AGREEMENT[s.agreement] ?? ""}`}>{s.agreement}</span></td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">{s.ring && <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">{s.ring && <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${DRIVE_BAND_TONE[s.ring] ?? "bg-slate-100"}`}>{driveBandLabel(s.ring)}</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
                     </tr>
                     {open === key && (
                       <tr key={key + "-d"} className="bg-rose-50/30">

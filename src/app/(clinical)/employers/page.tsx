@@ -18,9 +18,12 @@ export default async function EmployersPage() {
           <h1 className="text-2xl font-semibold tracking-tight">All organizations</h1>
           <p className="text-sm text-slate-500">{employers.length} partners · {secured} with a secured agreement · {located} located from their address{unlocated.length ? <span className="text-amber-700"> · {unlocated.length} without a usable address</span> : null}. What a site means to a program is set on that program&apos;s clinical pages.</p>
         </div>
-        {institutions.filter((i) => employers.some((e) => e.institution.id === i.id)).map((i) => (
-          <form key={i.id} action={locateInstitutionSites.bind(null, i.id)}><button className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">Re-locate every site &amp; recompute drive times</button></form>
-        ))}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+          <span>Re-locate every site &amp; recompute drive times:</span>
+          {institutions.filter((i) => employers.some((e) => e.institution.id === i.id)).map((i) => (
+            <form key={i.id} action={locateInstitutionSites.bind(null, i.id)}><button className="rounded-lg border border-slate-300 px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50">{i.name.replace(/ Community College$/, "")}</button></form>
+          ))}
+        </div>
       </div>
       <EmployerDirectory employers={employers} institutions={institutions} />
     </div>

@@ -1,7 +1,7 @@
 // CLINICAL SITE LOAD — which sites carry the students. One row per student-shift (a student at a
 // site on a date, in a setting, for so many hours); from those rows: a leaderboard of sites with
 // their share of the load, the students and programs they carry, how full they run against the
-// seats they offer, and the same load grouped by system, county, ring, facility type, setting,
+// seats they offer, and the same load grouped by system, county, drive-time band, facility type, setting,
 // program, cohort, term or month. Pure — the query builds the rows, the page reads the summary.
 
 export interface LoadRow {
@@ -53,7 +53,7 @@ export interface SiteStat {
 export type LoadDim = "site" | "system" | "county" | "ring" | "facilityType" | "setting" | "program" | "cohort" | "course" | "term" | "semester" | "year" | "month" | "week" | "day" | "dayOfWeek" | "student" | "preceptor" | "status" | "agreement";
 export type LoadMeasure = "studentDays" | "students" | "hours" | "sites" | "preceptors";
 export const MEASURE_LABEL: Record<LoadMeasure, string> = { studentDays: "Student-days", students: "Students", hours: "Student-hours", sites: "Sites", preceptors: "Preceptors" };
-export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive ring", facilityType: "Facility type", setting: "Setting", program: "Program", cohort: "Cohort", course: "Class", term: "Term", semester: "Semester", year: "Year", month: "Month", week: "Week", day: "Date", dayOfWeek: "Day of week", student: "Student", preceptor: "Preceptor", status: "Status", agreement: "Agreement" };
+export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive time from campus", facilityType: "Facility type", setting: "Setting", program: "Program", cohort: "Cohort", course: "Class", term: "Term", semester: "Semester", year: "Year", month: "Month", week: "Week", day: "Date", dayOfWeek: "Day of week", student: "Student", preceptor: "Preceptor", status: "Status", agreement: "Agreement" };
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SEM = ["Spring", "Summer", "Fall"];
 

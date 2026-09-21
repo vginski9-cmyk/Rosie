@@ -10,6 +10,7 @@ import { Collapse } from "@/components/Collapse";
 import { UnverifiedStandard } from "@/components/Evidence";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
 import { caseVolumeLine } from "@/lib/surgvolume";
+import { driveBandLabel, DRIVE_BAND_TONE, RING_ORDER, bandsOf } from "@/lib/geo";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
 const EMP_STATUSES = ["prospect", "active", "paused", "archived"];
 const PLACEMENT_NEXT: Record<string, string[]> = { planned: ["active", "cancelled"], active: ["completed", "cancelled"], completed: [], cancelled: ["planned"] };
 const PSTATUS_BADGE: Record<string, string> = { planned: "bg-sky-100 text-sky-700", active: "bg-emerald-100 text-emerald-700", completed: "bg-slate-200 text-slate-600", cancelled: "bg-slate-100 text-slate-400" };
-const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
+const RING_TONE = DRIVE_BAND_TONE;
 const dateFmt = (d: Date | null) => (d ? new Date(d).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—");
 const inp = "w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
 const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
@@ -33,6 +34,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
   const fit = (await getSiteRequirementFit(e.id)) ?? [];
   const programIds = new Map(await Promise.all(fit.map(async (f) => [f.family.id, await getFamilyProgramId(f.family.id)] as const)));
   const campus = e.institution.campuses[0] ?? null;
+  const bands = bandsOf(e.institution);
   const year = new Date().getUTCFullYear() + 1;
   const secured = e.placements.filter((p) => p.status === "active" || p.status === "completed").length;
   const liveAssets = e.assets.filter((a) => a.status !== "archived");
@@ -51,7 +53,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
             <p className="text-sm text-slate-500">{[e.organization, e.facilityType ?? e.setting, [e.address, [e.city, e.state].filter(Boolean).join(", "), e.zip].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || <span className="text-amber-700">No address on file — add one under details.</span>}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            {e.ring ? <a href="#location" className={`rounded-full px-3 py-1 font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.driveMinutes != null ? ` · ${fmt.minutes(e.driveMinutes)} from campus` : ""}</a> : <a href="#location" className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">not located</a>}
+            {e.ring ? <a href="#location" className={`rounded-full px-3 py-1 font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.driveMinutes != null ? `${fmt.minutes(e.driveMinutes)} from campus` : driveBandLabel(e.ring, bands)}</a> : <a href="#location" className="rounded-full bg-amber-100 px-3 py-1 font-medium text-amber-700">not located</a>}
             <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">{e.status}</span>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-600">{liveAssets.length} assets · {e.people.length} people</span>
             {volumeLine && <span className="rounded-full bg-violet-50 px-3 py-1 text-violet-800 ring-1 ring-violet-200" title={e.surgicalCaseSource ?? ""}>{volumeLine}</span>}
@@ -136,14 +138,14 @@ export default async function EmployerPage({ params }: { params: { id: string } 
 
       {/* 4 · Location */}
       <div id="location" className="scroll-mt-16">
-        <Collapse title="Location & drive time" sub={`Drive from ${campus?.name ?? "the main campus"}, and the ring it puts the site in`} summary={<>{e.ring ?? "not located"}{e.driveMinutes != null ? ` · ${fmt.minutes(e.driveMinutes)}` : ""}{e.lat != null && e.lng != null ? ` · ${dec(e.lat, 3)}, ${dec(e.lng, 3)}` : ""}</>}>
+        <Collapse title="Location & drive time" sub={`Drive from ${campus?.name ?? "the main campus"}, and the drive-time band it puts the site in`} summary={<>{driveBandLabel(e.ring, bands) ?? "not located"}{e.driveMinutes != null ? ` · ${fmt.minutes(e.driveMinutes)}` : ""}{e.lat != null && e.lng != null ? ` · ${dec(e.lat, 3)}, ${dec(e.lng, 3)}` : ""}</>}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-            <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Ring</div><div className="text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{e.ring}</span> : <span className="text-amber-600">—</span>}</div><div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "set by hand" : `from the drive time · Core ≤ ${e.institution.ringCoreMinutes} · Ring 1 ≤ ${e.institution.ringOneMinutes} · Ring 2 ≤ ${e.institution.ringTwoMinutes} min`}</div></div>
+            <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Drive-time band</div><div className="text-lg font-semibold">{e.ring ? <span className={`rounded-full px-2 py-0.5 text-sm ${RING_TONE[e.ring] ?? "bg-slate-100"}`}>{driveBandLabel(e.ring, bands)}</span> : <span className="text-amber-600">—</span>}</div><div className="text-[11px] text-slate-500">{e.ringSource === "manual" ? "set by hand" : `from the drive time · bands at ${e.institution.ringCoreMinutes}, ${e.institution.ringOneMinutes} and ${e.institution.ringTwoMinutes} min`}</div></div>
             <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Drive from campus</div><div className="text-lg font-semibold tabular-nums">{fmt.minutes(e.driveMinutes)}</div><div className="text-[11px] text-slate-500">{e.distanceMiles != null ? `${dec(e.distanceMiles, 1)} mi straight-line` : "not computed"}</div></div>
             <div className="rounded-lg border border-slate-200 px-3 py-2"><div className={lbl}>Coordinates</div><div className="font-mono text-sm tabular-nums">{e.lat != null && e.lng != null ? `${dec(e.lat, 4)}, ${dec(e.lng, 4)}` : <span className="text-amber-600">not located</span>}</div><div className="text-[11px] text-slate-500">{e.geoSource === "census" ? "street-level" : e.geoSource === "gazetteer" ? "town centre (±1–2 mi)" : e.geoSource === "manual" ? "pinned by hand" : "no source"}</div><form action={relocateSite.bind(null, e.id)} className="mt-1"><button className="rounded border border-slate-300 px-2 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50">Re-locate from address</button></form></div>
             <form action={setSiteGeography.bind(null, e.id)} className="rounded-lg border border-slate-200 px-3 py-2">
               <div className={lbl}>Correct it</div>
-              <label className="block">ring <select name="ring" defaultValue={e.ringSource === "manual" ? e.ring ?? "auto" : "auto"} className="ml-1 rounded border border-slate-300 px-1.5 py-0.5"><option value="auto">auto</option>{["Core", "Ring 1", "Ring 2", "Ring 3"].map((r) => <option key={r} value={r}>{r}</option>)}</select></label>
+              <label className="block">band <select name="ring" defaultValue={e.ringSource === "manual" ? e.ring ?? "auto" : "auto"} className="ml-1 rounded border border-slate-300 px-1.5 py-0.5"><option value="auto">from the drive time</option>{RING_ORDER.map((r) => <option key={r} value={r}>{driveBandLabel(r, bands)}</option>)}</select></label>
               <div className="mt-1 flex items-center gap-1">pin <input name="lat" placeholder="lat" defaultValue={e.geoSource === "manual" && e.lat != null ? String(e.lat) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /><input name="lng" placeholder="lng" defaultValue={e.geoSource === "manual" && e.lng != null ? String(e.lng) : ""} className="w-20 rounded border border-slate-300 px-1.5 py-0.5 font-mono" /></div>
               <button className="mt-1.5 rounded bg-slate-800 px-2.5 py-1 font-medium text-white hover:bg-slate-700">Apply</button>
             </form>

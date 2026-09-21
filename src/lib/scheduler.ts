@@ -35,7 +35,7 @@ export interface Policy {
   flexibleShift: boolean;
   /** May a section move ± this many days inside the same week? 0 = exact date. */
   flexibleDays: 0 | 1 | 2;
-  /** Farthest drive ring allowed. */
+  /** Farthest drive-time band allowed. */
   maxRing: Ring;
   /** Keep a section at the same site across the whole course (strong preference). */
   continuity: boolean;
@@ -146,7 +146,7 @@ export const REASON_LABEL: Record<UnmetReason, string> = {
   "unmapped-setting": "rotation type isn't mapped to an asset setting",
   "no-asset-for-setting": "no partner reports an asset of this setting",
   "no-agreement": "the only sites with this setting aren't under an allowed agreement",
-  ring: "the only sites with this setting are beyond the allowed drive ring",
+  ring: "the only sites with this setting are beyond the allowed drive time",
   "closed-that-day": "no asset of this setting runs that shift on that date",
   full: "every open asset is already full that shift",
   "no-preceptor": "no free preceptor at any open site that shift",
@@ -567,7 +567,7 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
     case "too-big": return `${who}: ${sites} cannot seat a section of ${num(u.seats)} on one shift.`;
     case "closed-that-day": return `${who}: ${sites} run no ${u.settingCode} asset on that shift.`;
     case "no-agreement": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are not under an allowed agreement on that date.`;
-    case "ring": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are beyond the allowed drive ring.`;
+    case "ring": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are beyond the allowed drive time.`;
     case "drive": return `${who}: every allowed site is farther than the students' drive cap from home.`;
     case "class-day": return `${who}: the cohort is in class or lab during that shift.`;
     case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving.`;
@@ -599,7 +599,7 @@ function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit
     { label: "allow a different shift block", pol: { flexibleShift: true } },
     { label: "allow ± 1 day inside the week", pol: { flexibleDays: 1 } },
     { label: "allow ± 2 days inside the week", pol: { flexibleDays: 2 } },
-    { label: "allow any drive ring", pol: { maxRing: "any" } },
+    { label: "allow any drive time", pol: { maxRing: "any" } },
     { label: "do not require a free preceptor", pol: { requirePreceptor: false } },
     { label: "any agreement + any shift + ± 2 days", pol: { agreements: "any", flexibleShift: true, flexibleDays: 2, maxRing: "any", requirePreceptor: false } },
   ];

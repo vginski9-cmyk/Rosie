@@ -624,7 +624,7 @@ export async function getCohortRequirementProgress(cohortId: string) {
 export async function getFamilyClinicalSetup(familyId: string) {
   const { siteFit, siteFitScore } = await import("./requirements");
   const { disciplineOf } = await import("./discipline");
-  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, clinicalNotes: true, capacityBasis: true, accreditor: true, accreditorProgramNumber: true, accreditedCapacity: true, rotationPrimarySetting: true, studentsPerStaff: true, casesPerStudentDay: true, institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: true } });
+  const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, clinicalModel: true, clinicalNotes: true, capacityBasis: true, accreditor: true, accreditorProgramNumber: true, accreditedCapacity: true, rotationPrimarySetting: true, studentsPerStaff: true, casesPerStudentDay: true, institution: { select: { id: true, name: true, ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true } }, occupation: { select: { title: true, socCode: true } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: true } });
   if (!fam) return null;
   const req = await getFamilyRequirements(familyId);
   const settingSet = familySettingSet(fam, req);
@@ -668,6 +668,7 @@ export async function getFamilyClinicalSetup(familyId: string) {
   return {
     family: { id: fam.id, name: fam.name, institutionId: fam.institutionId, institution: fam.institution.name, occupation: fam.occupation?.title ?? null, soc: fam.occupation?.socCode ?? null, clinicalModel: fam.clinicalModel, clinicalNotes: fam.clinicalNotes, capacityBasis: fam.capacityBasis, accreditor: fam.accreditor, accreditorProgramNumber: fam.accreditorProgramNumber, accreditedCapacity: fam.accreditedCapacity, primarySetting: fam.rotationPrimarySetting, studentsPerStaff: fam.studentsPerStaff, casesPerStudentDay: fam.casesPerStudentDay, programs: fam.programs },
     discipline: { label: disc.label, credential: disc.credential },
+    bands: { core: fam.institution.ringCoreMinutes, one: fam.institution.ringOneMinutes, two: fam.institution.ringTwoMinutes },
     settings: [...settingSet], areas: fam.serviceAreas, req, sites, others,
     totals: { sites: sites.filter((s) => s.inFamily).length, secured: sites.filter((s) => s.agreementStatus === "secured").length, asked: sites.filter((s) => s.agreementStatus === "asked").length, seatsSecured: sites.filter((s) => s.agreementStatus === "secured").reduce((n, s) => n + s.seats, 0), recognized: sites.filter((s) => s.accreditorStatus === "recognized").length, approvedTotal: sites.reduce((n, s) => n + (s.approvedCapacity ?? 0), 0) },
   };
@@ -2667,7 +2668,7 @@ export async function getOrganization(id: string) {
     include: {
       academicEvents: { orderBy: { date: "asc" } },
       facilities: { orderBy: [{ kind: "asc" }, { name: "asc" }] },
-      employers: { orderBy: { name: "asc" }, select: { id: true, name: true, facilityType: true, county: true, ring: true, ringSource: true, geoSource: true, distanceMiles: true, driveMinutes: true, city: true, agreementStatus: true, status: true, _count: { select: { assets: true, units: true, people: { where: { role: "preceptor", active: true } } } } } },
+      employers: { orderBy: { name: "asc" }, select: { id: true, name: true, organization: true, facilityType: true, county: true, ring: true, ringSource: true, geoSource: true, distanceMiles: true, driveMinutes: true, city: true, agreementStatus: true, status: true, _count: { select: { assets: true, units: true, people: { where: { role: "preceptor", active: true } } } }, assets: { where: { status: { not: "archived" } }, select: { learnersPerShift: true, dataSource: true } }, familySites: { select: { agreementStatus: true, family: { select: { id: true, name: true, programs: { select: { id: true }, take: 1 } } } } } } },
       campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, address: true, city: true, state: true, zip: true, lat: true, lng: true, geoSource: true, isMain: true } },
       people: { select: { role: true, employmentType: true, active: true, employerId: true } },
       programFamilies: { orderBy: { name: "asc" }, include: { occupation: { select: { title: true, socCode: true } }, programs: { orderBy: { name: "asc" }, select: { id: true, name: true, credential: true, programType: true, launchTerms: true, defaultCohortSeats: true, _count: { select: { terms: true, cohorts: true } } } } } },

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { driveBandLabel, DRIVE_BAND_TONE } from "@/lib/geo";
 import type { getFamilyClinicalSetup } from "@/lib/queries";
 import { addSiteToProgram } from "@/lib/actions";
 import { dec, fmt } from "@/lib/format";
@@ -9,13 +10,13 @@ import { UnverifiedStandard } from "@/components/Evidence";
 
 type Setup = NonNullable<Awaited<ReturnType<typeof getFamilyClinicalSetup>>>;
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
-const RING: Record<string, string> = { Core: "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200", "Ring 1": "bg-sky-50 text-sky-800 ring-1 ring-sky-200", "Ring 2": "bg-amber-50 text-amber-800 ring-1 ring-amber-200", "Ring 3": "bg-rose-50 text-rose-800 ring-1 ring-rose-200" };
 const FACILITY_TYPES = ["Acute care hospital", "Specialty hospital", "Ambulatory surgery center", "Imaging center", "Physician office / clinic", "Nursing home", "Combination home (NH + adult care)", "Adult care home", "Community health", "Other"];
 const inp = "w-full rounded border border-slate-300 px-2 py-1 text-xs";
 const lbl = "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
 
 export function FamilySitesTable({ setup, siteHref }: { setup: Setup; siteHref: (employerId: string) => string }) {
   const fam = setup.family;
+  const bands = { coreMinutes: setup.bands.core, oneMinutes: setup.bands.one, twoMinutes: setup.bands.two };
   const inFamily = setup.sites.filter((s) => s.inFamily);
   const candidates = setup.sites.filter((s) => !s.inFamily);
   const unverifiedStandard = !!setup.req?.sets.some((x) => !x.verified);
@@ -30,7 +31,7 @@ export function FamilySitesTable({ setup, siteHref }: { setup: Setup; siteHref: 
           <Link href={href} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</Link>
           <span className="block text-[11px] text-slate-500">{[s.facilityType, s.city].filter(Boolean).join(" · ")}{s.sections ? ` · hosting ${s.students} students` : ""}</span>
         </td>
-        <td className="px-2 py-2 align-top whitespace-nowrap">{s.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${RING[s.ring] ?? "bg-slate-100"}`}>{s.ring}</span> : <span className="text-[10px] text-amber-600">not located</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
+        <td className="px-2 py-2 align-top whitespace-nowrap">{s.ring ? <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${DRIVE_BAND_TONE[s.ring] ?? "bg-slate-100"}`}>{driveBandLabel(s.ring, bands)}</span> : <span className="text-[10px] text-amber-600">not located</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
         <td className="px-2 py-2 align-top"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${AGREEMENT[s.agreementStatus] ?? ""}`}>{s.agreementStatus}</span>{fam.accreditor && <span className={`block text-[10px] ${s.accreditorStatus === "recognized" ? "text-emerald-700" : s.accreditorStatus === "requested" ? "text-amber-700" : "text-slate-400"}`}>{fam.accreditor} {s.accreditorStatus}</span>}</td>
         <td className="px-2 py-2 align-top text-slate-700">{s.assets ? <>{s.assets} · <span className="tabular-nums">{s.seats}</span> seats<span className="block text-[10px] text-slate-400">{Object.entries(s.seatsBySetting).map(([k, v]) => `${k} ${v}`).join(" · ")}</span></> : <span className="text-amber-600">none</span>}</td>
         <td className="px-2 py-2 align-top tabular-nums text-slate-700">{s.preceptors}{s.qualifiedStaffOnShift != null ? <span className="block text-[10px] text-slate-400">{s.qualifiedStaffOnShift} on shift{s.staffCountSource === "VERIFIED" ? "" : " (estimate)"}</span> : <span className="block text-[10px] text-slate-400">staff on shift unknown</span>}</td>

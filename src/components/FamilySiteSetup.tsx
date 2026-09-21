@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { driveBandLabel, DRIVE_BAND_TONE } from "@/lib/geo";
 import { notFound } from "next/navigation";
 import { getFamilySiteSetup } from "@/lib/queries";
 import { upsertFamilySite, removeFamilySite, updateSiteAvailability, relocateSite } from "@/lib/actions";
@@ -14,7 +15,6 @@ import { avgCasesPerDay, caseVolumeLine } from "@/lib/surgvolume";
 // structures, the qualified staff, and item by item what it provides. Server component.
 
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
-const RING: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], BLOCKS = ["Day", "Evening", "Night"];
 const inp = "rounded border border-slate-300 px-2 py-1 text-xs";
 const lbl = "block text-[10px] font-semibold uppercase tracking-wide text-slate-500";
@@ -36,6 +36,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
   const d = await getFamilySiteSetup(familyId, employerId);
   if (!d) notFound();
   const { family: fam, site, familySite: fs } = d;
+  const bands = { coreMinutes: d.bands.core, oneMinutes: d.bands.one, twoMinutes: d.bands.two };
   const familyAssets = d.assets.filter((a) => a.inFamily);
   const seatsBySetting: Record<string, number> = {}; for (const a of familyAssets) if (a.status !== "archived") seatsBySetting[a.settingCode] = (seatsBySetting[a.settingCode] ?? 0) + a.learnersPerShift;
   const otherAssets = d.assets.filter((a) => !a.inFamily);
@@ -68,7 +69,7 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
             <p className="text-sm text-slate-500">{[site.organization, site.facilityType].filter(Boolean).join(" · ")}{site.address || site.city ? <> · {[site.address, [site.city, site.state].filter(Boolean).join(", ")].filter(Boolean).join(", ")}</> : <span className="text-amber-700"> · no address on file</span>} · <Link href={`/employers/${site.id}`} className="text-rose-600 hover:underline">organization record</Link></p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {site.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${RING[site.ring] ?? "bg-slate-100"}`}>{site.ring}{site.driveMinutes != null ? ` · ${fmt.minutes(site.driveMinutes)}` : ""}</a>}
+            {site.ring && <a href="#location" className={`rounded-full px-3 py-1 text-xs font-medium ${DRIVE_BAND_TONE[site.ring] ?? "bg-slate-100"}`}>{driveBandLabel(site.ring, bands)}{site.driveMinutes != null ? ` · ${fmt.minutes(site.driveMinutes)}` : ""}</a>}
             <a href="#agreement" className={`rounded-full px-3 py-1 text-xs font-medium ${AGREEMENT[fs?.agreementStatus ?? "none"]}`}>{fs ? fs.agreementStatus : "not in this program yet"}</a>
             {fam.accreditor && <a href="#accreditor" className={`rounded-full px-3 py-1 text-xs font-medium ${fs?.accreditorStatus === "recognized" ? "bg-emerald-100 text-emerald-700" : fs?.accreditorStatus === "requested" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{fam.accreditor}: {fs?.accreditorStatus ?? "none"}{fs?.approvedCapacity != null ? ` · ${fs.approvedCapacity} at once` : ""}</a>}
           </div>
@@ -81,9 +82,9 @@ export async function FamilySiteSetup({ familyId, employerId, base }: { familyId
 
       <Section id="location" n={next()} title="Where it is" sub={`drive from ${d.campus?.name ?? "the main campus"}, auto-coded from the address`} right={<form action={relocateSite.bind(null, site.id)}><button className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Re-locate</button></form>}>
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <span>Ring: {site.ring ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${RING[site.ring] ?? ""}`}>{site.ring}</span> : <span className="text-amber-600">not located</span>}{site.ringSource === "manual" && <span className="text-[11px] text-slate-400"> (set by hand)</span>}</span>
+          <span>Drive-time band: {site.ring ? <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${DRIVE_BAND_TONE[site.ring] ?? ""}`}>{driveBandLabel(site.ring, bands)}</span> : <span className="text-amber-600">not located</span>}{site.ringSource === "manual" && <span className="text-[11px] text-slate-400"> (set by hand)</span>}</span>
           <span>Drive: <strong className="tabular-nums">{fmt.minutes(site.driveMinutes)}</strong>{site.distanceMiles != null && <span className="text-slate-500"> · {dec(site.distanceMiles, 1)} mi straight-line</span>}</span>
-          <span className="text-slate-500">Bands: Core ≤ {d.bands.core} · Ring 1 ≤ {d.bands.one} · Ring 2 ≤ {d.bands.two} min</span>
+          <span className="text-slate-500">Bands: within {d.bands.core} · {d.bands.core}–{d.bands.one} · {d.bands.one}–{d.bands.two} · over {d.bands.two} min</span>
           <span className="text-slate-500">{site.geoSource === "census" ? "street-level fix" : site.geoSource === "gazetteer" ? "town-centre fix (±1–2 mi)" : site.geoSource === "manual" ? "pinned by hand" : "not located"} · <Link href={`/employers/${site.id}#location`} className="text-rose-600 hover:underline">correct the address or pin</Link></span>
         </div>
       </Section>

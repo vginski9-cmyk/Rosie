@@ -988,6 +988,9 @@ export async function createEmployer(formData: FormData): Promise<void> {
     data: {
       institutionId,
       name: str(formData.get("name")) || "New partner",
+      organization: str(formData.get("organization")) || null,
+      facilityType: str(formData.get("facilityType")) || null,
+      agreementStatus: str(formData.get("agreementStatus")) || "none",
       setting: str(formData.get("setting")) || null,
       address: str(formData.get("address")) || null,
       city: str(formData.get("city")) || null,
@@ -1003,6 +1006,7 @@ export async function createEmployer(formData: FormData): Promise<void> {
   });
   await geocodeInstitutionSites(institutionId, created.id);
   revalidatePath("/employers");
+  revalidatePath(`/orgs/${institutionId}`);
 }
 
 export async function updateEmployer(employerId: string, formData: FormData): Promise<void> {

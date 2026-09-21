@@ -1,4 +1,5 @@
 "use client";
+import { driveBandLabel, driveBandPhrase, DEFAULT_BANDS } from "@/lib/geo";
 
 // The clinical scheduler board — supply vs demand, the recommended plan, and
 // the analytics layers around it. Reads like a briefing: one sentence, then
@@ -41,7 +42,7 @@ const varietyKey = (p: Policy) => (p.varietySystems ? "all" : p.varietyFacilityT
 const min = (v: number | null) => fmt.minutes(v);
 /** Lever names for the "this lever changed nothing" note. */
 const LEVER_NAMES: Record<keyof Policy, string> = {
-  agreements: "Sites that count", flexibleShift: "Shift", flexibleDays: "Day", maxRing: "Drive ring", continuity: "Continuity", spread: "Balance", requirePreceptor: "Preceptors", skipHolidays: "Holidays", split: "Split sections",
+  agreements: "Sites that count", flexibleShift: "Shift", flexibleDays: "Day", maxRing: "Drive time", continuity: "Continuity", spread: "Balance", requirePreceptor: "Preceptors", skipHolidays: "Holidays", split: "Split sections",
   maxStudentDriveMin: "Drive cap from home", preferCloserToStudent: "Nearer home", rotateSitesEveryWeeks: "Rotate sites", varietySites: "Variety", varietyFacilityTypes: "Variety", varietySystems: "Variety",
   preceptorStint: "Keep the same preceptor", varietyPreceptors: "New preceptors", maxPreceptorShiftsPerWeek: "Weekly ceiling", studentsPerPreceptor: "Students per preceptor",
 };
@@ -236,8 +237,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <Lever label="Holidays" hint="Sessions that land on an observed holiday are left unplaced so someone moves them, or placed anyway (a blocker until moved).">
             <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">leave for moving</option><option value="false">place anyway</option></select>
           </Lever>
-          <Lever label="Drive ring" hint="Farthest ring a site may be in.">
-            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">Core only</option><option value="Ring 1">up to Ring 1</option><option value="Ring 2">up to Ring 2</option><option value="any">any distance</option></select>
+          <Lever label="Drive time" hint="Farthest a site may be from the main campus, by its drive-time band.">
+            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">{driveBandPhrase("Core")}</option><option value="Ring 1">{`within ${DEFAULT_BANDS.oneMinutes} min drive`}</option><option value="Ring 2">{`within ${DEFAULT_BANDS.twoMinutes} min drive`}</option><option value="any">any drive time</option></select>
           </Lever>
           <Lever label="Drive cap from home" hint="Farthest a site may be from a student's home. Students whose home town is not on record are unaffected.">
             <select value={policy.maxStudentDriveMin ?? ""} onChange={(e) => setPolicy({ ...policy, maxStudentDriveMin: numOrNull(e.target.value) })} className={sel}><option value="">no cap</option>{[30, 45, 60, 75, 90].map((n) => <option key={n} value={n}>within {n} min</option>)}</select>
@@ -405,13 +406,13 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {tab === "sites" && (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="min-w-full text-xs">
-            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Site</th><th className="px-3 py-2 font-semibold">Agreement</th><th className="px-3 py-2 font-semibold">Ring · county</th><th className="px-3 py-2 text-right font-semibold">Assets</th><th className="px-3 py-2 text-right font-semibold">Seats in window</th><th className="px-3 py-2 text-right font-semibold">Used</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 text-right font-semibold">Sections</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 font-semibold">Settings</th><th className="px-3 py-2 font-semibold">Offerings</th><th className="px-3 py-2 text-right font-semibold">Preceptors on hand / peak need</th></tr></thead>
+            <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Site</th><th className="px-3 py-2 font-semibold">Agreement</th><th className="px-3 py-2 font-semibold">Drive time · county</th><th className="px-3 py-2 text-right font-semibold">Assets</th><th className="px-3 py-2 text-right font-semibold">Seats in window</th><th className="px-3 py-2 text-right font-semibold">Used</th><th className="px-3 py-2 text-right font-semibold">Utilization</th><th className="px-3 py-2 text-right font-semibold">Sections</th><th className="px-3 py-2 text-right font-semibold">Learner-hours</th><th className="px-3 py-2 font-semibold">Settings</th><th className="px-3 py-2 font-semibold">Offerings</th><th className="px-3 py-2 text-right font-semibold">Preceptors on hand / peak need</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {plan.sites.map((x) => (
                 <tr key={x.employerId} className={x.sections === 0 ? "text-slate-400" : ""}>
                   <td className="px-3 py-1.5 font-medium text-slate-800"><a href={`/employers/${x.employerId}`} className="hover:text-rose-700 hover:underline">{x.siteName}</a></td>
                   <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${AGREEMENT[x.agreementStatus] ?? AGREEMENT.none}`}>{x.agreementStatus}</span></td>
-                  <td className="px-3 py-1.5 text-slate-500">{[x.ring, x.county].filter(Boolean).join(" · ")}</td>
+                  <td className="px-3 py-1.5 text-slate-500">{[driveBandLabel(x.ring), x.county].filter(Boolean).join(" · ")}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{x.assets}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{n0(x.slotSeats)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{n0(x.usedSeats)}</td>

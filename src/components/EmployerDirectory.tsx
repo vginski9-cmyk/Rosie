@@ -1,4 +1,5 @@
 "use client";
+import { driveBandLabel, DRIVE_BAND_TONE, RING_ORDER } from "@/lib/geo";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -26,7 +27,7 @@ export interface DirEmployer {
   /** Auto-coded location: coordinates + their source, distance and drive time from the main campus, and whether the ring was overridden. */
   geo?: { lat: number | null; lng: number | null; source: string | null; distanceMiles: number | null; driveMinutes: number | null; ringSource: string };
 }
-const RING_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
+const RING_TONE = DRIVE_BAND_TONE;
 const AGREEMENT_BADGE: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 export interface InstLite { id: string; name: string }
 
@@ -51,7 +52,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
   const [showAll, setShowAll] = useState(false);
   const LIMIT = 60;
   const counties = useMemo(() => [...new Set(employers.map((e) => e.county).filter((x): x is string => !!x))].sort(), [employers]);
-  const rings = useMemo(() => [...new Set(employers.map((e) => e.ring).filter((x): x is string => !!x))].sort(), [employers]);
+  const rings = useMemo(() => RING_ORDER.filter((r) => employers.some((e) => e.ring === r)), [employers]);
   const types = useMemo(() => [...new Set(employers.map((e) => e.facilityType).filter((x): x is string => !!x))].sort(), [employers]);
 
   const years = useMemo(() => {
@@ -142,8 +143,8 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
           <select value={fCounty} onChange={(e) => setFCounty(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{counties.map((c) => <option key={c} value={c}>{c}</option>)}</select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Ring</span>
-          <select value={fRing} onChange={(e) => setFRing(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{rings.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Drive time</span>
+          <select value={fRing} onChange={(e) => setFRing(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{rings.map((r) => <option key={r} value={r}>{driveBandLabel(r)}</option>)}</select>
         </label>
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Agreement</span>
@@ -170,7 +171,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
             <tr className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-3 py-2 text-left font-semibold">Site</th>
               <th className="px-3 py-2 text-left font-semibold">Type · county</th>
-              <th className="px-3 py-2 text-left font-semibold">Ring · drive from campus</th>
+              <th className="px-3 py-2 text-left font-semibold">Drive from campus</th>
               <th className="px-3 py-2 text-right font-semibold">Beds / ORs</th>
               <th className="px-3 py-2 text-left font-semibold">Units · students / shift</th>
               <th className="px-3 py-2 text-left font-semibold">Agreement</th>
@@ -192,7 +193,7 @@ export function EmployerDirectory({ employers, institutions }: { employers: DirE
                   </td>
                   <td className="px-3 py-2 text-slate-500">{[e.facilityType ?? e.setting, e.county].filter(Boolean).join(" · ") || "—"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    {e.ring ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{e.ring}{e.geo?.ringSource === "manual" ? " ✎" : ""}</span> : <span className="text-slate-300">not located</span>}
+                    {e.ring ? <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${RING_TONE[e.ring] ?? "bg-slate-100 text-slate-600"}`}>{driveBandLabel(e.ring)}{e.geo?.ringSource === "manual" ? " ✎" : ""}</span> : <span className="text-slate-300">not located</span>}
                     {e.geo?.driveMinutes != null && <span className="block text-[10px] tabular-nums text-slate-500">≈ {fmt.minutes(e.geo.driveMinutes)} · {e.geo.distanceMiles != null ? `${dec(e.geo.distanceMiles, 1)} mi` : ""}{e.geo.source === "gazetteer" ? " · town centre" : e.geo.source === "manual" ? " · pinned" : ""}</span>}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-slate-600">{e.licensedBeds ?? e.nursingHomeBeds ?? "—"}{e.operatingRooms ? ` / ${e.operatingRooms} OR` : ""}</td>

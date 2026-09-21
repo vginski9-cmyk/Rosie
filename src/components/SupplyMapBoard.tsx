@@ -1,4 +1,5 @@
 "use client";
+import { driveBandLabel } from "@/lib/geo";
 
 // One job's clinical SUPPLY map — supply only, nothing about demand. The
 // settings this job's clinicals happen in, every site that serves it (add one
@@ -57,8 +58,8 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
             </div>
             {(["county", "ring"] as const).map((k) => (
               <div key={k}>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By {k} · {yr}</div>
-                <table className="mt-1 w-full text-xs"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1">{k}</th><th className="py-1 text-right">Sites</th><th className="py-1 text-right">Assets</th><th className="py-1 text-right">Shifts</th><th className="py-1 text-right">Hours</th></tr></thead>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By {k === "ring" ? "drive time from campus" : k} · {yr}</div>
+                <table className="mt-1 w-full text-xs"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1">{k === "ring" ? "drive time" : k}</th><th className="py-1 text-right">Sites</th><th className="py-1 text-right">Assets</th><th className="py-1 text-right">Shifts</th><th className="py-1 text-right">Hours</th></tr></thead>
                   <tbody>{byRegion(k).map(([key, v]) => <tr key={key} className="border-t border-slate-100"><td className="py-1 font-medium text-slate-700">{key}</td><td className="py-1 text-right tabular-nums">{v.sites}</td><td className="py-1 text-right tabular-nums">{v.assets}</td><td className="py-1 text-right tabular-nums">{n0(v.shifts)}</td><td className="py-1 text-right font-semibold tabular-nums">{n0(v.hours)}</td></tr>)}</tbody></table>
               </div>
             ))}
@@ -107,7 +108,7 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
             <label className="block"><span className="block text-[10px] text-slate-400">Facility type</span><select name="facilityType" className="w-full rounded border border-slate-300 px-2 py-1">{FACILITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
             <label className="block"><span className="block text-[10px] text-slate-400">Site id (partner code)</span><input name="externalId" placeholder="H019" className="w-full rounded border border-slate-300 px-2 py-1 font-mono" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">County</span><input name="county" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
-            <div className="block"><span className="block text-[10px] text-slate-400">Ring</span><span className="block rounded border border-dashed border-slate-300 px-2 py-1 text-slate-500">auto-coded from the address (drive time from the main campus)</span></div>
+            <div className="block"><span className="block text-[10px] text-slate-400">Drive time</span><span className="block rounded border border-dashed border-slate-300 px-2 py-1 text-slate-500">worked out from the address (minutes from the main campus)</span></div>
             <label className="block sm:col-span-2"><span className="block text-[10px] text-slate-400">Street address</span><input name="address" placeholder="155 Memorial Dr" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">City</span><input name="city" className="w-full rounded border border-slate-300 px-2 py-1" /></label>
             <label className="block"><span className="block text-[10px] text-slate-400">State · ZIP</span><div className="flex gap-1"><input name="state" defaultValue="NC" className="w-12 rounded border border-slate-300 px-2 py-1" /><input name="zip" placeholder="28374" className="w-full rounded border border-slate-300 px-2 py-1" /></div></label>
@@ -125,7 +126,7 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
               <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
                 <button onClick={() => setOpen(isOpen ? null : s.id)} className="min-w-0 flex-1 text-left">
                   <div className="text-base font-semibold text-slate-900">{isOpen ? "▾" : "▸"} {s.name} <span className="text-xs font-normal text-slate-400">{s.externalId ?? ""}</span></div>
-                  <div className="text-xs text-slate-500">{[s.facilityType, s.county && `${s.county} County`, s.ring].filter(Boolean).join(" · ")}{(s.address || s.city) ? <> · <span className="text-slate-600">{[s.address, [s.city, s.state].filter(Boolean).join(", "), s.zip].filter(Boolean).join(" · ")}</span></> : <> · <span className="text-amber-600">no address</span></>}</div>
+                  <div className="text-xs text-slate-500">{[s.facilityType, s.county && `${s.county} County`, driveBandLabel(s.ring)].filter(Boolean).join(" · ")}{(s.address || s.city) ? <> · <span className="text-slate-600">{[s.address, [s.city, s.state].filter(Boolean).join(", "), s.zip].filter(Boolean).join(" · ")}</span></> : <> · <span className="text-amber-600">no address</span></>}</div>
                   <div className="mt-1 text-sm text-slate-700">{s.assets.length === 0 ? <span className="text-slate-400">no assets yet</span> : <>{s.assets.length} assets · {t.settings.map((x) => `${x.settingCode} ${x.assets}`).join(" · ")} · <strong>{n0(t.grand.total)}</strong> shifts · <strong>{n0(t.grand.hours)}</strong> hrs in {yr}</>}</div>
                 </button>
                 <form action={async (fd) => { await upsertFamilySite(family.id, s.id, fd); refresh(); }} className="flex items-center gap-1 text-xs">

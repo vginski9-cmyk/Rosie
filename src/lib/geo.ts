@@ -16,6 +16,23 @@ export interface Located extends LatLng { source: GeoSource; label: string }
 export interface RingBands { coreMinutes: number; oneMinutes: number; twoMinutes: number }
 export const DEFAULT_BANDS: RingBands = { coreMinutes: 30, oneMinutes: 60, twoMinutes: 90 };
 export type Ring = "Core" | "Ring 1" | "Ring 2" | "Ring 3";
+export const RING_ORDER: Ring[] = ["Core", "Ring 1", "Ring 2", "Ring 3"];
+/** How a band reads on screen: by its drive-time radius, never by a ring name — "≤ 30 min", "30–60 min", "60–90 min", "over 90 min". */
+export function driveBandLabel(ring: string | null | undefined, bands: RingBands = DEFAULT_BANDS): string | null {
+  switch (ring) {
+    case "Core": return `≤ ${bands.coreMinutes} min`;
+    case "Ring 1": return `${bands.coreMinutes}–${bands.oneMinutes} min`;
+    case "Ring 2": return `${bands.oneMinutes}–${bands.twoMinutes} min`;
+    case "Ring 3": return `over ${bands.twoMinutes} min`;
+    default: return null;
+  }
+}
+/** The band label with "drive" spelled out, for a sentence: "within 30 min drive". */
+export const driveBandPhrase = (ring: string | null | undefined, bands: RingBands = DEFAULT_BANDS): string | null => { const l = driveBandLabel(ring, bands); return l ? (l.startsWith("≤") ? `within ${l.slice(2)} drive` : `${l} drive`) : null; };
+/** One tone per band, nearest to farthest. */
+export const DRIVE_BAND_TONE: Record<string, string> = { Core: "bg-emerald-100 text-emerald-800", "Ring 1": "bg-sky-100 text-sky-800", "Ring 2": "bg-amber-100 text-amber-800", "Ring 3": "bg-rose-100 text-rose-800" };
+/** A college's bands from its record. */
+export const bandsOf = (i: { ringCoreMinutes?: number | null; ringOneMinutes?: number | null; ringTwoMinutes?: number | null } | null | undefined): RingBands => ({ coreMinutes: i?.ringCoreMinutes ?? DEFAULT_BANDS.coreMinutes, oneMinutes: i?.ringOneMinutes ?? DEFAULT_BANDS.oneMinutes, twoMinutes: i?.ringTwoMinutes ?? DEFAULT_BANDS.twoMinutes });
 
 const R_MILES = 3958.7613;
 const rad = (d: number) => (d * Math.PI) / 180;

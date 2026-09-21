@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Plan, Policy } from "@/lib/scheduler";
 import { fmt, dec } from "@/lib/format";
+import { driveBandPhrase } from "@/lib/geo";
 
 // THE CAPACITY PICTURE (Phase 13) — the scheduler's answer in one glance, in plain words:
 //   • the rings: of the clinical learner-shifts you need, how many the plan found a seat for, how many
@@ -74,7 +75,7 @@ export function SchedulerCapacity({ plan, policy, window, onOpenLevers }: { plan
   const staffable = Math.min(have, c.supplySeatsStaffableOnDemandDays);
   const max = Math.max(need, have, everySite, staffable, 1) * 1.08;
   const agreements = policy.agreements === "secured" ? "secured agreements only" : policy.agreements === "secured+asked" ? "secured or asked" : "any agreement";
-  const ring = policy.maxRing === "any" ? "any drive ring" : `drive ring up to ${policy.maxRing}`;
+  const ring = policy.maxRing === "any" ? "any drive time" : `a ${driveBandPhrase(policy.maxRing) ?? policy.maxRing}`;
   const days = policy.flexibleDays ? `±${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact dates";
   const shift = policy.flexibleShift ? "any shift block" : "the session's shift block";
   const verdict = need === 0 ? "Nothing is scheduled in this window." : have >= need && staffable >= need ? `You have enough seats and enough preceptors for every shift — ${n0(have - need)} seats to spare.` : have >= need ? `You have enough seats (${n0(have - need)} to spare) but not enough preceptors on the rosters to staff them all — about ${n0(need - staffable)} learner-shifts would go unstaffed.` : `You are ${n0(need - have)} seats short on the days you need them, before staffing is even considered.`;
@@ -104,7 +105,7 @@ export function SchedulerCapacity({ plan, policy, window, onOpenLevers }: { plan
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Seats on the days you need them <span className="font-normal normal-case text-slate-400">— the black line is what you need ({n0(need)})</span></div>
           <Bar label="At the sites that count under your levers" value={have} demand={need} max={max} color={RING.placed} note={`every open asset-shift on the dates and shift blocks your sections fall on (${days}, ${shift}), at sites with ${agreements} within ${ring}, × learners per shift${c.supplySeatsBooked ? `, less ${n0(c.supplySeatsBooked)} seats hand-made bookings already take` : ""}`} />
           <Bar label="…that a preceptor on the roster could cover" value={staffable} demand={need} max={max} color={RING.staffed} estimate note={`the same seats, capped per site and shift by the preceptors on its roster × ${policy.studentsPerPreceptor ? `${policy.studentsPerPreceptor} students each (your Students-per-preceptor lever)` : "each asset's own students-per-preceptor ratio"}`} />
-          <Bar label="If every site counted (ignore agreement and drive-ring levers)" value={everySite} demand={need} max={max} color="#94a3b8" note="the same dates and shift blocks at every live site, whatever its agreement or ring — the most the levers could ever unlock" />
+          <Bar label="If every site counted (ignore the agreement and drive-time levers)" value={everySite} demand={need} max={max} color="#94a3b8" note="the same dates and shift blocks at every live site, whatever its agreement or drive time — the most the levers could ever unlock" />
           <p className="text-[11px] text-slate-600">
             <strong>What moves these numbers:</strong> <button type="button" onClick={onOpenLevers} className="text-rose-700 underline-offset-2 hover:underline">Sites that count</button> ({agreements}) · <button type="button" onClick={onOpenLevers} className="text-rose-700 hover:underline">Drive ring</button> ({ring}) · <button type="button" onClick={onOpenLevers} className="text-rose-700 hover:underline">Day</button> ({days}) · <button type="button" onClick={onOpenLevers} className="text-rose-700 hover:underline">Shift</button> ({shift}) · <button type="button" onClick={onOpenLevers} className="text-rose-700 hover:underline">Students per preceptor</button> · the window and the offerings chosen. Continuity, balance and variety change <em>where</em> shifts go, not how many seats exist.
             {c.settingsWithoutSupply.length > 0 && <span className="text-rose-700"> No site that counts offers {c.settingsWithoutSupply.join(", ")} at all — those shifts cannot be placed whatever the totals say.</span>}

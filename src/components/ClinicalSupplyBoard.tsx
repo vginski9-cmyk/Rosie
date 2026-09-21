@@ -1,4 +1,5 @@
 "use client";
+import { driveBandLabel } from "@/lib/geo";
 
 // Clinical supply vs demand the way a clinical coordinator works it:
 //   1. the verdict per unit category — physical room vs SECURED room
@@ -222,7 +223,7 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
           <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">Where each site stands with you. Set the agreement status here; open a site to configure its functional units.</div>
           <div className="max-h-[36rem] overflow-auto">
             <table className="min-w-full text-xs">
-              <thead className="sticky top-0 bg-slate-50"><tr className="text-left text-[10px] uppercase tracking-wide text-slate-500"><th className="px-3 py-2 font-semibold">Site</th><th className="px-3 py-2 font-semibold">Type · county · ring</th><th className="px-3 py-2 text-right font-semibold">Beds / ORs</th><th className="px-3 py-2 font-semibold">Units (students/shift by category)</th><th className="px-3 py-2 font-semibold">Agreement</th></tr></thead>
+              <thead className="sticky top-0 bg-slate-50"><tr className="text-left text-[10px] uppercase tracking-wide text-slate-500"><th className="px-3 py-2 font-semibold">Site</th><th className="px-3 py-2 font-semibold">Type · county · drive time</th><th className="px-3 py-2 text-right font-semibold">Beds / ORs</th><th className="px-3 py-2 font-semibold">Units (students/shift by category)</th><th className="px-3 py-2 font-semibold">Agreement</th></tr></thead>
               <tbody>
                 {sites.map((s) => {
                   const byCat = new Map<string, number>();
@@ -230,7 +231,7 @@ export function ClinicalSupplyBoard({ institutionId, sites, rotations, cohorts }
                   return (
                     <tr key={s.id} className="border-t border-slate-100">
                       <td className="px-3 py-1.5"><a href={`/employers/${s.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{s.name}</a>{s.organization && <span className="block text-slate-400">{s.organization}</span>}</td>
-                      <td className="px-3 py-1.5 text-slate-600">{[s.facilityType, s.county, s.ring].filter(Boolean).join(" · ")}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{[s.facilityType, s.county, driveBandLabel(s.ring)].filter(Boolean).join(" · ")}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{s.licensedBeds ?? s.nursingHomeBeds ?? "—"}{s.operatingRooms ? ` / ${s.operatingRooms} OR` : ""}</td>
                       <td className="px-3 py-1.5 text-slate-600">{[...byCat.entries()].map(([c, n]) => `${c} ${n0(n)}`).join(" · ") || <span className="text-slate-300">no units</span>}</td>
                       <td className="px-3 py-1.5">
