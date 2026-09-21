@@ -137,11 +137,12 @@ export interface SchedulerInput {
   policy: Policy;
 }
 
-export type UnmetReason = "holiday" | "class-day" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
+export type UnmetReason = "holiday" | "class-day" | "student-busy" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
 export const REASON_LABEL: Record<UnmetReason, string> = {
   "too-big": "no single site has enough seats of this setting on one shift for a section this size",
   holiday: "lands on an observed holiday — needs moving",
   "class-day": "overlaps a class or lab the cohort is in that day — students can't be in two places",
+  "student-busy": "these students are already on another clinical shift then — students can't be in two places",
   drive: "every allowed site is farther than the students' drive cap from home",
   "unmapped-setting": "rotation type isn't mapped to an asset setting",
   "no-asset-for-setting": "no partner reports an asset of this setting",
@@ -354,6 +355,19 @@ export function recommendPlan(input: SchedulerInput): Plan {
     return blocks.some((c) => start < c.endMin && c.startMin < end);
   };
 
+  // WHO IS ALREADY SOMEWHERE: the seat numbers of a cohort placed on each date × block by this plan. A student
+  // is never placed twice at once — a second shift for the same seats on the same date and block is not a
+  // candidate at all, whatever else it scores. (A hard rule, not a lever.)
+  const seatsBusy = new Map<string, Set<number>>(); // `${cohortId}|${date}|${block}` → seat numbers placed
+  const busySeatsAt = (cohortId: string, date: string, block: ShiftBlock) => { const k = `${cohortId}|${date}|${block}`; let s = seatsBusy.get(k); if (!s) { s = new Set(); seatsBusy.set(k, s); } return s; };
+  const seatsOf = (u: DemandUnit, seatOffset = 0, seats = u.sectionSeats) => { const out: number[] = []; for (let i = 0; i < seats; i++) out.push(u.seatStart + seatOffset + i); return out; };
+  const studentsBusy = (u: DemandUnit, date: string, block: ShiftBlock): boolean => { const b = seatsBusy.get(`${u.cohortId}|${date}|${block}`); return !!b && seatsOf(u).some((n) => b.has(n)); };
+  // …and where the same students have a shift of their OWN on the calendar (placed yet or not), so a
+  // moved shift never takes the date and block another of their shifts is meant to fill.
+  const demandAt = new Map<string, DemandUnit[]>();
+  for (const d of input.demand) { const k = `${d.cohortId}|${d.date}|${d.block}`; const l = demandAt.get(k) ?? []; l.push(d); demandAt.set(k, l); }
+  const studentsDue = (u: DemandUnit, date: string, block: ShiftBlock): boolean => (demandAt.get(`${u.cohortId}|${date}|${block}`) ?? []).some((d) => d.id !== u.id && d.seatStart < u.seatStart + u.sectionSeats && u.seatStart < d.seatStart + d.sectionSeats);
+
   // Continuity memory: section (cohort|course|section) → employerId of its previous placements, and the weeks spent there.
   const home = new Map<string, Map<string, number>>();
   const homeWeeks = new Map<string, Map<string, Set<string>>>();
@@ -405,8 +419,11 @@ export function recommendPlan(input: SchedulerInput): Plan {
     for (let d = 1; d <= pol.flexibleDays; d++) for (const sign of [-1, 1]) { const date = isoAdd(u.date, sign * d); if (mondayOf(date) === u.weekMonday) dates.push({ date, movedDays: sign * d }); }
     const blocks = pol.flexibleShift ? [u.block, ...BLOCKS.filter((b) => b !== u.block)] : [u.block];
     // Every date × block the cohort is free for: never a moved date the cohort is on campus, never an overlap on its own day.
-    const free = dates.flatMap((d) => blocks.filter((b) => !campusClash(u, d.date, b, d.movedDays !== 0)).map((b) => ({ ...d, block: b })));
-    if (!free.length) return none("class-day", eligibleSites);
+    const notInClass = dates.flatMap((d) => blocks.filter((b) => !campusClash(u, d.date, b, d.movedDays !== 0)).map((b) => ({ ...d, block: b })));
+    if (!notInClass.length) return none("class-day", eligibleSites);
+    // …and never one these students are already on another clinical shift for.
+    const free = notInClass.filter((d) => !studentsBusy(u, d.date, d.block) && ((d.movedDays === 0 && d.block === u.block) || !studentsDue(u, d.date, d.block)));
+    if (!free.length) return none("student-busy", eligibleSites);
     const pools = new Map<string, Pool>();
     for (const a of pool) for (const { date, movedDays, block: b } of free) {
       const d = { date, movedDays };
@@ -490,6 +507,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
       parts.push({ assetId: x.a.id, asset: x.a, seats: take });
     }
     siteUsed.set(P.employerId, (siteUsed.get(P.employerId) ?? 0) + seats);
+    for (const n of seatsOf(u, seatOffset, seats)) busySeatsAt(u.cohortId, P.date, P.block).add(n);
     const hm = home.get(sectionKey(u)) ?? new Map<string, number>(); hm.set(P.employerId, (hm.get(P.employerId) ?? 0) + 1); home.set(sectionKey(u), hm);
     const hw = homeWeeks.get(sectionKey(u)) ?? new Map<string, Set<string>>(); seenSet(hw, P.employerId).add(u.weekMonday); homeWeeks.set(sectionKey(u), hw);
     const stu = studentsOf(u).filter((s) => { const ord = s.sectionIndex - (u.sectionIndex - 1) * u.seatsPerSection; return ord > seatOffset && ord <= seatOffset + seats; });
@@ -570,6 +588,7 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
     case "ring": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are beyond the allowed drive time.`;
     case "drive": return `${who}: every allowed site is farther than the students' drive cap from home.`;
     case "class-day": return `${who}: the cohort is in class or lab during that shift.`;
+    case "student-busy": return `${who}: these students are already placed on another clinical shift then.`;
     case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving.`;
     case "unmapped-setting": return `${who}: rotation type "${u.rotationType}" is not mapped to an asset setting.`;
     case "no-asset-for-setting": return `${who}: no partner reports an asset of setting ${u.settingCode}.`;
@@ -584,9 +603,9 @@ function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit
     fixes.push(`a ${u.seats}-student section needs ${u.seats} ${u.settingCode} seats at one site on one shift; the largest site has ${b?.seats ?? 0}${b ? ` (${b.site})` : ""} — lower students per section on this session, raise learners per shift on the rooms, or let preceptor-led sections split across sites`);
   }
   if (reason === "holiday") return ["move this shift off the holiday (design & sequence — this offering)"];
-  if (reason === "class-day") {
+  if (reason === "class-day" || reason === "student-busy") {
     for (const t of [{ label: "allow ± 1 day inside the week", pol: { flexibleDays: 1 as const } }, { label: "allow ± 2 days inside the week", pol: { flexibleDays: 2 as const } }, { label: "allow a different shift block", pol: { flexibleShift: true } }]) if (candidates(u, { ...DEFAULT_POLICY, ...t.pol }).cands.length > 0) fixes.push(t.label);
-    fixes.push("move the class or lab off this shift's hours, or put the clinical on a day the cohort is not on campus (design & sequence — this offering)");
+    fixes.push(reason === "student-busy" ? "two clinical sessions put the same students on the same shift — move one to another day or shift block (design & sequence — this offering)" : "move the class or lab off this shift's hours, or put the clinical on a day the cohort is not on campus (design & sequence — this offering)");
     return fixes;
   }
   if (reason === "unmapped-setting") return [`map rotation type "${u.rotationType}" to an asset setting (Insights → Clinical sites → Rotation → setting)`];
@@ -780,8 +799,11 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const confirmedKnown = input.confirmedSettings != null;
   const atOnce = new Map<string, number>(); // employerId|date|block → seats placed
   for (const x of assignments) { const k = `${x.employerId}|${x.date}|${x.block}`; atOnce.set(k, (atOnce.get(k) ?? 0) + x.seats); }
-  const sectionAt = new Map<string, number>(); // cohort|section|date|block → placements (a section in two places at once is a student overlap)
-  for (const x of assignments) { const k = `${x.unit.cohortId}|${x.unit.sectionIndex}|${x.date}|${x.block}`; sectionAt.set(k, (sectionAt.get(k) ?? 0) + 1); }
+  // Safety net: the plan never places a seat twice at once (a hard rule while placing); this catches it if it ever did.
+  const seatRange = (x: Assignment) => ({ lo: x.unit.seatStart + x.seatOffset, hi: x.unit.seatStart + x.seatOffset + x.seats - 1 });
+  const byCohortAt = new Map<string, Assignment[]>();
+  for (const x of assignments) { const k = `${x.unit.cohortId}|${x.date}|${x.block}`; const l = byCohortAt.get(k) ?? []; l.push(x); byCohortAt.set(k, l); }
+  const overlapsAnother = (x: Assignment) => { const r = seatRange(x); return (byCohortAt.get(`${x.unit.cohortId}|${x.date}|${x.block}`) ?? []).some((y) => y !== x && y.unit.id !== x.unit.id && seatRange(y).lo <= r.hi && r.lo <= seatRange(y).hi); };
   const blk = new Map<BlockerKind, Blocker>();
   const addBlocker = (kind: BlockerKind, label: string, blocking: boolean, x: Assignment, example: string) => { const b = blk.get(kind) ?? { kind, label, shifts: 0, seats: 0, blocking, examples: [] }; b.shifts++; b.seats += x.seats; if (b.examples.length < 3 && !b.examples.includes(example)) b.examples.push(example); blk.set(kind, b); };
   for (const x of assignments) {
@@ -800,7 +822,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     let conflictFree = true;
     if (capN != null && here > capN) { conflictFree = false; issues.push(`${num(here)} students at ${x.siteName} at once vs ${num(capN)} approved`); addBlocker("over-capacity", "a site over its approved students-at-once", true, x, `${x.siteName}: ${num(here)} vs ${num(capN)} approved on ${x.date} ${x.block}`); }
     if (x.unit.holiday && !x.movedDays) { conflictFree = false; issues.push(`on ${x.unit.holiday}`); addBlocker("holiday", "a shift placed on an observed holiday", true, x, `${x.unit.holiday} ${x.date}`); }
-    if ((sectionAt.get(`${x.unit.cohortId}|${x.unit.sectionIndex}|${x.date}|${x.block}`) ?? 0) > 1 && x.splitOf <= 1) { conflictFree = false; issues.push("the same students are placed in two places at once"); addBlocker("student-overlap", "students placed in two places at once", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.date} ${x.block}`); }
+    if (overlapsAnother(x)) { conflictFree = false; issues.push("the same students are placed in two places at once"); addBlocker("student-overlap", "students placed in two places at once", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.date} ${x.block}`); }
     x.readiness = { locationAssigned: true, agreementEligible, staffedByName, experienceSupported, conflictFree, ready: agreementEligible && staffedByName && experienceSupported && conflictFree, issues };
   }
   const seatsWhere = (f: (r: Readiness) => boolean) => assignments.reduce((n, x) => n + (x.readiness && f(x.readiness) ? x.seats : 0), 0);

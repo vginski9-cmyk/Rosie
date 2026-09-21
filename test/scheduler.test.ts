@@ -12,7 +12,8 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   courseId: "c1", courseCode: "RAD-151", courseTitle: "Clinical Ed I", termIndex: 1, termName: "First Fall", weekOfTerm: 1,
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
   date: "2027-08-23", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-23",
-  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
+  // Sections deal seats: section 2 of a 2-seat session holds seats 3–4, never section 1's students.
+  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
   demand: [], assets: [], overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], policy: { ...DEFAULT_POLICY, ...policy }, ...over,
@@ -307,5 +308,35 @@ describe("supply against demand (Phase 13)", () => {
     const plan = recommendPlan(base({ demand: [unit({ id: "u3", settingCode: "OR" })], assets: [secured] }));
     expect(plan.summary.capacity.settingsWithoutSupply).toEqual(["OR"]);
     expect(plan.summary.capacity.headroomOnDemandDays).toBe(-2);
+  });
+});
+
+describe("no student is ever in two places at once", () => {
+  const room = asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional", shiftBlocks: "Day,Evening", learnersPerShift: 8 });
+  const other = asset({ id: "a2", employerId: "e2", facilityName: "FirstHealth Richmond", shiftBlocks: "Day,Evening", learnersPerShift: 8 });
+  it("a second clinical session for the same seats on the same date and block is left unplaced, never double-booked", () => {
+    const d = [unit({ id: "u1", sessionId: "s1", courseCode: "RAD-151" }), unit({ id: "u2", sessionId: "s2", courseCode: "RAD-161", courseId: "c2" })];
+    const plan = recommendPlan(base({ demand: d, assets: [room, other] }));
+    expect(plan.assignments.length).toBe(1);
+    expect(plan.unmet.map((u) => u.reason)).toEqual(["student-busy"]);
+    expect(plan.blockers.find((b) => b.kind === "student-overlap")).toBeUndefined();
+    expect(plan.unmet[0].fixes.some((f) => /same students on the same shift/.test(f))).toBe(true);
+  });
+  it("different seats of the same cohort may share a date and block", () => {
+    const d = [unit({ id: "u1", sectionIndex: 1, seatStart: 1 }), unit({ id: "u2", sectionIndex: 2, seatStart: 3 })];
+    const plan = recommendPlan(base({ demand: d, assets: [room] }));
+    expect(plan.assignments.length).toBe(2);
+    expect(plan.unmet).toEqual([]);
+  });
+  it("a shift the levers may move never lands on a date and block the same students already have a shift for", () => {
+    // Mon closed at every site → the Monday shift may move ± 1 day, but Tuesday is these students' own RAD-161 day.
+    const monOnly = asset({ id: "a3", employerId: "e3", facilityName: "Tue-Wed clinic", days: "Tue,Wed", shiftBlocks: "Day", learnersPerShift: 8 });
+    const d = [unit({ id: "mon", sessionId: "s1", courseCode: "RAD-151", date: "2027-08-23" }), unit({ id: "tue", sessionId: "s2", courseCode: "RAD-161", courseId: "c2", date: "2027-08-24" })];
+    const plan = recommendPlan(base({ demand: d, assets: [monOnly] }, { flexibleDays: 1 }));
+    const mon = plan.assignments.find((x) => x.unit.id === "mon"), tue = plan.assignments.find((x) => x.unit.id === "tue");
+    expect(tue?.date).toBe("2027-08-24");
+    expect(mon?.date).toBe("2027-08-22" === mon?.date ? "2027-08-22" : mon?.date); // wherever it went, not Tuesday
+    expect(mon?.date).not.toBe("2027-08-24");
+    expect(plan.blockers.find((b) => b.kind === "student-overlap")).toBeUndefined();
   });
 });

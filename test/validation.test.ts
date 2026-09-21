@@ -15,7 +15,7 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   courseId: "c1", courseCode: "RAD-151", courseTitle: "Clinical Ed I", termIndex: 1, termName: "First Fall", weekOfTerm: 1,
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
   date: "2027-08-24", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-24",
-  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
+  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
   demand: [], assets: [], overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], siteCaps: [], confirmedSettings: [], policy: { ...DEFAULT_POLICY, ...policy }, ...over,
@@ -81,9 +81,11 @@ describe("validation fixtures", () => {
     const over = plan.blockers.find((b) => b.kind === "over-capacity")!;
     expect(over).toMatchObject({ blocking: true, shifts: 2, seats: 4 });
     expect(over.examples[0]).toMatch(/Moore Regional: 4 vs 3 approved on 2027-08-24 Day/);
-    // The same students in two places at once is also a conflict.
+    // The same students in two places at once is never placed: the second shift is left unplaced and says why.
     const twice = recommendPlan(base({ demand: [unit({ id: "u1" }), unit({ id: "u1b", sessionId: "s2" })], assets: rooms, preceptors: preceptors("e1", 2), confirmedSettings: [{ employerId: "e1", settingCode: "GEN" }] }));
-    expect(twice.blockers.find((b) => b.kind === "student-overlap")).toMatchObject({ blocking: true });
+    expect(twice.blockers.find((b) => b.kind === "student-overlap")).toBeUndefined();
+    expect(twice.assignments.length).toBe(1);
+    expect(twice.unmet.map((u) => u.reason)).toEqual(["student-busy"]);
   });
 
   it("5 · a shift moved from Tuesday to Thursday shows Thursday everywhere the plan reports it", () => {
