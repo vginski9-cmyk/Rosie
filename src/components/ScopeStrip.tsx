@@ -3,7 +3,7 @@ import { fmt } from "@/lib/format";
 import { ProvisionalDatesBanner } from "@/components/Evidence";
 import type { CalendarProvenance } from "@/lib/evidence";
 
-export interface BridgeItem { label: string; href: string; value: number; unit: string; why: string }
+export interface BridgeItem { label: string; href: string; value: number; unit: string; why: string; /** A second figure under the total ("20,001 on a booked seat"). */ sub?: string }
 
 // One strip above every capacity, load, coverage, staffing and scheduler view saying what the
 // numbers are (requirements, a proposed scenario, or the applied plan), whose enrollment they
@@ -35,7 +35,7 @@ export function ScopeStrip({ shows, population, window, constraints, differs = [
       {bridge && (
         <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-slate-200">
           <span className="font-semibold uppercase tracking-wide text-slate-500">Same scope, three views ({bridge.from} → {bridge.to})</span>
-          {(["scheduler", "capacity", "load"] as const).map((k) => { const b = bridge[k]; const me = self === k; return <span key={k} className={me ? "font-semibold text-slate-800" : ""} title={b.why}>{me ? b.label : <Link href={b.href} className="text-rose-700 hover:underline">{b.label}</Link>} <span className="tabular-nums">{fmt.num(b.value)}</span> {b.unit}</span>; })}
+          {(["scheduler", "capacity", "load"] as const).map((k) => { const b = bridge[k]; const me = self === k; return <span key={k} className={me ? "font-semibold text-slate-800" : ""} title={b.why}>{me ? b.label : <Link href={b.href} className="text-rose-700 hover:underline">{b.label}</Link>} <span className="tabular-nums">{fmt.num(b.value)}</span> {b.unit}{b.sub ? <span className="text-slate-500"> · {b.sub}</span> : null}</span>; })}
           <span className="basis-full text-[11px] text-slate-500">{bridge.scheduler.value === bridge.capacity.value ? "Scheduler and site capacity agree — one definition of demand." : `Scheduler and site capacity differ by ${fmt.num(Math.abs(bridge.scheduler.value - bridge.capacity.value))} learner-shifts: ${bridge.scheduler.why}.`} Site load is a different population: {bridge.load.why}.</span>
         </div>
       )}

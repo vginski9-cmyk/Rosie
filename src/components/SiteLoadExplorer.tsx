@@ -1,15 +1,16 @@
 "use client";
 
 // CLINICAL SITE LOAD — the explorer. A query bar first: any combination of program, cohort, class,
-// term, semester, year, month, day of week, a date window, site, health system, county, ring, facility
-// type, setting, agreement, status, student and preceptor. Then three views of whatever the query
-// leaves: the site leaderboard (who carries the load, how full they run, who precepts), a pivot of any
-// rows × any columns for any measure, and the site × week / month grid. Everything exports to CSV.
+// term, semester, year, month, day of week, a date window, site, health system, county, drive-time
+// band, facility type, setting, asset, shift, seat, agreement, status, student and preceptor. Then three
+// views of whatever the query leaves: the site leaderboard (who carries the load, how full each shift
+// runs against the seats open that shift, asset by asset, who precepts), a pivot of any rows × any
+// columns for any measure, and the site × week / month grid. Everything exports to CSV.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { driveBandLabel, DRIVE_BAND_TONE } from "@/lib/geo";
-import { applyFilter, optionsOf, pivot, siteStats, siteByPeriod, concentration, rowsToCsv, pivotToCsv, DIM_LABEL, MEASURE_LABEL, isTimeDim, type LoadRow, type SiteSeats, type LoadDim, type LoadMeasure, type LoadFilter, type SiteStat } from "@/lib/siteload";
+import { applyFilter, optionsOf, pivot, siteStats, siteByPeriod, concentration, rowsToCsv, pivotToCsv, DIM_LABEL, MEASURE_LABEL, isTimeDim, NO_SEAT, type LoadRow, type SiteSeats, type LoadDim, type LoadMeasure, type LoadFilter, type SiteStat } from "@/lib/siteload";
 import { dec, fmt } from "@/lib/format";
 
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
@@ -21,9 +22,9 @@ const fmtCell = (v: number, m: LoadMeasure) => (m === "hours" ? fmt.hours(v) : f
 const download = (name: string, text: string) => { const url = URL.createObjectURL(new Blob([text], { type: "text/csv;charset=utf-8" })); const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url); };
 
 /** The query bar's dimensions, in the order they read: when · who · where · what. */
-const QUERY_DIMS: (keyof LoadFilter & LoadDim)[] = ["year", "semester", "term", "dayOfWeek", "program", "cohort", "course", "student", "site", "system", "county", "ring", "facilityType", "setting", "agreement", "status", "preceptor"];
-const ROW_DIMS: LoadDim[] = ["site", "system", "county", "ring", "facilityType", "setting", "program", "cohort", "course", "student", "preceptor", "agreement", "status", "year", "semester", "term", "month", "week", "day", "dayOfWeek"];
-const COL_DIMS: LoadDim[] = ["month", "week", "semester", "term", "year", "dayOfWeek", "program", "cohort", "course", "setting", "status", "agreement", "ring", "county", "system"];
+const QUERY_DIMS: (keyof LoadFilter & LoadDim)[] = ["year", "semester", "term", "dayOfWeek", "block", "seat", "program", "cohort", "course", "student", "site", "system", "county", "ring", "facilityType", "setting", "asset", "agreement", "status", "preceptor"];
+const ROW_DIMS: LoadDim[] = ["site", "asset", "block", "seat", "system", "county", "ring", "facilityType", "setting", "program", "cohort", "course", "student", "preceptor", "agreement", "status", "year", "semester", "term", "month", "week", "day", "dayOfWeek"];
+const COL_DIMS: LoadDim[] = ["month", "week", "semester", "term", "year", "dayOfWeek", "block", "seat", "program", "cohort", "course", "setting", "status", "agreement", "ring", "county", "system"];
 
 /** One dimension of the query: chips when few values, a searchable checklist when many. */
 function Pick({ dim, options, chips, value, onChange }: { dim: LoadDim; options: string[]; chips: boolean; value: Set<string>; onChange: (s: Set<string>) => void }) {
@@ -48,7 +49,7 @@ function Pick({ dim, options, chips, value, onChange }: { dim: LoadDim; options:
   );
 }
 
-export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[]; seats: SiteSeats[]; programIds: Record<string, string> }) {
+export function SiteLoadExplorer({ rows, seats, familySettings, programIds }: { rows: LoadRow[]; seats: SiteSeats[]; familySettings: Record<string, string[]>; programIds: Record<string, string> }) {
   const [filter, setFilter] = useState<LoadFilter>({});
   const [view, setView] = useState<"sites" | "pivot" | "time">("sites");
   const [rowDim, setRowDim] = useState<LoadDim>("site");
@@ -66,7 +67,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
   // Chips or a searchable list is decided on the whole data set, so the bar keeps its shape as the query narrows.
   const baseCount = useMemo(() => Object.fromEntries(QUERY_DIMS.map((d) => [d, optionsOf(rows, d).length])) as Record<string, number>, [rows]);
   const dims = useMemo(() => QUERY_DIMS.filter((d) => baseCount[d] >= 2).map((dim) => ({ dim, options: optionsFor(dim), chips: baseCount[dim] <= 8 })), [rows, filter, baseCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const stats = useMemo(() => siteStats(filtered, seats), [filtered, seats]);
+  const stats = useMemo(() => siteStats(filtered, seats, familySettings), [filtered, seats, familySettings]);
   const pv = useMemo(() => pivot(filtered, rowDim, colDim, measure), [filtered, rowDim, colDim, measure]);
   const grid = useMemo(() => siteByPeriod(filtered, period), [filtered, period]);
   const conc = concentration(stats, 3);
@@ -76,7 +77,10 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
   const span = dated.length ? [dated[0], dated[dated.length - 1]] : null;
   const secured = stats.filter((s) => s.agreement === "secured");
   const unsecuredLoad = stats.filter((s) => s.agreement !== "secured").reduce((n, s) => n + s.studentDays, 0);
-  const overfull = stats.filter((s) => s.utilization != null && s.utilization > 1);
+  // Over its seats on some shift — the scheduler never writes this; it can only come from a hand-made booking.
+  const overfull = stats.filter((s) => s.peakShare != null && s.peakShare > 1);
+  const seated = filtered.filter((r) => r.assetId).length;
+  const unseated = total - seated;
   const noPreceptor = stats.filter((s) => s.preceptorsUsed === 0 && s.studentDays > 0);
   const maxDays = Math.max(1, ...stats.map((s) => s.studentDays));
   const shown = showAll ? stats : stats.slice(0, 20);
@@ -117,15 +121,17 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
       </div>
 
       {/* The headline of whatever the query leaves */}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
         {[
-          ["Student-days", fmt.num(total), span ? `${fmtP(span[0])} → ${fmtP(span[1])}` : "no dated shifts"],
+          ["Student-shifts", fmt.num(total), span ? `${fmtP(span[0])} → ${fmtP(span[1])}` : "no dated shifts"],
+          ["On a booked seat", total ? pct(seated / total) : "—", unseated ? `${fmt.num(unseated)} with no seat yet — the scheduler could not place them under the roster levers` : "every student-shift sits on an asset the scheduler booked"],
           ["Students placed", String(students), `${stats.length} site${stats.length === 1 ? "" : "s"} carrying them`],
           ["Top 3 sites carry", pct(conc.topShare), conc.top.map((t) => t.replace(/ — .*$/, "").slice(0, 22)).join(" · ")],
-          ["Secured sites", `${secured.length} of ${stats.length}`, unsecuredLoad ? `${fmt.num(unsecuredLoad)} student-days at sites without a secured agreement` : "every student-day is at a secured site"],
-          ["Watch", String(overfull.length + noPreceptor.length), `${overfull.length} over their seats · ${noPreceptor.length} with no preceptor named`],
+          ["Secured sites", `${secured.length} of ${stats.length}`, unsecuredLoad ? `${fmt.num(unsecuredLoad)} student-shifts at sites without a secured agreement` : "every student-shift is at a secured site"],
+          ["Watch", String(overfull.length + noPreceptor.length), `${overfull.length} over their seats on some shift · ${noPreceptor.length} with no preceptor named`],
         ].map(([k, v, d]) => <div key={k} className="rounded-xl border border-slate-200 bg-white px-3 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{k}</div><div className="text-xl font-semibold tabular-nums text-slate-900">{v}</div><div className="text-[11px] text-slate-500">{d}</div></div>)}
       </div>
+      {unseated > 0 && <p className="text-xs text-slate-500">A shift with no seat is shown at its section&apos;s pattern site but is never counted against that site&apos;s seats. <Link href="/scheduler" className="text-rose-700 hover:underline">Open the clinical scheduler</Link> to see why it could not be placed and which lever would seat it.</p>}
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs">
@@ -137,7 +143,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500">
-              <tr><th className="px-3 py-1.5 text-left">#</th><th className="px-2 py-1.5 text-left">Site</th><th className="min-w-[12rem] px-2 py-1.5 text-left">Share of the load</th><th className="px-2 py-1.5 text-right">Student-days</th><th className="px-2 py-1.5 text-right">Students</th><th className="px-2 py-1.5 text-left">Programs</th><th className="px-2 py-1.5 text-left">Settings</th><th className="px-2 py-1.5 text-right">Students / day</th><th className="px-2 py-1.5 text-right">Seats</th><th className="px-2 py-1.5 text-right">Full</th><th className="px-2 py-1.5 text-right">Preceptors</th><th className="px-2 py-1.5 text-left">Agreement</th><th className="px-2 py-1.5 text-left">Drive</th></tr>
+              <tr><th className="px-3 py-1.5 text-left">#</th><th className="px-2 py-1.5 text-left">Site</th><th className="min-w-[12rem] px-2 py-1.5 text-left">Share of the load</th><th className="px-2 py-1.5 text-right">Student-shifts</th><th className="px-2 py-1.5 text-right">Students</th><th className="px-2 py-1.5 text-left">Programs</th><th className="px-2 py-1.5 text-left">Settings</th><th className="px-2 py-1.5 text-right" title="Students on a shift (date × shift block): the average over the shifts the site hosts, and the fullest one">Students / shift</th><th className="px-2 py-1.5 text-right" title="Learner seats open on a Day shift in the programs' settings — the sum of the site's assets' learners per shift">Seats / shift</th><th className="px-2 py-1.5 text-right" title="How full the site runs on the shifts it hosts: students ÷ seats open that shift, summed over the shifts; below, the fullest single shift">Full</th><th className="px-2 py-1.5 text-right">Preceptors</th><th className="px-2 py-1.5 text-left">Agreement</th><th className="px-2 py-1.5 text-left">Drive</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {shown.map((s, i) => {
@@ -152,9 +158,9 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                       <td className="px-2 py-1.5 text-right tabular-nums">{s.students}</td>
                       <td className="px-2 py-1.5">{s.programs.map((p) => <span key={p.name} className="mr-1 inline-block rounded bg-slate-100 px-1 text-[10px] text-slate-700">{p.name} {p.students}</span>)}</td>
                       <td className="px-2 py-1.5">{s.settings.slice(0, 4).map((x) => <span key={x.code} className="mr-1 font-mono text-[10px] text-slate-600">{x.code} {x.studentDays}</span>)}{s.settings.length > 4 ? <span className="text-[10px] text-slate-400">+{s.settings.length - 4}</span> : null}</td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{n1(s.avgStudentsPerActiveDay)}<span className="block text-[10px] text-slate-400">peak {s.peakDayStudents}</span></td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{s.seatsPerDay ?? "—"}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums ${s.utilization == null ? "text-slate-300" : s.utilization > 1 ? "font-semibold text-rose-600" : s.utilization > 0.75 ? "text-amber-700" : "text-emerald-700"}`}>{s.utilization == null ? "—" : pct(s.utilization)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-700">{s.shiftsUsed ? n1(s.avgStudentsPerShift) : "—"}<span className="block text-[10px] text-slate-400">{s.shiftsUsed ? `fullest ${s.peakShiftStudents} · ${fmt.num(s.shiftsUsed)} shifts` : `${NO_SEAT}`}</span></td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-slate-600">{s.seatsPerShift ?? "—"}</td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums ${s.utilization == null ? "text-slate-300" : (s.peakShare ?? 0) > 1 ? "font-semibold text-rose-600" : s.utilization > 0.75 ? "text-amber-700" : "text-emerald-700"}`}>{s.utilization == null ? "—" : pct(s.utilization)}{s.peakShare != null && <span className="block text-[10px] font-normal text-slate-400">fullest shift {pct(s.peakShare)}</span>}{s.unplaced > 0 && <span className="block text-[10px] font-normal text-amber-600">{fmt.num(s.unplaced)} {NO_SEAT}</span>}</td>
                       <td className="px-2 py-1.5 text-right tabular-nums">{s.preceptorsUsed}<span className="text-slate-400"> / {s.preceptorsOnRecord ?? "—"}</span>{s.preceptorsUsed === 0 && <span className="block text-[10px] text-amber-600">none named</span>}</td>
                       <td className="px-2 py-1.5"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${AGREEMENT[s.agreement] ?? ""}`}>{s.agreement}</span></td>
                       <td className="px-2 py-1.5 whitespace-nowrap">{s.ring && <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${DRIVE_BAND_TONE[s.ring] ?? "bg-slate-100"}`}>{driveBandLabel(s.ring)}</span>}{s.driveMinutes != null && <span className="ml-1 text-[10px] tabular-nums text-slate-500">{fmt.minutes(s.driveMinutes)}</span>}</td>
@@ -162,11 +168,20 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
                     {open === key && (
                       <tr key={key + "-d"} className="bg-rose-50/30">
                         <td colSpan={13} className="px-4 py-2">
+                          {s.assets.length > 0 && (
+                            <div className="mb-3">
+                              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Seat by seat — each asset the roster booked here</div>
+                              <table className="mt-1 text-[11px]">
+                                <thead className="text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="pr-3 text-left font-normal">Asset</th><th className="pr-3 text-left font-normal">Setting</th><th className="pr-3 text-right font-normal">Seats / shift</th><th className="pr-3 text-right font-normal">Student-shifts</th><th className="pr-3 text-right font-normal">Shifts used</th><th className="pr-3 text-right font-normal">Fullest</th><th className="pr-3 text-right font-normal">Fill</th></tr></thead>
+                                <tbody>{s.assets.map((a) => <tr key={a.assetId} className="border-t border-slate-100"><td className="pr-3 py-0.5 font-medium text-slate-700">{a.name}</td><td className="pr-3 font-mono text-slate-500">{a.settingCode}</td><td className="pr-3 text-right tabular-nums">{a.seatsPerShift}</td><td className="pr-3 text-right tabular-nums">{fmt.num(a.studentShifts)}</td><td className="pr-3 text-right tabular-nums">{fmt.num(a.shiftsUsed)}</td><td className={`pr-3 text-right tabular-nums ${a.peakStudents > a.seatsPerShift ? "font-semibold text-rose-600" : ""}`}>{a.peakStudents} of {a.seatsPerShift}</td><td className="pr-3 text-right tabular-nums">{pct(a.fill)}</td></tr>)}</tbody>
+                              </table>
+                            </div>
+                          )}
                           <div className="grid gap-3 text-[11px] md:grid-cols-4">
-                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By program</div>{s.programs.map((p) => <div key={p.name} className="tabular-nums">{p.name}: <strong>{p.studentDays}</strong> student-days · {p.students} students</div>)}</div>
+                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By program</div>{s.programs.map((p) => <div key={p.name} className="tabular-nums">{p.name}: <strong>{p.studentDays}</strong> student-shifts · {p.students} students</div>)}</div>
                             <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By setting</div>{s.settings.map((x) => <div key={x.code} className="tabular-nums"><span className="font-mono">{x.code}</span>: {x.studentDays}</div>)}</div>
-                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">When</div><div>{s.firstDate ? `${fmtP(s.firstDate)} → ${fmtP(s.lastDate!)}` : "undated"} · {s.weeksActive} active weeks</div><div>{fmt.num(s.hours)} student-hours · {s.completedDays} days logged{s.absentDays ? ` · ${s.absentDays} absences` : ""}</div><div>cohorts: {s.cohorts.join(", ")}</div></div>
-                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Preceptors</div><div>{s.preceptorsUsed} named on shifts{s.preceptorsOnRecord != null ? ` · ${s.preceptorsOnRecord} on record` : ""}{s.studentDaysPerPreceptor != null ? ` · ${n1(s.studentDaysPerPreceptor)} student-days each` : ""}</div><div className="mt-1 flex flex-wrap gap-2">{href && <Link href={href} className="text-rose-600 hover:underline">open the site&apos;s setup →</Link>}{s.employerId && <Link href={`/employers/${s.employerId}`} className="text-rose-600 hover:underline">organization record →</Link>}<button onClick={() => { setFilter((f) => ({ ...f, site: new Set([s.site]) })); setView("pivot"); setRowDim("student"); setColDim("month"); }} className="text-rose-600 hover:underline">who is here, month by month →</button></div></div>
+                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">When</div><div>{s.firstDate ? `${fmtP(s.firstDate)} → ${fmtP(s.lastDate!)}` : "undated"} · {s.weeksActive} active weeks · {n1(s.avgStudentsPerActiveDay)} students a day (peak {s.peakDayStudents})</div><div>{fmt.num(s.hours)} student-hours · {s.completedDays} shifts logged{s.absentDays ? ` · ${s.absentDays} absences` : ""}</div><div>cohorts: {s.cohorts.join(", ")}</div></div>
+                            <div><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Preceptors</div><div>{s.preceptorsUsed} named on shifts{s.preceptorsOnRecord != null ? ` · ${s.preceptorsOnRecord} on record` : ""}{s.studentDaysPerPreceptor != null ? ` · ${n1(s.studentDaysPerPreceptor)} student-shifts each` : ""}</div><div className="mt-1 flex flex-wrap gap-2">{href && <Link href={href} className="text-rose-600 hover:underline">open the site&apos;s setup →</Link>}{s.employerId && <Link href={`/employers/${s.employerId}`} className="text-rose-600 hover:underline">organization record →</Link>}<button onClick={() => { setFilter((f) => ({ ...f, site: new Set([s.site]) })); setView("pivot"); setRowDim("student"); setColDim("month"); }} className="text-rose-600 hover:underline">who is here, month by month →</button></div></div>
                           </div>
                         </td>
                       </tr>
@@ -212,7 +227,7 @@ export function SiteLoadExplorer({ rows, seats, programIds }: { rows: LoadRow[];
 
       {view === "time" && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-xs"><span className="text-slate-500">Students on site per</span><div className="inline-flex overflow-hidden rounded-lg border border-slate-300">{(["week", "month"] as const).map((p) => <button key={p} onClick={() => setPeriod(p)} className={`px-2.5 py-1 ${period === p ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{p}</button>)}</div><span className="text-slate-400">· top {grid.sites.length} sites by student-days</span></div>
+          <div className="flex items-center gap-2 text-xs"><span className="text-slate-500">Students on site per</span><div className="inline-flex overflow-hidden rounded-lg border border-slate-300">{(["week", "month"] as const).map((p) => <button key={p} onClick={() => setPeriod(p)} className={`px-2.5 py-1 ${period === p ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>{p}</button>)}</div><span className="text-slate-400">· top {grid.sites.length} sites by student-shifts</span></div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
             <table className="text-[11px]">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="sticky left-0 bg-slate-50 px-3 py-1.5 text-left">Site</th>{grid.periods.map((p) => <th key={p} className="px-1.5 py-1.5 text-center font-normal">{fmtP(p)}</th>)}<th className="px-2 py-1.5 text-right">Total</th></tr></thead>

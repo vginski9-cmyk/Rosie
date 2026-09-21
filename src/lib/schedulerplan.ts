@@ -5,11 +5,11 @@
 // the levers, never the thousands of placed sections themselves.
 
 import { buildInstances, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
-import { demandUnits, recommendPlan, AUTO_PLAN_NOTE, type Policy, type Plan, type DemandUnit, type CampusBlock, type Assignment, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type SiteCapacityLite, type ConfirmedSetting } from "./scheduler";
+import { demandUnits, recommendPlan, AUTO_PLAN_NOTE, DEFAULT_POLICY, type Policy, type Plan, type DemandUnit, type CampusBlock, type Assignment, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type SiteCapacityLite, type ConfirmedSetting } from "./scheduler";
 import { shiftStart, type AssetLite, type AssetDayOverride, type AssetBookingLite } from "./assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
-import type { PlanAssignmentInput } from "./actions";
+import type { PlanAssignmentInput } from "./planwrite";
 
 export interface SchedulerSupply {
   assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
@@ -17,6 +17,13 @@ export interface SchedulerSupply {
   /** Phase 5: what each site may hold at once and which settings it has confirmed — the readiness funnel's inputs. */
   siteCaps?: SiteCapacityLite[]; confirmedSettings?: ConfirmedSetting[];
 }
+
+/** The levers the roster is placed with — the seed places every demo offering's clinical shifts
+ *  through the scheduler under these, and the scheduler page opens on them, so the share the
+ *  page says can be placed is the share the site-load page finds on booked seats. Every secured
+ *  site at any drive time, any shift block, ± 2 days inside the week, never a holiday; seats
+ *  first (a site's preceptors are put on the shift when it has them, not required to place it). */
+export const ROSTER_POLICY: Policy = { ...DEFAULT_POLICY, agreements: "secured", maxRing: "any", flexibleShift: true, flexibleDays: 2, skipHolidays: true, requirePreceptor: false };
 
 /** What the board sends to be applied: the levers, the date window and which offerings — a few hundred bytes. */
 export interface SchedulerLevers { policy: Policy; from: string; to: string; cohortIds: string[] }

@@ -60,7 +60,7 @@ export function SupplyMapBoard({ family, settings, sites, overrides, organizatio
               <div key={k}>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">By {k === "ring" ? "drive time from campus" : k} · {yr}</div>
                 <table className="mt-1 w-full text-xs"><thead className="text-left text-[10px] uppercase tracking-wide text-slate-400"><tr><th className="py-1">{k === "ring" ? "drive time" : k}</th><th className="py-1 text-right">Sites</th><th className="py-1 text-right">Assets</th><th className="py-1 text-right">Shifts</th><th className="py-1 text-right">Hours</th></tr></thead>
-                  <tbody>{byRegion(k).map(([key, v]) => <tr key={key} className="border-t border-slate-100"><td className="py-1 font-medium text-slate-700">{key}</td><td className="py-1 text-right tabular-nums">{v.sites}</td><td className="py-1 text-right tabular-nums">{v.assets}</td><td className="py-1 text-right tabular-nums">{n0(v.shifts)}</td><td className="py-1 text-right font-semibold tabular-nums">{n0(v.hours)}</td></tr>)}</tbody></table>
+                  <tbody>{byRegion(k).map(([key, v]) => <tr key={key} className="border-t border-slate-100"><td className="py-1 font-medium text-slate-700">{k === "ring" ? driveBandLabel(key) ?? "not located" : key}</td><td className="py-1 text-right tabular-nums">{v.sites}</td><td className="py-1 text-right tabular-nums">{v.assets}</td><td className="py-1 text-right tabular-nums">{n0(v.shifts)}</td><td className="py-1 text-right font-semibold tabular-nums">{n0(v.hours)}</td></tr>)}</tbody></table>
               </div>
             ))}
           </div>

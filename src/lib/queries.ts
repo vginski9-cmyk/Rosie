@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import type { Prisma } from "@prisma/client";
 import * as React from "react";
 /** Per-request memo (React `cache`) where the server runtime has it; a plain call elsewhere (tests, scripts). */
 const cache = ((React as unknown as { cache?: <F>(fn: F) => F }).cache ?? ((fn) => fn)) as <F>(fn: F) => F;
@@ -2278,6 +2279,8 @@ async function capacityModelFor(institution: { id: string; name: string }) {
           shiftMoves: { select: { sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
           sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
           _count: { select: { students: true } },
+          // The named roster: students on the offering who have not withdrawn. Once they exist they ARE the demand, whatever the target said.
+          students: { where: { status: { notIn: ["withdrawn"] } }, select: { id: true } },
         },
       },
     },
@@ -2315,8 +2318,12 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         : productiveGoal > 0
           ? deriveCohortTargets(productiveGoal, coRates, Math.max(1, orderedTerms.length)).terms
           : orderedTerms.map(() => Number(fallbackSeats));
+      // A term's seats are its target (thinned by the completion rate, or overridden) — but never fewer than the
+      // students actually on the roster today: a named student needs a seat in every term they are still in, and the
+      // scheduler, the capacity view and the site-load page all count the same people. Attrition shows up as withdrawals.
+      const onRoster = co.students.length;
       const enrollmentByTerm: Record<number, number> = {};
-      orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.round(termOverrides[i] ?? derived[i] ?? derived[derived.length - 1] ?? 0); });
+      orderedTerms.forEach((t, i) => { enrollmentByTerm[t.index] = Math.max(Math.round(termOverrides[i] ?? derived[i] ?? derived[derived.length - 1] ?? 0), onRoster); });
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
       const termStartByIndex: Record<number, string | null> = {};
       const termEndByIndex: Record<number, string | null> = {};
@@ -3082,13 +3089,13 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
 }
 
 /** Every clinical student-shift at the institution as a site-load row, plus each site's seats in the program's settings. */
-export async function getSiteLoad(institutionId?: string): Promise<{ institution: { id: string; name: string }; rows: import("./siteload").LoadRow[]; withdrawn: { excluded: number; kept: number; students: number }; seats: import("./siteload").SiteSeats[]; programs: string[]; cohorts: string[]; terms: string[]; settings: string[] } | null> {
+export async function getSiteLoad(institutionId?: string): Promise<{ institution: { id: string; name: string }; rows: import("./siteload").LoadRow[]; withdrawn: { excluded: number; kept: number; students: number }; seats: import("./siteload").SiteSeats[]; familySettings: Record<string, string[]>; programs: string[]; cohorts: string[]; terms: string[]; settings: string[] } | null> {
   if (institutionId === ALL_INSTITUTIONS) {
     // Every college together: each one's load, then one table.
     const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true } });
     const parts = (await Promise.all(institutions.map((i) => getSiteLoad(i.id)))).filter((p): p is NonNullable<typeof p> => !!p);
     const uniq = (xs: string[]) => [...new Set(xs)].sort();
-    return { institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, rows: parts.flatMap((p) => p.rows), withdrawn: parts.reduce((a, p) => ({ excluded: a.excluded + p.withdrawn.excluded, kept: a.kept + p.withdrawn.kept, students: a.students + p.withdrawn.students }), { excluded: 0, kept: 0, students: 0 }), seats: parts.flatMap((p) => p.seats), programs: uniq(parts.flatMap((p) => p.programs)), cohorts: uniq(parts.flatMap((p) => p.cohorts)), terms: uniq(parts.flatMap((p) => p.terms)), settings: uniq(parts.flatMap((p) => p.settings)) };
+    return { institution: { id: ALL_INSTITUTIONS, name: "All colleges" }, rows: parts.flatMap((p) => p.rows), withdrawn: parts.reduce((a, p) => ({ excluded: a.excluded + p.withdrawn.excluded, kept: a.kept + p.withdrawn.kept, students: a.students + p.withdrawn.students }), { excluded: 0, kept: 0, students: 0 }), seats: parts.flatMap((p) => p.seats), familySettings: Object.assign({}, ...parts.map((p) => p.familySettings)), programs: uniq(parts.flatMap((p) => p.programs)), cohorts: uniq(parts.flatMap((p) => p.cohorts)), terms: uniq(parts.flatMap((p) => p.terms)), settings: uniq(parts.flatMap((p) => p.settings)) };
   }
   const inst = institutionId
     ? await prisma.institution.findUnique({ where: { id: institutionId }, select: { id: true, name: true } })
@@ -3098,45 +3105,50 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
     where: { program: { institutionId: inst.id }, status: { in: ["planned", "active", "completed"] } },
     select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true, family: { select: { id: true, name: true, serviceAreas: { select: { settingCodes: true } }, requirementSets: { select: { items: { select: { settingCodes: true } } } }, familySites: { select: { employerId: true, agreementStatus: true } } } } } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, staffPersonId: true, staff: { select: { name: true } } } } },
   });
-  const employers = await prisma.employer.findMany({ where: { institutionId: inst.id }, select: { id: true, name: true, organization: true, county: true, ring: true, facilityType: true, driveMinutes: true, agreementStatus: true, assets: { where: { status: { not: "archived" } }, select: { settingCode: true, learnersPerShift: true, shiftBlocks: true } }, people: { where: { active: true, role: "preceptor" }, select: { id: true } } } });
+  // Every site with its seats: each active asset (a unit, room or suite), the shift blocks it runs and the learners it takes per shift.
+  const employers = await prisma.employer.findMany({ where: { institutionId: inst.id }, select: { id: true, name: true, organization: true, county: true, ring: true, facilityType: true, driveMinutes: true, agreementStatus: true, assets: { where: { status: { not: "archived" } }, select: { id: true, externalId: true, assetType: true, assetNumber: true, settingCode: true, learnersPerShift: true, shiftBlocks: true } }, people: { where: { active: true, role: "preceptor" }, select: { id: true } } } });
   const empById = new Map(employers.map((e) => [e.id, e]));
+  const assetName = (a: { externalId: string | null; assetType: string; assetNumber: number }) => a.externalId ?? `${a.assetType} #${a.assetNumber}`;
+  const seats: import("./siteload").SiteSeats[] = employers.filter((e) => e.assets.length).map((e) => ({ employerId: e.id, preceptorsOnRecord: e.people.length, assets: e.assets.map((a) => ({ assetId: a.id, name: assetName(a), settingCode: a.settingCode, learnersPerShift: a.learnersPerShift, blocks: a.shiftBlocks.split(",").map((x) => x.trim()).filter(Boolean) })) }));
   const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
   const rows: import("./siteload").LoadRow[] = [];
-  const seatsByFamilySite = new Map<string, import("./siteload").SiteSeats>();
+  const familySettings: Record<string, string[]> = {};
   for (const co of cohorts) {
     const { dates } = await sessionDatesForCohort(co.id);
     const fam = co.program.family;
-    const settingSet = fam ? familySettingSet(fam, { sets: fam.requirementSets }) : new Set<string>();
+    if (fam && !familySettings[fam.id]) familySettings[fam.id] = [...familySettingSet(fam, { sets: fam.requirementSets })];
     const agreementBy = new Map((fam?.familySites ?? []).map((f) => [f.employerId, f.agreementStatus]));
-    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { employerId: true, settingCode: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, preceptorsNeeded: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
+    // The seats the plan booked for this offering: per session × section × asset, the date and shift block the shift lands on.
+    const bookings = await prisma.assetBooking.findMany({ where: { cohortId: co.id, sessionId: { not: null } }, select: { assetId: true, sessionId: true, sectionIndex: true, date: true, block: true } });
+    const seatOf = new Map<string, { date: string; block: string }>();
+    for (const bk of bookings) { const k = `${bk.sessionId}|${bk.sectionIndex}|${bk.assetId}`; if (!seatOf.has(k)) seatOf.set(k, { date: bk.date.toISOString().slice(0, 10), block: bk.block }); }
+    const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { id: true, employerId: true, settingCode: true, externalId: true, assetType: true, assetNumber: true, learnersPerShift: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, preceptorsNeeded: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
     for (const s of shifts) {
       const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
       const employerId = s.asset?.employerId ?? m?.employerId ?? null;
       const e = employerId ? empById.get(employerId) : undefined;
-      if (e && fam && !seatsByFamilySite.has(`${fam.id}|${e.id}`)) {
-        const seats = e.assets.filter((a) => (settingSet.size === 0 || settingSet.has(a.settingCode)) && a.shiftBlocks.split(",").map((x) => x.trim()).includes("Day")).reduce((n, a) => n + a.learnersPerShift, 0);
-        seatsByFamilySite.set(`${fam.id}|${e.id}`, { employerId: e.id, seatsPerDay: seats, preceptorsOnRecord: e.people.length });
-      }
+      // A seated shift lands on the booking's date and block (the plan may have moved it); an unseated one on its pattern date.
+      const seat = s.asset ? seatOf.get(`${s.session.id}|${s.sectionIndex}|${s.asset.id}`) ?? null : null;
+      const iso = seat?.date ?? dates.get(s.session.id) ?? null;
+      const d = iso ? new Date(iso + "T00:00:00Z") : null;
       rows.push({
         studentId: s.studentId, student: s.student.name, cohortId: co.id, cohort: co.name, programId: co.program.id, program: co.program.name, familyId: fam?.id ?? null, family: fam?.name ?? null,
         course: s.session.course.code ?? s.session.course.name, term: s.session.course.term.name,
-        date: dates.get(s.session.id) ?? null, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.status === "absent" || s.status === "excused" ? 0 : s.session.lengthHours, status: s.status,
-        ...(() => { const iso = dates.get(s.session.id) ?? null; if (!iso) return { year: null, semester: null, dayOfWeek: null }; const d = new Date(iso + "T00:00:00Z"); return { year: d.getUTCFullYear(), semester: seasonOfDate(d), dayOfWeek: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] }; })(),
+        date: iso, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.status === "absent" || s.status === "excused" ? 0 : s.session.lengthHours, status: s.status,
+        year: d ? d.getUTCFullYear() : null, semester: d ? seasonOfDate(d) : null, dayOfWeek: d ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] : null,
         employerId, site: e?.name ?? "site TBD", system: e?.organization ?? null, county: e?.county ?? null, ring: e?.ring ?? null, facilityType: e?.facilityType ?? null, driveMinutes: e?.driveMinutes ?? null,
         setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
+        assetId: s.asset?.id ?? null, asset: s.asset ? assetName(s.asset) : null, block: s.asset ? seat?.block ?? "Day" : null, seatsPerShift: s.asset?.learnersPerShift ?? null,
         preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,
         agreement: employerId ? agreementBy.get(employerId) ?? e?.agreementStatus ?? "none" : "none",
         studentStatus: s.student.status, keepAssignments: s.student.keepAssignments, preceptorsNeeded: s.session.preceptorsNeeded ?? 0,
       });
     }
   }
-  // Seats per site: the largest program-specific figure (a site's OR suites serve surg tech, its rooms serve radiography).
-  const seats = new Map<string, import("./siteload").SiteSeats>();
-  for (const s of seatsByFamilySite.values()) { const cur = seats.get(s.employerId); if (!cur || s.seatsPerDay > cur.seatsPerDay) seats.set(s.employerId, s); }
   // Withdrawn students leave future demand unless kept (Phase 4).
   const { withdrawnRule } = await import("./siteload");
   const ruled = withdrawnRule(rows, new Date().toISOString().slice(0, 10));
-  return { institution: inst, rows: ruled.rows, withdrawn: { excluded: ruled.excluded, kept: ruled.kept, students: ruled.students }, seats: [...seats.values()], programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
+  return { institution: inst, rows: ruled.rows, withdrawn: { excluded: ruled.excluded, kept: ruled.kept, students: ruled.students }, seats, familySettings, programs: [...new Set(rows.map((r) => r.program))].sort(), cohorts: [...new Set(rows.map((r) => r.cohort))].sort(), terms: [...new Set(rows.map((r) => r.term))].sort(), settings: [...new Set(rows.map((r) => r.setting ?? "(no setting)"))].sort() };
 }
 
 // ── Where the offerings run: campuses (rooms the class and lab sessions are booked in) and the
@@ -3244,13 +3256,30 @@ export async function getCapacityBridge(institutionId: string, from: string, to:
   const load = await getSiteLoad(institutionId === ALL_INSTITUTIONS ? ALL_INSTITUTIONS : data.institution.id);
   const loadRows = (load?.rows ?? []).filter((r) => r.date != null && r.date >= from && r.date <= to);
   const loadShifts = loadRows.length;
+  const loadSeated = loadRows.filter((r) => r.assetId).length;
   return {
     from, to,
     scheduler: { label: "Clinical scheduler", href: "/scheduler", value: schedulerDemand, unit: "learner-shifts", why: "enrollment targets of planned and running offerings, split into sections; per-date moves applied" },
     capacity: { label: "Clinical site capacity", href: "/insights/clinical-sites", value: capacityDemand, unit: "learner-shifts", why: "the same targets on the same dates, before any move — identical to the scheduler by definition" },
-    load: { label: "Clinical site load", href: "/insights/site-load", value: loadShifts, unit: "student-shifts", why: `the roster's assigned student-shifts in the window (named students, including completed cohorts; ${load?.withdrawn.excluded ?? 0} future shifts of withdrawn students left out)` },
+    load: { label: "Clinical site load", href: "/insights/site-load", value: loadShifts, unit: "student-shifts", sub: `${loadSeated.toLocaleString("en-US")} on a booked seat`, why: `the roster's student-shifts in the window (named students, including completed cohorts; ${load?.withdrawn.excluded ?? 0} future shifts of withdrawn students left out); ${loadSeated.toLocaleString("en-US")} of them sit on an asset the scheduler booked` },
   };
 }
+
+// ── What is on the calendar now: the roster's clinical shifts and how many sit on a seat the scheduler booked ──
+export interface RosterPlacement { shifts: number; seated: number; sites: number; bookings: number; /** ISO date of the latest plan booking written, or null. */ writtenAt: string | null }
+/** The roster as the scheduler wrote it (lib/planwrite): every clinical student-shift of the college's planned, running and
+ *  completed offerings, how many are pinned to a booked asset, the sites those seats are at, and the plan's bookings. */
+export async function getRosterPlacement(institutionId: string): Promise<RosterPlacement> {
+  // The very rows the site-load page shows (same withdrawn rule, same seats), so the two pages quote one number.
+  const load = await getSiteLoad(institutionId);
+  const rows = load?.rows ?? [];
+  const [bookings, latest] = await Promise.all([
+    prisma.assetBooking.count({ where: { cohort: { program: { institutionId } }, note: AUTO_PLAN_NOTE_Q } }),
+    prisma.assetBooking.findFirst({ where: { cohort: { program: { institutionId } }, note: AUTO_PLAN_NOTE_Q }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
+  ]);
+  return { shifts: rows.length, seated: rows.filter((r) => r.assetId).length, sites: new Set(rows.filter((r) => r.assetId).map((r) => r.employerId)).size, bookings, writtenAt: latest?.createdAt.toISOString().slice(0, 10) ?? null };
+}
+const AUTO_PLAN_NOTE_Q = "auto-plan";
 
 // ── THE SHARED SITE REGISTRY ─────────────────────────────────────────────────────────────────────
 /** Every clinical site in the world the platform knows, with each college's relationship to it. */

@@ -1,4 +1,4 @@
-import { getCapacityModel, getSchedulerData } from "@/lib/queries";
+import { getCapacityModel, getSchedulerData, getRosterPlacement } from "@/lib/queries";
 import { schedulerWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { listChangeSets } from "@/lib/changesets";
@@ -18,6 +18,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   const { from, to } = schedulerWindow(data.cohorts);
   const sched = await getSchedulerData(data.institution.id, from, to);
   const changes = await listChangeSets(data.institution.id);
+  const roster = await getRosterPlacement(data.institution.id);
   return (
     <div className="space-y-6">
       <PageHeader title={<>Clinical scheduler</>} meta={`${data.institution.name}${OPERATIONAL ? "" : " · diagnostic — nothing is written to the calendar"}`} />
@@ -38,6 +39,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         from={from}
         to={to}
         canApply={OPERATIONAL}
+        roster={roster}
       />
     </div>
   );

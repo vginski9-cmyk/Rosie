@@ -287,12 +287,13 @@ export async function seedWorkloadPolicies(prisma: PrismaClient) {
 
 /** Dummy staffing for the seeded offerings: each course's class and lab
  *  sessions covered in full by the program's own instructors (round-robin per
- *  shift), each clinical shift by a preceptor at the site its weekly booking
- *  points to. Adjust any shift on the design page. */
+ *  shift), and a bench of preceptors of the right discipline at every secured
+ *  site that can host the program — the scheduler's plan puts them on the
+ *  clinical shifts it places (seed-plan). Adjust any shift on the design page. */
 export async function seedShiftAssignments(prisma: PrismaClient, institutionId: string) {
   const cohorts = await prisma.cohort.findMany({
     where: { program: { institutionId }, status: { in: ["planned", "active"] } },
-    include: { program: { include: { terms: { include: { courses: { include: { sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true } } } } } } } }, meetings: { select: { courseId: true, kind: true, sectionIndex: true, employerId: true } }, _count: { select: { students: true } } },
+    include: { program: { include: { terms: { include: { courses: { include: { sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, rotationType: true } } } } } } } }, meetings: { select: { courseId: true, kind: true, sectionIndex: true, employerId: true } }, _count: { select: { students: true } } },
   });
   const people = await prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, role: true, title: true, employerId: true, name: true } });
   // Every site that hosts a clinical section has preceptors in that discipline — an RT
@@ -307,10 +308,20 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
   const usedNames = new Set(people.map((p) => p.name));
   const nextName = () => { for (;;) { const n = `${FIRST[Math.floor(prand() * FIRST.length)]} ${LAST[Math.floor(prand() * LAST.length)]}`; if (!usedNames.has(n)) { usedNames.add(n); return n; } } };
   const employerName = new Map((await prisma.employer.findMany({ where: { institutionId }, select: { id: true, name: true, organization: true } })).map((e) => [e.id, e]));
+  // Preceptors at EVERY secured site whose assets serve the program's settings — not only the sites
+  // its weekly pattern named — because the scheduler places each shift wherever a secured seat is
+  // free (seed-plan), and a shift there needs someone of the discipline to precept it.
+  const hostsByFamily = new Map<string | null, Awaited<ReturnType<typeof clinicalHostsFor>>>();
   for (const co of cohorts) {
     const disc = DISCIPLINE.find((d) => d.test.test(co.program.name));
     if (!disc) continue;
-    const hostIds = [...new Set(co.meetings.filter((m) => m.kind === "CLINICAL" && m.employerId).map((m) => m.employerId!))];
+    let hf = hostsByFamily.get(co.program.familyId ?? null);
+    if (!hf) { hf = await clinicalHostsFor(institutionId, co.program.familyId ?? null); hostsByFamily.set(co.program.familyId ?? null, hf); }
+    const rotationSetting = new Map(hf.rotations.map((r) => [r.rotationType.trim().toLowerCase(), r.settingCode]));
+    const settings = new Set<string>();
+    for (const t of co.program.terms) for (const c of t.courses) for (const s of c.sessions) if (s.kind === "CLINICAL") { const code = rotationSetting.get((s.rotationType ?? "").trim().toLowerCase()); if (code) settings.add(code); }
+    const secured = hf.hosts.filter((h) => h.rank === 0 && Object.entries(h.capacity).some(([code, n]) => n > 0 && (settings.size === 0 || settings.has(code)))).map((h) => h.employerId);
+    const hostIds = [...new Set([...co.meetings.filter((m) => m.kind === "CLINICAL" && m.employerId).map((m) => m.employerId!), ...secured])];
     for (const eid of hostIds) {
       const have = people.filter((p) => p.role === "preceptor" && p.employerId === eid && disc.title.test(p.title ?? "")).length;
       const e = employerName.get(eid);
@@ -335,21 +346,9 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
     for (const t of co.program.terms) for (const c of t.courses) {
       for (const s of c.sessions) {
         const shifts = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
-        if (s.kind === "CLINICAL") {
-          if (s.preceptorsNeeded <= 0) continue;
-          for (let sec = 1; sec <= shifts; sec++) {
-            const m = co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL" && x.sectionIndex === sec) ?? co.meetings.find((x) => x.courseId === c.id && x.kind === "CLINICAL");
-            // The preceptor must work at the site the section is booked at AND practise the
-            // program's discipline (an RT precepts radiography, never a CMA at an office).
-            const siteIds = m?.employerId ? [m.employerId] : [...new Set(co.meetings.filter((x) => x.kind === "CLINICAL" && x.employerId).map((x) => x.employerId!))];
-            const disc = /Radiograph/i.test(co.program.name) ? /Radiolog|RT\(R\)|Radiograph|MRI/i : /Surgical/i.test(co.program.name) ? /Surg|OR |CST|CSFA|Operating/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide|CNA|LPN|SNF|RN,/i : /./;
-            const atSite = people.filter((p) => p.role === "preceptor" && p.employerId && siteIds.includes(p.employerId));
-            const pool = atSite.filter((p) => disc.test(p.title ?? ""));
-            const pre = pool.length ? pool[(sec - 1) % pool.length] : null;
-            if (pre) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: pre.id, sectionIndex: sec, role: "preceptor", contactHours: s.lengthHours, startOffsetMin: 0 } }); made++; }
-          }
-          continue;
-        }
+        // Clinical shifts are staffed by the scheduler's plan (seed-plan): the site's own preceptor
+        // goes on each placed shift when it is written. Nothing is hand-assigned here.
+        if (s.kind === "CLINICAL") continue;
         for (let sec = 1; sec <= shifts; sec++) {
           // One lead instructor per course × kind × section for the whole term (a course is
           // taught by the same person all term); courses and sections are dealt across the

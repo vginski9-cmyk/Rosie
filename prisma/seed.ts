@@ -521,6 +521,9 @@ async function seedOfferingStudents() {
     // Sections (per course kind) and every clinical shift, by seat order — the
     // same rule the scheduler uses, so profiles show a real itinerary.
     const students = await prisma.student.findMany({ where: { cohortId: co.id }, select: { id: true, sectionIndex: true, status: true }, orderBy: { sectionIndex: "asc" } });
+    // A clinical session that never lands on a date (an orientation coded before the term opens) is not a shift anyone can sit.
+    const { sessionDatesForCohort } = await import("../src/lib/queries");
+    const dated = (await sessionDatesForCohort(co.id)).dates;
     const secRows: { studentId: string; cohortId: string; courseId: string; kind: string; sectionIndex: number }[] = [];
     const shiftRows: { studentId: string; cohortId: string; sessionId: string; sectionIndex: number }[] = [];
     for (const t of co.program.terms) for (const c of t.courses) {
@@ -532,7 +535,7 @@ async function seedOfferingStudents() {
           if (st.status === "withdrawn") continue;
           const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
           secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
-          if (kind === "CLINICAL") for (const sid of k.sessions) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
         }
       }
     }
@@ -1495,12 +1498,16 @@ async function main() {
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   console.log("offering students:", await seedOfferingStudents());
+  // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
+  { const { confirmSiteExperiences } = await import("./seed-confirm"); console.log("site experiences confirmed:", await confirmSiteExperiences(prisma)); }
+  // THE ROSTER IS PLACED BY THE SCHEDULER: every college's clinical shifts go where the engine puts
+  // them under the roster levers, written through the apply path — one set of placements for the
+  // scheduler, the site capacity view and the site load page, never a site over its seats.
+  { const { seedRosterPlacements } = await import("./seed-plan"); for (const inst of await prisma.institution.findMany({ select: { id: true }, orderBy: { name: "asc" } })) { const r = await seedRosterPlacements(prisma, inst.id); if (r) console.log("roster placed by the scheduler:", r); } }
   console.log("learner records:", await seedLearnerRecords(prisma, sandhills.id));
   console.log("requirement logs:", await seedRequirementLogs(prisma, sandhills.id));
   // Stage actuals read from the records above.
   { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
-  // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
-  { const { confirmSiteExperiences } = await import("./seed-confirm"); console.log("site experiences confirmed:", await confirmSiteExperiences(prisma)); }
   // Every college's partner record points at the shared site registry (one record per site in the world).
   { const { linkSiteRegistry } = await import("../src/lib/siteregistry"); console.log("site registry:", await linkSiteRegistry(prisma)); }
 

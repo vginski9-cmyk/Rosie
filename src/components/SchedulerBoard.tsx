@@ -9,8 +9,10 @@ import { driveBandLabel, driveBandPhrase, DEFAULT_BANDS } from "@/lib/geo";
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { DEFAULT_POLICY, AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment, type SiteCapacityLite, type ConfirmedSetting } from "@/lib/scheduler";
-import { schedulerModel, filterDemand, planFor } from "@/lib/schedulerplan";
+import { AUTO_PLAN_NOTE, REASON_LABEL, type Policy, type Plan, type Preceptor, type Instructor, type StudentLite, type FamilyAgreement, type Assignment, type SiteCapacityLite, type ConfirmedSetting } from "@/lib/scheduler";
+import { schedulerModel, filterDemand, planFor, ROSTER_POLICY } from "@/lib/schedulerplan";
+import type { RosterPlacement } from "@/lib/queries";
+import Link from "next/link";
 import type { AssetLite, AssetDayOverride, AssetBookingLite } from "@/lib/assetmap";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
@@ -48,15 +50,18 @@ const LEVER_NAMES: Record<keyof Policy, string> = {
 };
 const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
   /** Phase 13: the strategic product reads the plan and never writes it; apply, undo and clear are shown only in the operational module. */
   canApply?: boolean;
+  /** What is on the calendar now: the roster's clinical shifts and how many sit on a seat the scheduler booked (the site-load page reads the same rows). */
+  roster?: RosterPlacement | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [policy, setPolicy] = useState<Policy>(DEFAULT_POLICY);
+  // The board opens on the levers the roster was placed with, so its estimate and the site-load page start from the same rules.
+  const [policy, setPolicy] = useState<Policy>(ROSTER_POLICY);
   const [tab, setTab] = useState<Tab>("bottlenecks");
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
@@ -155,11 +160,16 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— {policy.agreements === "secured" ? "secured sites" : policy.agreements === "secured+asked" ? "secured + asked sites" : "any partner"} · {policy.maxRing === "any" ? "any drive time" : driveBandPhrase(policy.maxRing) ?? policy.maxRing} · {policy.flexibleShift ? "any shift" : "exact shift"} · {policy.flexibleDays ? `± ${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact date"} · {policy.requirePreceptor ? "preceptor required" : "seats only"} · {cohortFilter.size === 0 ? `all ${cohortsInDemand.length} offerings` : `${cohortFilter.size} of ${cohortsInDemand.length} offerings`}</span></div>
           <div className="flex items-center gap-3 text-xs">
             {computing && <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 text-amber-800"><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />{hydrated ? "recomputing…" : `building the plan for ${n0(demand.length)} shifts…`}</span>}
-            <button onClick={() => setPolicy(DEFAULT_POLICY)} className="text-slate-500 hover:text-rose-700">reset</button>
+            <button onClick={() => setPolicy(ROSTER_POLICY)} title="Back to the levers the roster on the calendar was placed with" className="text-slate-500 hover:text-rose-700">reset to the roster levers</button>
             <button type="button" onClick={() => setShowLevers((v) => !v)} aria-expanded={showLevers} className="rounded-full bg-white px-2.5 py-0.5 font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100">{showLevers ? "fewer levers" : "all levers"}</button>
           </div>
         </div>
         {noChange && <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">{noChange}</p>}
+        {roster && roster.shifts > 0 && (
+          <p className="mt-2 text-xs text-slate-600">
+            <span className="font-semibold text-slate-700">On the calendar now:</span> {pct(roster.seated / roster.shifts)} of the roster&apos;s {n0(roster.shifts)} student-shifts sit on a seat the scheduler booked ({n0(roster.bookings)} bookings at {roster.sites} sites, placed with the roster levers{roster.writtenAt ? ` on ${roster.writtenAt}` : ""}). The estimate below is the same engine on the same rules; <Link href="/insights/site-load" className="text-rose-700 hover:underline">clinical site load</Link> reads those seats back shift by shift.
+          </p>
+        )}
         <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <Lever label="Sites that count" hint="Which partner agreements may host learners. A program family's own agreement with a site wins over the institution-level one; an agreement that has ended does not count after its end date.">
             <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>

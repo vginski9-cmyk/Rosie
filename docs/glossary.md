@@ -171,6 +171,19 @@ The supply ceiling is every asset-shift × learners per shift in the window — 
 
 - **Where:** The scheduler's tiles, clinical site capacity, site load
 
+### Seat, shift and "full" (site load)
+
+A seat is one learner place on one asset for one shift block on one date — an asset with learners per shift 2 opens two seats on each shift it runs. The roster is placed seat by seat by the scheduler (the seed places the demo roster the same way, under the roster levers), and the site-load page reads those seats back: each student-shift carries the asset, the shift block and the date it was booked on. "Full" is measured shift by shift: students on a shift ÷ seats open that shift in the programs' settings, summed over the shifts the site hosts — a Day shift against Day seats, never an average over the day — and the fullest single shift is shown under it. A student-shift the scheduler could not seat is shown as "no seat yet" at its section's pattern site and is never load on that site's seats. Because the scheduler never places over an asset's learners per shift or a site's students-at-once, a site can only read over 100% on a shift where someone booked by hand.
+
+- **Retired:** seats per day, students per day as the fullness measure
+- **Where:** Clinical site load (the Full column, the seat-by-seat panel, the Seat / Shift / Asset dimensions), the scheduler's "on the calendar now" line
+
+### Roster levers
+
+The levers the roster on the calendar was placed with: every secured site at any drive time, any shift block, ± 2 days inside the week, never on a holiday, seats first (a site's preceptor goes on the shift when it has one; none is required to place it). The scheduler opens on them, so its "can be placed" estimate and the site-load page start from the same rules; "reset to the roster levers" returns to them.
+
+- **Where:** The scheduler's levers card, the seed
+
 ### Requirement set, item and provision
 
 The credentialing body's list for a family (ARRT competencies, AST case categories, CMS hours): the set, its items (each with a category, mandatory or elective, and the settings that can provide it), and a provision — whether a given site provides an item, confirmed with the site, estimated, or only inferred from its assets. A case-log standard's rules (total volume, the First Scrub role, a spread of specialties) are scored as requirement lines beside the items.

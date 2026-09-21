@@ -7,8 +7,9 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
-// CLINICAL SITE LOAD — which employers and facilities carry the students, how full they run,
-// who precepts, and the same load by health system, county, ring, setting, program and time.
+// CLINICAL SITE LOAD — which sites carry the students seat by seat (the placements the scheduler
+// wrote), how full each shift runs against the seats open that shift, who precepts, and the same
+// load by health system, county, drive-time band, setting, asset, shift, program and time.
 export default async function SiteLoadPage({ searchParams }: { searchParams: { inst?: string } }) {
   const data = await getSiteLoad(searchParams.inst);
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
@@ -25,13 +26,13 @@ export default async function SiteLoadPage({ searchParams }: { searchParams: { i
       <ScopeStrip
         provisional={provenance}
         bridge={bridge} self="load"
-        shows="The roster — one row per student-shift actually assigned (a named student at a site on a date), from the applied plan and hand-made assignments."
+        shows="The roster — one row per student-shift (a named student on a booked seat: an asset at a site, on a date and shift block) as the scheduler placed it, plus hand-made assignments and any shift the plan could not seat."
         population={`Every student on the roster of every planned, running or completed offering at ${data.institution.name} — not enrollment targets; withdrawn students' past shifts stay, their ${data.withdrawn.excluded} future shifts are left out${data.withdrawn.kept ? ` (${data.withdrawn.kept} kept by flag)` : ""}`}
         window="Every dated shift on record, plus undated ones (no window)"
-        constraints={["none — this is what was assigned, whatever the levers said"]}
-        differs={[["Clinical scheduler", "/scheduler", "plans learner-shifts at enrollment targets in a fixed window, so its demand is a different count"], ["Clinical site capacity", "/insights/clinical-sites", "is a per-date ceiling on the same targets"]]}
+        constraints={["the placements respect every asset's learners per shift and every site's students-at-once (the scheduler never writes over them) — a shift it could not seat is shown with no seat, never as load"]}
+        differs={[["Clinical scheduler", "/scheduler", "counts learner-shifts at enrollment targets (every seat of every section); this page counts the named students in them, so an unfilled or withdrawn seat is the difference"], ["Clinical site capacity", "/insights/clinical-sites", "is a per-date ceiling on the same targets"]]}
       />
-      <SiteLoadExplorer rows={data.rows} seats={data.seats} programIds={programIds} />
+      <SiteLoadExplorer rows={data.rows} seats={data.seats} familySettings={data.familySettings} programIds={programIds} />
     </div>
   );
 }

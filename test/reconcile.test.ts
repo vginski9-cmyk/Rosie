@@ -56,7 +56,7 @@ describe("one definition of dated clinical demand", () => {
 });
 
 describe("withdrawn students leave future demand unless kept", () => {
-  const row = (o: Partial<LoadRow>): LoadRow => ({ studentId: "s1", student: "Ada", cohortId: "c1", cohort: "Class of 2028", programId: "p1", program: "Radiography", familyId: "f1", family: "Radiography", course: "RAD-151", term: "Term 1", date: "2026-08-18", year: 2026, semester: "Fall", dayOfWeek: "Tue", hours: 8, status: "scheduled", employerId: "e1", site: "Moore Regional", system: null, county: null, ring: null, facilityType: null, driveMinutes: null, setting: "GEN", preceptorId: null, preceptor: null, agreement: "secured", studentStatus: "enrolled", keepAssignments: false, ...o });
+  const row = (o: Partial<LoadRow>): LoadRow => ({ studentId: "s1", student: "Ada", cohortId: "c1", cohort: "Class of 2028", programId: "p1", program: "Radiography", familyId: "f1", family: "Radiography", course: "RAD-151", term: "Term 1", date: "2026-08-18", year: 2026, semester: "Fall", dayOfWeek: "Tue", hours: 8, status: "scheduled", employerId: "e1", site: "Moore Regional", system: null, county: null, ring: null, facilityType: null, driveMinutes: null, setting: "GEN", preceptorId: null, preceptor: null, agreement: "secured", studentStatus: "enrolled", keepAssignments: false, assetId: null, asset: null, block: null, seatsPerShift: null, ...o });
   const today = "2026-09-18";
   it("keeps a withdrawn student's past shifts, drops their future and undated ones, and counts what it dropped", () => {
     const r = withdrawnRule([
