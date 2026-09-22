@@ -27,6 +27,12 @@ describe("deriveCohortTargets — the workbook's backward chain, to the decimal"
     expect(t.qualified).toBeCloseTo(162.2574955908, 6);    // E53
     expect(t.interested).toBeCloseTo(176.3668430335, 6);   // E52
   });
+  it("a small class stated as 8 enrolled → 6 completing → 6 productive: a 75% completion rate with everyone after that retained gives exactly 8 seats", () => {
+    const small = deriveCohortTargets(6, { ...BENCHMARK_RATES, completionRate: 0.75, licensureRate: 1, placementRate: 1, productivityRate: 1 }, 5);
+    expect(small.productive).toBe(6); expect(small.placed).toBe(6); expect(small.licensed).toBe(6); expect(small.completing).toBe(6);
+    expect(small.terms[0]).toBeCloseTo(8, 9); expect(small.capacity).toBeCloseTo(8, 9);
+    expect(small.terms[4]).toBeCloseTo(6.4, 9); // one slice above completing
+  });
   it("sheds a linear slice per term (rows 57–60)", () => {
     expect(t.terms[1]).toBeCloseTo(132.6278659611, 6);     // E57
     expect(t.terms[2]).toBeCloseTo(124.1622574955, 6);     // E58

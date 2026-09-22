@@ -17,5 +17,12 @@ describe("pipeline actuals from learner records", () => {
     expect(reachedIndex({ status: "withdrawn", stageKey: null, cohortId: null })).toBe(1);
     expect(reachedIndex({ status: "withdrawn", stageKey: "withdrawn", cohortId: "c" })).toBe(3);
   });
+  it("a graduated class of 8 with 6 completers and 2 withdrawals reads enrolled 8, completing 6, and nothing past that", () => {
+    const a = stageActuals([
+      ...Array.from({ length: 6 }, () => ({ status: "completed", stageKey: "completing", cohortId: "c" })),
+      ...Array.from({ length: 2 }, () => ({ status: "withdrawn", stageKey: "withdrawn", cohortId: "c" })),
+    ]);
+    expect(a.enrolled).toBe(8); expect(a.completing).toBe(6); expect(a.licensed).toBeNull(); expect(a.placed).toBeNull();
+  });
   it("no records means every stage is blank", () => { expect(Object.values(stageActuals([])).every((v) => v === null)).toBe(true); });
 });

@@ -163,16 +163,23 @@ export async function seedRoster(prisma: PrismaClient, institutionId: string) {
   await prisma.person.createMany({ data: people });
 
   // ── Locked-in, calendarized offerings — sections waiting to be staffed ────
-  // Each offering carries the family's whole-year North-Star goal (the
-  // Radiography and Surgical Technology launches are the partner's 29 and 14)
-  // and, exactly like lock-in, inherits the family's talent-pipeline rates —
-  // so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
-  // Radiography: every class the goal ladder counts on, each on the college's Fall first day —
-  // the Classes of 2026 and 2027 (15 productive workers each; graduated / in program) and, for the
-  // 30-a-year goals of 2028, 2029 and 2030, TWO Fall classes a year of 15 each at a 90% completion
+  // Each offering carries the family's whole-year North-Star goal and, exactly
+  // like lock-in, inherits the family's talent-pipeline rates unless it states
+  // its own — so the Fall 2026 cohorts land on the funnel's 41 and 19 enrolled.
+  // Every class the goal ladders count on, each on the college's Fall first day.
+  // Surgical Technology: the Classes of 2026 and 2027 (graduated / in program) are small — 8 enrolled,
+  // 6 completing, 6 productive workers each (a 75% completion rate, everyone after that retained); from
+  // the Class of 2028 on, 14 a year at the family's rates (19 seats), one class a year.
+  // Radiography: the Classes of 2026 and 2027 (15 productive workers each; graduated / in program) and,
+  // for the 30-a-year goals of 2028, 2029 and 2030, TWO Fall classes a year of 15 each at a 90% completion
   // rate (about 21 seats each): the program's maximum cohort is 23, so one class cannot carry 30.
+  const small = { completionRate: 0.75, licensureRate: 1, placementRate: 1, productivityRate: 1 };
   const offerings = await seedOfferings(prisma, institutionId, [
+    { program: "Surgical Technology", start: "2024-08-19", goal: 6, rates: small },
+    { program: "Surgical Technology", start: "2025-08-18", goal: 6, rates: small },
     { program: "Surgical Technology", start: "2026-08-17", goal: 14 },
+    { program: "Surgical Technology", start: "2027-08-16", goal: 14 },
+    { program: "Surgical Technology", start: "2028-08-21", goal: 14 },
     { program: "Radiography", start: "2024-08-19", goal: 15 },
     { program: "Radiography", start: "2025-08-18", goal: 15 },
     { program: "Radiography", start: "2026-08-17", goal: 15, rates: { completionRate: 0.9 } },

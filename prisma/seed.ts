@@ -433,7 +433,11 @@ async function loadRadAssetMap(institutionId: string) {
 /** Enrolled students on every offering — one per planned seat, numbered by seat
  *  (sectionIndex = seat number), so the scheduler can hand each one a section
  *  and a site-by-site itinerary. Dummy names, deterministic. */
-async function seedOfferingStudents() {
+/** `pins` fix a named offering's roster instead of the generated mix — exactly how many withdrew, and
+ *  (for a class that has graduated) that the rest completed. A pinned completed class is the only
+ *  completed class that gets students; it gets course grades for every term, but no clinical shifts —
+ *  the scheduler never placed it, so a "scheduled" shift with no seat would be a false record. */
+async function seedOfferingStudents(pins: { program: string; cohort: string; withdrawn: number; completed?: boolean }[] = []) {
   const FIRST = ["Ava", "Liam", "Maya", "Noah", "Zoe", "Ethan", "Isla", "Mason", "Nora", "Lucas", "Aria", "Caleb", "Leah", "Owen", "Ruby", "Eli", "Jade", "Milo", "Iris", "Jonah", "Tessa", "Reid", "Cora", "Silas", "Wren", "Amir", "Lena", "Otis", "Sage", "Theo", "Vera", "Kai", "Elle", "Rowan", "Nia", "Beau", "Ada", "Cruz", "Faye", "Hugo", "Ines", "Jude", "Kira", "Luca", "Mira", "Nash", "Opal", "Pax", "Remy", "Skye"];
   const LAST = ["Abbott", "Baker", "Cole", "Dawson", "Ellis", "Foster", "Gibson", "Hale", "Ingram", "Jarvis", "Keller", "Lowe", "Mercer", "Nolan", "Osei", "Pratt", "Quinn", "Reyes", "Sutton", "Tate", "Underwood", "Vance", "Whitfield", "Xiong", "Yates", "Zimmer", "Bynum", "Clark", "Dunn", "Everett"];
   // Coded demographics (dummy, deterministic per seat) so the learner analytics
@@ -447,10 +451,17 @@ async function seedOfferingStudents() {
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   let made = 0, sections = 0, shifts = 0;
-  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active"] } }, include: { program: { select: { id: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, _count: { select: { students: true } } } });
+  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active", "completed"] } }, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
   const today = new Date();
+  const pinned = new Set<number>();
   for (const co of cohorts) {
     if (co._count.students > 0) continue;
+    const pinIdx = pins.findIndex((p) => p.cohort === co.name && p.program === co.program.name);
+    const pin = pinIdx >= 0 ? pins[pinIdx] : null;
+    if (pin) pinned.add(pinIdx);
+    if (co.status === "completed" && !pin) continue; // history carries no roster unless pinned
+    const graduated = !!pin?.completed;
+    const completionDate = graduated ? co.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? null : null;
     const { counties: COUNTIES, cities: CITIES } = HOME[co.program.institution.name] ?? HOME.default;
     const seats = Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
@@ -458,6 +469,8 @@ async function seedOfferingStudents() {
     // Independent per-field mixes (not linear in the seat number) so no two
     // dummy attributes are accidentally correlated.
     const mix = (i: number, salt: number) => { let t = (h * 2654435761 + i * 40503 + salt * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
+    // A pinned roster withdraws exactly the stated number — the seats with the highest first mix, so it is deterministic and not simply the last seats.
+    const pinnedOut = pin ? new Set(Array.from({ length: seats }, (_, i) => i).sort((a, b) => mix(b, 1) - mix(a, 1) || a - b).slice(0, pin.withdrawn)) : null;
     const rows = Array.from({ length: seats }, (_, i) => {
       const x = mix(i, 1), y = mix(i, 2), z = mix(i, 3);
       const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30); // skews young, tail into the 40s
@@ -465,10 +478,11 @@ async function seedOfferingStudents() {
       const dob = new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age - 1, (y % 12), 1 + (z % 28)));
       const county = COUNTIES[(h + i * 3) % COUNTIES.length];
       // Only offerings already under way have had time to lose anyone.
-      const withdrawn = started && (x % 100) < 12;
+      const withdrawn = pinnedOut ? pinnedOut.has(i) : started && (x % 100) < 12;
       return {
         programId: co.program.id, cohortId: co.id, name: `${FIRST[(h + i * 7) % FIRST.length]} ${LAST[(h * 3 + i * 11) % LAST.length]}`, email: null,
-        status: withdrawn ? "withdrawn" : "enrolled", stageKey: withdrawn ? "withdrawn" : "enrolled", entryYear: co.entryYear, sectionIndex: i + 1,
+        status: withdrawn ? "withdrawn" : graduated ? "completed" : "enrolled", stageKey: withdrawn ? "withdrawn" : graduated ? "completing" : "enrolled", entryYear: co.entryYear, sectionIndex: i + 1,
+        completionDate: withdrawn ? null : completionDate,
         dob, sex: pickW(["Female", "Male", "Prefer not to say"], [72, 26, 2], y),
         raceEthnicity: pickW(["White", "Black or African American", "Hispanic or Latino", "American Indian or Alaska Native", "Asian", "Two or more races", "Unknown / prefer not to say"], [52, 24, 12, 4, 2, 4, 2], z),
         county, city: CITIES[county], state: "NC", residency: pickW(["in-district", "in-state", "out-of-state"], [78, 20, 2], x + y),
@@ -521,6 +535,11 @@ async function seedOfferingStudents() {
     // Sections (per course kind) and every clinical shift, by seat order — the
     // same rule the scheduler uses, so profiles show a real itinerary.
     const students = await prisma.student.findMany({ where: { cohortId: co.id }, select: { id: true, sectionIndex: true, status: true }, orderBy: { sectionIndex: "asc" } });
+    // A graduated class: a course record for every term — completed, or withdrawn for those who left.
+    if (graduated) {
+      const gradeRows = students.flatMap((st) => co.program.terms.flatMap((t) => t.courses.map((c) => ({ studentId: st.id, courseId: c.id, termIndex: t.index, status: st.status === "withdrawn" ? "withdrawn" : "completed", completedDate: st.status === "withdrawn" ? null : completionDate }))));
+      for (let i = 0; i < gradeRows.length; i += 500) await prisma.studentCourseGrade.createMany({ data: gradeRows.slice(i, i + 500) });
+    }
     // A clinical session that never lands on a date (an orientation coded before the term opens) is not a shift anyone can sit.
     const { sessionDatesForCohort } = await import("../src/lib/queries");
     const dated = (await sessionDatesForCohort(co.id)).dates;
@@ -535,7 +554,7 @@ async function seedOfferingStudents() {
           if (st.status === "withdrawn") continue;
           const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
           secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
-          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+          if (kind === "CLINICAL" && !graduated) for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
         }
       }
     }
@@ -543,6 +562,8 @@ async function seedOfferingStudents() {
     for (let i = 0; i < shiftRows.length; i += 500) await prisma.studentShift.createMany({ data: shiftRows.slice(i, i + 500) });
     sections += secRows.length; shifts += shiftRows.length;
   }
+  const missed = pins.filter((_, i) => !pinned.has(i));
+  if (missed.length) throw new Error(`seedOfferingStudents: no offering matched ${missed.map((p) => `${p.program} · ${p.cohort}`).join(", ")} — the offering names have drifted`);
   console.log(`  learners: ${made} with demographics · ${sections} section seats · ${shifts} clinical shift seats`);
   return made;
 }
@@ -1413,20 +1434,19 @@ async function main() {
   };
 
 
-  // North-Star goals for Sandhills' own jobs. Radiography (29/yr) and Surgical
-  // Technology (14/yr) are the partner's stated targets, held flat across the
-  // planning horizon, each with the talent-pipeline health rates from the
-  // partner's "future target cohort performance" funnel — the rates every new
-  // launching cohort inherits at lock-in (interested → qualified → offered →
-  // enrolled → completing → licensed → placed → fully productive). Sandhills
-  // carries only these two jobs.
-  const flat = (base: number) => Object.fromEntries(Object.keys(goals(base)).map((y) => [Number(y), base])) as Record<number, number>;
-  // Radiography's target steps up: 15 productive workers a year for the two classes already in
-  // motion, 30 a year from the Class of 2028 on (the partner's revised ask, September 2026).
-  const radYears = Object.keys(goals(29)).map(Number).sort();
-  const radGoals = Object.fromEntries(radYears.map((y, i) => [y, [15, 15, 30, 30, 30][i] ?? 30])) as Record<number, number>;
-  await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(radGoals, RAD_PIPELINE_RATES) } });
-  await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(flat(14), SURG_PIPELINE_RATES) } });
+  // North-Star goals for Sandhills' own jobs, each with the talent-pipeline health
+  // rates from the partner's "future target cohort performance" funnel — the rates
+  // every new launching cohort inherits at lock-in (interested → qualified → offered →
+  // enrolled → completing → licensed → placed → fully productive). Sandhills carries
+  // only these two jobs, and both ladders step up: the classes already in motion are
+  // what they are; the partner's ask starts with the Class of 2028.
+  // Radiography: 15 productive workers a year for the two classes already in motion, 30 a year
+  // from the Class of 2028 on (the partner's revised ask, September 2026).
+  const years = Object.keys(goals(29)).map(Number).sort();
+  const ladder = (steps: number[]) => Object.fromEntries(years.map((y, i) => [y, steps[i] ?? steps[steps.length - 1]])) as Record<number, number>;
+  await prisma.programFamily.update({ where: { id: radFamily.id }, data: { goalPlan: goalPlanJson(ladder([15, 15, 30, 30, 30]), RAD_PIPELINE_RATES) } });
+  // Surgical Technology: 6 a year for the small Classes of 2026 and 2027 (8 enrolled, 6 completing), 14 a year from 2028 on.
+  await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(ladder([6, 6, 14, 14, 14]), SURG_PIPELINE_RATES) } });
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----
   console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPacks }));
@@ -1497,7 +1517,11 @@ async function main() {
   }
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
-  console.log("offering students:", await seedOfferingStudents());
+  // Sandhills' small Surgical Technology classes read exactly as the partner stated them: 8 enrolled, 6 completing.
+  console.log("offering students:", await seedOfferingStudents([
+    { program: "Surgical Technology", cohort: "Class of 2026", withdrawn: 2, completed: true },
+    { program: "Surgical Technology", cohort: "Class of 2027", withdrawn: 2 },
+  ]));
   // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
   { const { confirmSiteExperiences } = await import("./seed-confirm"); console.log("site experiences confirmed:", await confirmSiteExperiences(prisma)); }
   // STRUCTURED REQUIREMENTS (R1–R5): the legacy rotation mappings, staffing columns, site limits and course hours become

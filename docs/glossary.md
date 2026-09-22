@@ -85,7 +85,7 @@ A site's asset — a room, unit or machine — reserved for a shift on a date an
 
 ### Student-attendance
 
-One student counted once for each session they attend that day. Daily coverage shows distinct students (each person once) and, beside it, student-attendances: on Aug 17, 2026 the 41 radiography students in class and lab plus 19 surgical technology students are 60 students and 101 student-attendances.
+One student counted once for each session they attend that day. Daily coverage shows distinct students (each person once) and, beside it, student-attendances: on Aug 17, 2026 the 59 radiography students (19 on a clinical shift, 40 in class and lab) plus 19 surgical technology students in class are 78 students and 118 student-attendances.
 
 - **Where:** Daily coverage
 
