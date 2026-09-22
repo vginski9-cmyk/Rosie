@@ -29,7 +29,7 @@ const clock = (startTime: string | null, offsetMin: number | null) => {
 
 export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, need, startTime, assignments, people, roles = [], sites = [] }: {
   cohortId: string; programId: string; sessionId: string; sectionCount: number;
-  need: { lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number; kind: string };
+  need: { lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number; kind: string; missingPolicy?: ("instructor" | "preceptor")[] };
   startTime: string | null;
   assignments: ShiftAssignment[];
   people: ShiftPerson[];
@@ -73,6 +73,7 @@ export function ShiftStaffing({ cohortId, programId, sessionId, sectionCount, ne
                   {cov.status === "unstaffed" ? "unstaffed" : cov.status === "staffed" ? "fully staffed" : cov.status === "over" ? "over-assigned" : "partly staffed"}
                   {" · "}faculty {h(cov.faculty.assigned)}/{h(cov.faculty.required)} h{need.preceptorsNeeded > 0 ? ` · preceptor ${h(cov.preceptor.assigned)}/${h(cov.preceptor.required)} h` : ""}{need.supportStaffNeeded > 0 ? ` · support ${h(cov.support.assigned)}/${h(cov.support.required)} h` : ""}
                 </span>
+                {cov.policyMissing.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="the supervision model requires this role but has no count or ratio on record — the need is unknown, not zero">{cov.policyMissing.map((r) => (r === "instructor" ? "instructor" : "preceptor")).join(" + ")} need not sized — policy missing</span>}
                 {cov.coTeaching.length > 0 && <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-800" title="two people's portions overlap in time">co-teaching {cov.coTeaching.length}×</span>}
                 {cov.overruns.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800" title="a portion runs past the end of the session">runs past the end</span>}
                 <span className="ml-auto flex gap-2">

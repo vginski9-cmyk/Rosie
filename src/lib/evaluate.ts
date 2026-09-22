@@ -30,7 +30,7 @@ export type ReasonCode =
   | "SETTING_INELIGIBLE" | "SETTING_MINIMUM_UNMET" | "MIXING_FORBIDDEN" | "SETTING_UNMAPPED"
   | "CAPABILITY_UNVERIFIED" | "CAPABILITY_UNSUPPORTED" | "CAPABILITY_LIMITED" | "CAPABILITY_UNKNOWN"
   | "ACCESS_UNSECURED" | "ACCESS_EXPIRED" | "ACCESS_UNKNOWN" | "SCENARIO_ASSUMED_ACCESS"
-  | "CAPACITY_EXHAUSTED" | "CAPACITY_UNKNOWN" | "AVAILABILITY_UNKNOWN" | "UNAVAILABLE"
+  | "CAPACITY_EXHAUSTED" | "CAPACITY_UNKNOWN" | "NO_ELIGIBLE_SUPPLY" | "DRIVE_LIMIT" | "AVAILABILITY_UNKNOWN" | "UNAVAILABLE"
   | "INSTRUCTOR_UNASSIGNED" | "INSTRUCTOR_UNAVAILABLE" | "INSTRUCTOR_POLICY_MISSING"
   | "PRECEPTOR_UNASSIGNED" | "PRECEPTOR_UNAVAILABLE" | "PRECEPTOR_POLICY_MISSING"
   | "QUALIFICATION_EXPIRED" | "QUALIFICATION_UNKNOWN"
@@ -78,6 +78,8 @@ export const REASON_TEXT: Record<ReasonCode, string> = {
   SCENARIO_ASSUMED_ACCESS: "this scenario assumes access that is not secured",
   CAPACITY_EXHAUSTED: "the seat pool is full for this shift",
   CAPACITY_UNKNOWN: "the pool's limit is not known",
+  NO_ELIGIBLE_SUPPLY: "no site that counts has an asset in an eligible setting",
+  DRIVE_LIMIT: "every eligible site is beyond the drive-time lever or the students' drive cap",
   AVAILABILITY_UNKNOWN: "whether the site is open to students then is not known",
   UNAVAILABLE: "the site is not available to students then",
   INSTRUCTOR_UNASSIGNED: "a college instructor is required and none is assigned",

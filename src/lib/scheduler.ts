@@ -21,6 +21,8 @@ import type { DatedInstance } from "./capacitymodel";
 import { sectionSpans } from "./sections";
 import { clinicalDemandRows } from "./clinicaldemand";
 import { judgeExposure, unresolvedQuantities, describeRule } from "./settingrule";
+import { supervisionFromLegacy, roleFinding, requiredRoles, type SupervisionSpec, type SupervisionRole } from "./supervision";
+import { checkRequirement, checkSetting, checkCapability, checkAccess, checkCapacity, checkAvailability, checkSupervision, checkReadiness, evaluatePlacement, summarize, recommend, REASON_TEXT, type EvaluationResult, type PlacementEvaluation, type Check, type Reason, type ReasonCode, type LimitMode, type AvailabilityMode } from "./evaluate";
 import { blocksOn, overrideIndex, overrideKey, shiftHours, shiftSpan, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
 import { dec } from "./format";
@@ -101,6 +103,8 @@ export interface DemandUnit {
   holiday: string | null; moved: boolean;
   /** The holiday rule moved this shift off the named holiday (its pattern date is `originalDate`). */
   holidayMoved: string | null;
+  /** The session's explicit supervision model when one is stored or resolved; absent = derived from the staffing columns (never coerced). */
+  supervision?: SupervisionSpec | null;
 }
 
 export interface Preceptor { id: string; name: string; employerId: string | null; role: string }
@@ -114,7 +118,13 @@ export interface StudentLite {
 }
 export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string; /** ISO date the agreement ends; a placement after it is not agreement-eligible (Phase 5). */ agreementEnds?: string | null }
 /** What a site may hold at once for a family (null = unknown, never unlimited) and which settings it has CONFIRMED it provides (Phase 5). */
-export interface SiteCapacityLite { employerId: string; familyId: string | null; studentsAtOnce: number | null; approvedCapacity: number | null }
+export interface SiteCapacityLite {
+  employerId: string; familyId: string | null; studentsAtOnce: number | null; approvedCapacity: number | null;
+  /** What a blank students-at-once means: a known figure, explicitly unrestricted, or not known (the default — never unlimited, never zero). */
+  studentsAtOnceMode?: "known" | "unrestricted" | "unknown" | null;
+  /** How the site's availability to this family is expressed: inherit the assets' schedules, specific dates, unavailable, or not known. */
+  availabilityMode?: "inherit" | "specific" | "unavailable" | "unknown" | null;
+}
 export interface ConfirmedSetting { employerId: string; settingCode: string }
 /** The readiness funnel (Phase 5): every rung must hold for a placed shift to be ready. */
 export interface Readiness { locationAssigned: boolean; agreementEligible: boolean; staffedByName: boolean; experienceSupported: boolean; conflictFree: boolean; ready: boolean; issues: string[] }
@@ -251,6 +261,13 @@ export interface Plan {
     readiness: { locationAssigned: number; agreementEligible: number; staffedByName: number; experienceSupported: number; conflictFree: number; ready: number; readyShare: number } };
   /** What would block applying this plan (Phase 5): placements at unsecured sites, on holidays, over a site's cap, unprecepted. */
   blockers: Blocker[];
+  /** The canonical evaluation (lib/evaluate): every placed and unplaced section judged on the same checks, with reason codes, counted by unique placement and by occurrence, plus the contract the numbers were produced under. */
+  evaluation: PlanEvaluation;
+}
+export interface PlanEvaluation extends EvaluationResult {
+  recommendations: ReturnType<typeof recommend>;
+  /** Which supervision roles any section in the window requires — a lever or remedy about a role nobody needs is not shown. */
+  rolesRequired: SupervisionRole[];
 }
 
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
@@ -899,7 +916,11 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     let ruleReviewed = true;
     if (!x.unit.rule || x.unit.rule.status !== "reviewed" || unresolvedQuantities(x.unit.rule.rule).length) { ruleReviewed = false; issues.push(x.unit.rule ? `the setting rule for "${x.unit.rotationType}" (${describeRule(x.unit.rule.rule)}) is not reviewed` : "no setting rule"); addBlocker("requirement-unreviewed", "placed under a setting rule nobody has reviewed", true, x, `${x.unit.rotationType}: ${x.unit.rule ? describeRule(x.unit.rule.rule) : "unmapped"}`); }
     const gj = groupJudgement.get(groupKey(x.unit));
-    if (gj && gj.status === "unmet") { issues.push(`setting rule not met for this rotation: ${gj.reasons.map((r) => r.detail).join("; ")}`); addBlocker("setting-rule-unmet", "a rotation whose placements do not satisfy its setting rule (a minimum, no mixing, or one site)", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.unit.rotationType}: ${gj.reasons[0]?.detail ?? ""}`); }
+    // The rule is broken by the placements themselves (a minimum, forbidden mixing, one site, an ineligible seat) — not merely
+    // short because other sections of the rotation are unplaced: those carry their own reason, and a seated shift is not made
+    // un-ready by a sibling that has no seat yet.
+    const ruleBroken = gj ? gj.reasons.filter((r) => r.code !== "SHORT" && r.code !== "REQUIREMENT_UNRESOLVED" && (r.code !== "MIXING_FORBIDDEN" || x.unit.rule?.mixing === "forbidden")) : [];
+    if (ruleBroken.length) { issues.push(`setting rule not met for this rotation: ${ruleBroken.map((r) => r.detail).join("; ")}`); addBlocker("setting-rule-unmet", "a rotation whose placements do not satisfy its setting rule (a minimum, no mixing, or one site)", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.unit.rotationType}: ${ruleBroken[0]?.detail ?? ""}`); }
     const cap = siteCapFor(x.employerId, x.unit.familyId);
     const capN = cap ? (cap.studentsAtOnce ?? cap.approvedCapacity) : null;
     const here = atOnce.get(`${x.employerId}|${x.unit.familyId ?? ""}|${x.date}|${x.block}`) ?? 0;
@@ -907,7 +928,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     if (capN != null && here > capN) { conflictFree = false; issues.push(`${num(here)} students at ${x.siteName} at once vs ${num(capN)} approved`); addBlocker("over-capacity", "a site over its approved students-at-once", true, x, `${x.siteName}: ${num(here)} vs ${num(capN)} approved on ${x.date} ${x.block}`); }
     if (x.unit.holiday && !x.movedDays) { conflictFree = false; issues.push(`on ${x.unit.holiday}`); addBlocker("holiday", "a shift placed on an observed holiday", true, x, `${x.unit.holiday} ${x.date}`); }
     if (overlapsAnother(x)) { conflictFree = false; issues.push("the same students are placed in two places at once"); addBlocker("student-overlap", "students placed in two places at once", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.date} ${x.block}`); }
-    if (gj && gj.status === "unmet") conflictFree = false;
+    if (ruleBroken.length) conflictFree = false;
     x.readiness = { locationAssigned: true, agreementEligible, staffedByName, experienceSupported: experienceSupported && ruleReviewed, conflictFree, ready: agreementEligible && staffedByName && experienceSupported && ruleReviewed && conflictFree, issues };
   }
   const seatsWhere = (f: (r: Readiness) => boolean) => assignments.reduce((n, x) => n + (x.readiness && f(x.readiness) ? x.seats : 0), 0);
@@ -952,5 +973,125 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
       (placedSeats > 0 ? ` Ready to run: ${pct(demandSeats > 0 ? readiness.ready / demandSeats : 0)} — ${num(readiness.ready)} learner-shifts pass every check (secured agreement, named staff, confirmed experience, no conflicts).` : "");
 
   readiness.readyShare = demandSeats > 0 ? readiness.ready / demandSeats : 0;
-  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, summary: { capacity, demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
+
+  // ── The canonical evaluation (lib/evaluate): the same checks, codes and counting every view reads. ──
+  const evaluation = evaluatePlanFacts({
+    input, live, assignments, unmet, from, to,
+    rawAgreement: (a, familyId) => (familyId ? famAgreement.get(`${familyId}|${a.employerId}`) : undefined) ?? a.agreementStatus ?? null,
+    agreementEnds: (a, familyId) => (familyId ? famEnds.get(`${familyId}|${a.employerId}`) : undefined) ?? null,
+    allowedAsset, siteCapFor, confirmed, confirmedKnown, atOnce, overlapsAnother, groupJudgement, preceptorsAtSite,
+  });
+  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, evaluation, summary: { capacity, demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
+}
+
+// ── The evaluation pass ──────────────────────────────────────────────────────────────────────────────
+// Every placed section is judged on the seven checks with the facts the placer used; every unplaced
+// section carries the structured code its unmet reason means. Nothing here changes a placement —
+// it is the explanation layer the capacity panel, site views, staffing, exceptions and exports share.
+interface EvalFacts {
+  input: SchedulerInput; live: AssetLite[]; assignments: Assignment[]; unmet: Unmet[]; from: string | undefined; to: string | undefined;
+  rawAgreement: (a: AssetLite, familyId: string | null) => string | null;
+  agreementEnds: (a: AssetLite, familyId: string | null) => string | null;
+  allowedAsset: (a: AssetLite, familyId: string | null) => boolean;
+  siteCapFor: (employerId: string, familyId: string | null) => SiteCapacityLite | null;
+  confirmed: Set<string>; confirmedKnown: boolean;
+  atOnce: Map<string, number>;
+  overlapsAnother: (x: Assignment) => boolean;
+  groupJudgement: Map<string, ReturnType<typeof judgeExposure>>;
+  preceptorsAtSite: Map<string, number>;
+}
+/** The reason code an unmet reason means, and whether it is a demonstrated conflict or an evidence gap. */
+const UNMET_CODE: Record<UnmetReason, { code: ReasonCode; check: Check["key"]; status: Reason["status"] }> = {
+  holiday: { code: "HOLIDAY", check: "readiness", status: "fail" },
+  "class-day": { code: "CLASS_OVERLAP", check: "readiness", status: "fail" },
+  "student-busy": { code: "STUDENT_OVERLAP", check: "readiness", status: "fail" },
+  "unmapped-setting": { code: "SETTING_UNMAPPED", check: "requirement", status: "unknown" },
+  "no-asset-for-setting": { code: "NO_ELIGIBLE_SUPPLY", check: "capacity", status: "fail" },
+  "no-agreement": { code: "ACCESS_UNSECURED", check: "access", status: "fail" },
+  ring: { code: "DRIVE_LIMIT", check: "access", status: "fail" },
+  drive: { code: "DRIVE_LIMIT", check: "access", status: "fail" },
+  "closed-that-day": { code: "UNAVAILABLE", check: "availability", status: "fail" },
+  full: { code: "CAPACITY_EXHAUSTED", check: "capacity", status: "fail" },
+  "too-big": { code: "CAPACITY_EXHAUSTED", check: "capacity", status: "fail" },
+  "no-preceptor": { code: "PRECEPTOR_UNAVAILABLE", check: "supervision", status: "fail" },
+  "mixing-locked": { code: "MIXING_FORBIDDEN", check: "setting", status: "fail" },
+};
+const RULE_HREF = "/capacity#rotations";
+/** The session's supervision model: the stored one when the caller resolved it, else the legacy columns read literally (an unknown mode stays unknown). */
+function supervisionOf(u: DemandUnit, cache: Map<string, SupervisionSpec>): SupervisionSpec {
+  let s = cache.get(u.sessionId);
+  if (!s) { s = u.supervision ?? supervisionFromLegacy({ clinicalMode: u.clinicalMode, facultyNeeded: u.facultyNeeded, preceptorsNeeded: u.preceptorsNeeded, maxStudents: u.seatsPerSection }); cache.set(u.sessionId, s); }
+  return s;
+}
+function evaluatePlanFacts(f: EvalFacts): PlanEvaluation {
+  const { input, live, assignments, unmet } = f; const { policy } = input;
+  const specs = new Map<string, SupervisionSpec>();
+  const scenarioAllows = policy.agreements === "secured+asked" ? ["asked"] : policy.agreements === "any" ? ["asked", "prospect", "none"] : [];
+  const label = (u: DemandUnit) => `${u.cohort} ${u.courseCode ?? u.courseTitle} §${u.sectionIndex} ${u.date} ${u.block}`;
+  const evals: PlacementEvaluation[] = [];
+  for (const x of assignments) {
+    const u = x.unit; const id = `${u.id}|${x.seatOffset}`; const lab = `${label(u)} → ${x.siteName}`;
+    const checks: Check[] = [];
+    checks.push(checkRequirement(id, u.rule, { href: RULE_HREF }));
+    const setting = checkSetting(id, u.rule, x.asset.settingCode);
+    // Group-level findings (a minimum, mixing, one site) belong to the setting check of every placement in the group.
+    const gj = f.groupJudgement.get(groupKey(u));
+    if (gj) for (const r of gj.reasons) {
+      if (r.code === "SHORT" || r.code === "REQUIREMENT_UNRESOLVED") continue; // short = other sections unplaced (they carry their own reason); unresolved is on the requirement check
+      const status: Reason["status"] = r.code === "MIXING_FORBIDDEN" && u.rule?.mixing === "unknown" ? "unknown" : "fail";
+      setting.reasons.push({ code: r.code, check: "setting", status, item: id, detail: r.detail, remediation: { label: r.code === "CONTINUITY_UNMET" ? "keep the rotation at one site" : r.code === "MIXING_FORBIDDEN" ? (status === "unknown" ? "confirm whether hours may be split across settings" : "keep the rotation in one setting") : "add seats in the required setting", href: RULE_HREF } });
+      if (status === "fail") setting.status = "fail"; else if (setting.status === "pass") setting.status = "unknown";
+    }
+    checks.push(setting);
+    const seatSetting = x.asset.settingCode;
+    checks.push(checkCapability(id, f.confirmedKnown ? (f.confirmed.has(`${x.employerId}|${seatSetting}`) ? "confirmed" : "inferred") : "unknown", x.siteName, x.asset.setting || seatSetting, `/employers/${x.employerId}`));
+    checks.push(checkAccess(id, f.rawAgreement(x.asset, u.familyId), f.agreementEnds(x.asset, u.familyId), x.date, x.siteName, { scenarioAllows, href: `/employers/${x.employerId}` }));
+    const cap = f.siteCapFor(x.employerId, u.familyId);
+    const capN = cap ? (cap.studentsAtOnce ?? cap.approvedCapacity) : null;
+    const mode: LimitMode = (cap?.studentsAtOnceMode as LimitMode | null | undefined) ?? (capN != null ? "known" : "unknown");
+    const here = f.atOnce.get(`${x.employerId}|${u.familyId ?? ""}|${x.date}|${x.block}`) ?? 0;
+    checks.push(checkCapacity(id, { label: `${x.siteName} students at once`, limit: mode === "known" ? capN : null, mode, used: Math.max(0, here - x.seats), adding: x.seats }, `/employers/${x.employerId}`));
+    const avMode: AvailabilityMode = (cap?.availabilityMode as AvailabilityMode | null | undefined) ?? "inherit";
+    checks.push(checkAvailability(id, avMode, avMode === "inherit" || avMode === "specific" ? true : null, avMode === "inherit" ? "the asset's own schedule has this shift" : "the site's availability record", `/employers/${x.employerId}`));
+    const spec = supervisionOf(u, specs);
+    const findings = spec.roles.map((r) => r.role === "instructor"
+      ? roleFinding(r, x.seats, x.instructorId ? 1 : 0, input.instructors.length, null, { placementDate: x.date })
+      : roleFinding(r, x.seats, x.preceptorIds.length, f.preceptorsAtSite.get(x.employerId) ?? 0, x.siteName, { placementDate: x.date }));
+    checks.push(checkSupervision(id, spec, findings, `/programs/${u.programId}/offerings/${u.cohortId}`));
+    checks.push(checkReadiness(id, { studentOverlap: f.overlapsAnother(x), holiday: u.holiday && !x.movedDays ? u.holiday : null }));
+    evals.push(evaluatePlacement(id, lab, checks));
+  }
+  for (const m of unmet) {
+    const u = m.unit; const id = u.id; const c = UNMET_CODE[m.reason];
+    const status: Reason["status"] = m.reason === "mixing-locked" && u.rule?.mixing === "unknown" ? "unknown" : c.status;
+    const reason: Reason = { code: c.code, check: c.check, status, item: id, detail: m.detail, source: m.reason === "ring" || m.reason === "no-agreement" ? "a lever" : undefined, remediation: m.fixes[0] ? { label: m.fixes[0] } : undefined };
+    const check: Check = { key: c.check, status: status === "fail" ? "fail" : "unknown", facts: [REASON_TEXT[c.code]], reasons: [reason] };
+    // An unplaced section is still judged on its requirement, so an unreviewed rule is counted there too.
+    evals.push(evaluatePlacement(id, `${label(u)} (unplaced)`, [checkRequirement(id, u.rule, { href: RULE_HREF }), check]));
+  }
+  const summary = summarize(evals);
+  // Alternatives the rule allows that exist only at sites the levers exclude: worth evaluating before a new agreement is proposed.
+  const untried = new Set<string>();
+  for (const m of unmet) if (["full", "closed-that-day", "no-asset-for-setting", "too-big", "no-agreement"].includes(m.reason)) for (const alt of m.unit.eligible) if (live.some((a) => a.settingCode === alt && !f.allowedAsset(a, m.unit.familyId))) untried.add(alt);
+  const rolesRequired: SupervisionRole[] = [];
+  for (const u of [...assignments.map((x) => x.unit), ...unmet.map((m) => m.unit)]) for (const r of requiredRoles(supervisionOf(u, specs))) if (!rolesRequired.includes(r.role)) rolesRequired.push(r.role);
+  const assumptions: string[] = [
+    policy.agreements === "secured" ? "secured agreements only count as access" : policy.agreements === "secured+asked" ? "asked agreements count as access — an assumption; nothing asked is secured" : "any partner counts as access — an assumption; only secured agreements are real access",
+    policy.maxRing === "any" ? "any drive time" : `sites within ${policy.maxRing}`,
+    policy.flexibleDays ? `a shift may move ± ${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact dates",
+    policy.flexibleShift ? "any shift block" : "the session's own shift block",
+    policy.requirePreceptor ? "a shift is placed only where a free preceptor exists (Preceptors lever)" : "seats only — a shift is placed without a free preceptor and supervision is judged afterwards",
+    policy.skipHolidays ? "never on an observed holiday" : "holidays are flagged, not avoided",
+  ];
+  if (!f.confirmedKnown) assumptions.push("site experience confirmations were not loaded — capability is unknown everywhere");
+  const rules = [...new Map(input.demand.filter((u) => u.rule).map((u) => [u.rotationType.toLowerCase(), `${u.rotationType}: ${describeRule(u.rule!.rule)} [${u.rule!.status}]`])).values()].sort();
+  const contract: EvaluationResult["contract"] = {
+    requirementVersions: rules,
+    inputVersion: `demand ${input.demand.length} · assets ${input.assets.length} · bookings ${input.existingBookings.length} · agreements ${input.familyAgreements.length} · preceptors ${input.preceptors.length} · instructors ${input.instructors.length}`,
+    scope: { institutionId: "", cohortIds: [...new Set(input.demand.map((u) => u.cohortId))], programIds: [...new Set(input.demand.map((u) => u.programId))] },
+    window: f.from && f.to ? { from: f.from, to: f.to } : null,
+    assumptions, population: "clinical sections on a date — placed and unplaced", unit: "placements (a section on a date and shift)",
+    evaluatedAt: new Date().toISOString(), complete: true,
+  };
+  return { contract, placements: evals, summary, recommendations: recommend(summary, { untriedAlternatives: [...untried].sort(), rolesRequired }), rolesRequired };
 }

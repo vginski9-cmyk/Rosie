@@ -8,12 +8,17 @@
 import { prisma } from "./db";
 import { getSiteLoad, getCapacityModel, getFamiliesClinical, getActionQueue } from "./queries";
 import { buildInstances, type CohortCalendarInput } from "./capacitymodel";
+import { ruleFromLegacy, describeRule } from "./settingrule";
+import { supervisionFromLegacy } from "./supervision";
+import type { ReasonCode } from "./evaluate";
 
 export type ExceptionSeverity = "blocker" | "warning" | "info";
 export interface ExceptionItem {
   id: string;
   severity: ExceptionSeverity;
-  kind: "no-supply" | "over-capacity" | "unsecured-placement" | "holiday-session" | "holiday-moved" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "other";
+  kind: "no-supply" | "over-capacity" | "unsecured-placement" | "holiday-session" | "holiday-moved" | "unprecepted" | "calendar-conflict" | "unstaffed" | "coverage-gap" | "coverage-inferred" | "unverified-input" | "stale-input" | "goal-gap" | "requirement-unreviewed" | "supervision-unknown" | "limit-unknown" | "other";
+  /** The evaluation service's reason code (lib/evaluate) when the exception is one of its findings — the same code the scheduler, capacity views and exports show. */
+  code?: ReasonCode;
   institutionId: string | null; institution: string | null;
   familyId: string | null; family: string | null;
   title: string; detail: string;
@@ -77,6 +82,45 @@ export function unpreceptedShifts(rows: LoadRowLite[], todayIso: string): { coho
     o.shifts++; o.students.add(r.studentId); by.set(r.cohortId, o);
   }
   return [...by.values()].map((o) => ({ ...o, students: o.students.size })).sort((a, b) => b.shifts - a.shifts);
+}
+
+// ── Pure rules over the requirement records (tested): the evaluation service's evidence gaps, before any plan runs ──
+export interface ClinicalSessionLite { id: string; programId: string; program: string; rotationType: string | null; clinicalMode: string | null; facultyNeeded: number | null; preceptorsNeeded: number | null; maxStudents: number | null }
+export interface RotationRuleLite { rotationType: string; settingCode: string | null; rule?: string | null; sourceText?: string | null; interpretationStatus?: string | null }
+export interface SiteLimitLite { familyId: string; family: string | null; employerId: string; site: string; agreementStatus: string; studentsAtOnce: number | null; studentsAtOnceMode: string | null }
+export interface RequirementFindings {
+  /** Rotation types used by clinical sessions whose setting rule nobody has reviewed (or that has no rule), with the sessions that read it. */
+  unreviewedRules: { rotationType: string; rule: string; sessions: number; programs: string[] }[];
+  /** Programs whose clinical sessions carry a supervision model that needs review: an unknown mode, or a required role with no count. */
+  supervisionUnknown: { programId: string; program: string; sessions: number; questions: string[] }[];
+  /** Secured sites whose students-at-once is neither a figure nor explicitly unrestricted — capacity there is unknown, not unlimited. */
+  limitsUnknown: SiteLimitLite[];
+}
+export function requirementFindings(sessions: ClinicalSessionLite[], rotations: RotationRuleLite[], sites: SiteLimitLite[], known?: Set<string>): RequirementFindings {
+  const byType = new Map(rotations.map((r) => [r.rotationType.toLowerCase(), r]));
+  const unreviewed = new Map<string, { rotationType: string; rule: string; sessions: number; programs: Set<string> }>();
+  const sup = new Map<string, { programId: string; program: string; sessions: number; questions: Set<string> }>();
+  for (const s of sessions) {
+    if (s.rotationType) {
+      const row = byType.get(s.rotationType.toLowerCase());
+      const spec = row ? ruleFromLegacy(row, known) : null;
+      if (!row || !spec || spec.status !== "reviewed") {
+        const k = s.rotationType.toLowerCase();
+        const u = unreviewed.get(k) ?? { rotationType: s.rotationType, rule: spec ? describeRule(spec.rule) : "no setting rule", sessions: 0, programs: new Set<string>() };
+        u.sessions++; u.programs.add(s.program); unreviewed.set(k, u);
+      }
+    }
+    const model = supervisionFromLegacy({ clinicalMode: s.clinicalMode, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, maxStudents: s.maxStudents });
+    if (model.status !== "reviewed") {
+      const p = sup.get(s.programId) ?? { programId: s.programId, program: s.program, sessions: 0, questions: new Set<string>() };
+      p.sessions++; for (const q of model.questions) p.questions.add(q); sup.set(s.programId, p);
+    }
+  }
+  return {
+    unreviewedRules: [...unreviewed.values()].map((u) => ({ ...u, programs: [...u.programs].sort() })).sort((a, b) => b.sessions - a.sessions),
+    supervisionUnknown: [...sup.values()].map((p) => ({ ...p, questions: [...p.questions].slice(0, 3) })).sort((a, b) => b.sessions - a.sessions),
+    limitsUnknown: sites.filter((s) => s.agreementStatus === "secured" && s.studentsAtOnce == null && (s.studentsAtOnceMode ?? "unknown") === "unknown"),
+  };
 }
 
 // ── The queue ───────────────────────────────────────────────────────────────────────────────────
@@ -151,6 +195,21 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
     if (assetsUnverified) items.push({ id: `assets|${inst.id}`, severity: "warning", kind: "unverified-input", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: assetsUnverified, title: `${assetsUnverified} of ${assetsTotal} clinical assets are estimates or gaps, not confirmed with the site`, detail: "Every seat these assets contribute to capacity rests on an estimate until the site confirms learners per shift.", href: `/employers?inst=${inst.id}`, fix: "confirm each asset's learners per shift with the site (data source VERIFIED)" });
     if (provisionsEstimate) items.push({ id: `prov|${inst.id}`, severity: "info", kind: "unverified-input", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: provisionsEstimate, title: `${provisionsEstimate} site experience confirmations are estimates`, detail: "An estimated provision counts as potential coverage only; the scheduler reads the experience as unverified.", href: `/clinical`, fix: "confirm the experience with the site on its checklist" });
     if (staffEstimate) items.push({ id: `staff|${inst.id}`, severity: "info", kind: "unverified-input", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: staffEstimate, title: `${staffEstimate} secured sites have no confirmed staff count`, detail: "The accreditor's staff-on-shift figure is estimated or missing at these sites.", href: `/clinical`, fix: "record the site's qualified staff on shift (source VERIFIED)" });
+    // The evaluation service's evidence gaps that exist before any plan runs: unreviewed setting rules, supervision models
+    // that need review, and secured sites whose limit is neither a figure nor explicitly unrestricted.
+    const [clinical, rotationRows, limitRows] = await Promise.all([
+      prisma.session.findMany({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: { status: { in: ["planned", "active"] } } } } } } }, select: { id: true, rotationType: true, clinicalMode: true, facultyNeeded: true, preceptorsNeeded: true, maxStudents: true, course: { select: { term: { select: { program: { select: { id: true, name: true } } } } } } } }),
+      prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, select: { rotationType: true, settingCode: true, rule: true, sourceText: true, interpretationStatus: true } }),
+      prisma.familySite.findMany({ where: { family: { institutionId: inst.id }, agreementStatus: "secured" }, select: { familyId: true, employerId: true, agreementStatus: true, studentsAtOnce: true, studentsAtOnceMode: true, family: { select: { name: true } }, employer: { select: { name: true } } } }),
+    ]);
+    const rf = requirementFindings(
+      clinical.map((s) => ({ id: s.id, programId: s.course.term.program.id, program: s.course.term.program.name, rotationType: s.rotationType, clinicalMode: s.clinicalMode, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, maxStudents: s.maxStudents })),
+      rotationRows,
+      limitRows.map((f) => ({ familyId: f.familyId, family: f.family.name, employerId: f.employerId, site: f.employer.name, agreementStatus: f.agreementStatus, studentsAtOnce: f.studentsAtOnce, studentsAtOnceMode: f.studentsAtOnceMode })),
+    );
+    if (rf.unreviewedRules.length) { const n = rf.unreviewedRules.reduce((a, u) => a + u.sessions, 0); items.push({ id: `rules|${inst.id}`, severity: "warning", kind: "requirement-unreviewed", code: "REQUIREMENT_UNREVIEWED", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: n, title: `${rf.unreviewedRules.length} rotation type${rf.unreviewedRules.length === 1 ? "" : "s"} placed under a setting rule nobody has reviewed (${n} clinical session${n === 1 ? "" : "s"})`, detail: rf.unreviewedRules.slice(0, 3).map((u) => `"${u.rotationType}" → ${u.rule} (${u.programs.join(", ")})`).join(" · ") + (rf.unreviewedRules.length > 3 ? " · …" : "") + ". The scheduler places these shifts conditionally, never as ready.", href: `/capacity?inst=${inst.id}#rotations`, fix: "review each rotation's setting rule and mark the interpretation reviewed" }); }
+    for (const p of rf.supervisionUnknown) items.push({ id: `supervision|${p.programId}`, severity: "info", kind: "supervision-unknown", code: "QUALIFICATION_UNKNOWN", institutionId: inst.id, institution: inst.name, familyId: families.find((f) => f.programs.some((x) => x.id === p.programId))?.id ?? null, family: null, count: p.sessions, title: `${p.program}: ${p.sessions} clinical session${p.sessions === 1 ? "" : "s"} with a supervision model that needs review`, detail: p.questions.join(" "), href: `/programs/${p.programId}/structure`, fix: "set each session's supervision model (which roles, how many, named or not) on Design & sequence" });
+    if (rf.limitsUnknown.length) items.push({ id: `limits|${inst.id}`, severity: "info", kind: "limit-unknown", code: "CAPACITY_UNKNOWN", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: rf.limitsUnknown.length, title: `${rf.limitsUnknown.length} secured site agreement${rf.limitsUnknown.length === 1 ? "" : "s"} with no students-at-once on record`, detail: `${rf.limitsUnknown.slice(0, 4).map((s) => `${s.site} (${s.family ?? "program"})`).join(", ")}${rf.limitsUnknown.length > 4 ? ", …" : ""} — a blank limit is unknown, not unlimited; every placement there reads as an evidence gap.`, href: `/clinical`, fix: "record the agreed students at once, or mark the limit explicitly unrestricted, on the site's setup page" });
   }
 
   // Coverage: required experiences with no site at all (blocker), or resting on inference (warning).

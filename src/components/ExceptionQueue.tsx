@@ -18,6 +18,7 @@ function Item({ x }: { x: ExceptionItem }) {
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${t.chip}`}>{t.label}</span>
         <span className="text-sm font-medium text-slate-800">{x.title}</span>
+        {x.code && <span className="rounded bg-slate-100 px-1 font-mono text-[10px] text-slate-500" title="the evaluation service's reason code — the scheduler, capacity views and exports use the same one">{x.code}</span>}
         <span className="text-[11px] text-slate-500">{[x.institution, x.family].filter(Boolean).join(" · ")}</span>
         <Link href={x.href} className="ml-auto whitespace-nowrap rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-200 hover:bg-rose-50" title={x.fix}>fix: {x.fix} →</Link>
       </div>

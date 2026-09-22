@@ -19,7 +19,10 @@ const fmt = (iso: string | null) => (iso ? `${DAY[new Date(iso + "T00:00:00Z").g
 /** Monday of the ISO date's week. */
 export function mondayOf(iso: string): string { const d = new Date(iso + "T00:00:00Z"); const dow = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - dow); return d.toISOString().slice(0, 10); }
 
-export function rotationSheets(rows: RotationRow[]): Record<string, (string | number | null)[][]> {
+/** The setting rule each rotation type in the export means, as the evaluation service read it — so the workbook says what it was judged against. */
+export interface RotationRuleSheetRow { rotationType: string; rule: string; wording: string | null; status: string; mixing: string; continuity: string; questions: string[] }
+
+export function rotationSheets(rows: RotationRow[], rules: RotationRuleSheetRow[] = [], assumptions: string[] = []): Record<string, (string | number | null)[][]> {
   const sorted = [...rows].sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999") || (a.start ?? "").localeCompare(b.start ?? "") || a.course.localeCompare(b.course) || a.seat - b.seat || a.student.localeCompare(b.student));
   const log: (string | number | null)[][] = [[
     "Student", "Seat", "Cohort", "Program", "Course", "Course title", "Term", "Week", "Date", "Day", "Start", "Hours", "Session", "Setting", "Service area", "Site", "Asset", "Preceptor", "Status", "Hours logged", "Pinned", "Note",
@@ -53,7 +56,16 @@ export function rotationSheets(rows: RotationRow[]): Record<string, (string | nu
     const cells = weeks.map((w) => { const inWeek = mine.filter((r) => r.date && mondayOf(r.date) === w); if (!inWeek.length) return ""; const st = new Set(inWeek.map((r) => r.student)).size; return `${st} students · ${inWeek.length}d`; });
     load.push([site, setting, ...cells, mine.length, new Set(mine.map((r) => r.student)).size]);
   }
-  return { "Rotation log": log, "Week by week": grid, "Site load": load };
+  const sheets: Record<string, (string | number | null)[][]> = { "Rotation log": log, "Week by week": grid, "Site load": load };
+  // Rules & assumptions: what each rotation type was judged against, its review status, and the assumptions the reader must see.
+  // An unreviewed rule is written as such — the export never presents a proposed interpretation as settled.
+  if (rules.length || assumptions.length) {
+    const ra: (string | number | null)[][] = [["Rotation type", "Setting rule", "Program wording", "Interpretation status", "Hours may be mixed", "Continuity", "Open questions"]];
+    for (const r of rules) ra.push([r.rotationType, r.rule, r.wording, r.status === "reviewed" ? "reviewed" : `${r.status} — not reviewed; placements under it are conditional`, r.mixing, r.continuity, r.questions.join(" | ")]);
+    if (assumptions.length) { ra.push([]); ra.push(["Assumptions"]); for (const a of assumptions) ra.push([a]); }
+    sheets["Rules & assumptions"] = ra;
+  }
+  return sheets;
 }
 
 /** RFC 4180 CSV of one sheet. */

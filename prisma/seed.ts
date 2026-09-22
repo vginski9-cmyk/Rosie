@@ -1500,6 +1500,10 @@ async function main() {
   console.log("offering students:", await seedOfferingStudents());
   // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
   { const { confirmSiteExperiences } = await import("./seed-confirm"); console.log("site experiences confirmed:", await confirmSiteExperiences(prisma)); }
+  // STRUCTURED REQUIREMENTS (R1–R5): the legacy rotation mappings, staffing columns, site limits and course hours become
+  // typed setting rules, supervision rules, explicit limit modes and versioned requirements — repeat-safe, additive,
+  // ambiguous wording left as needs-review for a person. The same script runs against a live database (--dry-run first).
+  { const { backfillRequirements } = await import("../scripts/backfill-requirements"); const r = await backfillRequirements(prisma); console.log("requirements backfilled:", JSON.stringify({ rotations: { total: r.rotations.total, reviewedSingle: r.rotations.reviewedSingle, reviewNeeded: r.rotations.reviewNeeded }, supervision: r.supervision, sites: r.sites, requirements: { created: r.requirements.created, versions: r.requirements.versions, fulfillments: r.requirements.fulfillments, setStandards: r.requirements.setStandards, discrepancies: r.requirements.discrepancies.length } })); }
   // THE ROSTER IS PLACED BY THE SCHEDULER: every college's clinical shifts go where the engine puts
   // them under the roster levers, written through the apply path — one set of placements for the
   // scheduler, the site capacity view and the site load page, never a site over its seats.

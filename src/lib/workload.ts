@@ -1,5 +1,7 @@
 // Workload — the policy math behind every staffing assignment.
 //
+import { staffDemand, type SupervisionSpec, type SupervisionRole } from "./supervision";
+//
 // A workload policy says what a full load is for a position (contact hours per
 // week, the work week, weeks in a term and a year) and how many work hours each
 // contact hour is credited. A person's policy is the most specific one that
@@ -83,7 +85,19 @@ export interface AssignmentLite {
   sectionIndex: number;
 }
 
-export interface ShiftNeed { lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number }
+export interface ShiftNeed {
+  lengthHours: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number;
+  /** Roles the supervision model requires but has no count or ratio for — the need above is NOT zero for them; it is unknown (R5). */
+  missingPolicy?: SupervisionRole[];
+}
+
+/** The shift's need from an explicit supervision model and the group's actual size and time (groups × hours), never from a
+ *  coerced mode: an instructor-led group of ten for six hours needs one instructor for six hours and no preceptor; a required
+ *  role without a count is reported as missing policy, not as zero. */
+export function needFromSupervision(spec: SupervisionSpec, learners: number, lengthHours: number, supportStaffNeeded = 0): ShiftNeed {
+  const d = staffDemand(spec, 1, learners, lengthHours);
+  return { lengthHours, facultyNeeded: d.concurrent.instructor ?? 0, preceptorsNeeded: d.concurrent.preceptor ?? 0, supportStaffNeeded, missingPolicy: d.missingPolicy };
+}
 
 export interface Coverage {
   /** Contact hours required per role (length × people needed) and assigned. */
@@ -95,6 +109,8 @@ export interface Coverage {
   /** Assignments that run past the end of the session. */
   overruns: string[];
   status: "unstaffed" | "partial" | "staffed" | "over";
+  /** Required roles whose need could not be sized (no policy on record): the status above does not cover them. */
+  policyMissing: SupervisionRole[];
 }
 
 /** The built-in roles and what each covers on a shift. Institutions add their
@@ -122,7 +138,7 @@ export function coverageOf(need: ShiftNeed, assignments: AssignmentLite[], roleF
   const got = faculty.assigned + preceptor.assigned + support.assigned;
   const eps = 1e-6;
   const status: Coverage["status"] = got <= eps ? "unstaffed" : got + eps < req ? "partial" : got > req + eps ? "over" : "staffed";
-  return { faculty, preceptor, support, coTeaching, overruns, status };
+  return { faculty, preceptor, support, coTeaching, overruns, status, policyMissing: need.missingPolicy ?? [] };
 }
 
 // ---------------------------------------------------------------------------

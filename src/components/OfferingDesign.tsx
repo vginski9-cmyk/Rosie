@@ -13,7 +13,8 @@ import type { EditableField } from "@/lib/sessionfields";
 import { ClinicalAnalytics, type AnalyticsSite } from "@/components/ClinicalAnalytics";
 import type { AnalyticsCourse } from "@/lib/clinicalanalytics";
 import { ShiftStaffing, type ShiftAssignment, type ShiftPerson } from "@/components/ShiftStaffing";
-import { coverageOf, type RoleFamily } from "@/lib/workload";
+import { coverageOf, needFromSupervision, type RoleFamily } from "@/lib/workload";
+import { supervisionFromLegacy } from "@/lib/supervision";
 import { weekMonday, weekOfDate, closedWeek, openWeeksBetween } from "@/lib/term";
 import { dec } from "@/lib/format";
 
@@ -575,7 +576,9 @@ export function OfferingDesign({
                               )}
                             />
                             <ShiftStaffing roles={roles} cohortId={cohortId} programId={programId} sessionId={r.id} sectionCount={Math.max(1, comp.Y ?? 1)}
-                              need={{ lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded, kind: r.kind }}
+                              need={r.kind === "CLINICAL"
+                                ? { ...needFromSupervision(supervisionFromLegacy({ clinicalMode: r.clinicalMode, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, maxStudents: r.maxStudents }), r.maxStudents, r.lengthHours, r.supportStaffNeeded), kind: r.kind }
+                                : { lengthHours: r.lengthHours, facultyNeeded: r.facultyNeeded, preceptorsNeeded: r.preceptorsNeeded, supportStaffNeeded: r.supportStaffNeeded, kind: r.kind }}
                               startTime={r.startTime} assignments={assignments.filter((a) => a.sessionId === r.id)}
                               sites={offCampus ? meetingsFor(c.id, r.kind).map((x) => ({ sectionIndex: x.sectionIndex, employerId: x.employerId ?? null, employerName: x.employerName ?? null })) : []}
                               people={people.map((p): ShiftPerson => ({ id: p.id, name: p.name, role: p.role, employmentType: p.employmentType ?? null, title: p.title ?? null, employerName: p.employer?.name ?? null, employerId: p.employerId ?? null }))} />

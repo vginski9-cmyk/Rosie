@@ -144,8 +144,44 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
         </div>
       )}
       {unmetSeats === 0 && blocking.length === 0 && need > 0 && (
-        <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Every clinical shift has a seat, a preceptor, and passes every check under these levers.</p>
+        <p className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">Every clinical shift has a seat, {rolesNeeded.preceptor ? "a preceptor" : "an instructor"}, and passes every check under these levers.</p>
       )}
+      {need > 0 && <EvaluationPanel ev={plan.evaluation} />}
     </div>
+  );
+}
+
+const KIND_CHIP: Record<string, { label: string; cls: string }> = { conflict: { label: "conflict", cls: "bg-rose-100 text-rose-800" }, gap: { label: "evidence gap", cls: "bg-amber-100 text-amber-800" }, assumption: { label: "assumption", cls: "bg-sky-100 text-sky-800" } };
+
+/** THE SAME JUDGEMENT EVERY VIEW READS — pass / fail / unknown per placement with reason codes, counted by unique
+ *  placement and by occurrence, conflicts apart from evidence gaps, and the assumptions the run was made under. */
+function EvaluationPanel({ ev }: { ev: Plan["evaluation"] }) {
+  const s = ev.summary; const c = ev.contract;
+  return (
+    <details className="rounded-2xl border border-slate-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-900">Every check, one judgement <span className="font-normal text-slate-500">— {n0(s.placements)} placements: {n0(s.pass)} pass · {n0(s.conflictPlacements)} with a conflict · {n0(s.gapOnlyPlacements)} waiting on evidence only{s.notApplicable ? ` · ${n0(s.notApplicable)} not applicable` : ""}</span></summary>
+      <p className="mt-1 text-[11px] text-slate-500">Each placement is judged on requirement, setting, capability, access, capacity, availability, supervision and readiness — pass, fail, unknown or not applicable. Any fail → fail; else any unknown → unknown. A conflict is demonstrated; an evidence gap is not a proof either way. Counts: unique placements first, occurrences (one placement can carry several reasons) second.</p>
+      {s.byCode.length > 0 && (
+        <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 text-xs">
+          {s.byCode.slice(0, 12).map((t) => (
+            <li key={t.code} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-1.5">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${KIND_CHIP[t.kind].cls}`}>{KIND_CHIP[t.kind].label}</span>
+              <span className="font-mono text-[10px] text-slate-400">{t.code}</span>
+              <span className="text-slate-800">{t.text}</span>
+              <span className="ml-auto tabular-nums text-slate-600">{n0(t.placements)} placement{t.placements === 1 ? "" : "s"} · {n0(t.occurrences)} occurrence{t.occurrences === 1 ? "" : "s"}</span>
+              {t.remediation && <span className="basis-full text-[11px] text-slate-600"><span className="text-slate-400">fix:</span> {t.remediation.href ? <a href={t.remediation.href} className="text-rose-700 hover:underline">{t.remediation.label}</a> : t.remediation.label}{t.examples[0] ? <span className="text-slate-400"> · e.g. {t.examples[0]}</span> : null}</span>}
+            </li>
+          ))}
+          {s.byCode.length > 12 && <li className="px-3 py-1 text-[11px] text-slate-400">and {n0(s.byCode.length - 12)} more codes</li>}
+        </ul>
+      )}
+      {ev.recommendations.length > 0 && (
+        <div className="mt-2 text-xs">
+          <div className="font-semibold text-slate-800">In order of the binding constraint</div>
+          <ol className="mt-0.5 list-decimal space-y-0.5 pl-5 text-slate-700">{ev.recommendations.slice(0, 6).map((r, i) => <li key={i}>{r.label} <span className="text-slate-500">— {r.because}{r.proven ? "" : " (a recommendation, not a proof)"}</span></li>)}</ol>
+        </div>
+      )}
+      <p className="mt-2 text-[11px] text-slate-500"><span className="font-semibold text-slate-600">Assumptions this run was made under:</span> {c.assumptions.join(" · ")}. <span className="font-semibold text-slate-600">Rules read:</span> {c.requirementVersions.length ? c.requirementVersions.join("; ") : "none"}. <span className="font-semibold text-slate-600">Inputs:</span> {c.inputVersion}. <span className="font-semibold text-slate-600">Counting:</span> {c.unit}; {c.population}. {c.complete ? "The evaluation finished." : "The evaluation did not finish — nothing here is a proof."}</p>
+    </details>
   );
 }

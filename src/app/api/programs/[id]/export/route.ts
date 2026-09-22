@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 import { getProgramFull, getProgramArchetype } from "@/lib/queries";
 import { programDemand } from "@/lib/capacity";
 import { analyzeFunnel, type StageKey } from "@/lib/funnel";
+import { ruleBook, requirementLedger } from "@/lib/requirementstore";
+import { describeRule } from "@/lib/settingrule";
 
 export const runtime = "nodejs";
 
@@ -124,6 +126,27 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     "Room-hours": demand.totals.roomHours,
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(capRows), "Capacity");
+
+  // --- Setting rules and structured requirements: what every clinical figure above was judged against (R1/R2). ---
+  // Statuses are written as they are; a proposed or needs-review interpretation is never exported as settled.
+  const [book, ledger] = await Promise.all([ruleBook(program.institutionId), requirementLedger(program.id)]);
+  const usedTypes = new Set(program.terms.flatMap((t) => t.courses.flatMap((c) => c.sessions.map((s) => (s.rotationType ?? "").toLowerCase()).filter(Boolean))));
+  const ruleRows = book.rows.filter((r) => usedTypes.size === 0 || usedTypes.has(r.rotationType.toLowerCase())).map((r) => {
+    const spec = book.rules.get(r.rotationType.toLowerCase()) ?? null;
+    return { "Rotation type": r.rotationType, "Setting rule": spec ? describeRule(spec.rule) : "no setting rule", "Program wording": spec?.sourceText ?? r.sourceText ?? "", "Interpretation status": spec?.status ?? "unmapped", "Hours may be mixed": spec?.mixing ?? "unknown", Continuity: spec?.continuity ?? "unknown", "Reviewed by": r.reviewedBy ?? "", "Open questions": (spec?.questions ?? []).join(" | ") };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ruleRows.length ? ruleRows : [{ "Rotation type": "(no rotation types on record)" }]), "Setting rules");
+  const reqRows = ledger.requirements.map((r) => ({
+    Requirement: r.label, Key: r.key, Scope: r.scopeLabel,
+    Version: r.version ? `v${r.version.version} ${r.version.status}` : r.draft ? `v${r.draft.version} draft (unpublished)` : "no version",
+    Quantity: r.version?.quantity ?? "", Unit: r.version?.unit ?? "", Basis: r.version?.basis ?? "",
+    "Setting rule": r.version?.settingRule ? describeRule(r.version.settingRule.rule) : "", "Rule status": r.version?.settingRule?.status ?? "",
+    "Supervision": r.version?.supervision ? `${r.version.supervision.mode} (${r.version.supervision.status})` : "",
+    "Source authority": r.version?.sourceAuthority ?? "", "Interpretation": r.version?.interpretationStatus ?? "", "Reviewed by": r.version?.reviewedBy ?? "",
+    "Represented in the design": r.represented ?? "", Unresolved: r.unresolved ?? "",
+    Note: "Published here means approved for planning inside Rosie — not regulatory approval.",
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(reqRows.length ? reqRows : [{ Requirement: "(no structured requirements yet — run the backfill or add one on Design & sequence)" }]), "Requirements");
 
   const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
   const safeName = `${program.institution?.shortName ?? program.institution?.name ?? "Rosie"}_${program.name}`.replace(/[^a-z0-9]+/gi, "_").replace(/^_+|_+$/g, "");

@@ -185,6 +185,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           </Lever>
           <Lever label="Preceptors" hint="Only place a clinical shift where a free preceptor person exists at that site on that shift block.">
             <select value={String(policy.requirePreceptor)} onChange={(e) => setPolicy({ ...policy, requirePreceptor: e.target.value === "true" })} className={sel}><option value="false">count seats only</option><option value="true">require a free preceptor</option></select>
+            {demand.length > 0 && !plan.evaluation.rolesRequired.includes("preceptor") && <span className="mt-0.5 block text-[10px] font-normal text-slate-500">no session in this window requires a site preceptor{plan.evaluation.rolesRequired.includes("instructor") ? " — these groups need a college instructor, judged after placing" : ""}; this lever has no effect</span>}
           </Lever>
           <Lever label="Holidays" hint="A shift on an observed holiday is left for moving (or moved by the Day lever), or placed anyway — a blocker until moved.">
             <select value={String(policy.skipHolidays)} onChange={(e) => setPolicy({ ...policy, skipHolidays: e.target.value === "true" })} className={sel}><option value="true">never on a holiday</option><option value="false">place anyway</option></select>

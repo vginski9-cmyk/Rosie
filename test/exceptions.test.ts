@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { overCapacityDays, unsecuredPlacements, unpreceptedShifts, sortExceptions, blockedFamilies, type LoadRowLite, type ExceptionItem } from "../src/lib/exceptions";
+import { overCapacityDays, unsecuredPlacements, unpreceptedShifts, sortExceptions, blockedFamilies, requirementFindings, type LoadRowLite, type ExceptionItem } from "../src/lib/exceptions";
 
 // Phase 7 (docs/metrics-audit.md §13): the exception queue's rules over site-load rows.
 
@@ -50,5 +50,20 @@ describe("exception rules", () => {
     const items = sortExceptions([item({ id: "n", severity: "info" }), item({ id: "w", severity: "warning", count: 9 }), item({ id: "b2", severity: "blocker", count: 2, familyId: "f1" }), item({ id: "b1", severity: "blocker", count: 7, familyId: "f1" })]);
     expect(items.map((x) => x.id)).toEqual(["b1", "b2", "w", "n"]);
     expect([...blockedFamilies(items).entries()]).toEqual([["f1", 2]]);
+  });
+});
+
+describe("requirement findings — the evaluation service's evidence gaps before any plan runs", () => {
+  const s = (o: Partial<import("../src/lib/exceptions").ClinicalSessionLite> & { id: string }) => ({ programId: "p1", program: "Nurse Aide I", rotationType: "Acute MedSurg or LTC", clinicalMode: "Instructor-Led Clinical Group", facultyNeeded: 1, preceptorsNeeded: 0, maxStudents: 10, ...o });
+  it("a compound rotation wording with no stored rule is unreviewed; a single mapped code is reviewed; an unknown mode or a missing count needs supervision review; a blank limit is unknown, an explicit 'unrestricted' is not", () => {
+    const f = requirementFindings(
+      [s({ id: "a" }), s({ id: "b", rotationType: "LTC" }), s({ id: "c", rotationType: "LTC", clinicalMode: null }), s({ id: "d", rotationType: "LTC", facultyNeeded: 0 })],
+      [{ rotationType: "Acute MedSurg or LTC", settingCode: "BEDS" }, { rotationType: "LTC", settingCode: "LTC" }],
+      [{ familyId: "f", family: "NA", employerId: "e1", site: "Crystal Coast SNF", agreementStatus: "secured", studentsAtOnce: null, studentsAtOnceMode: "unknown" }, { familyId: "f", family: "NA", employerId: "e2", site: "Carteret Health", agreementStatus: "secured", studentsAtOnce: null, studentsAtOnceMode: "unrestricted" }, { familyId: "f", family: "NA", employerId: "e3", site: "Asked Site", agreementStatus: "asked", studentsAtOnce: null, studentsAtOnceMode: "unknown" }],
+    );
+    expect(f.unreviewedRules).toHaveLength(1); expect(f.unreviewedRules[0]).toMatchObject({ rotationType: "Acute MedSurg or LTC", sessions: 1 }); expect(f.unreviewedRules[0].rule).toMatch(/BEDS.*LTC/);
+    expect(f.supervisionUnknown).toHaveLength(1); expect(f.supervisionUnknown[0].sessions).toBe(2);
+    expect(f.supervisionUnknown[0].questions.join(" ")).toMatch(/No clinical mode is recorded/); expect(f.supervisionUnknown[0].questions.join(" ")).toMatch(/no count or ratio/);
+    expect(f.limitsUnknown.map((x) => x.employerId)).toEqual(["e1"]);
   });
 });

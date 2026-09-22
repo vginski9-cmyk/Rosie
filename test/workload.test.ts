@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { resolvePolicy, coverageOf, personLoad, creditPerContactHour, type PolicyLite, type DatedAssignment } from "../src/lib/workload";
+import { resolvePolicy, coverageOf, personLoad, creditPerContactHour, needFromSupervision, type PolicyLite, type DatedAssignment } from "../src/lib/workload";
+import { supervisionFromLegacy } from "../src/lib/supervision";
 
 const INST = "inst1";
 const policies: PolicyLite[] = [
@@ -88,5 +89,19 @@ describe("personLoad", () => {
     expect(load.overloadedWeeks).toEqual(["2026-08-24"]);
     expect(load.undatedHours).toBe(4);
     expect(load.peakWeekLoad).toBeCloseTo(19 / 18, 10);
+  });
+});
+
+describe("needFromSupervision — staff demand from the supervision model, groups × hours (R5)", () => {
+  it("ten learners, six hours, one instructor-led group: 6 instructor hours, 0 preceptor hours; a preceptor-led group with no ratio is a missing policy, not zero", () => {
+    const led = supervisionFromLegacy({ clinicalMode: "Instructor-Led Clinical Group", facultyNeeded: 1, preceptorsNeeded: 0, maxStudents: 10 });
+    const need = needFromSupervision(led, 10, 6);
+    expect(need).toMatchObject({ lengthHours: 6, facultyNeeded: 1, preceptorsNeeded: 0, missingPolicy: [] });
+    const cov = coverageOf(need, [{ id: "a", personId: "p1", sectionIndex: 1, role: "instructor", contactHours: 6, startOffsetMin: 0 }]);
+    expect(cov.status).toBe("staffed"); expect(cov.faculty).toEqual({ required: 6, assigned: 6 }); expect(cov.preceptor.required).toBe(0); expect(cov.policyMissing).toEqual([]);
+    const precepted = supervisionFromLegacy({ clinicalMode: "Preceptor-led", facultyNeeded: 0, preceptorsNeeded: null, maxStudents: 10 });
+    const unknown = needFromSupervision(precepted, 10, 6);
+    expect(unknown.preceptorsNeeded).toBe(0); expect(unknown.missingPolicy).toEqual(["preceptor"]);
+    expect(coverageOf(unknown, []).policyMissing).toEqual(["preceptor"]);
   });
 });

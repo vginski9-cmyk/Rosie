@@ -107,3 +107,49 @@ describe("the scheduler under explicit setting rules", () => {
     expect(plan.summary.preceptorShifts).toBe(0);
   });
 });
+
+describe("the evaluation service inside the plan (R7)", () => {
+  const unrestricted = [{ employerId: "snf", familyId: "fam1", studentsAtOnce: null, approvedCapacity: null, studentsAtOnceMode: "unrestricted" as const }];
+  it("a fully placed, staffed, confirmed plan with a known limit passes every check; with no limit on record the same plan is an evidence gap, never a pass", () => {
+    const known = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf], siteCaps: unrestricted }));
+    expect(known.evaluation.summary).toMatchObject({ placements: 10, pass: 10, fail: 0, unknown: 0, conflictPlacements: 0, gapOnlyPlacements: 0 });
+    const blank = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf] }));
+    expect(blank.evaluation.summary).toMatchObject({ placements: 10, pass: 0, fail: 0, unknown: 10, conflictPlacements: 0, gapOnlyPlacements: 10 });
+    const gap = blank.evaluation.summary.byCode.find((t) => t.code === "CAPACITY_UNKNOWN")!;
+    expect(gap.kind).toBe("gap"); expect(gap.placements).toBe(10);
+    expect(blank.evaluation.contract.assumptions.join(" ")).toMatch(/seats only/);
+    expect(blank.evaluation.contract.complete).toBe(true);
+    expect(blank.evaluation.contract.requirementVersions[0]).toMatch(/Acute MedSurg or LTC: .*\[reviewed\]/);
+  });
+  it("unplaced sections carry structured codes; unique placements are counted apart from occurrences", () => {
+    const proposed = { ...spec({ kind: "only", setting: "BEDS" }, { continuity: "one-site" }), status: "proposed" as const };
+    const hospA = asset({ id: "ha", employerId: "hosp", facilityName: "Carteret Health", settingCode: "BEDS", learnersPerShift: 10 });
+    const hospB = asset({ id: "hb", employerId: "hosp2", facilityName: "Onslow Memorial", settingCode: "BEDS", learnersPerShift: 10 });
+    const overrides = [...mondays.slice(5).map((d) => ({ assetId: "ha", date: d, shiftBlocks: "", note: null })), ...mondays.slice(0, 5).map((d) => ({ assetId: "hb", date: d, shiftBlocks: "", note: null }))];
+    const plan = recommendPlan(base({ demand: tenSessions(proposed), assets: [hospA, hospB], overrides, siteCaps: [] }));
+    const s = plan.evaluation.summary;
+    expect(s.placements).toBe(10); expect(s.conflictPlacements).toBe(10);
+    expect(s.occurrences).toBeGreaterThanOrEqual(30); // unreviewed + continuity + limit unknown on every placement
+    expect(s.byCode.find((t) => t.code === "CONTINUITY_UNMET")).toMatchObject({ placements: 10, occurrences: 10, kind: "conflict" });
+    expect(s.byCode.find((t) => t.code === "REQUIREMENT_UNREVIEWED")).toMatchObject({ placements: 10, kind: "gap" });
+    expect(s.byCode[0].kind).toBe("conflict"); // conflicts sort before gaps
+    // nothing seated at all: every section fails on the capacity check with the code its unmet reason means
+    const none = recommendPlan(base({ demand: tenSessions(onlyRule("BEDS")), assets: [hospital, snf] }));
+    expect(none.evaluation.summary.conflictPlacements).toBe(10);
+    expect(none.evaluation.placements.every((p) => p.reasons.some((r) => ["CAPACITY_EXHAUSTED", "UNAVAILABLE", "NO_ELIGIBLE_SUPPLY"].includes(r.code)))).toBe(true);
+  });
+  it("an eligible alternative that exists only at an excluded site is recommended before a new agreement; counting it in is an assumption, never access", () => {
+    const askedSnf = { ...snf, agreementStatus: "asked" };
+    const secured = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, askedSnf] }));
+    expect(secured.unmet).toHaveLength(10);
+    expect(secured.evaluation.recommendations.some((r) => /alternative setting.*LTC/.test(r.label))).toBe(true);
+    expect(secured.evaluation.recommendations.every((r) => !/preceptor/i.test(r.label))).toBe(true);
+    expect(secured.evaluation.rolesRequired).toEqual(["instructor"]);
+    const scenario = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, askedSnf], siteCaps: unrestricted }, { agreements: "secured+asked" }));
+    expect(scenario.assignments).toHaveLength(10);
+    const t = scenario.evaluation.summary.byCode.find((x) => x.code === "SCENARIO_ASSUMED_ACCESS")!;
+    expect(t.kind).toBe("assumption"); expect(t.placements).toBe(10);
+    expect(scenario.evaluation.summary.pass).toBe(0); expect(scenario.evaluation.summary.unknown).toBe(10);
+    expect(scenario.evaluation.contract.assumptions.join(" ")).toMatch(/asked agreements count as access — an assumption/);
+  });
+});

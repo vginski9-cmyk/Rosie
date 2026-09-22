@@ -2494,7 +2494,7 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     getAssetMap(institutionId, from, to),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
     prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
-    prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true, agreementEnds: true, studentsAtOnce: true, approvedCapacity: true } }),
+    prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true, agreementEnds: true, studentsAtOnce: true, approvedCapacity: true, studentsAtOnceMode: true, availabilityMode: true } }),
     prisma.employer.findMany({ where: { institutionId, lat: { not: null }, lng: { not: null } }, select: { id: true, lat: true, lng: true } }),
   ]);
   // Settings each site has CONFIRMED it provides (Phase 5): a VERIFIED provision of a requirement item
@@ -2523,7 +2523,7 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     instructors: people.filter((p) => p.role === "instructor").map((p) => ({ id: p.id, name: p.name, role: p.role })),
     students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex, homeLabel: s.city, driveTo: driveFrom(s.city, s.state) })),
     familyAgreements: familySites.map((f) => ({ familyId: f.familyId, employerId: f.employerId, agreementStatus: f.agreementStatus, agreementEnds: f.agreementEnds ? f.agreementEnds.toISOString().slice(0, 10) : null })),
-    siteCaps: familySites.map((f) => ({ employerId: f.employerId, familyId: f.familyId, studentsAtOnce: f.studentsAtOnce, approvedCapacity: f.approvedCapacity })),
+    siteCaps: familySites.map((f) => ({ employerId: f.employerId, familyId: f.familyId, studentsAtOnce: f.studentsAtOnce, approvedCapacity: f.approvedCapacity, studentsAtOnceMode: (f.studentsAtOnce != null ? "known" : f.studentsAtOnceMode) as "known" | "unrestricted" | "unknown", availabilityMode: f.availabilityMode as "inherit" | "specific" | "unavailable" | "unknown" })),
     confirmedSettings,
   };
 }
@@ -3069,8 +3069,10 @@ export async function getProgramFamilyId(programId: string): Promise<string | nu
 
 /** Every clinical shift of an offering (or one of its courses) as export rows: who, when, where, with whom. */
 export async function getRotationExport(cohortId: string, courseId?: string | null) {
-  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { name: true } }, staff: { select: { name: true } } } } } });
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, institutionId: true } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { name: true } }, staff: { select: { name: true } } } } } });
   if (!co) return null;
+  const [{ ruleBook }, { describeRule }] = await Promise.all([import("./requirementstore"), import("./settingrule")]);
+  const book = await ruleBook(co.program.institutionId);
   const { dates } = await sessionDatesForCohort(cohortId);
   const shifts = await prisma.studentShift.findMany({
     where: { cohortId, session: { kind: "CLINICAL", ...(courseId ? { courseId } : {}) } },
@@ -3089,7 +3091,12 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
       preceptor: s.preceptor?.name ?? m?.staff?.name ?? null, status: s.status, hoursLogged: s.hoursLogged, pinned: !!s.pinnedArea, note: s.note,
     };
   });
-  return { cohort: { id: co.id, name: co.name, program: co.program.name }, course: course ? { id: course.id, code: course.code, name: course.name } : null, rows };
+  // The setting rule each rotation type in these rows means, as the evaluation service reads it (lib/requirementstore).
+  const rules: import("./rotationexport").RotationRuleSheetRow[] = [...new Set(shifts.map((s) => s.session.rotationType).filter((t): t is string => !!t))].sort().map((t) => {
+    const spec = book.rules.get(t.toLowerCase()) ?? null;
+    return { rotationType: t, rule: spec ? describeRule(spec.rule) : "no setting rule (unmapped)", wording: spec?.sourceText ?? null, status: spec?.status ?? "unmapped", mixing: spec?.mixing ?? "unknown", continuity: spec?.continuity ?? "unknown", questions: spec?.questions ?? [] };
+  });
+  return { cohort: { id: co.id, name: co.name, program: co.program.name }, course: course ? { id: course.id, code: course.code, name: course.name } : null, rows, rules };
 }
 
 /** Every clinical student-shift at the institution as a site-load row, plus each site's seats in the program's settings. */
