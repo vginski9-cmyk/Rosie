@@ -95,14 +95,20 @@ export async function backfillRequirements(prisma: PrismaClient, opts: { dryRun?
       return [{ ...s, amount: areasReached.length === 1 ? s.lengthHours ?? null : null, shared: areasReached.map((a) => a.code) }];
     });
     const represented = links.reduce((n, s) => n + (s.amount ?? 0), 0);
-    if (Math.abs(represented - cr.hoursPerStudent) > 0.01) report.requirements.discrepancies.push({ course: cr.course.code ?? cr.course.name, area: cr.serviceArea.code, required: cr.hoursPerStudent, represented });
+    // A legacy "0 hours" is not a stated minimum of zero: it is a quantity nobody has stated (missing ≠ zero). It is carried as
+    // an unresolved quantity that needs review, never published as "0 hours, reviewed".
+    const stated = cr.hoursPerStudent > 0 ? cr.hoursPerStudent : null;
+    if (stated != null && Math.abs(represented - stated) > 0.01) report.requirements.discrepancies.push({ course: cr.course.code ?? cr.course.name, area: cr.serviceArea.code, required: stated, represented });
     if (dry) continue;
     let req = await prisma.clinicalRequirement.findFirst({ where: { courseId: cr.course.id, key } });
-    if (!req) { req = await prisma.clinicalRequirement.create({ data: { institutionId: inst, scope: "course", courseId: cr.course.id, programId: cr.course.term.program.id, familyId: cr.course.term.program.familyId, key, label: `${cr.serviceArea.name} — ${cr.hoursPerStudent} hours per learner` } }); report.requirements.created++; }
+    if (!req) { req = await prisma.clinicalRequirement.create({ data: { institutionId: inst, scope: "course", courseId: cr.course.id, programId: cr.course.term.program.id, familyId: cr.course.term.program.familyId, key, label: stated != null ? `${cr.serviceArea.name} — ${stated} hours per learner` : `${cr.serviceArea.name} — hours per learner not stated` } }); report.requirements.created++; }
     const has = await prisma.requirementVersion.findFirst({ where: { requirementId: req.id } });
     let versionId = has?.id ?? null;
     if (!has) {
-      const v = await prisma.requirementVersion.create({ data: { requirementId: req.id, version: 1, status: "published", quantity: cr.hoursPerStudent, unit: "hours", basis: "per-learner", settingRule: spec ? ruleSpecJson(spec) : null, sourceText: `${cr.serviceArea.name}: ${cr.hoursPerStudent} hours per student (course clinical requirement)`, sourceRef: JSON.stringify({ kind: "legacy", model: "CourseClinicalRequirement", id: cr.id }), sourceAuthority: "unknown", interpretationStatus: spec?.status ?? "needs-review", publishedAt: new Date(), publishedBy: "backfill", notes: cr.notes ?? null } });
+      const zeroNote = stated == null ? "The course record shows 0 hours for this area — confirm whether that means no requirement here or an unstated minimum." : null;
+      // A stated quantity is published as v1 (approved for planning here, not regulatory approval); an unstated one stays a draft
+      // — a published requirement needs a quantity, and only a person can supply it.
+      const v = await prisma.requirementVersion.create({ data: { requirementId: req.id, version: 1, status: stated == null ? "draft" : "published", quantity: stated, unit: "hours", basis: "per-learner", settingRule: spec ? ruleSpecJson(spec) : null, sourceText: `${cr.serviceArea.name}: ${cr.hoursPerStudent} hours per student (course clinical requirement)`, sourceRef: JSON.stringify({ kind: "legacy", model: "CourseClinicalRequirement", id: cr.id }), sourceAuthority: "unknown", interpretationStatus: stated == null ? "needs-review" : spec?.status ?? "needs-review", publishedAt: stated == null ? null : new Date(), publishedBy: stated == null ? null : "backfill", notes: [cr.notes, zeroNote].filter(Boolean).join(" ") || null } });
       versionId = v.id; report.requirements.versions++;
     }
     const existing = new Set((await prisma.requirementFulfillment.findMany({ where: { requirementId: req.id }, select: { sessionId: true } })).map((f) => f.sessionId));

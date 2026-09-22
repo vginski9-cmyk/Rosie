@@ -203,6 +203,81 @@ The line above every capacity, coverage, staffing and scheduler view saying what
 
 - **Where:** Insights
 
+## Requirements, rules and the evaluation
+
+### Setting rule
+
+What a clinical rotation type means in settings, as a structured rule rather than one code: only A; A or B (alternatives for the same hours); A and B (both, each with its own quantity); a total with minimums inside it; any N of a list; plus whether hours may be mixed across settings and whether the rotation must stay at one site. The program's own wording is kept beside the rule.
+
+- **Retired:** rotation mapping, setting code (as the whole meaning)
+- **Not the same as:** An alias — two names for one setting — is not a substitution. "Acute MedSurg or LTC" proposes alternatives; it never approves them.
+- **Where:** Clinical site capacity › rotations, the requirements ledger, the scheduler, exports
+
+### Interpretation status (proposed · needs review · reviewed)
+
+Whether a person has confirmed what a rule or requirement means. Proposed and needs-review rules still drive planning, but every shift placed under them is conditional — never ready. Reviewed means a named person confirmed the interpretation on a date; it is not regulatory approval.
+
+- **Not the same as:** Not the same as a published requirement version (approved for planning inside Rosie) and not the same as an official source.
+- **Where:** Rule editors, the requirements ledger, the exception queue, the scheduler's blockers
+
+### Requirement version (draft · published · retired)
+
+A structured educational requirement — quantity, unit and basis, setting rule, capabilities, supervision, timing, source and evidence — kept as numbered versions. A draft can change; a published version is frozen and is what planning reads; publishing a new one retires the previous. Published means approved for planning here, not approved by a regulator.
+
+- **Where:** Design & sequence › requirements ledger, the program export's Requirements sheet
+
+### Required · represented · unresolved
+
+For a requirement: the published quantity (required), the amount the design's sessions and courses are linked to it for (represented), and the difference (unresolved). Hours, cases and competencies are never converted into each other.
+
+- **Where:** The requirements ledger
+
+### Supervision model
+
+Which roles a clinical session requires and how they are sized: college instructor and/or site preceptor, required or not, people per group or the most learners one person may supervise, named assignment needed or not, presence, qualifications and validity dates. Instructor-led, preceptor-led and combined are the recognized modes; anything else stays needs-review — never coerced.
+
+- **Retired:** clinical mode (as the only record)
+- **Not the same as:** Qualified, available, assigned and confirmed are four different facts about a person; none implies the others.
+- **Where:** Design & sequence (clinical rows), staffing panels, the scheduler
+
+### Policy missing
+
+A role the supervision model requires but has no count or ratio for. The need is unknown — reported as a question — never sized as zero.
+
+- **Where:** Staffing panels, the exception queue, the scheduler's evaluation
+
+### Site capability (supported · limited · unsupported · unknown)
+
+Whether a site provides one educational experience (a setting, a population, a procedure or a modality), with limits, learner types, evidence and a review date — separate from the site's accreditor recognition and from its physical assets. Several capabilities on one unit share that unit's capacity pool; nobody gets a private copy of shared supply.
+
+- **Not the same as:** Confirmed / inferred evidence status stays a separate fact about how the capability is known.
+- **Where:** The site page and family site setup › capabilities
+
+### Limit mode (known · explicitly unrestricted · unknown) and availability mode
+
+What a blank number means. A students-at-once limit is a known figure, explicitly unrestricted by this field (other limits still apply), or unknown — never silently unlimited or zero. Availability is inherited from the assets' schedules, set specifically, unavailable, or unknown, and the resolved source is shown.
+
+- **Where:** Family site setup › availability, the scheduler's capacity and availability checks
+
+### Evaluation (pass · fail · unknown · not applicable)
+
+One deterministic judgement every view shares: each placement checked on requirement, setting, capability, access, capacity, availability, supervision and readiness. Any fail → fail; else any unknown → unknown; all not-applicable → not applicable. Every finding carries a reason code (REQUIREMENT_UNREVIEWED, SETTING_INELIGIBLE, ACCESS_UNSECURED, CAPACITY_EXHAUSTED, INSTRUCTOR_UNASSIGNED …), and the same code appears on the scheduler, the exception queue and the exports.
+
+- **Where:** Scheduler › every check, one judgement; Home › what needs fixing; rotation and program exports
+
+### Conflict, evidence gap, assumption
+
+A conflict is demonstrated (a seat over its limit, a role unassigned). An evidence gap is a fact nobody has recorded (a limit, a confirmation, a policy) — not proof either way. An assumption is a lever the reader chose (asked agreements counted as access). Counted by unique placements first, then by occurrences.
+
+- **Where:** The scheduler's evaluation panel
+
+### Extraction proposal (parsed · needs interpretation review · ready for planning)
+
+What "Describe or upload" produces from a workbook, a document or plain words: candidate sessions, rules, requirements, supervision models and site capabilities, each anchored to the source fragment it came from, with the questions a person must answer. Parsed means transcribed and validated; needs interpretation review means a human decision is missing; ready for planning is only ever earned after review. Applying writes drafts and needs-review records, never active facts.
+
+- **Not the same as:** A model's confidence is not evidence; a reviewer's acceptance of a transcription does not make an unofficial document official.
+- **Where:** Design & sequence and the site page › Describe or upload
+
 ## Expansion and assumptions
 
 ### Scenario
