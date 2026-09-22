@@ -178,11 +178,17 @@ A seat is one learner place on one asset for one shift block on one date — an 
 - **Retired:** seats per day, students per day as the fullness measure
 - **Where:** Clinical site load (the Full column, the seat-by-seat panel, the Seat / Shift / Asset dimensions), the scheduler's "on the calendar now" line
 
-### Roster levers
+### Base levers and roster levers
 
-The levers the roster on the calendar was placed with: every secured site at any drive time, any shift block, ± 2 days inside the week, never on a holiday, seats first (a site's preceptor goes on the shift when it has one; none is required to place it). The scheduler opens on them, so its "can be placed" estimate and the site-load page start from the same rules; "reset to the roster levers" returns to them.
+The base levers are what the scheduler opens on — the strict reading: secured sites only, within 30 minutes of campus, the exact shift block and the exact date the template says, never on a holiday, seats first (a site's preceptor goes on the shift when it has one; none is required to place it). Every loosening from there is a choice made on the levers card; "reset to the base levers" returns to it. The roster levers are the looser set the roster on the calendar was placed with — every secured site at any drive time, any shift block, ± 2 days inside the week — so the calendar can read higher than the base estimate; the line under the levers says which levers differ, and "roster levers" shows the calendar's own reading.
 
 - **Where:** The scheduler's levers card, the seed
+
+### Seats that line up with the demand
+
+The scheduler's tightest supply ceiling. The seats at the sites that count are matched to the demand shift by shift (week by week, and across shift blocks, where the Day and Shift levers let a shift move): each site is held to its approved students-at-once, and no shift's seats count beyond what that shift needs — a seat on a day nobody needs it, or the twenty-fifth seat on a day forty students need twenty-four, is not lined up. Placed can never exceed it; between it and placed sit only class-day, holiday and students-due-elsewhere clashes and sections too big for one site.
+
+- **Where:** The scheduler's supply bars and "how to read these numbers"
 
 ### Requirement set, item and provision
 

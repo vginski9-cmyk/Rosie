@@ -27,6 +27,13 @@ export interface SchedulerSupply {
  *  first (a site's preceptors are put on the shift when it has them, not required to place it). */
 export const ROSTER_POLICY: Policy = { ...DEFAULT_POLICY, agreements: "secured", maxRing: "any", flexibleShift: true, flexibleDays: 2, skipHolidays: true, requirePreceptor: false };
 
+/** The base levers the scheduler page opens on: secured sites only, within the core drive band (30 minutes of campus),
+ *  the exact shift block and the exact date the template says, never a holiday, seats first. The strict reading —
+ *  every loosening from here is a choice the reader makes on the levers card. "Reset to the base levers" returns to them. */
+export const BASE_POLICY: Policy = { ...DEFAULT_POLICY, agreements: "secured", maxRing: "Core", flexibleShift: false, flexibleDays: 0, skipHolidays: true, requirePreceptor: false };
+/** Which levers two policies differ on — the board says so when the calendar's roster and the estimate were not built the same way. */
+export function leverDifferences(a: Policy, b: Policy): (keyof Policy)[] { return (Object.keys(a) as (keyof Policy)[]).filter((k) => a[k] !== b[k]); }
+
 /** What the board sends to be applied: the levers, the date window and which offerings — a few hundred bytes. */
 export interface SchedulerLevers { policy: Policy; from: string; to: string; cohortIds: string[] }
 

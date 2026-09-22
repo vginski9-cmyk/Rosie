@@ -153,7 +153,7 @@ export interface SchedulerInput {
   policy: Policy;
 }
 
-export type UnmetReason = "holiday" | "class-day" | "student-busy" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor" | "mixing-locked";
+export type UnmetReason = "holiday" | "class-day" | "student-busy" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "site-cap" | "too-big" | "no-preceptor" | "mixing-locked";
 export const REASON_LABEL: Record<UnmetReason, string> = {
   "too-big": "no single site has enough seats of this setting on one shift for a section this size",
   holiday: "lands on an observed holiday — needs moving",
@@ -166,6 +166,7 @@ export const REASON_LABEL: Record<UnmetReason, string> = {
   ring: "the only sites with this setting are beyond the allowed drive time",
   "closed-that-day": "no asset of this setting runs that shift on that date",
   full: "every open asset is already full that shift",
+  "site-cap": "the site's approved students-at-once is reached that shift — rooms are free, the agreement is not",
   "no-preceptor": "no free preceptor at any open site that shift",
   "mixing-locked": "the rule keeps this rotation in one setting (hours may not be mixed, or that is not yet confirmed) and that setting has no seat",
 };
@@ -217,6 +218,11 @@ export interface CapacityHeadroom {
   supplySeatsPhysicalOnDemandDays: number;
   /** Of the allowed seats on demand days, those a preceptor on the site's roster could cover: per site and shift, preceptors on hand × students per preceptor (the Students-per-preceptor lever, else each asset's own ratio). An estimate of the staffed ceiling. */
   supplySeatsStaffableOnDemandDays: number;
+  /** Of the allowed seats on demand days, those that LINE UP with the demand: per date and shift block (per week, and across blocks, when the Day and Shift
+   *  levers let a shift move), the seats in the settings that day's sections may use — each site capped at its approved students-at-once — but never more
+   *  than that day's demand. The tightest ceiling: placed can never exceed it, and the gap between the two is class-day and holiday clashes, sections too
+   *  big for one site, and the order shifts were placed in. A seat on a day nothing needs it does not count here. */
+  supplySeatsLinedUp: number;
   /** supplySeats − demandSeats. */
   headroom: number;
   /** supplySeatsOnDemandDays − supplySeatsBooked − demandSeats. */
@@ -431,7 +437,8 @@ export function recommendPlan(input: SchedulerInput): Plan {
   const driveOf = (stu: StudentLite[], employerId: string) => stu.map((s) => s.driveTo?.[employerId]).filter((n): n is number => n != null);
 
   /** A site's open assets of the unit's setting on one date × block, and the seats still free across them. */
-  interface Pool { employerId: string; siteName: string; date: string; block: ShiftBlock; movedDays: number; assets: { a: AssetLite; slot: Slot }[]; free: number; used: number }
+  /** `free` is what the site may still take (rooms, then the site's students-at-once); `roomFree` the rooms alone, so a cap that binds is named as the reason. */
+  interface Pool { employerId: string; siteName: string; date: string; block: ShiftBlock; movedDays: number; assets: { a: AssetLite; slot: Slot }[]; free: number; roomFree: number; used: number }
   interface Cand { pool: Pool; movedDays: number; changedBlock: boolean; score: number; reason: string }
   /** Candidates for a unit, plus the stage at which everything was eliminated (the unmet reason).
    *  A section is placed at ONE site on ONE shift, but may spread across that site's rooms. */
@@ -457,7 +464,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
     if (pol.skipHolidays && u.holiday && !r.cands.length && r.reason && r.reason !== "holiday") return { ...r, reason: "holiday", partial: [] };
     // Locked into one setting by the mixing rule and out of seats there: the binding constraint is the rule, not the room count.
     const lk = lockKey(u);
-    if (lk && settingLock.has(lk) && !r.cands.length && r.reason && ["closed-that-day", "full", "too-big", "no-asset-for-setting", "no-agreement", "ring"].includes(r.reason)) return { ...r, reason: "mixing-locked", partial: [] };
+    if (lk && settingLock.has(lk) && !r.cands.length && r.reason && ["closed-that-day", "full", "site-cap", "too-big", "no-asset-for-setting", "no-agreement", "ring"].includes(r.reason)) return { ...r, reason: "mixing-locked", partial: [] };
     return r;
   };
   const candidatesInner = (u: DemandUnit, pol: Policy): CandResult => {
@@ -473,9 +480,10 @@ export function recommendPlan(input: SchedulerInput): Plan {
     // Hours that may not be mixed (or not yet confirmed as mixable) stay in the setting this rotation started in.
     const lk = lockKey(u); const lockedTo = lk ? settingLock.get(lk) : undefined;
     if (lockedTo) { pool = pool.filter((a) => a.settingCode === lockedTo); if (!pool.length) return none("mixing-locked"); }
-    // A minimum still short in one setting: that setting first, while any seat of it exists.
+    // A minimum still short in one setting: that setting first — while a FREE seat of it exists on this shift. Once its
+    // seats are taken the other eligible settings take the section (the minimum can still be met on another day);
+    // refusing them would leave empty eligible seats beside unplaced students.
     const short = minimumsShort(u);
-    if (short.length && pool.some((a) => short.includes(a.settingCode))) pool = pool.filter((a) => short.includes(a.settingCode));
     let before = sitesOf(pool);
     pool = pool.filter((a) => agreementOk(agreementFor(a, u.familyId, u.date), pol.agreements));
     if (!pool.length) return none("no-agreement", before);
@@ -500,20 +508,22 @@ export function recommendPlan(input: SchedulerInput): Plan {
     // …and never one these students are already on another clinical shift for.
     const free = notInClass.filter((d) => !studentsBusy(u, d.date, d.block) && ((d.movedDays === 0 && d.block === u.block) || !studentsDue(u, d.date, d.block)));
     if (!free.length) return none("student-busy", eligibleSites);
-    const pools = new Map<string, Pool>();
+    let pools = new Map<string, Pool>();
     for (const a of pool) for (const { date, movedDays, block: b } of free) {
       const d = { date, movedDays };
       if (!opens(a, d.date, b)) continue;
       // A pool is one site, one shift, ONE setting: a section's seats on a shift are credited to one setting (never a multi-tagged double credit).
       const k = `${a.employerId}|${d.date}|${b}|${a.settingCode}`;
-      const P = pools.get(k) ?? { employerId: a.employerId, siteName: a.facilityName, date: d.date, block: b, movedDays: d.movedDays, assets: [], free: 0, used: 0 };
+      const P = pools.get(k) ?? { employerId: a.employerId, siteName: a.facilityName, date: d.date, block: b, movedDays: d.movedDays, assets: [], free: 0, roomFree: 0, used: 0 };
       const slot = slotFor(a, d.date, b);
-      P.assets.push({ a, slot }); P.free += slot.free; P.used += slot.used;
+      P.assets.push({ a, slot }); P.free += slot.free; P.roomFree += slot.free; P.used += slot.used;
       pools.set(k, P);
     }
     if (!pools.size) return none("closed-that-day", eligibleSites);
     // The site's students-at-once caps every pool at that site — never exceeded, whatever the rooms hold.
     for (const P of pools.values()) { const room = siteRoom(P.employerId, u.familyId, P.date, P.block); if (room != null && room < P.free) P.free = room; }
+    // The short minimum's setting first, when a pool of it can still seat the whole section; otherwise every eligible setting competes.
+    if (short.length) { const inShort = [...pools.entries()].filter(([, P]) => short.includes(P.assets[0].a.settingCode)); if (inShort.some(([, P]) => P.free >= u.seats)) pools = new Map(inShort); }
     // Structural ceiling: the most seats any one site has of this setting on one of these shifts, ignoring what is booked.
     const biggest = [...pools.values()].map((P) => ({ site: P.siteName, seats: P.assets.reduce((n, x) => n + x.a.learnersPerShift, 0) })).sort((a, b) => b.seats - a.seats)[0] ?? null;
     const staffedOk = (P: Pool) => !(pol.requirePreceptor && u.preceptorsNeeded > 0) || freePreceptors(P.employerId, P.date, P.block).length >= Math.ceil(u.preceptorsNeeded);
@@ -542,6 +552,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
         if (pol.varietyFacilityTypes && lead.facilityType && stu.every((s) => !seen.types.get(s.id)?.has(lead.facilityType!))) { score += 20; why.push(`first ${lead.facilityType.toLowerCase()}`); }
         if (pol.varietySystems && lead.organization && stu.every((s) => !seen.systems.get(s.id)?.has(lead.organization!))) { score += 15; why.push(`first time in ${lead.organization}`); }
       }
+      if (short.includes(lead.settingCode)) { score += 20; why.push(`${lead.settingCode} minimum still to meet`); }
       if (P.movedDays === 0) score += 40; else why.push(`moved ${P.movedDays > 0 ? "+" : ""}${P.movedDays} day${Math.abs(P.movedDays) === 1 ? "" : "s"}`);
       if (P.block === u.block) score += 40; else why.push(`${P.block} shift instead of ${u.block}`);
       const load = (siteUsed.get(P.employerId) ?? 0) / Math.max(1, siteCap.get(P.employerId) ?? 1);
@@ -554,7 +565,9 @@ export function recommendPlan(input: SchedulerInput): Plan {
       return { pool: P, movedDays: P.movedDays, changedBlock: P.block !== u.block, score, reason: why.join(" · ") };
     };
     const partial = partialPools.map(scoreOf).sort((x, y) => y.score - x.score || x.pool.siteName.localeCompare(y.pool.siteName));
-    if (!withRoom.length) return { cands: [], partial, reason: biggest && biggest.seats < u.seats ? "too-big" : "full", biggest, eligible: [...new Set([...pools.values()].map((P) => P.siteName))].sort() };
+    // Rooms would have taken the section but the site's students-at-once would not: the cap is the reason, not the rooms.
+    const cappedOut = !withRoom.length && [...pools.values()].some((P) => P.roomFree >= u.seats && P.free < u.seats);
+    if (!withRoom.length) return { cands: [], partial, reason: biggest && biggest.seats < u.seats ? "too-big" : cappedOut ? "site-cap" : "full", biggest, eligible: [...new Set([...pools.values()].map((P) => P.siteName))].sort() };
     const staffed = withRoom.filter(staffedOk);
     if (!staffed.length) return { cands: [], partial, reason: "no-preceptor", biggest, eligible: [...new Set(withRoom.map((P) => P.siteName))].sort() };
     const cands: Cand[] = staffed.map(scoreOf);
@@ -640,7 +653,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
     const { cands, partial, reason, eligible } = candidates(u, policy);
     if (cands.length) { placeAt(u, cands[0], u.seats, 0, 1); continue; }
     // No single site can take the whole section — split it across sites if the policy allows.
-    if ((reason === "full" || reason === "too-big") && mayEverSplit(u) && partial.length) {
+    if ((reason === "full" || reason === "site-cap" || reason === "too-big") && mayEverSplit(u) && partial.length) {
       let left = u.seats, offset = 0;
       const pieces: { cand: Cand; seats: number }[] = [];
       for (const c of partial) { if (left <= 0) break; const take = Math.min(left, c.pool.free); if (take > 0) { pieces.push({ cand: c, seats: take }); left -= take; } }
@@ -665,6 +678,7 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
   switch (reason) {
     case "no-preceptor": return `${who}: ${sites} ${eligible.length === 1 ? "has" : "have"} no confirmed supervision free${span ? ` ${span}` : ""}.`;
     case "full": return `${who}: ${sites} ${eligible.length === 1 ? "is" : "are"} already full that shift${span ? ` (${span})` : ""}.`;
+    case "site-cap": return `${who}: ${sites} ${eligible.length === 1 ? "has" : "have"} free rooms that shift but ${eligible.length === 1 ? "its" : "their"} approved students-at-once is already reached.`;
     case "too-big": return `${who}: ${sites} cannot seat a section of ${num(u.seats)} on one shift.`;
     case "closed-that-day": return `${who}: ${sites} run no ${u.settingCode} asset on that shift.`;
     case "no-agreement": return `${who}: the only sites with ${u.settingCode} (${eligible.slice(0, 3).join(", ")}) are not under an allowed agreement on that date.`;
@@ -683,6 +697,7 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
 function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit, pol: Policy) => { cands: unknown[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null }): string[] {
   const fixes: string[] = [];
   if (reason === "mixing-locked") fixes.push(u.rule?.mixing === "unknown" ? `confirm whether hours may be mixed across ${u.eligible.join(" / ")} (the rule for "${u.rotationType}")` : `the rule for "${u.rotationType}" forbids mixing settings — add seats in the setting this rotation started in`);
+  if (reason === "site-cap") fixes.push("raise the site's approved students-at-once for this program (Clinical site capacity), or secure another site of this setting");
   if (reason === "too-big") {
     const b = candidates(u, { ...DEFAULT_POLICY, agreements: "any", maxRing: "any" }).biggest;
     fixes.push(`a ${u.seats}-student section needs ${u.seats} ${u.settingCode} seats at one site on one shift; the largest site has ${b?.seats ?? 0}${b ? ` (${b.site})` : ""} — lower students per section on this session, raise learners per shift on the rooms, or let preceptor-led sections split across sites`);
@@ -891,6 +906,32 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   // ── Readiness funnel and blockers (Phase 5) — every rung must hold; the headline is "ready", not "placed". ──
   const capOf = new Map((input.siteCaps ?? []).map((c) => [`${c.familyId ?? ""}|${c.employerId}`, c]));
   const siteCapFor = (employerId: string, familyId: string | null) => capOf.get(`${familyId ?? ""}|${employerId}`) ?? capOf.get(`|${employerId}`) ?? null;
+
+  // Seats that line up with the demand. Demand and seats are grouped the way the levers let a shift move — by date and
+  // block at exact levers, by week when ± days is on, across blocks when any shift is on — and in each group the seats
+  // in the settings its sections may use (each site × shift capped at its students-at-once) are counted no further than
+  // the group's demand. Never above supplySeatsOnDemandDays; never below what was placed.
+  const groupOf = (date: string, block: ShiftBlock) => `${policy.flexibleDays > 0 ? mondayOf(date) : date}|${policy.flexibleShift ? "*" : block}`;
+  const demandByGroup = new Map<string, { seats: number; settings: Set<string> }>();
+  for (const u of input.demand) { const g = groupOf(u.date, u.block); const d = demandByGroup.get(g) ?? { seats: 0, settings: new Set<string>() }; d.seats += u.seats; for (const code of u.eligible.length ? u.eligible : [u.settingCode ?? "(unmapped)"]) d.settings.add(code); demandByGroup.set(g, d); }
+  const capSeatsOf = (employerId: string) => { const caps = families.map((f) => siteCapFor(employerId, f)).filter((c): c is NonNullable<typeof c> => !!c).map((c) => c.studentsAtOnce ?? c.approvedCapacity).filter((n): n is number => n != null); return caps.length ? Math.max(...caps) : null; };
+  const bookedOn = new Map<string, number>();
+  for (const k of input.existingBookings) bookedOn.set(`${k.assetId}|${k.date}|${k.block}`, (bookedOn.get(`${k.assetId}|${k.date}|${k.block}`) ?? 0) + k.students);
+  const seatsByGroupSiteShift = new Map<string, Map<string, number>>(); // group → employerId|date|block → free seats in the group's settings
+  if (from && to) for (const a of live) {
+    if (!families.some((f) => allowedAsset(a, f))) continue;
+    for (let d = from; d <= to; d = isoAdd(d, 1)) for (const b of blocksOn(a, d, ov.get(overrideKey(a.id, d)))) {
+      const g = groupOf(d, b); const dg = demandByGroup.get(g);
+      if (!dg || !dg.settings.has(a.settingCode)) continue;
+      const m = seatsByGroupSiteShift.get(g) ?? new Map<string, number>(); const k = `${a.employerId}|${d}|${b}`; m.set(k, (m.get(k) ?? 0) + Math.max(0, a.learnersPerShift - (bookedOn.get(`${a.id}|${d}|${b}`) ?? 0))); seatsByGroupSiteShift.set(g, m);
+    }
+  }
+  let supplySeatsLinedUp = 0;
+  for (const [g, dg] of demandByGroup) {
+    let seats = 0;
+    for (const [k, n] of seatsByGroupSiteShift.get(g) ?? []) { const cap = capSeatsOf(k.split("|")[0]); seats += cap == null ? n : Math.min(n, cap); }
+    supplySeatsLinedUp += Math.min(seats, dg.seats);
+  }
   const confirmed = new Set((input.confirmedSettings ?? []).map((c) => `${c.employerId}|${c.settingCode}`));
   const confirmedKnown = input.confirmedSettings != null;
   const atOnce = new Map<string, number>(); // employerId|family|date|block → this family's seats placed (the limit is the family's agreement with the site)
@@ -963,7 +1004,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const supplySeatsBooked = balance.reduce((n, b) => n + b.seatsBooked, 0);
   const supplySeatsPhysicalOnDemandDays = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysicalOnDemandDays, 0);
   const capacity: CapacityHeadroom = {
-    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays,
+    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays, supplySeatsLinedUp,
     headroom: supplySeatsAllowed - demandSeats, headroomOnDemandDays: supplySeatsOnDemandDays - supplySeatsBooked - demandSeats,
     ratio: demandSeats > 0 ? supplySeatsAllowed / demandSeats : null, ratioOnDemandDays: demandSeats > 0 ? supplySeatsOnDemandDays / demandSeats : null,
     settingsWithoutSupply: balance.filter((b) => b.demandShifts > 0 && b.seatsAllowed === 0).map((b) => b.settingCode),
@@ -1021,6 +1062,7 @@ const UNMET_CODE: Record<UnmetReason, { code: ReasonCode; check: Check["key"]; s
   drive: { code: "DRIVE_LIMIT", check: "access", status: "fail" },
   "closed-that-day": { code: "UNAVAILABLE", check: "availability", status: "fail" },
   full: { code: "CAPACITY_EXHAUSTED", check: "capacity", status: "fail" },
+  "site-cap": { code: "CAPACITY_EXHAUSTED", check: "capacity", status: "fail" },
   "too-big": { code: "CAPACITY_EXHAUSTED", check: "capacity", status: "fail" },
   "no-preceptor": { code: "PRECEPTOR_UNAVAILABLE", check: "supervision", status: "fail" },
   "mixing-locked": { code: "MIXING_FORBIDDEN", check: "setting", status: "fail" },

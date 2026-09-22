@@ -153,3 +153,46 @@ describe("the evaluation service inside the plan (R7)", () => {
     expect(scenario.evaluation.contract.assumptions.join(" ")).toMatch(/asked agreements count as access — an assumption/);
   });
 });
+
+describe("the minimum-first preference and the site's students-at-once (the 55.8% vs 0.75× audit)", () => {
+  const hosp10 = asset({ id: "h10", employerId: "hosp", facilityName: "Carteret Health", settingCode: "BEDS", learnersPerShift: 10 });
+  const pool = spec({ kind: "pool", settings: ["BEDS", "LTC"], minimums: [{ setting: "BEDS", quantity: 24 }] });
+  const twoSections = (d: string) => [unit({ id: "a", date: d }, pool), unit({ id: "b", date: d, sectionIndex: 2, seatStart: 11, sessionId: "s-a" }, pool)];
+  it("a minimum still short never refuses a free seat in another eligible setting: BEDS full that shift → the second section lands in LTC, not 'full'", () => {
+    const plan = recommendPlan(base({ demand: twoSections("2026-10-05"), assets: [hosp10, snf] }));
+    expect(plan.unmet).toHaveLength(0); expect(plan.assignments).toHaveLength(2);
+    expect(plan.assignments.map((x) => x.asset.settingCode).sort()).toEqual(["BEDS", "LTC"]);
+    expect(plan.assignments.find((x) => x.asset.settingCode === "BEDS")!.reason).toMatch(/BEDS minimum still to meet/);
+  });
+  it("the minimum's setting still goes first while it has a free seat for the whole section", () => {
+    const plan = recommendPlan(base({ demand: [unit({ id: "a", date: "2026-10-05" }, pool)], assets: [hosp10, snf] }));
+    expect(plan.assignments[0].asset.settingCode).toBe("BEDS");
+  });
+  it("rooms free but the site's approved students-at-once reached: the reason is 'site-cap', the fix names the cap, and the lined-up ceiling stops at the cap", () => {
+    const caps = [{ employerId: "hosp", familyId: "fam1", studentsAtOnce: 5, approvedCapacity: null, studentsAtOnceMode: "known" as const }];
+    const plan = recommendPlan(base({ demand: [unit({ id: "a", date: "2026-10-05" }, onlyRule("BEDS"))], assets: [hosp10], siteCaps: caps }));
+    expect(plan.assignments).toHaveLength(0); expect(plan.unmet).toHaveLength(1);
+    expect(plan.unmet[0].reason).toBe("site-cap");
+    expect(plan.unmet[0].detail).toMatch(/free rooms that shift but its approved students-at-once is already reached/);
+    expect(plan.unmet[0].fixes[0]).toMatch(/students-at-once/);
+    const c = plan.summary.capacity;
+    expect(c.supplySeatsOnDemandDays).toBe(10); expect(c.supplySeatsLinedUp).toBe(5); expect(c.demandSeats).toBe(10);
+  });
+  it("the lined-up ceiling sits between placed and the raw supply, and never above demand", () => {
+    const plan = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf] }));
+    const c = plan.summary.capacity;
+    expect(c.supplySeatsLinedUp).toBeGreaterThanOrEqual(plan.summary.placedSeats);
+    expect(c.supplySeatsLinedUp).toBeLessThanOrEqual(c.supplySeatsOnDemandDays);
+    expect(c.supplySeatsLinedUp).toBeLessThanOrEqual(c.demandSeats);
+    expect(c.supplySeatsLinedUp).toBe(100);
+    // a seat on a day nothing needs it is not lined up: the SNF's seats on the other weekdays do not count
+    expect(c.supplySeatsOnDemandDays).toBe(100);
+    // forty students, twenty-four seats: the raw supply says 24, lined up says 24, and a second date with no demand adds nothing
+    const wide = asset({ id: "w", employerId: "snf", facilityName: "Crystal Coast SNF", settingCode: "LTC", learnersPerShift: 24 });
+    const four = [1, 2, 3, 4].map((i) => unit({ id: `q${i}`, date: "2026-10-05", sectionIndex: i, seatStart: (i - 1) * 10 + 1, sessionId: "s-q" }, AorB));
+    const p2 = recommendPlan(base({ demand: four, assets: [wide] }));
+    expect(p2.summary.demandSeats).toBe(40); expect(p2.summary.capacity.supplySeatsOnDemandDays).toBe(24); expect(p2.summary.capacity.supplySeatsLinedUp).toBe(24);
+    expect(p2.summary.placedSeats).toBe(20); // instructor-led sections of ten cannot split: two fit, two do not
+    expect(p2.unmet.every((u) => u.reason === "full")).toBe(true);
+  });
+});
