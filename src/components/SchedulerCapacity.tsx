@@ -103,7 +103,7 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
             </ul>
           </div>
           <SupplyChart need={need} rows={[
-            { label: "Supply at the sites that count", value: have, color: RING.placed, note: "every open asset-shift on the dates and shift blocks the sections fall on, at sites allowed by the Sites and Drive-time levers, × learners per shift" },
+            { label: "Supply at the sites that count", value: have, color: RING.placed, note: "every open asset-shift on the dates and shift blocks the sections fall on, in every setting their rotation rules allow, at sites allowed by the Sites and Drive-time levers, × learners per shift" },
             { label: "…that a preceptor could cover", value: staffable, color: RING.staffed, note: `the same seats, capped per site and shift by the preceptors on its roster × ${policy.studentsPerPreceptor ? `${policy.studentsPerPreceptor} students each` : "each asset's own students-per-preceptor ratio"}` },
             { label: "Supply if every site counted", value: everySite, color: "#94a3b8", note: "the same dates and shift blocks at every live site, whatever its agreement or drive time — the most the levers could ever unlock" },
           ]} />

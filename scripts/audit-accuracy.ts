@@ -132,6 +132,10 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const dDates = inWindow.map((u) => u.date).sort(); const pFrom = dDates[0] ?? from, pTo = dDates[dDates.length - 1] ?? to;
   for (const a of supply.assets.filter((a) => a.status !== "archived" && a.facilityStatus !== "archived")) for (let d = pFrom; d <= pTo; d = isoAdd(d, 1)) physSeats += blocksOn(a, d, ov.get(overrideKey(a.id, d))).length * a.learnersPerShift;
   if (physSeats !== plan.summary.supplySeatsPhysical) err(tag("B8 supply physical"), `independent count ${physSeats} ≠ plan ${plan.summary.supplySeatsPhysical}`);
+  // B9: every placed seat sits on an allowed asset on a demand slot, so the "supply on demand days" the panel shows can never be below what was placed; the balance rows add up to the whole.
+  if (plan.summary.capacity.supplySeatsOnDemandDays < placedSeats) err(tag("B9 supply vs placed"), `supply on demand days ${plan.summary.capacity.supplySeatsOnDemandDays} < placed ${placedSeats}`);
+  const balSeats = sum(plan.balance.map((b) => b.demandSeats)); if (balSeats !== demandSeats) err(tag("B9 balance"), `balance rows add to ${balSeats} learner-shifts, demand is ${demandSeats}`);
+  for (const b of plan.balance) if (b.utilization > 1.0001) err(tag("B9 utilization"), `${b.settingCode}: utilization ${b.utilization.toFixed(2)} — more seats placed than the setting has`);
 
   // ── C. The roster on the calendar (what the seed applied) vs the plan and the assets ───────────
   const bookings = await prisma.assetBooking.findMany({ where: { asset: { employer: { institutionId: inst.id } } }, select: { assetId: true, date: true, block: true, students: true, cohortId: true, sessionId: true, sectionIndex: true, note: true } });

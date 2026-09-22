@@ -187,6 +187,7 @@ export interface Assignment {
 }
 export interface Unmet { unit: DemandUnit; reason: UnmetReason; fixes: string[]; /** The specific sentence (Phase 5): "6 students unplaced Tue Aug 18 Day: remaining eligible sites (A, B) have no free preceptor 07:00–15:00". */ detail: string }
 
+/** One setting's demand against its supply. Demand is attributed to the setting a section LANDED in (unplaced: its primary), so a rotation that may use several settings is never counted against one alone and the rows add up to the whole. */
 export interface SettingBalance {
   settingCode: string; setting: string; rotationTypes: string[];
   demandShifts: number; demandHours: number; demandSeats: number;
@@ -740,12 +741,15 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   for (const p of input.preceptors) if (p.employerId) preceptorsAtSite.set(p.employerId, (preceptorsAtSite.get(p.employerId) ?? 0) + 1);
   const siteShiftSeats = new Map<string, { seats: number; ratioSum: number; n: number; employerId: string }>();
   // The date × shift block pairs each setting's demand uses, widened by the Day (± days) and Shift (any block) levers.
+  // A section's slots count for EVERY setting its rule allows — a pool over GEN / ED / PORT / OR / FLUORO / CT can use any of
+  // them, so the supply "on demand days" is the seats in all of those settings, not the primary one alone.
   const demandSlots = new Map<string, Set<string>>();
   for (const u of input.demand) {
-    const code = u.settingCode ?? "(unmapped)";
-    const set = demandSlots.get(code) ?? new Set<string>();
-    for (let dd = -policy.flexibleDays; dd <= policy.flexibleDays; dd++) { const d = isoAdd(u.date, dd); for (const b of policy.flexibleShift ? BLOCKS : [u.block]) set.add(`${d}|${b}`); }
-    demandSlots.set(code, set);
+    for (const code of u.eligible.length ? u.eligible : [u.settingCode ?? "(unmapped)"]) {
+      const set = demandSlots.get(code) ?? new Set<string>();
+      for (let dd = -policy.flexibleDays; dd <= policy.flexibleDays; dd++) { const d = isoAdd(u.date, dd); for (const b of policy.flexibleShift ? BLOCKS : [u.block]) set.add(`${d}|${b}`); }
+      demandSlots.set(code, set);
+    }
   }
   if (from && to) for (const a of live) {
     const s = supplyBySetting.get(a.settingCode) ?? { physShifts: 0, allowedShifts: 0, allowedHours: 0, seatsAllowed: 0, seatsPhysical: 0, seatsOnDemandDays: 0, seatsPhysicalOnDemandDays: 0, seatsBooked: 0, setting: a.setting };
@@ -770,18 +774,21 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   let supplySeatsStaffableOnDemandDays = 0;
   for (const ss of siteShiftSeats.values()) { const ratio = ss.n ? ss.ratioSum / ss.n : 1; supplySeatsStaffableOnDemandDays += Math.min(ss.seats, (preceptorsAtSite.get(ss.employerId) ?? 0) * ratio); }
 
-  const codes = [...new Set([...input.demand.map((u) => u.settingCode ?? "(unmapped)"), ...supplyBySetting.keys()])].sort((a, b) => a.localeCompare(b));
+  // Per setting, demand is attributed to the setting it LANDED in (a placed section to its seat's setting, an unplaced one to
+  // its primary) — so a rotation that may use several settings is never counted against one of them alone, utilization never
+  // exceeds the seats that were actually used, and the rows add up to the whole.
+  const codes = [...new Set([...input.demand.map((u) => u.settingCode ?? "(unmapped)"), ...assignments.map((x) => x.asset.settingCode), ...supplyBySetting.keys()])].sort((a, b) => a.localeCompare(b));
   const balance: SettingBalance[] = codes.map((code) => {
-    const ds = input.demand.filter((u) => (u.settingCode ?? "(unmapped)") === code);
-    const as = assignments.filter((x) => (x.unit.settingCode ?? "(unmapped)") === code);
+    const as = assignments.filter((x) => x.asset.settingCode === code);
     const um = unmet.filter((x) => (x.unit.settingCode ?? "(unmapped)") === code);
+    const ds = [...as.map((x) => x.unit), ...um.map((x) => x.unit)];
     const sup = supplyBySetting.get(code);
-    const demandSeats = ds.reduce((n, u) => n + u.seats, 0);
+    const demandSeats = as.reduce((n, x) => n + x.seats, 0) + um.reduce((n, x) => n + x.unit.seats, 0);
     const utilization = sup && sup.seatsAllowed > 0 ? as.reduce((n, x) => n + x.seats, 0) / sup.seatsAllowed : 0;
     const verdict: SettingBalance["verdict"] = ds.length === 0 ? "none" : um.length > 0 ? "short" : utilization > 0.85 ? "tight" : "fits";
     return {
       settingCode: code, setting: sup?.setting ?? live.find((a) => a.settingCode === code)?.setting ?? code, rotationTypes: [...new Set(ds.map((u) => u.rotationType))],
-      demandShifts: ds.length, demandHours: ds.reduce((n, u) => n + u.hours * u.seats, 0), demandSeats,
+      demandShifts: new Set(as.map((x) => x.unit.id)).size + um.length, demandHours: as.reduce((n, x) => n + x.hours * x.seats, 0) + um.reduce((n, x) => n + x.unit.hours * x.unit.seats, 0), demandSeats,
       supplyShiftsPhysical: sup?.physShifts ?? 0, supplyShiftsAllowed: sup?.allowedShifts ?? 0, supplyHoursAllowed: sup?.allowedHours ?? 0, seatsAllowed: sup?.seatsAllowed ?? 0,
       seatsPhysical: sup?.seatsPhysical ?? 0, seatsOnDemandDays: sup?.seatsOnDemandDays ?? 0, seatsBooked: sup?.seatsBooked ?? 0,
       headroom: (sup?.seatsOnDemandDays ?? 0) - (sup?.seatsBooked ?? 0) - demandSeats,
@@ -811,9 +818,9 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   // Week × setting cells.
   const weekMap = new Map<string, WeekCell>();
   const wk = (weekMonday: string, settingCode: string) => { const k = `${weekMonday}|${settingCode}`; let c = weekMap.get(k); if (!c) { c = { weekMonday, settingCode, demand: 0, placed: 0, unmet: 0, supply: 0 }; weekMap.set(k, c); } return c; };
-  for (const u of input.demand) wk(u.weekMonday, u.settingCode ?? "(unmapped)").demand += u.seats;
-  for (const x of assignments) wk(x.unit.weekMonday, x.unit.settingCode ?? "(unmapped)").placed += x.seats;
-  for (const x of unmet) wk(x.unit.weekMonday, x.unit.settingCode ?? "(unmapped)").unmet += x.unit.seats;
+  // As with the balance: a placed section counts in the setting it landed in; an unplaced one in its primary.
+  for (const x of assignments) { const c = wk(x.unit.weekMonday, x.asset.settingCode); c.placed += x.seats; c.demand += x.seats; }
+  for (const x of unmet) { const c = wk(x.unit.weekMonday, x.unit.settingCode ?? "(unmapped)"); c.unmet += x.unit.seats; c.demand += x.unit.seats; }
   const weekMondays = [...new Set([...weekMap.values()].map((c) => c.weekMonday))].sort();
   for (const a of live) if (families.some((f) => allowedAsset(a, f))) for (const m of weekMondays) { let seats = 0; for (let i = 0; i < 7; i++) { const d = isoAdd(m, i); seats += blocksOn(a, d, ov.get(overrideKey(a.id, d))).length * a.learnersPerShift; } if (seats) wk(m, a.settingCode).supply += seats; }
   const weeks = [...weekMap.values()].sort((a, b) => a.weekMonday.localeCompare(b.weekMonday) || a.settingCode.localeCompare(b.settingCode));
