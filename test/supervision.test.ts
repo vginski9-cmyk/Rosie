@@ -50,11 +50,12 @@ describe("supervision — explicit roles from the legacy columns", () => {
     expect(supervisionOnShift({ ...led })).toMatchObject({ instructorHours: 6, instructorShare: 0 });
     // Absent learner: on the roster of the shift, not on the shift — no share.
     expect(supervisionOnShift({ ...led, instructorNamed: true, attended: false }).instructorShare).toBe(0);
-    // Precepted Radiography with fractional oversight: the preceptor's 8 h go to the one learner when named; the oversight is credited with nobody named, by design.
-    const rad = supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1, preceptorNamed: true });
-    expect(rad).toMatchObject({ supervision: "precepted", instructorNeeded: false, preceptorNeeded: true, preceptorHours: 8, preceptorShare: 8, instructorOversight: true });
+    // Precepted Radiography with fractional oversight: the preceptor's 8 h go to the one learner when named; the instructor of record gives 0.32 h — and is required, so a shift without one named is a gap.
+    const rad = supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1, preceptorNamed: true, instructorNamed: true });
+    expect(rad).toMatchObject({ supervision: "precepted", instructorNeeded: true, preceptorNeeded: true, preceptorHours: 8, preceptorShare: 8, instructorOversight: true });
     expect(rad.instructorShare).toBeCloseTo(0.32, 6);
-    expect(supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1 }).preceptorShare).toBe(0);
+    const unnamed = supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1 });
+    expect(unnamed.preceptorShare).toBe(0); expect(unnamed.instructorShare).toBe(0); expect(unnamed.instructorHours).toBeCloseTo(0.32, 6);
   });
   it("24. an instructor-led row with no staff count keeps the mode and flags the missing policy — never zero staff", () => {
     const s = supervisionFromLegacy({ clinicalMode: "instructor-led", facultyNeeded: 0, preceptorsNeeded: null, maxStudents: 10 });

@@ -98,7 +98,7 @@ export function buildSchedulerPlan(cohorts: CapacityCohort[], supply: SchedulerS
 export function planInputs(assignments: Assignment[]): PlanAssignmentInput[] {
   return assignments.map((x) => ({
     assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId,
-    date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId,
+    date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, instructorHours: x.instructorHours,
     parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset, seatStart: x.unit.seatStart, sectionSeats: x.unit.sectionSeats,
     originalDate: x.unit.originalDate, movedDays: x.movedDays, changedBlock: x.changedBlock, startTime: x.changedBlock ? shiftStart(x.asset, x.block) : x.unit.startTime, hours: x.hours,
   }));

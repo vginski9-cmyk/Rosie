@@ -3132,7 +3132,7 @@ export async function getRotationExport(cohortId: string, courseId?: string | nu
       setting: s.asset?.settingCode ?? s.settingCode ?? null, area: s.pinnedArea ?? s.session.rotationType ?? null,
       site: s.asset?.employer.name ?? m?.employer?.name ?? null, asset: s.asset ? `${s.asset.setting} ${s.asset.assetNumber} (${s.asset.assetType})` : null,
       preceptor, status: s.status, hoursLogged: s.hoursLogged, pinned: !!s.pinnedArea, note: s.note,
-      instructor: instructor ?? (sup.instructorNeeded ? null : sup.instructorOversight ? "oversight only" : "none required"), supervision: sup.supervision, learnersOnShift: sup.learnersOnShift, instructorHours: sup.instructorShare, preceptorHours: sup.preceptorShare,
+      instructor: instructor ?? (sup.instructorNeeded ? null : "none required"), supervision: sup.supervision, learnersOnShift: sup.learnersOnShift, instructorHours: sup.instructorShare, preceptorHours: sup.preceptorShare,
     };
   });
   // The setting rule each rotation type in these rows means, as the evaluation service reads it (lib/requirementstore).

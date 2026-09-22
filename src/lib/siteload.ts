@@ -36,7 +36,7 @@ export interface LoadRow {
   supervision: "instructor-led" | "precepted" | "combined" | "unknown"; instructorNeeded: boolean; preceptorNeeded: boolean;
   /** Supervision time: learners on this shift (same cohort × session × section, attended or due), each role's hours on the
    *  shift, and this learner's share of them (hours ÷ learners; 0 when the learner was absent). Fractional instructor
-   *  oversight (Sandhills' 0.04 of an instructor on a precepted rotation) is that fraction of the shift, with nobody named. */
+   *  oversight (Sandhills' 0.04 of an instructor on a precepted rotation) is that fraction of the shift, from the instructor of record. */
   learnersOnShift: number; instructorHours: number; instructorShare: number; instructorOversight: boolean; preceptorHours: number; preceptorShare: number;
   /** The seat: the asset the roster booked for this shift and its shift block. Null when the shift has no booked seat yet
    *  (the site is then the section's pattern site, or "site TBD"); such a row is never load on a site's seats. */
@@ -231,7 +231,7 @@ export function rowsToCsv(rows: LoadRow[]): string {
   const cell = csvCell;
   const hrs = (x: number) => Math.round(x * 100) / 100;
   const lines = rows.map((r) => [r.date, r.dayOfWeek, r.year, r.semester, r.date ? mondayOf(r.date) : null, r.term, r.program, r.cohort, r.course, r.student, r.site, r.system, r.county, r.ring ? bandOf(r.ring) : null, r.facilityType, r.driveMinutes != null ? Math.round(r.driveMinutes) : null, r.setting, r.asset ?? NO_SEAT, r.block, r.seatsPerShift, r.hours, r.status,
-    r.preceptor ?? (r.preceptorNeeded ? "" : "none required"), r.instructor ?? (r.instructorNeeded ? "" : r.instructorOversight ? "oversight only" : "none required"), r.supervision, supervisedBy(r), r.learnersOnShift, hrs(r.instructorHours), hrs(r.instructorShare), hrs(r.preceptorHours), hrs(r.preceptorShare), r.agreement].map(cell).join(","));
+    r.preceptor ?? (r.preceptorNeeded ? "" : "none required"), r.instructor ?? (r.instructorNeeded ? "" : "none required"), r.supervision, supervisedBy(r), r.learnersOnShift, hrs(r.instructorHours), hrs(r.instructorShare), hrs(r.preceptorHours), hrs(r.preceptorShare), r.agreement].map(cell).join(","));
   return [head.join(","), ...lines].join("\r\n") + "\r\n";
 }
 export function pivotToCsv(p: ReturnType<typeof pivot>, rowLabel: string): string {

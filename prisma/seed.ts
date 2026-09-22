@@ -1016,7 +1016,9 @@ async function main() {
   const rad = await createPackProgram(loadPack("rad.json"), { institutionId: sandhills.id, occupationId: radOcc.id, familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", monthsToFullProductivity: 6 });
 
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
-  void surg;
+  // A second Surgical Technology template: the same workbook program with the meeting pattern the program
+  // stated on 2026-09-22 (Thursday blocks in person, 6:30 clinical starts, SUR 210 in Term 4) — no offerings.
+  { const { seedSurgTechRevised } = await import("./seed-surgtech-revised"); const r = await seedSurgTechRevised(prisma, surg.id); console.log("Surgical Technology (revised):", r.notes.join(" · ")); }
 
   // ----- CNA template packs — the colleges' program-structure workbooks ------
   // Each an exact copy of a workbook's Raw Data & Calculations session table,

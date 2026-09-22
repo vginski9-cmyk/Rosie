@@ -61,7 +61,7 @@ export function modeFromText(text: string | null | undefined): SupervisionMode {
 
 /** The time each supervisor role spends on one shift and how it is attributed to one learner.
  *  A whole instructor (facultyNeeded ≥ 1) is on the shift for its full length, ⌈facultyNeeded⌉ of them; a fractional
- *  figure (Sandhills' 0.04 on a precepted rotation) is oversight: that fraction of the shift, nobody named per shift.
+ *  figure (Sandhills' 0.04 on a precepted rotation) is oversight: that fraction of the shift, from the instructor of record.
  *  A preceptor is on the shift for its full length, preceptorsNeeded of them (at least one when one is named).
  *  A learner's share is the role's hours ÷ the learners on that shift, so the shares over a shift add up to the
  *  supervisor's hours and a site's or a person's total stays honest. Learners < 1 is treated as 1. */
@@ -88,8 +88,9 @@ export function supervisionTime(s: { facultyNeeded: number | null | undefined; p
 /** How one shift reads in site load, the rotation export and the ledger: its supervision model, which roles it needs,
  *  and the time each role gives — computed the same way everywhere (supervisionTime), so the numbers agree page to page.
  *  The hours ON the shift are what the template says the role gives; a learner's SHARE is credited only when someone is
- *  actually named in that role (or the role is fractional oversight, which names nobody by design), and never to a learner
- *  who was not on the shift (absent / excused) — so a total of shares is time a named person gave, not time nobody did. */
+ *  actually named in that role, and never to a learner who was not on the shift (absent / excused) — so a total of shares
+ *  is time a named person gave, not time nobody did. Any faculty time on the shift — a whole instructor present, or the
+ *  fraction a precepted rotation gets as oversight — needs an instructor of record named. */
 export type ShiftSupervision = "instructor-led" | "precepted" | "combined" | "unknown";
 export interface ShiftSupervisionFields {
   supervision: ShiftSupervision;
@@ -105,11 +106,11 @@ export function supervisionOnShift(s: { clinicalMode: string | null | undefined;
   const mode = modeFromText(s.clinicalMode);
   const supervision: ShiftSupervision = mode === "preceptor-led" ? "precepted" : mode;
   const fac = s.facultyNeeded ?? 0, pre = s.preceptorsNeeded ?? 0;
-  const instructorNeeded = fac >= 1 || mode === "instructor-led" || mode === "combined";
+  const instructorNeeded = fac > 0 || mode === "instructor-led" || mode === "combined";
   const preceptorNeeded = pre > 0 || mode === "preceptor-led" || mode === "combined";
   const t = supervisionTime({ facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, lengthHours: s.lengthHours, learners: s.learners, preceptorNamed: s.preceptorNamed });
   const on = s.attended ?? true;
-  const iGiven = on && (s.instructorNamed || t.instructorOversight), pGiven = on && !!s.preceptorNamed;
+  const iGiven = on && !!s.instructorNamed, pGiven = on && !!s.preceptorNamed;
   return { supervision, instructorNeeded, preceptorNeeded, learnersOnShift: t.learners, instructorHours: t.instructorHours, instructorShare: iGiven ? t.instructorShare : 0, instructorOversight: t.instructorOversight, preceptorHours: t.preceptorHours, preceptorShare: pGiven ? t.preceptorShare : 0 };
 }
 

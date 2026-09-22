@@ -1192,62 +1192,13 @@ export async function getCohortDrill(institution: string, program: string, cohor
 }
 
 
+/** A full copy of the template (lib/programcopy): family, cadence, every session column, requirements, skills — as a
+ *  draft, with no offerings (an offering is a record of the class that ran; it stays with the program that ran it). */
 export async function duplicateProgram(programId: string) {
-  const src = await prisma.program.findUnique({
-    where: { id: programId },
-    include: {
-      yearTargets: true,
-      programSkills: true,
-      cohorts: { include: { stages: true } },
-      terms: { include: { courses: { include: { sessions: true, courseSkills: true } } } },
-    },
-  });
+  const src = await prisma.program.findUnique({ where: { id: programId }, select: { name: true } });
   if (!src) return;
-
-  const copy = await prisma.program.create({
-    data: {
-      institutionId: src.institutionId,
-      occupationId: src.occupationId,
-      name: `${src.name} (Copy)`,
-      programType: src.programType,
-      credential: src.credential,
-      serviceArea: src.serviceArea,
-      status: "draft",
-      monthsToFullProductivity: src.monthsToFullProductivity,
-      yearTargets: { create: src.yearTargets.map((t) => ({ year: t.year, credentialTarget: t.credentialTarget, cohortCapacity: t.cohortCapacity })) },
-      programSkills: { create: src.programSkills.map((p) => ({ skillId: p.skillId, targetLevel: p.targetLevel, priority: p.priority, notes: p.notes })) },
-    },
-  });
-
-  for (const t of src.terms) {
-    const term = await prisma.term.create({ data: { programId: copy.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek } });
-    for (const c of t.courses) {
-      await prisma.course.create({
-        data: {
-          termId: term.id,
-          code: c.code,
-          name: c.name,
-          sequenceOrder: c.sequenceOrder,
-          weeklyClassHours: c.weeklyClassHours,
-          weeklyLabHours: c.weeklyLabHours,
-          weeklyClinicalHours: c.weeklyClinicalHours,
-          sessions: {
-            create: c.sessions.map((s) => ({
-              kind: s.kind, number: s.number, title: s.title, lengthHours: s.lengthHours, deliveryMode: s.deliveryMode,
-              location: s.location, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, supportStaffNeeded: s.supportStaffNeeded,
-              preceptorsNeeded: s.preceptorsNeeded, week: s.week, dayOfWeek: s.dayOfWeek, rotationType: s.rotationType, clinicalMode: s.clinicalMode, experiences: s.experiences, progression: s.progression, notes: s.notes,
-            })),
-          },
-          courseSkills: { create: c.courseSkills.map((cs) => ({ skillId: cs.skillId, targetLevel: cs.targetLevel, role: cs.role })) },
-        },
-      });
-    }
-  }
-  for (const ch of src.cohorts) {
-    const cohort = await prisma.cohort.create({ data: { programId: copy.id, name: ch.name, entryYear: ch.entryYear } });
-    await prisma.funnelStage.createMany({ data: ch.stages.map((s) => ({ cohortId: cohort.id, stageKey: s.stageKey, sortOrder: s.sortOrder, label: s.label, targetNumber: s.targetNumber, actualNumber: s.actualNumber })) });
-  }
-
+  const { copyProgram } = await import("./programcopy");
+  const copy = await copyProgram(prisma, programId, { name: `${src.name} (Copy)`, status: "draft" });
   revalidatePath("/");
   redirect(`/programs/${copy.id}`);
 }

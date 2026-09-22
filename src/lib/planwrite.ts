@@ -10,6 +10,8 @@ export { AUTO_PLAN_NOTE };
 export interface PlanAssignmentInput {
   assetId: string; employerId: string; cohortId: string; sessionId: string; sectionIndex: number; courseId: string | null;
   date: string; block: string; seats: number; seatsPerSection: number; preceptorIds: string[]; instructorId: string | null;
+  /** The instructor's hours on the shift (the whole shift when present, the template's fraction when giving oversight); defaults to the shift's hours. */
+  instructorHours?: number;
   /** Seats per asset when the section spreads across several rooms at the site (defaults to the lead asset with all seats). */
   parts?: { assetId: string; seats: number }[];
   /** When a section is split across sites, this piece covers section seats (seatOffset, seatOffset + seats]. */
@@ -113,7 +115,7 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
     const k = `${a.cohortId}|${a.sessionId}|${a.sectionIndex}|${personId}`;
     if (staffedAlready.has(k)) return;
     staffedAlready.add(k);
-    staffRows.push({ cohortId: a.cohortId, sessionId: a.sessionId, personId, sectionIndex: a.sectionIndex, role, contactHours: a.hours ?? 0, startOffsetMin: 0, note: AUTO_PLAN_NOTE });
+    staffRows.push({ cohortId: a.cohortId, sessionId: a.sessionId, personId, sectionIndex: a.sectionIndex, role, contactHours: role === "instructor" ? a.instructorHours ?? a.hours ?? 0 : a.hours ?? 0, startOffsetMin: 0, note: AUTO_PLAN_NOTE });
   };
   for (const a of assignments) { if (!handAt(a).length) for (const p of a.preceptorIds) addStaff(a, p, "preceptor"); if (a.instructorId) addStaff(a, a.instructorId, "instructor"); }
   for (const c of chunks(staffRows)) await prisma.sessionInstructor.createMany({ data: c });

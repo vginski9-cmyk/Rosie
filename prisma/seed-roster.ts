@@ -466,29 +466,32 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
   const instructorBusy = new Map<string, Set<string>>(); // `${date}|${startTime}` → instructor ids on a section then
   const busyAt = (k: string) => { let b = instructorBusy.get(k); if (!b) { b = new Set(); instructorBusy.set(k, b); } return b; };
   let records = 0, attended = 0, missed = 0, logged = 0, instructorsFilled = 0;
-  // Every dated clinical session × section of an offering that needs a whole instructor (facultyNeeded ≥ 1, the scheduler's own rule).
+  // Every dated clinical session × section of an offering the template gives faculty time to: a whole instructor present
+  // (facultyNeeded ≥ 1, exclusive — the scheduler's own rule) or a fraction of one as oversight on a precepted rotation
+  // (the instructor of record, who oversees many learners at once and is never tied up by it).
   const ledSectionsOf = (co: (typeof cohorts)[number]) => {
     const ctByTerm = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
     const courseStart = new Map(co.courseDates.map((c) => [c.courseId, c.startDate]));
-    const out: { sessionId: string; sec: number; iso: string; startTime: string; lengthHours: number }[] = [];
+    const out: { sessionId: string; sec: number; iso: string; startTime: string; lengthHours: number; whole: boolean; hours: number }[] = [];
     for (const t of co.program.terms) {
       const ct = ctByTerm.get(t.id); if (!ct?.startDate) continue;
       const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
       for (const c of t.courses) for (const s of c.sessions) {
-        if (s.kind !== "CLINICAL" || s.facultyNeeded < 1 || !s.dayOfWeek) continue;
+        if (s.kind !== "CLINICAL" || !(s.facultyNeeded > 0) || !s.dayOfWeek) continue;
         const d = sessionDate({ termStart: ct.startDate, termEnd: ct.endDate, templateWeeks: tplWeeks, courseStart: courseStart.get(c.id) ?? null }, s.week, s.dayOfWeek);
         if (!d) continue;
         // A session whose pattern date is a coded holiday still runs (the calendar moves it off the holiday); its section still needs its instructor.
         const iso = d.toISOString().slice(0, 10);
-        for (const sec of [...new Set(co.studentShifts.filter((sh) => sh.sessionId === s.id).map((sh) => sh.sectionIndex))].sort((x, y) => x - y)) out.push({ sessionId: s.id, sec, iso, startTime: s.startTime ?? "", lengthHours: s.lengthHours ?? 0 });
+        const whole = s.facultyNeeded >= 1, hours = (s.lengthHours ?? 0) * (whole ? Math.ceil(s.facultyNeeded) : s.facultyNeeded);
+        for (const sec of [...new Set(co.studentShifts.filter((sh) => sh.sessionId === s.id).map((sh) => sh.sectionIndex))].sort((x, y) => x - y)) out.push({ sessionId: s.id, sec, iso, startTime: s.startTime ?? "", lengthHours: s.lengthHours ?? 0, whole, hours });
       }
     }
     return out;
   };
   const instructorOfBy = new Map(cohorts.map((co) => [co.id, new Map(co.sessionStaff.filter((a) => a.role === "instructor").map((a) => [`${a.sessionId}#${a.sectionIndex}`, a.personId]))]));
   const ledBy = new Map(cohorts.map((co) => [co.id, ledSectionsOf(co)]));
-  // Pass 1: the plan's own instructors occupy their date × start time across every offering, so a fill can never double-book one.
-  for (const co of cohorts) for (const s of ledBy.get(co.id)!) { const have = instructorOfBy.get(co.id)!.get(`${s.sessionId}#${s.sec}`); if (have) { busyAt(`${s.iso}|${s.startTime}`).add(have); instructorLoad.set(have, (instructorLoad.get(have) ?? 0) + 1); } }
+  // Pass 1: the plan's own instructors occupy their date × start time across every offering (a whole person only), so a fill can never double-book one; load is the hours each carries.
+  for (const co of cohorts) for (const s of ledBy.get(co.id)!) { const have = instructorOfBy.get(co.id)!.get(`${s.sessionId}#${s.sec}`); if (have) { if (s.whole) busyAt(`${s.iso}|${s.startTime}`).add(have); instructorLoad.set(have, (instructorLoad.get(have) ?? 0) + s.hours); } }
   // Pass 2: every section still without one gets the least-loaded instructor free then, written as history (never the plan's
   // note, so a re-plan cannot delete it). A slot where every instructor is already on a section stays unstaffed, and the audit says so.
   if (instructors.length) for (const co of cohorts) {
@@ -497,10 +500,10 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
     for (const s of ledBy.get(co.id)!) {
       const key = `${s.sessionId}#${s.sec}`, slot = `${s.iso}|${s.startTime}`;
       if (instructorOf.get(key)) continue;
-      const pick = instructors.filter((i) => !busyAt(slot).has(i.id)).sort((x, y) => (instructorLoad.get(x.id) ?? 0) - (instructorLoad.get(y.id) ?? 0))[0];
+      const pick = instructors.filter((i) => !s.whole || !busyAt(slot).has(i.id)).sort((x, y) => (instructorLoad.get(x.id) ?? 0) - (instructorLoad.get(y.id) ?? 0))[0];
       if (!pick) continue;
-      busyAt(slot).add(pick.id); instructorLoad.set(pick.id, (instructorLoad.get(pick.id) ?? 0) + 1); instructorOf.set(key, pick.id);
-      fills.push({ cohortId: co.id, sessionId: s.sessionId, personId: pick.id, sectionIndex: s.sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, note: "seed:history" });
+      if (s.whole) busyAt(slot).add(pick.id); instructorLoad.set(pick.id, (instructorLoad.get(pick.id) ?? 0) + s.hours); instructorOf.set(key, pick.id);
+      fills.push({ cohortId: co.id, sessionId: s.sessionId, personId: pick.id, sectionIndex: s.sec, role: "instructor", contactHours: s.hours, startOffsetMin: 0, note: "seed:history" });
     }
     if (fills.length) { await prisma.sessionInstructor.createMany({ data: fills }); instructorsFilled += fills.length; }
   }

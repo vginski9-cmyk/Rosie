@@ -202,7 +202,7 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
   const assetBySection = new Map<string, string>();
   if (best) {
     if (bestLabel !== TIERS[0].label) notes.push(`Clinical placement widened to ${bestLabel} to place more sections — secure those agreements.`);
-    const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset, seatStart: x.unit.seatStart, sectionSeats: x.unit.sectionSeats })));
+    const applied = await applySchedulerPlan(institutionId, best.assignments.map((x: PlanAssignment) => ({ assetId: x.assetId, employerId: x.employerId, cohortId: x.unit.cohortId, sessionId: x.unit.sessionId, sectionIndex: x.unit.sectionIndex, courseId: x.unit.courseId, date: x.date, block: x.block, seats: x.seats, seatsPerSection: x.unit.seatsPerSection, preceptorIds: x.preceptorIds, instructorId: x.instructorId, instructorHours: x.instructorHours, parts: x.parts.map((p) => ({ assetId: p.assetId, seats: p.seats })), seatOffset: x.seatOffset, seatStart: x.unit.seatStart, sectionSeats: x.unit.sectionSeats })));
     for (const x of best.assignments) {
       const k = `${x.unit.sessionId}|${x.unit.sectionIndex}`;
       if (!planPreceptorBySection.has(k)) planPreceptorBySection.set(k, x.preceptorIds);

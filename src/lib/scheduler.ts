@@ -182,6 +182,8 @@ export interface Assignment {
   date: string; block: ShiftBlock; seats: number; hours: number;
   movedDays: number; changedBlock: boolean;
   preceptorIds: string[]; preceptorNames: string[]; instructorId: string | null; instructorName: string | null;
+  /** The instructor's hours on this shift: the whole shift (× whole people) when the session needs one present, the template's fraction of it when it gives oversight. */
+  instructorHours: number;
   score: number; reason: string;
   /** Filled by analyze(): the readiness funnel for this placed shift. */
   readiness?: Readiness;
@@ -639,18 +641,22 @@ export function recommendPlan(input: SchedulerInput): Plan {
       for (const p of picks) { let m = seen.preceptors.get(s.id); if (!m) { m = new Map(); seen.preceptors.set(s.id, m); } m.set(p.id, (m.get(p.id) ?? 0) + 1); }
       if (leadP) { const last = lastPreceptor.get(s.id); lastPreceptor.set(s.id, last?.id === leadP.id ? { id: leadP.id, run: last.run + 1 } : { id: leadP.id, run: 1 }); }
     }
-    // Instructor: a whole person only when the session needs at least one (fractional oversight is counted, not assigned).
-    let instructor: Instructor | null = null;
-    if (u.facultyNeeded >= 1) {
-      instructor = input.instructors.filter((i) => !instBusyAt(P.date, P.block).has(i.id)).sort((a, b) => (instructorLoad.get(a.id) ?? 0) - (instructorLoad.get(b.id) ?? 0) || a.name.localeCompare(b.name))[0] ?? null;
-      if (instructor) { instBusyAt(P.date, P.block).add(instructor.id); instructorLoad.set(instructor.id, (instructorLoad.get(instructor.id) ?? 0) + 1); }
-    }
     const lead = parts[0].asset;
+    // Instructor of record: whenever the template gives the shift faculty time. A whole person (facultyNeeded ≥ 1) is on the
+    // shift and on nothing else then; a fraction (a precepted rotation's oversight) names the least-loaded instructor without
+    // tying them up — one instructor oversees many precepted learners at once. Load is the hours each carries.
+    let instructor: Instructor | null = null;
+    const wholePerson = u.facultyNeeded >= 1;
+    const instructorHours = wholePerson ? (shiftHours(lead0, P.block) || u.hours) * Math.ceil(u.facultyNeeded) : u.facultyNeeded > 0 ? (shiftHours(lead0, P.block) || u.hours) * u.facultyNeeded : 0;
+    if (u.facultyNeeded > 0) {
+      instructor = input.instructors.filter((i) => !wholePerson || !instBusyAt(P.date, P.block).has(i.id)).sort((a, b) => (instructorLoad.get(a.id) ?? 0) - (instructorLoad.get(b.id) ?? 0) || a.name.localeCompare(b.name))[0] ?? null;
+      if (instructor) { if (wholePerson) instBusyAt(P.date, P.block).add(instructor.id); instructorLoad.set(instructor.id, (instructorLoad.get(instructor.id) ?? 0) + instructorHours); }
+    }
     assignments.push({
       unit: u, assetId: lead.id, asset: lead, parts, seatOffset, splitOf, employerId: P.employerId, siteName: P.siteName,
       date: P.date, block: P.block, seats, hours: shiftHours(lead, P.block) || u.hours,
       movedDays: best.movedDays, changedBlock: best.changedBlock,
-      preceptorIds: picks.map((p) => p.id), preceptorNames: picks.map((p) => p.name), instructorId: instructor?.id ?? null, instructorName: instructor?.name ?? null,
+      preceptorIds: picks.map((p) => p.id), preceptorNames: picks.map((p) => p.name), instructorId: instructor?.id ?? null, instructorName: instructor?.name ?? null, instructorHours,
       score: best.score, reason: splitOf > 1 ? `split ${seatOffset + 1}–${seatOffset + seats} of ${u.seats} seats · ${best.reason}` : best.reason,
     });
   };
@@ -1012,7 +1018,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const placedShifts = new Set(assignments.map((x) => x.unit.id)).size, placedSeats = assignments.reduce((n, x) => n + x.seats, 0), placedHours = assignments.reduce((n, x) => n + x.hours * x.seats, 0);
   const preceptorShifts = assignments.reduce((n, x) => n + Math.ceil(x.unit.preceptorsNeeded), 0);
   const preceptorsAssigned = assignments.reduce((n, x) => n + x.preceptorIds.length, 0);
-  const instructorShifts = assignments.filter((x) => x.unit.facultyNeeded >= 1).length;
+  const instructorShifts = assignments.filter((x) => x.unit.facultyNeeded > 0).length;
   const instructorsAssigned = assignments.filter((x) => x.instructorId).length;
   const supplySeatsAllowed = balance.reduce((n, b) => n + b.seatsAllowed, 0);
   const supplySeatsPhysical = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysical, 0);

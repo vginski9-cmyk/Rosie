@@ -111,12 +111,14 @@ async function auditInstitution(inst: { id: string; name: string }) {
   // B4: a section's students never in two places at once (per cohort seat number × date × block).
   const seatAt = new Map<string, string>();
   for (const x of plan.assignments) for (let s = x.unit.seatStart + x.seatOffset; s < x.unit.seatStart + x.seatOffset + x.seats; s++) { const k = `${x.unit.cohortId}|${s}|${x.date}|${x.block}`; const prev = seatAt.get(k); if (prev && prev !== x.unit.id) err(tag("B4 student overlap"), `cohort ${x.unit.cohort} seat ${s} on ${x.date} ${x.block} is in ${prev} and ${x.unit.id}`); seatAt.set(k, x.unit.id); }
-  // B5: preceptors belong to the site and are never on two shifts at once; instructors never on two shifts at once.
+  // B5: preceptors belong to the site and are never on two shifts at once; an instructor PRESENT on a shift (a whole person,
+  // facultyNeeded ≥ 1) is never on two at once — an instructor of record giving fractional oversight on precepted rotations
+  // covers many learners at once by design, so those assignments are not double-bookings.
   const precAt = new Map<string, string>(); const instAt = new Map<string, string>();
   const precById = new Map(supply.preceptors.map((p) => [p.id, p]));
   for (const x of plan.assignments) {
     for (const pid of x.preceptorIds) { const p = precById.get(pid); if (!p) err(tag("B5 preceptor"), `${x.unit.id}: unknown preceptor ${pid}`); else if (p.employerId !== x.employerId) err(tag("B5 preceptor site"), `${x.unit.id}: preceptor ${p.name} of ${p.employerId} placed at ${x.siteName}`); const k = `${pid}|${x.date}|${x.block}`; const prev = precAt.get(k); if (prev && prev !== x.unit.id) err(tag("B5 preceptor double"), `${p?.name ?? pid} on ${x.date} ${x.block}: ${prev} and ${x.unit.id}`); precAt.set(k, x.unit.id); }
-    if (x.instructorId) { const k = `${x.instructorId}|${x.date}|${x.block}`; const prev = instAt.get(k); if (prev && prev !== x.unit.id) err(tag("B5 instructor double"), `${x.instructorName} on ${x.date} ${x.block}: ${prev} and ${x.unit.id}`); instAt.set(k, x.unit.id); }
+    if (x.instructorId && x.unit.facultyNeeded >= 1) { const k = `${x.instructorId}|${x.date}|${x.block}`; const prev = instAt.get(k); if (prev && prev !== x.unit.id) err(tag("B5 instructor double"), `${x.instructorName} on ${x.date} ${x.block}: ${prev} and ${x.unit.id}`); instAt.set(k, x.unit.id); }
   }
   // B6: site caps (students at once per family) respected by the plan.
   const atOnce = new Map<string, number>();
@@ -209,12 +211,12 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const precHoursTemplate = sum(inWindowDemand.map((d) => (d.row.computed.AC ?? 0)));
   const precShiftsPlan = plan.summary.preceptorShifts;
   info(tag("F staffing"), `template preceptor contact hours in window ${precHoursTemplate.toFixed(0)} · plan preceptor-shifts ${precShiftsPlan} · assigned ${plan.summary.preceptorsAssigned} · instructor shifts ${plan.summary.instructorShifts} / assigned ${plan.summary.instructorsAssigned}`);
-  // F1 every completed clinical shift whose session needs a whole instructor (facultyNeeded ≥ 1) names one — an error where the
+  // F1 every completed clinical shift the template gives faculty time to (a whole instructor present, or a fraction as oversight) names one — an error where the
   // college has active instructors to name, a warning where it has nobody on the roster. F2 the pin is one of the section's
   // instructor rows (a name from nowhere is a defect). F3 site load names an instructor on at least every pinned shift (the
   // section's pattern instructor is the only permitted excess). Double-booking of instructors across sections is B5's check.
   const activeInstructors = new Set((await prisma.person.findMany({ where: { institutionId: inst.id, role: "instructor", active: true }, select: { id: true } })).map((p) => p.id));
-  const ledShifts = await prisma.studentShift.findMany({ where: { cohort: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, session: { kind: "CLINICAL", facultyNeeded: { gte: 1 } } }, select: { cohortId: true, sessionId: true, sectionIndex: true, status: true, instructorId: true, student: { select: { status: true } } } });
+  const ledShifts = await prisma.studentShift.findMany({ where: { cohort: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, session: { kind: "CLINICAL", facultyNeeded: { gt: 0 } } }, select: { cohortId: true, sessionId: true, sectionIndex: true, status: true, instructorId: true, student: { select: { status: true } } } });
   const instructorRows = new Set((await prisma.sessionInstructor.findMany({ where: { role: "instructor", cohort: { program: { institutionId: inst.id } } }, select: { cohortId: true, sessionId: true, sectionIndex: true, personId: true } })).map((r) => `${r.cohortId}|${r.sessionId}|${r.sectionIndex}|${r.personId}`));
   const completedLed = ledShifts.filter((s) => s.status === "completed");
   const noInstructor = completedLed.filter((s) => !s.instructorId).length;
