@@ -167,9 +167,9 @@ An asset is a room, unit or machine at a site with a setting code (GEN, ORS, ED 
 
 ### Supply ceiling, hostable, placed
 
-The supply ceiling is every asset-shift × learners per shift in the window — a theoretical maximum, not usable capacity. Hostable by secured sites is the part of demand that fits at sites with a secured agreement. Placed is what the scheduler actually put on an asset under its levers; seats-only placement is exploratory (nobody may be free to precept).
+The scheduler's supply ceilings are the three lined-up bars (see "Seats that line up with the demand"): seats matched to the demand shift by shift at the sites that count, of which a preceptor could cover, and if every site counted. The raw window total — every asset-shift × learners per shift, whether or not a section falls on it — is a theoretical maximum, not usable capacity; it appears only as the per-setting table's allowed seats. Hostable by secured sites is the part of demand that fits at sites with a secured agreement. Placed is what the scheduler actually put on an asset under its levers; seats-only placement is exploratory (nobody may be free to precept).
 
-- **Where:** The scheduler's tiles, clinical site capacity, site load
+- **Where:** The scheduler's supply bars and per-setting table, clinical site capacity, site load
 
 ### Seat, shift and "full" (site load)
 
@@ -186,7 +186,7 @@ The base levers are what the scheduler opens on — the strict reading: secured 
 
 ### Seats that line up with the demand
 
-The scheduler's tightest supply ceiling. The seats at the sites that count are matched to the demand shift by shift (week by week, and across shift blocks, where the Day and Shift levers let a shift move): each site is held to its approved students-at-once, and no shift's seats count beyond what that shift needs — a seat on a day nobody needs it, or the twenty-fifth seat on a day forty students need twenty-four, is not lined up. Placed can never exceed it; between it and placed sit only class-day, holiday and students-due-elsewhere clashes and sections too big for one site.
+The scheduler's supply ceiling, in three bars on one basis. A seat is one learner place on one asset on one date and shift block, in a setting the rotation's rule allows. Seats are matched to the demand shift by shift (week by week, and across shift blocks, where the Day and Shift levers let a shift move): each site is held to its approved students-at-once, and no shift's seats count beyond what that shift needs — a seat on a day nobody needs it, or the twenty-fifth seat on a day forty students need twenty-four, is not lined up. The first bar counts the sites the Sites-that-count and Drive-time levers allow; placed can never exceed it, and between it and placed sit only class-day, holiday and students-due-elsewhere clashes and sections too big for one site. The second holds each site and shift to the preceptors on its roster × students per preceptor (never above the first). The third counts every live site whatever its agreement or drive time (never below the first) — what loosening the Sites and Drive-time levers all the way could unlock.
 
 - **Where:** The scheduler's supply bars and "how to read these numbers"
 

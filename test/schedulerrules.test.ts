@@ -177,6 +177,20 @@ describe("the minimum-first preference and the site's students-at-once (the 55.8
     expect(plan.unmet[0].fixes[0]).toMatch(/students-at-once/);
     const c = plan.summary.capacity;
     expect(c.supplySeatsOnDemandDays).toBe(10); expect(c.supplySeatsLinedUp).toBe(5); expect(c.demandSeats).toBe(10);
+    // the cap bounds all three bars: every site reads 5 too, and no preceptor on the roster means nothing is staffable
+    expect(c.supplySeatsLinedUpEverySite).toBe(5); expect(c.supplySeatsLinedUpStaffable).toBe(0);
+    const staffed = recommendPlan(base({ demand: [unit({ id: "a", date: "2026-10-05" }, onlyRule("BEDS"))], assets: [hosp10], siteCaps: caps, preceptors: [{ id: "p1", name: "Pat", employerId: "hosp", role: "preceptor" }] }, { studentsPerPreceptor: 8 }));
+    expect(staffed.summary.capacity.supplySeatsLinedUpStaffable).toBe(5); // 1 preceptor × 8 would allow 8; the cap of 5 wins
+  });
+  it("three bars on one basis: an asked site counts in 'every site' but not in lined up; staffable follows the roster and the students-per-preceptor lever", () => {
+    const asked = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, { ...snf, agreementStatus: "asked" }] }));
+    expect(asked.summary.capacity.supplySeatsLinedUp).toBe(0); expect(asked.summary.capacity.supplySeatsLinedUpEverySite).toBe(100); expect(asked.summary.capacity.supplySeatsLinedUpStaffable).toBe(0);
+    const none = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf] }));
+    expect(none.summary.capacity.supplySeatsLinedUp).toBe(100); expect(none.summary.capacity.supplySeatsLinedUpEverySite).toBe(100); expect(none.summary.capacity.supplySeatsLinedUpStaffable).toBe(0);
+    const one = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf], preceptors: [{ id: "p1", name: "Pat", employerId: "snf", role: "preceptor" }] }));
+    expect(one.summary.capacity.supplySeatsLinedUpStaffable).toBe(100); // the room's own ratio: 10 learners per 1 preceptor
+    const four = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf], preceptors: [{ id: "p1", name: "Pat", employerId: "snf", role: "preceptor" }] }, { studentsPerPreceptor: 4 }));
+    expect(four.summary.capacity.supplySeatsLinedUpStaffable).toBe(40); // ten shifts × min(10 seats, 1 preceptor × 4)
   });
   it("the lined-up ceiling sits between placed and the raw supply, and never above demand", () => {
     const plan = recommendPlan(base({ demand: tenSessions(AorB), assets: [hospital, snf] }));
@@ -184,6 +198,7 @@ describe("the minimum-first preference and the site's students-at-once (the 55.8
     expect(c.supplySeatsLinedUp).toBeGreaterThanOrEqual(plan.summary.placedSeats);
     expect(c.supplySeatsLinedUp).toBeLessThanOrEqual(c.supplySeatsOnDemandDays);
     expect(c.supplySeatsLinedUp).toBeLessThanOrEqual(c.demandSeats);
+    expect(c.supplySeatsLinedUpStaffable).toBeLessThanOrEqual(c.supplySeatsLinedUp); expect(c.supplySeatsLinedUp).toBeLessThanOrEqual(c.supplySeatsLinedUpEverySite);
     expect(c.supplySeatsLinedUp).toBe(100);
     // a seat on a day nothing needs it is not lined up: the SNF's seats on the other weekdays do not count
     expect(c.supplySeatsOnDemandDays).toBe(100);

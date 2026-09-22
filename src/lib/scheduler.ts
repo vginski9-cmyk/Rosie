@@ -223,6 +223,12 @@ export interface CapacityHeadroom {
    *  than that day's demand. The tightest ceiling: placed can never exceed it, and the gap between the two is class-day and holiday clashes, sections too
    *  big for one site, and the order shifts were placed in. A seat on a day nothing needs it does not count here. */
   supplySeatsLinedUp: number;
+  /** supplySeatsLinedUp with each site × date × block further capped by the preceptors on the site's roster × students per preceptor
+   *  (the Students-per-preceptor lever, else the mean of the contributing rooms' own learners ÷ preceptors per shift). Never above supplySeatsLinedUp. */
+  supplySeatsLinedUpStaffable: number;
+  /** supplySeatsLinedUp counted at EVERY live site, whatever its agreement or drive band (each site still at its students-at-once where known)
+   *  — what loosening the Sites-that-count and Drive-time levers all the way could unlock. Never below supplySeatsLinedUp. */
+  supplySeatsLinedUpEverySite: number;
   /** supplySeats − demandSeats. */
   headroom: number;
   /** supplySeatsOnDemandDays − supplySeatsBooked − demandSeats. */
@@ -907,31 +913,41 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const capOf = new Map((input.siteCaps ?? []).map((c) => [`${c.familyId ?? ""}|${c.employerId}`, c]));
   const siteCapFor = (employerId: string, familyId: string | null) => capOf.get(`${familyId ?? ""}|${employerId}`) ?? capOf.get(`|${employerId}`) ?? null;
 
-  // Seats that line up with the demand. Demand and seats are grouped the way the levers let a shift move — by date and
-  // block at exact levers, by week when ± days is on, across blocks when any shift is on — and in each group the seats
-  // in the settings its sections may use (each site × shift capped at its students-at-once) are counted no further than
-  // the group's demand. Never above supplySeatsOnDemandDays; never below what was placed.
+  // Seats that line up with the demand — three ceilings on ONE basis. Demand and seats are grouped the way the levers let a
+  // shift move (by date and block at exact levers, by week when ± days is on, across blocks when any shift is on); in each
+  // group the free seats in the settings its sections may use are summed per site × shift under a cap, and the group's
+  // total is counted no further than the group's demand. The cap is the site's students-at-once (lined up), that AND the
+  // preceptors on the site's roster × students per preceptor (staffable), and the sites are the allowed ones or every live
+  // one (every site). One sweep over the assets feeds all three. Never above supplySeatsOnDemandDays; never below placed.
   const groupOf = (date: string, block: ShiftBlock) => `${policy.flexibleDays > 0 ? mondayOf(date) : date}|${policy.flexibleShift ? "*" : block}`;
   const demandByGroup = new Map<string, { seats: number; settings: Set<string> }>();
   for (const u of input.demand) { const g = groupOf(u.date, u.block); const d = demandByGroup.get(g) ?? { seats: 0, settings: new Set<string>() }; d.seats += u.seats; for (const code of u.eligible.length ? u.eligible : [u.settingCode ?? "(unmapped)"]) d.settings.add(code); demandByGroup.set(g, d); }
   const capSeatsOf = (employerId: string) => { const caps = families.map((f) => siteCapFor(employerId, f)).filter((c): c is NonNullable<typeof c> => !!c).map((c) => c.studentsAtOnce ?? c.approvedCapacity).filter((n): n is number => n != null); return caps.length ? Math.max(...caps) : null; };
   const bookedOn = new Map<string, number>();
   for (const k of input.existingBookings) bookedOn.set(`${k.assetId}|${k.date}|${k.block}`, (bookedOn.get(`${k.assetId}|${k.date}|${k.block}`) ?? 0) + k.students);
-  const seatsByGroupSiteShift = new Map<string, Map<string, number>>(); // group → employerId|date|block → free seats in the group's settings
+  type SiteShift = { free: number; ratioSum: number; n: number };
+  type ByGroup = Map<string, Map<string, SiteShift>>; // group → employerId|date|block → free seats in the group's settings, and the students-per-preceptor ratio of the rooms behind them
+  const allowedMap: ByGroup = new Map(), everyMap: ByGroup = new Map();
+  const addTo = (map: ByGroup, g: string, k: string, a: AssetLite, free: number) => { const m = map.get(g) ?? new Map<string, SiteShift>(); const ss = m.get(k) ?? { free: 0, ratioSum: 0, n: 0 }; ss.free += free; ss.ratioSum += policy.studentsPerPreceptor ?? (a.learnersPerShift / Math.max(1, a.preceptorsPerShift || 1)); ss.n++; m.set(k, ss); map.set(g, m); };
   if (from && to) for (const a of live) {
-    if (!families.some((f) => allowedAsset(a, f))) continue;
+    const allowed = families.some((f) => allowedAsset(a, f));
     for (let d = from; d <= to; d = isoAdd(d, 1)) for (const b of blocksOn(a, d, ov.get(overrideKey(a.id, d)))) {
       const g = groupOf(d, b); const dg = demandByGroup.get(g);
       if (!dg || !dg.settings.has(a.settingCode)) continue;
-      const m = seatsByGroupSiteShift.get(g) ?? new Map<string, number>(); const k = `${a.employerId}|${d}|${b}`; m.set(k, (m.get(k) ?? 0) + Math.max(0, a.learnersPerShift - (bookedOn.get(`${a.id}|${d}|${b}`) ?? 0))); seatsByGroupSiteShift.set(g, m);
+      const k = `${a.employerId}|${d}|${b}`; const free = Math.max(0, a.learnersPerShift - (bookedOn.get(`${a.id}|${d}|${b}`) ?? 0));
+      addTo(everyMap, g, k, a, free); if (allowed) addTo(allowedMap, g, k, a, free);
     }
   }
-  let supplySeatsLinedUp = 0;
-  for (const [g, dg] of demandByGroup) {
-    let seats = 0;
-    for (const [k, n] of seatsByGroupSiteShift.get(g) ?? []) { const cap = capSeatsOf(k.split("|")[0]); seats += cap == null ? n : Math.min(n, cap); }
-    supplySeatsLinedUp += Math.min(seats, dg.seats);
-  }
+  const underSiteCap = (employerId: string, ss: SiteShift) => { const cap = capSeatsOf(employerId); return cap == null ? ss.free : Math.min(ss.free, cap); };
+  const underPreceptors = (employerId: string, ss: SiteShift) => Math.min(underSiteCap(employerId, ss), (preceptorsAtSite.get(employerId) ?? 0) * (ss.n ? ss.ratioSum / ss.n : 1));
+  const linedUpTotal = (byGroup: ByGroup, capAt: (employerId: string, ss: SiteShift) => number) => {
+    let total = 0;
+    for (const [g, dg] of demandByGroup) { let seats = 0; for (const [k, ss] of byGroup.get(g) ?? []) seats += capAt(k.split("|")[0], ss); total += Math.min(seats, dg.seats); }
+    return total;
+  };
+  const supplySeatsLinedUp = linedUpTotal(allowedMap, underSiteCap);
+  const supplySeatsLinedUpStaffable = linedUpTotal(allowedMap, underPreceptors);
+  const supplySeatsLinedUpEverySite = linedUpTotal(everyMap, underSiteCap);
   const confirmed = new Set((input.confirmedSettings ?? []).map((c) => `${c.employerId}|${c.settingCode}`));
   const confirmedKnown = input.confirmedSettings != null;
   const atOnce = new Map<string, number>(); // employerId|family|date|block → this family's seats placed (the limit is the family's agreement with the site)
@@ -1004,7 +1020,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const supplySeatsBooked = balance.reduce((n, b) => n + b.seatsBooked, 0);
   const supplySeatsPhysicalOnDemandDays = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysicalOnDemandDays, 0);
   const capacity: CapacityHeadroom = {
-    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays, supplySeatsLinedUp,
+    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays, supplySeatsLinedUp, supplySeatsLinedUpStaffable, supplySeatsLinedUpEverySite,
     headroom: supplySeatsAllowed - demandSeats, headroomOnDemandDays: supplySeatsOnDemandDays - supplySeatsBooked - demandSeats,
     ratio: demandSeats > 0 ? supplySeatsAllowed / demandSeats : null, ratioOnDemandDays: demandSeats > 0 ? supplySeatsOnDemandDays / demandSeats : null,
     settingsWithoutSupply: balance.filter((b) => b.demandShifts > 0 && b.seatsAllowed === 0).map((b) => b.settingCode),
