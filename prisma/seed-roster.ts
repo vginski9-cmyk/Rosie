@@ -14,6 +14,9 @@ import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
 import { sessionDate } from "../src/lib/term";
 import { holidayMap } from "../src/lib/academiccalendar";
+import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
+import { pickGrade, gpaOf } from "../src/lib/cohorthistory";
+import { ENROLLED_AND_BEYOND } from "../src/lib/learners";
 import { offeringName, shortTermProgram, campusLabel, programDetail } from "../src/lib/offeringname";
 import { clinicalHostsFor } from "../src/lib/hosts";
 
@@ -234,7 +237,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const startD = new Date(o.start + "T00:00:00Z");
     // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
     const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
-    const status = new Date(endIso + "T00:00:00Z") < new Date() ? "completed" : startD <= new Date() ? "active" : "planned";
+    const status = cohortStatusOn(o.start, endIso, new Date().toISOString().slice(0, 10));
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }), campusId: campus?.id ?? null, locationNote: o.locationNote ?? null, code: o.code ?? null } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
@@ -254,7 +257,7 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
 export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: string) {
   const rooms = await prisma.facility.findMany({ where: { institutionId, status: "active" }, select: { id: true, name: true, kind: true, capacity: true } });
   const cohorts = await prisma.cohort.findMany({
-    where: { program: { institutionId }, status: { in: ["planned", "active"] } },
+    where: { program: { institutionId }, ...NOT_ARCHIVED },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
       program: { select: { familyId: true, defaultCohortSeats: true, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
@@ -299,7 +302,7 @@ export async function seedWorkloadPolicies(prisma: PrismaClient) {
  *  clinical shifts it places (seed-plan). Adjust any shift on the design page. */
 export async function seedShiftAssignments(prisma: PrismaClient, institutionId: string) {
   const cohorts = await prisma.cohort.findMany({
-    where: { program: { institutionId }, status: { in: ["planned", "active"] } },
+    where: { program: { institutionId }, ...NOT_ARCHIVED },
     include: { program: { include: { terms: { include: { courses: { include: { sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, rotationType: true } } } } } } } }, meetings: { select: { courseId: true, kind: true, sectionIndex: true, employerId: true } }, _count: { select: { students: true } } },
   });
   const people = await prisma.person.findMany({ where: { institutionId, active: true }, select: { id: true, role: true, title: true, employerId: true, name: true } });
@@ -387,7 +390,7 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
     .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
   const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
   const cohorts = await prisma.cohort.findMany({
-    where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { lte: today } },
+    where: { program: { institutionId }, ...NOT_ARCHIVED, startDate: { lte: today } },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
       courseDates: { select: { courseId: true, startDate: true } },
@@ -399,19 +402,31 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
   });
   let records = 0, attended = 0, missed = 0, logged = 0;
   for (const co of cohorts) {
-    await prisma.cohort.update({ where: { id: co.id }, data: { status: "active" } });
+    // The offering's lifecycle from its dates (lib/cohortscope): a class whose last day has passed is graduated, never flipped back to running.
+    const lastEnd = co.cohortTerms.map((ct) => ct.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const lifecycle = cohortStatusOn(co.startDate?.toISOString().slice(0, 10), lastEnd?.toISOString().slice(0, 10), todayIso);
+    if (co.status !== lifecycle) await prisma.cohort.update({ where: { id: co.id }, data: { status: lifecycle } });
+    const ended = lifecycle === "completed";
     const ctByTerm = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
     const courseStart = new Map(co.courseDates.map((c) => [c.courseId, c.startDate]));
     const preceptorOf = new Map(co.sessionStaff.map((a) => [`${a.sessionId}#${a.sectionIndex}`, a.personId]));
     const shiftOf = new Map(co.studentShifts.map((sh) => [`${sh.studentId}|${sh.sessionId}`, sh]));
-    // Current term = the dated term whose window holds today (else the latest one that has started).
+    // Current term = the dated term whose window holds today (else the latest one that has started); a graduated class has none.
     const started = co.program.terms.filter((t) => { const ct = ctByTerm.get(t.id); return ct?.startDate && ct.startDate <= today; });
-    const current = started.find((t) => { const ct = ctByTerm.get(t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
+    const current = ended ? null : started.find((t) => { const ct = ctByTerm.get(t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
     const mix = (a: number, b: number) => { let t = (h * 2654435761 + a * 40503 + b * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
     for (const [si, st] of co.students.entries()) {
-      // Course records for every term that has started: in progress now, withdrawn for a withdrawn learner.
-      const gradeRows = started.flatMap((t) => t.courses.map((c) => ({ studentId: st.id, courseId: c.id, termIndex: t.index, status: st.status === "withdrawn" ? "withdrawn" : t.id === current?.id ? "in_progress" : "completed" })));
+      // Course records for every term that has started: a finished term carries a letter grade and its points (the demo grade
+      // bank, deterministic per learner and course), the current term is in progress, a withdrawn learner's are withdrawn.
+      const points: number[] = [];
+      const gradeRows = started.flatMap((t) => t.courses.map((c, ci) => {
+        const ct = ctByTerm.get(t.id)!;
+        if (st.status === "withdrawn") return { studentId: st.id, courseId: c.id, termIndex: t.index, status: "withdrawn" };
+        if (t.id === current?.id) return { studentId: st.id, courseId: c.id, termIndex: t.index, status: "in_progress" };
+        const g = pickGrade(mix(si * 17 + t.index * 5 + ci, 9)); points.push(g.points);
+        return { studentId: st.id, courseId: c.id, termIndex: t.index, status: "completed", grade: g.grade, gradePoints: g.points, completedDate: ct.endDate ?? null };
+      }));
       if (gradeRows.length) { await prisma.studentCourseGrade.createMany({ data: gradeRows }); records += gradeRows.length; }
       if (st.status === "withdrawn") continue;
       let att = 0, miss = 0;
@@ -441,7 +456,7 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
           }
         }
       }
-      await prisma.student.update({ where: { id: st.id }, data: { attendedCount: att, missedCount: miss } });
+      await prisma.student.update({ where: { id: st.id }, data: { attendedCount: att, missedCount: miss, gpa: gpaOf(points) } });
       if (absences.length) await prisma.studentAbsence.createMany({ data: absences });
       for (const u of shiftUpdates) await prisma.studentShift.update({ where: { id: u.id }, data: { status: u.status, hoursLogged: u.hoursLogged, preceptorId: u.preceptorId, settingCode: u.settingCode, loggedAt: u.date } });
       attended += att; missed += miss; logged += shiftUpdates.length;
@@ -470,7 +485,7 @@ export async function seedRequirementLogs(prisma: PrismaClient, institutionId: s
   for (const f of fams) {
     const set = f.requirementSets[0]; if (!set) continue;
     const items = set.items.map((i) => ({ ...i, settings: i.settingCodes.split(",").map((x) => x.trim()).filter(Boolean) }));
-    const students = await prisma.student.findMany({ where: { program: { familyId: f.id }, cohortId: { not: null }, status: "enrolled" }, select: { id: true, cohortId: true, shifts: { where: { status: "completed" }, orderBy: { loggedAt: "asc" }, select: { id: true, loggedAt: true, preceptorId: true, settingCode: true, sectionIndex: true, asset: { select: { employerId: true } }, session: { select: { courseId: true } } } } } });
+    const students = await prisma.student.findMany({ where: { program: { familyId: f.id }, cohortId: { not: null }, status: { in: [...ENROLLED_AND_BEYOND] } }, select: { id: true, cohortId: true, shifts: { where: { status: "completed" }, orderBy: { loggedAt: "asc" }, select: { id: true, loggedAt: true, preceptorId: true, settingCode: true, sectionIndex: true, asset: { select: { employerId: true } }, session: { select: { courseId: true } } } } } });
     const meetings = await prisma.meetingPattern.findMany({ where: { kind: "CLINICAL", cohortId: { in: [...new Set(students.map((x) => x.cohortId!))] } }, select: { cohortId: true, courseId: true, sectionIndex: true, employerId: true } });
     const siteOf = (cohortId: string, courseId: string, sectionIndex: number) => meetings.find((m) => m.cohortId === cohortId && m.courseId === courseId && m.sectionIndex === sectionIndex)?.employerId ?? null;
     for (const st of students) {

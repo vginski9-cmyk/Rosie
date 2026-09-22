@@ -1,5 +1,5 @@
 import { getCapacityModel, getSchedulerData, getRosterPlacement } from "@/lib/queries";
-import { schedulerWindow } from "@/lib/schedulerplan";
+import { schedulerWindow, plannedWindow } from "@/lib/schedulerplan";
 import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { listChangeSets } from "@/lib/changesets";
 import { OPERATIONAL } from "@/lib/mode";
@@ -14,9 +14,11 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   // The scheduler places one college's demand on that college's sites — "all" reads as the working college.
   const data = await getCapacityModel({ institutionId: searchParams.inst === "all" ? undefined : searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
-  // The same window the apply action rebuilds the plan in — see lib/schedulerplan.
-  const { from, to } = schedulerWindow(data.cohorts);
-  const sched = await getSchedulerData(data.institution.id, from, to);
+  // Supply over the full range (a graduated class's history included); the board opens on the current academic
+  // year on — the window the apply action rebuilds the plan in is whatever the levers say (lib/schedulerplan).
+  const range = schedulerWindow(data.cohorts);
+  const { from, to } = plannedWindow(data.cohorts);
+  const sched = await getSchedulerData(data.institution.id, range.from, range.to);
   const changes = await listChangeSets(data.institution.id);
   const roster = await getRosterPlacement(data.institution.id);
   return (
@@ -39,6 +41,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         changes={changes}
         from={from}
         to={to}
+        range={range}
         canApply={OPERATIONAL}
         roster={roster}
       />

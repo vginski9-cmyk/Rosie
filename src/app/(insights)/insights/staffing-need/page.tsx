@@ -16,7 +16,7 @@ export default async function StaffingNeedPage({ searchParams }: { searchParams:
       <ScopeStrip
         provisional={provenance}
         shows="Requirements — the instructors and preceptors the sessions need, week by week, from session hours through each program's workload assumptions; then who is assigned by name."
-        population={`Each term's enrollment target for every planned and running offering at ${data.institution.name} (not the roster)`}
+        population={`Each term's enrollment target for every offering at ${data.institution.name} — planned, running or graduated (not the roster); the headline peak counts this week on, the weeks before it are history`}
         window="Every dated term of those offerings"
         constraints={["college holidays", "per-date moves"]}
         differs={[["Design & sequence", "/programs", "sums the same FTE across a whole program (cumulative term-FTE); this page shows the concurrent need per week"], ["Clinical scheduler", "/scheduler", "names preceptors only for the shifts it places"]]}

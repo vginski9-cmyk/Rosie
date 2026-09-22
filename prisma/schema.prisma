@@ -1631,7 +1631,7 @@ model Student {
   applicationCohort   Cohort?   @relation("applications", fields: [applicationCohortId], references: [id], onDelete: SetNull)
   name                String
   email               String?
-  /// Lifecycle status: prospect | applicant | admitted | enrolled | completed | licensed | placed | withdrawn
+  /// Lifecycle status: prospect | applicant | admitted | enrolled | completed | licensed | placed | productive | withdrawn
   status              String    @default("enrolled")
   /// Current funnel stage key (matches FunnelStage.stageKey) — drives drill-down.
   stageKey            String?

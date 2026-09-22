@@ -1,4 +1,6 @@
 import { prisma } from "./db";
+import { NOT_ARCHIVED, gradYearOf as classYearOf } from "./cohortscope";
+import { ENROLLED_AND_BEYOND, ROSTER_STATUSES } from "./learners";
 import type { Prisma } from "@prisma/client";
 import * as React from "react";
 /** Per-request memo (React `cache`) where the server runtime has it; a plain call elsewhere (tests, scripts). */
@@ -134,7 +136,7 @@ export async function getInsightsFacts() {
     },
   });
 
-  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+  const gradYearOf = classYearOf;
   type Fact = { institution: string; family: string; program: string; programType: string; cohort: string; metricGroup: string; metric: string; year: number | null; term: string | null; semester: string | null; value: number; target: number | null; actual: number | null };
   const facts: Fact[] = [];
 
@@ -204,7 +206,7 @@ export interface JobNorthStar {
 export async function getNorthStarHome(currentYear?: number): Promise<JobNorthStar[]> {
   const thisYear = currentYear ?? new Date().getUTCFullYear();
   const lastYear = thisYear - 1;
-  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+  const gradYearOf = classYearOf;
 
   const families = await prisma.programFamily.findMany({
     orderBy: { name: "asc" },
@@ -266,9 +268,9 @@ export async function getNorthStarHome(currentYear?: number): Promise<JobNorthSt
 export async function defaultInstitution(): Promise<{ id: string; name: string } | null> {
   // The college whose offerings are running now, by the students in them; planned runs (a
   // schedule projected years ahead) break ties rather than outrank a live program.
-  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, programs: { select: { cohorts: { where: { status: { in: ["planned", "active"] } }, select: { status: true, _count: { select: { students: true } } } } } } } });
-  const weight = (i: (typeof institutions)[number]) => { let active = 0, planned = 0, offerings = 0; for (const p of i.programs) for (const c of p.cohorts) { if (c.status === "active") active += c._count.students; else planned += c._count.students; offerings++; } return [active, planned, offerings] as const; };
-  const best = [...institutions].sort((a, b) => { const [aa, pa, oa] = weight(a), [ab, pb, ob] = weight(b); return ab - aa || pb - pa || ob - oa || a.name.localeCompare(b.name); })[0];
+  const institutions = await prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, programs: { select: { cohorts: { where: NOT_ARCHIVED, select: { status: true, _count: { select: { students: true } } } } } } } });
+  const weight = (i: (typeof institutions)[number]) => { let active = 0, planned = 0, graduated = 0, offerings = 0; for (const p of i.programs) for (const c of p.cohorts) { if (c.status === "active") active += c._count.students; else if (c.status === "completed") graduated += c._count.students; else planned += c._count.students; offerings++; } return [active, planned, graduated, offerings] as const; };
+  const best = [...institutions].sort((a, b) => { const [aa, pa, ga, oa] = weight(a), [ab, pb, gb, ob] = weight(b); return ab - aa || pb - pa || gb - ga || ob - oa || a.name.localeCompare(b.name); })[0];
   return best ? { id: best.id, name: best.name } : null;
 }
 
@@ -377,7 +379,7 @@ export async function getFamilyClinical(familyId: string) {
     include: {
       institution: { select: { id: true, name: true } }, occupation: { select: { title: true, socCode: true } },
       serviceAreas: { orderBy: { sortOrder: "asc" }, include: { requirements: true } },
-      programs: { orderBy: { name: "asc" }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { clinicalRequirements: true } } } }, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { id: true } } } },
+      programs: { orderBy: { name: "asc" }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { clinicalRequirements: true } } } }, cohorts: { where: NOT_ARCHIVED, select: { id: true } } } },
       familySites: { include: { employer: { select: { id: true } } } },
       allocations: { include: { employer: { select: { name: true, county: true, ring: true } } } },
     },
@@ -602,7 +604,7 @@ export async function getStudentRequirementProgress(studentId: string) {
  *  experience the cohort still needs with how many students lack it and which secured sites provide it. */
 export async function getCohortRequirementProgress(cohortId: string) {
   const { progressFor } = await import("./requirementprogress");
-  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true } }, students: { where: { status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, sectionIndex: true, requirementLogs: { select: { itemId: true, outcome: true, role: true, simulated: true, count: true, date: true, employerId: true } } } } } });
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true } }, students: { where: { status: { in: [...ROSTER_STATUSES] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, sectionIndex: true, requirementLogs: { select: { itemId: true, outcome: true, role: true, simulated: true, count: true, date: true, employerId: true } } } } } });
   if (!co?.program.familyId) return null;
   const req = await getFamilyRequirements(co.program.familyId);
   if (!req || !req.sets.length) return null;
@@ -1020,7 +1022,7 @@ export async function getProgramSchedule(programId: string, cohortId?: string) {
   });
   // Enrolled-and-beyond students of THIS offering form the section roster.
   const students = await prisma.student.findMany({
-    where: offering ? { cohortId: offering.id, status: { in: ["enrolled", "completed", "placed"] } } : { programId, status: { in: ["enrolled", "completed", "placed"] } },
+    where: offering ? { cohortId: offering.id, status: { in: [...ENROLLED_AND_BEYOND] } } : { programId, status: { in: [...ENROLLED_AND_BEYOND] } },
     orderBy: { name: "asc" },
     select: { id: true, name: true, sectionIndex: true, stageKey: true, status: true, clinicalSite: true },
   });
@@ -1317,7 +1319,7 @@ export async function getProgramWblBoard(programId: string) {
   const program = await prisma.program.findUnique({ where: { id: programId }, include: { institution: true } });
   if (!program) return null;
   const students = await prisma.student.findMany({
-    where: { programId, status: { in: ["enrolled", "completed", "placed"] } },
+    where: { programId, status: { in: [...ENROLLED_AND_BEYOND] } },
     orderBy: { name: "asc" },
     include: { wblSnapshots: { orderBy: { asOfDate: "desc" }, take: 1, include: { factors: true } } },
   });
@@ -1991,7 +1993,9 @@ export async function getCourseDemand(opts?: { institutionId?: string }) {
   const grouped = await prisma.student.groupBy({ by: ["programId"], where: { program: { institutionId }, status: "enrolled" }, _count: true });
   for (const g of grouped) enrolledByProgram.set(g.programId, g._count);
   const cohortsByProgram = new Map<string, number>();
-  const cg = await prisma.cohort.groupBy({ by: ["programId"], where: { program: { institutionId }, status: "active" }, _count: true });
+  const todayIsoCd = new Date().toISOString().slice(0, 10);
+  // Live demand: the offerings in session today (a term spanning today), whatever their status label.
+  const cg = await prisma.cohort.groupBy({ by: ["programId"], where: { program: { institutionId }, ...NOT_ARCHIVED, cohortTerms: { some: { startDate: { lte: new Date(todayIsoCd + "T00:00:00Z") }, endDate: { gte: new Date(todayIsoCd + "T00:00:00Z") } } } }, _count: true });
   for (const g of cg) cohortsByProgram.set(g.programId, g._count);
 
   // Scheduled CLASS sections per course code (from the master bookings).
@@ -2128,7 +2132,7 @@ export async function getActionQueue(): Promise<ActionItem[]> {
     },
   });
   const RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
-  const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
+  const gradYearOf = (name: string): number => classYearOf(name) ?? 0;
 
   for (const fam of families) {
     // 1) GOAL GAP — this year's goal vs live placed across cohorts graduating now.
@@ -2269,12 +2273,14 @@ async function capacityModelFor(institution: { id: string; name: string }) {
   const anchors = { springStart: instRow?.springStart ?? "01-08", summerStart: instRow?.summerStart ?? "05-28", fallStart: instRow?.fallStart ?? "08-15" };
 
   const programs = await prisma.program.findMany({
-    where: { institutionId: institution.id, cohorts: { some: { status: { in: ["planned", "active"] } } } },
+    // Every offering that is a record — planned, running or graduated (lib/cohortscope): a graduated class is history
+    // on the same calendar, and each forward-looking page narrows by date, never by status.
+    where: { institutionId: institution.id, cohorts: { some: NOT_ARCHIVED } },
     include: {
       family: { select: { id: true, name: true, goalPlan: true } },
       terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true } } } },
       cohorts: {
-        where: { status: { in: ["planned", "active"] } },
+        where: NOT_ARCHIVED,
         orderBy: { name: "asc" },
         include: {
           stages: true,
@@ -2495,7 +2501,7 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
   const [map, people, students, familySites, located] = await Promise.all([
     getAssetMap(institutionId, from, to),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
-    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: ["enrolled", "admitted"] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
+    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: [...ROSTER_STATUSES] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
     prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true, agreementEnds: true, studentsAtOnce: true, approvedCapacity: true, studentsAtOnceMode: true, availabilityMode: true } }),
     prisma.employer.findMany({ where: { institutionId, lat: { not: null }, lng: { not: null } }, select: { id: true, lat: true, lng: true } }),
   ]);
@@ -2534,7 +2540,11 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
 export interface HomeProgram { id: string; name: string; credential: string | null; programType: string; launchTerms: string; seats: number | null; terms: number; running: number; students: number; inventoryNote: string | null }
 export interface HomeFamily {
   id: string; name: string; job: string; socCode: string | null; description: string | null;
-  goalsByYear: Record<number, number>; thisYearGoal: number; nextYearGoal: number; lastYearActual: number; progress: number | null;
+  goalsByYear: Record<number, number>; thisYearGoal: number; nextYearGoal: number;
+  /** The most recent graduated class: its year, what it actually produced (null until its records say), and the goal that year carried. */
+  latestClass: { year: number; actual: number | null; goal: number | null } | null;
+  /** latest class actual ÷ its year's goal (null without both). */
+  progress: number | null;
   programs: HomeProgram[]; running: number; students: number;
 }
 export interface HomeInstitution { id: string; name: string; shortName: string | null; kind: string | null; city: string | null; state: string | null; serviceArea: string | null; families: HomeFamily[]; thisYearGoal: number; programs: number; running: number; students: number; sites: number }
@@ -2542,7 +2552,7 @@ export interface HomeInstitution { id: string; name: string; shortName: string |
 export async function getInstitutionsHome(currentYear?: number): Promise<HomeInstitution[]> {
   const thisYear = currentYear ?? new Date().getUTCFullYear();
   const lastYear = thisYear - 1;
-  const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
+  const gradYearOf = classYearOf;
   const institutions = await prisma.institution.findMany({
     orderBy: { name: "asc" },
     include: {
@@ -2573,11 +2583,16 @@ export async function getInstitutionsHome(currentYear?: number): Promise<HomeIns
         id: p.id, name: p.name, credential: p.credential, programType: p.programType, launchTerms: p.launchTerms, seats: p.defaultCohortSeats, terms: p._count.terms,
         running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length, students: p.cohorts.reduce((n, c) => n + c._count.students, 0), inventoryNote: p.inventoryNote,
       }));
-      const lastYearActual = f.programs.reduce((n, p) => n + p.cohorts.filter((c) => gradYearOf(c.name) === lastYear).reduce((m, c) => m + (c.stages[0]?.actualNumber ?? 0), 0), 0);
+      // The most recent graduated class year and what its records say it produced (the productive stage actual; null until the records exist).
+      const graduatedYears = f.programs.flatMap((p) => p.cohorts.filter((c) => c.status === "completed").map((c) => gradYearOf(c.name))).filter((y): y is number => y != null);
+      const latestYear = graduatedYears.length ? Math.max(...graduatedYears) : null;
+      const latestCohorts = latestYear == null ? [] : f.programs.flatMap((p) => p.cohorts.filter((c) => c.status === "completed" && gradYearOf(c.name) === latestYear));
+      const latestActual = latestCohorts.some((c) => c.stages[0]?.actualNumber != null) ? latestCohorts.reduce((m, c) => m + (c.stages[0]?.actualNumber ?? 0), 0) : null;
+      const latestClass = latestYear == null ? null : { year: latestYear, actual: latestActual, goal: goalsByYear[latestYear] ?? null };
       const thisYearGoal = goalsByYear[thisYear] ?? 0;
       return {
         id: f.id, name: f.name, job: f.occupation?.title ?? f.name, socCode: f.occupation?.socCode ?? null, description: f.description,
-        goalsByYear, thisYearGoal, nextYearGoal: goalsByYear[thisYear + 1] ?? 0, lastYearActual, progress: thisYearGoal > 0 ? lastYearActual / thisYearGoal : null,
+        goalsByYear, thisYearGoal, nextYearGoal: goalsByYear[thisYear + 1] ?? 0, latestClass, progress: latestClass?.actual != null && latestClass.goal ? latestClass.actual / latestClass.goal : null,
         programs, running: programs.reduce((n, p) => n + p.running, 0), students: programs.reduce((n, p) => n + p.students, 0),
       };
     });
@@ -2708,7 +2723,7 @@ export async function getRoomsWorkspace(institutionId?: string) {
     prisma.building.findMany({ where, orderBy: { name: "asc" }, include: { campus: { select: { id: true, name: true } }, _count: { select: { rooms: true, equipment: true } } } }),
     prisma.equipment.findMany({ where, orderBy: [{ category: "asc" }, { name: "asc" }], include: { homeFacility: { select: { id: true, name: true } }, building: { select: { id: true, name: true } }, assignments: { orderBy: { from: "desc" }, include: { facility: { select: { id: true, name: true } } } } } }),
     prisma.institution.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    prisma.meetingPattern.findMany({ where: { facilityId: { not: null }, ...(institutionId ? { cohort: { program: { institutionId } } } : {}), cohort: { status: { in: ["planned", "active"] } } }, select: { facilityId: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, cohort: { select: { cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } }),
+    prisma.meetingPattern.findMany({ where: { facilityId: { not: null }, ...(institutionId ? { cohort: { program: { institutionId } } } : {}), cohort: { ...NOT_ARCHIVED, cohortTerms: { some: { endDate: { gte: new Date() } } } } }, select: { facilityId: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, cohort: { select: { cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } } } }),
   ]);
   // Each booking is placed in its term's calendar window so utilization is the busiest WEEK, not every term's hours added together.
   const byRoom = new Map<string, { dayOfWeek: string; startTime: string; lengthHours: number; weekStartMs?: number | null; weekEndMs?: number | null }[]>();
@@ -2840,7 +2855,7 @@ export async function getRotationInput(cohortId: string, courseId: string) {
     getAssetMap(co.program.institutionId, from, to),
     co.program.familyId ? prisma.familySite.findMany({ where: { familyId: co.program.familyId }, select: { employerId: true, agreementStatus: true, accreditorStatus: true, approvedCapacity: true, qualifiedStaffOnShift: true, studentsAtOnce: true, casesPerDay: true, daysAllowed: true, blocksAllowed: true } }) : Promise.resolve([]),
     prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active" }, select: { id: true, name: true, agreementStatus: true, annualSurgicalCases: true, operatingDaysPerYear: true } }),
-    prisma.student.findMany({ where: { cohortId, status: { in: ["enrolled", "admitted"] } }, orderBy: { sectionIndex: "asc" }, select: { id: true, name: true, sectionIndex: true, sections: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true } }, shifts: { where: { session: { courseId } }, select: { sessionId: true, assetId: true, settingCode: true, pinnedArea: true, status: true, hoursLogged: true, asset: { select: { employerId: true, settingCode: true } } } } } }),
+    prisma.student.findMany({ where: { cohortId, status: { in: [...ROSTER_STATUSES] } }, orderBy: { sectionIndex: "asc" }, select: { id: true, name: true, sectionIndex: true, sections: { where: { courseId, kind: "CLINICAL" }, select: { sectionIndex: true } }, shifts: { where: { session: { courseId } }, select: { sessionId: true, assetId: true, settingCode: true, pinnedArea: true, status: true, hoursLogged: true, asset: { select: { employerId: true, settingCode: true } } } } } }),
   ]);
   const RANK: Record<string, number> = { secured: 0, asked: 1, prospect: 2, none: 3, declined: 9 };
   const fs = new Map(familySites.map((f) => [f.employerId, f]));
@@ -3011,6 +3026,9 @@ export async function getOfferingLedger(cohortId: string) {
   });
   if (!co) return null;
   const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
+  // The class's last day: a completion rate is decidable only once it has passed (lib/learners outcomeStats).
+  const cohortEnds = co.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0]?.toISOString().slice(0, 10) ?? null;
   const enrolled = Math.max(co.students.filter((s) => s.status !== "withdrawn").length, co.plannedSeats ?? 0, 1);
   const started = co.program.terms.filter((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id); return ct?.startDate && ct.startDate <= today; });
   const current = started.find((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
@@ -3043,7 +3061,7 @@ export async function getOfferingLedger(cohortId: string) {
     });
     const req = clinicalCourses.reduce((n, c) => n + c.requiredHours, 0);
     return {
-      id: st.id, name: st.name, status: st.status, seat: st.sectionIndex, attended: st.shifts.filter((x) => x.status === "completed").length, missed: st.shifts.filter((x) => x.status === "absent" || x.status === "excused").length,
+      id: st.id, name: st.name, status: st.status, cohortEnds, seat: st.sectionIndex, attended: st.shifts.filter((x) => x.status === "completed").length, missed: st.shifts.filter((x) => x.status === "absent" || x.status === "excused").length,
       missingSections, unstaffedSections, instructors, clinical,
       requiredHours: req, scheduledHours: clinical.reduce((n, c) => n + c.scheduled, 0), loggedHours: clinical.reduce((n, c) => n + c.logged, 0), missedShifts: clinical.reduce((n, c) => n + c.missed, 0), shortHours: clinical.reduce((n, c) => n + c.short, 0), unprecepted: clinical.reduce((n, c) => n + c.unprecepted, 0),
     };
@@ -3052,10 +3070,16 @@ export async function getOfferingLedger(cohortId: string) {
 }
 
 export async function getLearnerAnalytics() {
-  const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true, cohortTerms: { select: { endDate: true } } } } } });
+  const students = await prisma.student.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, status: true, stageKey: true, entryYear: true, dob: true, sex: true, raceEthnicity: true, county: true, city: true, zip: true, residency: true, priorEducation: true, employmentStatus: true, firstGeneration: true, veteran: true, pellEligible: true, disability: true, withdrawalReason: true, gpa: true, startDate: true, completionDate: true, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } }, cohort: { select: { id: true, name: true, cohortTerms: { select: { endDate: true } } } } } });
   // The cohort's end (its last term's end date): a completion rate counts only cohorts that have ended (Phase 6).
   const endOf = (c: { cohortTerms: { endDate: Date | null }[] } | null) => { const ends = (c?.cohortTerms ?? []).map((t) => t.endDate).filter((d): d is Date => !!d); return ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))).toISOString().slice(0, 10) : null; };
-  return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, cohortEnds: endOf(s.cohort), dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
+  return students.map((s) => ({ id: s.id, name: s.name, status: s.status, stageKey: s.stageKey, entryYear: s.entryYear, institution: s.program.institution.name, institutionId: s.program.institution.id, program: s.program.name, programId: s.program.id, cohort: s.cohort?.name ?? null, cohortId: s.cohort?.id ?? null, cohortEnds: endOf(s.cohort), gradYear: classYearOf(s.cohort?.name), startDate: s.startDate?.toISOString().slice(0, 10) ?? null, completionDate: s.completionDate?.toISOString().slice(0, 10) ?? null, dob: s.dob?.toISOString().slice(0, 10) ?? null, sex: s.sex, raceEthnicity: s.raceEthnicity, county: s.county, city: s.city, zip: s.zip, residency: s.residency, priorEducation: s.priorEducation, employmentStatus: s.employmentStatus, firstGeneration: s.firstGeneration, veteran: s.veteran, pellEligible: s.pellEligible, disability: s.disability, withdrawalReason: s.withdrawalReason, gpa: s.gpa }));
+}
+
+/** Every offering that is a record, for the analytics pickers — a class with no students is still an option (it says so), never missing. */
+export async function getAnalyticsCohorts() {
+  const rows = await prisma.cohort.findMany({ where: NOT_ARCHIVED, orderBy: { name: "asc" }, select: { id: true, name: true, status: true, cohortTerms: { select: { endDate: true } }, program: { select: { id: true, name: true, institution: { select: { id: true, name: true } } } } } });
+  return rows.map((c) => { const ends = c.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d); return { id: c.id, name: c.name, status: c.status, gradYear: classYearOf(c.name), programId: c.program.id, program: c.program.name, institutionId: c.program.institution.id, institution: c.program.institution.name, cohortEnds: ends.length ? new Date(Math.max(...ends.map((d) => d.getTime()))).toISOString().slice(0, 10) : null }; });
 }
 
 /** The program a family's shared pages (clinical setup, goal) are shown under: its first template. */
@@ -3178,7 +3202,7 @@ export interface MapPoint {
 export async function getOfferingsMap(): Promise<{ points: MapPoint[]; unlocated: { cohort: string; program: string; institution: string }[] }> {
   const { geocodeOffline } = await import("./geo");
   const cohorts = await prisma.cohort.findMany({
-    where: { status: { in: ["planned", "active"] } },
+    where: NOT_ARCHIVED,
     select: {
       id: true, name: true, status: true, _count: { select: { students: true } },
       program: { select: { id: true, name: true, institution: { select: { id: true, name: true, city: true, state: true, campuses: { select: { id: true, name: true, city: true, state: true, lat: true, lng: true, isMain: true } } } } } },
@@ -3240,7 +3264,7 @@ export async function getFamilyClinicalHoursBridge(familyId: string): Promise<{ 
  *  the program pattern. `institutionId` omitted or "all" → every institution. */
 export async function getCalendarProvenance(institutionId?: string | null) {
   const where = institutionId && institutionId !== ALL_INSTITUTIONS ? { id: institutionId } : {};
-  const insts = await prisma.institution.findMany({ where, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { academicEvents: { where: { kind: "term_start" } } } }, programs: { select: { calendarMode: true, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { cohortTerms: { select: { source: true } } } } } } } });
+  const insts = await prisma.institution.findMany({ where, orderBy: { name: "asc" }, select: { id: true, name: true, _count: { select: { academicEvents: { where: { kind: "term_start" } } } }, programs: { select: { calendarMode: true, cohorts: { where: NOT_ARCHIVED, select: { cohortTerms: { select: { source: true } } } } } } } });
   const per = insts.map((i) => {
     // A continuing-education class (calendarMode continuous) is dated by its own first day, not by a semester the
     // calendar could have supplied: its chosen dates count as taken from the calendar, not as hand-set stand-ins.

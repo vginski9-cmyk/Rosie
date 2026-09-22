@@ -15,7 +15,7 @@ export default async function CoveragePage({ searchParams }: { searchParams: { i
       <ScopeStrip
         provisional={provenance}
         shows="The applied plan on the calendar — every dated session of every offering, on the day its weekly booking or a per-date move puts it, with the site, room and staff booked."
-        population={`Each term's enrollment target for every planned and running offering at ${data.institution.name} (seats, dealt across sections — not named students)`}
+        population={`Each term's enrollment target for every offering at ${data.institution.name} — planned, running or graduated (a graduated class's dates are history on the same calendar); seats dealt across sections, not named students`}
         window="Every dated term of those offerings"
         constraints={["weekly bookings", "per-date moves", "college holidays"]}
         differs={[["Master calendar", "/calendar", "reads the same bookings and moves, week by week, with named students on applied shifts"], ["Clinical site load", "/insights/site-load", "counts named students on the roster, including completed cohorts"]]}

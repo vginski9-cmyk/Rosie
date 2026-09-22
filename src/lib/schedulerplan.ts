@@ -10,6 +10,7 @@ import { shiftStart, type AssetLite, type AssetDayOverride, type AssetBookingLit
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import type { RotationCodeRow } from "@/components/AssetMapBoard";
 import type { PlanAssignmentInput } from "./planwrite";
+export { plannedWindow } from "./cohortscope";
 
 export interface SchedulerSupply {
   assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
@@ -37,7 +38,8 @@ export function leverDifferences(a: Policy, b: Policy): (keyof Policy)[] { retur
 /** What the board sends to be applied: the levers, the date window and which offerings — a few hundred bytes. */
 export interface SchedulerLevers { policy: Policy; from: string; to: string; cohortIds: string[] }
 
-/** The data window the scheduler page loads: first term start to 20 weeks past the last one. */
+/** The full data window: first term start of any offering (a graduated class's history included) to 20 weeks past the last one.
+ *  The seed places and the audit checks this whole range; the board opens on `plannedWindow` (the current academic year on). */
 export function schedulerWindow(cohorts: Pick<CapacityCohort, "termStartByIndex">[], today = new Date()): { from: string; to: string } {
   const starts = cohorts.flatMap((c) => Object.values(c.termStartByIndex).filter((v): v is string => !!v)).sort();
   const todayIso = today.toISOString().slice(0, 10);

@@ -16,7 +16,7 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
   const instId = searchParams.inst && searchParams.inst !== "all" ? searchParams.inst : undefined;
   const where = instId ? { institutionId: instId } : {};
   const q = (href: string) => (instId ? `${href}?inst=${instId}` : href);
-  const [instructors, preceptors, sitesSecured, sitesTotal, assets, rooms, roomsNoHours, equipment, policies, planned, students, assumptions, verifiedAssumptions, reqSets, provenance, sitesEstimate] = await Promise.all([
+  const [instructors, preceptors, sitesSecured, sitesTotal, assets, rooms, roomsNoHours, equipment, policies, planned, graduated, students, assumptions, verifiedAssumptions, reqSets, provenance, sitesEstimate] = await Promise.all([
     prisma.person.count({ where: { ...where, active: true, role: "instructor" } }),
     prisma.person.count({ where: { ...where, active: true, role: "preceptor" } }),
     prisma.familySite.count({ where: { agreementStatus: "secured", ...(instId ? { family: { institutionId: instId } } : {}) } }),
@@ -26,7 +26,8 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
     prisma.facility.count({ where: { ...where, status: "active", openHours: { none: {} } } }),
     prisma.equipment.count({ where }),
     prisma.workloadPolicy.count({ where }),
-    prisma.cohort.count({ where: { status: { in: ["planned", "active"] }, ...(instId ? { program: { institutionId: instId } } : {}) } }),
+    prisma.cohort.count({ where: { status: { not: "archived" }, cohortTerms: { some: { endDate: { gte: new Date() } } }, ...(instId ? { program: { institutionId: instId } } : {}) } }),
+    prisma.cohort.count({ where: { status: "completed", ...(instId ? { program: { institutionId: instId } } : {}) } }),
     prisma.student.count({ where: { status: "enrolled", ...(instId ? { program: { institutionId: instId } } : {}) } }),
     prisma.assumption.count(),
     prisma.assumption.count({ where: { status: "verified" } }),
@@ -58,7 +59,7 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
           headline={<>{fmt.num(instructors)} instructors · {fmt.num(preceptors)} preceptors · {fmt.num(policies)} workload polic{policies === 1 ? "y" : "ies"}</>}
           links={[["Instructors & preceptors needed", q("/insights/staffing-need"), "by week, who fills it, and the gap"], ["People", q("/people"), "the roster"], ["Workload policies", "/setup#people", "contact hours per week"]]} />
         <Area title="Clinical seats" sub="Where students can be placed, and how much room there is"
-          headline={<>{fmt.num(sitesSecured)} secured agreements at {fmt.num(sitesTotal)} sites · {fmt.num(assets)} placeable assets · {fmt.num(planned)} offerings planned or running</>}
+          headline={<>{fmt.num(sitesSecured)} secured agreements at {fmt.num(sitesTotal)} sites · {fmt.num(assets)} placeable assets · {fmt.num(planned)} offerings in session or ahead · {fmt.num(graduated)} graduated</>}
           links={[["Clinical scheduler", q("/scheduler"), `supply against demand, shift by shift${OPERATIONAL ? "" : " (read-only)"}`], ["Clinical site capacity", q("/insights/clinical-sites"), "seats a site can host on a date"], ["Clinical site load", q("/insights/site-load"), "student-shifts by site"], ["Daily coverage", q("/insights/coverage"), "who is where, day by day"], ["Sites by program", "/clinical", "agreements and requirements"], ["Map", q("/insights/map"), "campuses and booked sites"]]} />
         <Area title="Rooms & equipment" sub="Lab and classroom hours, and equipment per student"
           headline={<>{fmt.num(rooms)} rooms{roomsNoHours ? <span className="text-amber-700"> · {fmt.num(roomsNoHours)} without open hours</span> : null} · {fmt.num(equipment)} equipment records</>}

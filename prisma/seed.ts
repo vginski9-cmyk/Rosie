@@ -27,6 +27,9 @@ import { loadPartnerSites } from "./seed-partner-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
 import { avgCasesPerDay } from "../src/lib/surgvolume";
 import { seedInstitutions, goals, goalPlanJson, type CnaPacks } from "./seed-institutions";
+import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
+import { outcomeMix, assignOutcomes } from "../src/lib/cohorthistory";
+import { BENCHMARK_RATES } from "../src/lib/northstar";
 
 const prisma = new PrismaClient();
 
@@ -433,11 +436,12 @@ async function loadRadAssetMap(institutionId: string) {
 /** Enrolled students on every offering — one per planned seat, numbered by seat
  *  (sectionIndex = seat number), so the scheduler can hand each one a section
  *  and a site-by-site itinerary. Dummy names, deterministic. */
-/** `pins` fix a named offering's roster instead of the generated mix — exactly how many withdrew, and
- *  (for a class that has graduated) that the rest completed. A pinned completed class is the only
- *  completed class that gets students; it gets course grades for every term, but no clinical shifts —
- *  the scheduler never placed it, so a "scheduled" shift with no seat would be a false record. */
-async function seedOfferingStudents(pins: { program: string; cohort: string; withdrawn: number; completed?: boolean }[] = []) {
+/** Every offering that is a record gets its roster — planned, running or graduated. A graduated class's
+ *  learners end where its own talent-pipeline rates say (lib/cohorthistory): withdrawn, completed, licensed,
+ *  placed or fully productive, with a completion date; the rest of its history (grades, attendance, shift logs,
+ *  requirement entries) is written by the same steps that write a running class's. `pins` fix a named
+ *  offering's withdrawal count instead of the rate — the partner's own number. */
+async function seedOfferingStudents(pins: { program: string; cohort: string; withdrawn: number }[] = []) {
   const FIRST = ["Ava", "Liam", "Maya", "Noah", "Zoe", "Ethan", "Isla", "Mason", "Nora", "Lucas", "Aria", "Caleb", "Leah", "Owen", "Ruby", "Eli", "Jade", "Milo", "Iris", "Jonah", "Tessa", "Reid", "Cora", "Silas", "Wren", "Amir", "Lena", "Otis", "Sage", "Theo", "Vera", "Kai", "Elle", "Rowan", "Nia", "Beau", "Ada", "Cruz", "Faye", "Hugo", "Ines", "Jude", "Kira", "Luca", "Mira", "Nash", "Opal", "Pax", "Remy", "Skye"];
   const LAST = ["Abbott", "Baker", "Cole", "Dawson", "Ellis", "Foster", "Gibson", "Hale", "Ingram", "Jarvis", "Keller", "Lowe", "Mercer", "Nolan", "Osei", "Pratt", "Quinn", "Reyes", "Sutton", "Tate", "Underwood", "Vance", "Whitfield", "Xiong", "Yates", "Zimmer", "Bynum", "Clark", "Dunn", "Everett"];
   // Coded demographics (dummy, deterministic per seat) so the learner analytics
@@ -450,18 +454,26 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Roanoke-Chowan Community College": { counties: ["Hertford", "Hertford", "Bertie", "Northampton", "Gates"], cities: { Hertford: "Ahoskie", Bertie: "Windsor", Northampton: "Jackson", Gates: "Gatesville" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
+  // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
+  // (a CSV filter, a directory search) can merge two people. Deterministic: the first free combination in a fixed walk.
+  const usedNames = new Set<string>();
+  const uniqueName = (a: number, b: number) => { for (let k = 0; k < FIRST.length * LAST.length; k++) { const n = `${FIRST[(a + k) % FIRST.length]} ${LAST[(b + k * 7) % LAST.length]}`; if (!usedNames.has(n)) { usedNames.add(n); return n; } } const n = `${FIRST[a % FIRST.length]} ${LAST[b % LAST.length]} ${usedNames.size}`; usedNames.add(n); return n; };
   let made = 0, sections = 0, shifts = 0;
-  const cohorts = await prisma.cohort.findMany({ where: { status: { in: ["planned", "active", "completed"] } }, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
+  const cohorts = await prisma.cohort.findMany({ where: NOT_ARCHIVED, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
   const today = new Date();
+  const todayIso = today.toISOString().slice(0, 10);
   const pinned = new Set<number>();
   for (const co of cohorts) {
     if (co._count.students > 0) continue;
     const pinIdx = pins.findIndex((p) => p.cohort === co.name && p.program === co.program.name);
     const pin = pinIdx >= 0 ? pins[pinIdx] : null;
     if (pin) pinned.add(pinIdx);
-    if (co.status === "completed" && !pin) continue; // history carries no roster unless pinned
-    const graduated = !!pin?.completed;
-    const completionDate = graduated ? co.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? null : null;
+    const lastEnd = co.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const graduated = cohortStatusOn(co.startDate?.toISOString().slice(0, 10), lastEnd?.toISOString().slice(0, 10), todayIso) === "completed";
+    const completionDate = graduated ? lastEnd : null;
+    // The class's own chain: the family's rates as locked in, with any per-offering override (lib/pipeline).
+    let rates = { ...BENCHMARK_RATES };
+    try { const saved = JSON.parse(co.pipelineRates ?? "{}") as { rates?: Partial<typeof BENCHMARK_RATES> }; if (saved.rates) rates = { ...rates, ...saved.rates }; } catch { /* benchmarks */ }
     const { counties: COUNTIES, cities: CITIES } = HOME[co.program.institution.name] ?? HOME.default;
     const seats = Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
@@ -471,6 +483,8 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     const mix = (i: number, salt: number) => { let t = (h * 2654435761 + i * 40503 + salt * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
     // A pinned roster withdraws exactly the stated number — the seats with the highest first mix, so it is deterministic and not simply the last seats.
     const pinnedOut = pin ? new Set(Array.from({ length: seats }, (_, i) => i).sort((a, b) => mix(b, 1) - mix(a, 1) || a - b).slice(0, pin.withdrawn)) : null;
+    // A graduated class: every seat ends where the class's rates (or its pin) say — withdrawn, completed, licensed, placed, productive.
+    const outcomes = graduated ? assignOutcomes(seats, outcomeMix(seats, rates, pin ? { withdrawn: pin.withdrawn } : undefined), (i) => mix(i, 1)) : null;
     const rows = Array.from({ length: seats }, (_, i) => {
       const x = mix(i, 1), y = mix(i, 2), z = mix(i, 3);
       const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30); // skews young, tail into the 40s
@@ -478,10 +492,10 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
       const dob = new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age - 1, (y % 12), 1 + (z % 28)));
       const county = COUNTIES[(h + i * 3) % COUNTIES.length];
       // Only offerings already under way have had time to lose anyone.
-      const withdrawn = pinnedOut ? pinnedOut.has(i) : started && (x % 100) < 12;
+      const withdrawn = outcomes ? outcomes[i].status === "withdrawn" : pinnedOut ? pinnedOut.has(i) : started && (x % 100) < 12;
       return {
-        programId: co.program.id, cohortId: co.id, name: `${FIRST[(h + i * 7) % FIRST.length]} ${LAST[(h * 3 + i * 11) % LAST.length]}`, email: null,
-        status: withdrawn ? "withdrawn" : graduated ? "completed" : "enrolled", stageKey: withdrawn ? "withdrawn" : graduated ? "completing" : "enrolled", entryYear: co.entryYear, sectionIndex: i + 1,
+        programId: co.program.id, cohortId: co.id, name: uniqueName(h + i * 7, h * 3 + i * 11), email: null,
+        status: outcomes ? outcomes[i].status : withdrawn ? "withdrawn" : "enrolled", stageKey: outcomes ? outcomes[i].stageKey : withdrawn ? "withdrawn" : "enrolled", entryYear: co.entryYear, sectionIndex: i + 1,
         completionDate: withdrawn ? null : completionDate,
         dob, sex: pickW(["Female", "Male", "Prefer not to say"], [72, 26, 2], y),
         raceEthnicity: pickW(["White", "Black or African American", "Hispanic or Latino", "American Indian or Alaska Native", "Asian", "Two or more races", "Unknown / prefer not to say"], [52, 24, 12, 4, 2, 4, 2], z),
@@ -518,7 +532,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
         const age = 18 + Math.floor(Math.pow(x / 1000, 1.6) * 30);
         const county = COUNTIES[(h + i * 5) % COUNTIES.length];
         return {
-          programId: co.program.id, cohortId: null, applicationCohortId: co.id, name: `${FIRST[(h + i * 13) % FIRST.length]} ${LAST[(h * 5 + i * 17) % LAST.length]}`, email: null,
+          programId: co.program.id, cohortId: null, applicationCohortId: co.id, name: uniqueName(h + i * 13, h * 5 + i * 17), email: null,
           status, stageKey, entryYear: co.entryYear, sectionIndex: 1,
           dob: new Date(Date.UTC((co.entryYear ?? today.getUTCFullYear()) - age - 1, (y % 12), 1 + (z % 28))),
           sex: pickW(["Female", "Male", "Prefer not to say"], [72, 26, 2], y),
@@ -535,11 +549,6 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     // Sections (per course kind) and every clinical shift, by seat order — the
     // same rule the scheduler uses, so profiles show a real itinerary.
     const students = await prisma.student.findMany({ where: { cohortId: co.id }, select: { id: true, sectionIndex: true, status: true }, orderBy: { sectionIndex: "asc" } });
-    // A graduated class: a course record for every term — completed, or withdrawn for those who left.
-    if (graduated) {
-      const gradeRows = students.flatMap((st) => co.program.terms.flatMap((t) => t.courses.map((c) => ({ studentId: st.id, courseId: c.id, termIndex: t.index, status: st.status === "withdrawn" ? "withdrawn" : "completed", completedDate: st.status === "withdrawn" ? null : completionDate }))));
-      for (let i = 0; i < gradeRows.length; i += 500) await prisma.studentCourseGrade.createMany({ data: gradeRows.slice(i, i + 500) });
-    }
     // A clinical session that never lands on a date (an orientation coded before the term opens) is not a shift anyone can sit.
     const { sessionDatesForCohort } = await import("../src/lib/queries");
     const dated = (await sessionDatesForCohort(co.id)).dates;
@@ -554,7 +563,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
           if (st.status === "withdrawn") continue;
           const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
           secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
-          if (kind === "CLINICAL" && !graduated) for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
         }
       }
     }
@@ -789,298 +798,6 @@ async function createFunnel(programId: string, name: string, entryYear: number, 
 // --- Student / SIS seeding -------------------------------------------------
 
 // Small deterministic PRNG so re-seeds are stable.
-function mulberry32(seed: number) {
-  return function () {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const FIRST_NAMES = [
-  "Ava", "Liam", "Maya", "Noah", "Sofia", "Ethan", "Isabella", "Mason", "Olivia", "Lucas",
-  "Emma", "Jayden", "Chloe", "Caleb", "Zoe", "Aiden", "Layla", "Diego", "Nia", "Owen",
-  "Harper", "Elijah", "Camila", "Wyatt", "Aaliyah", "Carter", "Leah", "Julian", "Brianna", "Gabriel",
-  "Destiny", "Xavier", "Jasmine", "Hunter", "Mia", "Andre", "Keisha", "Tyler", "Priya", "Marcus",
-  "Valeria", "Devin", "Amara", "Cole", "Imani", "Brandon", "Selena", "Trevor", "Yasmin", "Quinn",
-];
-const LAST_NAMES = [
-  "Johnson", "Martinez", "Nguyen", "Williams", "Garcia", "Brown", "Davis", "Rodriguez", "Wilson", "Patel",
-  "Thompson", "Moore", "Jackson", "Lee", "Perez", "White", "Harris", "Sanchez", "Clark", "Lewis",
-  "Robinson", "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Hill", "Green",
-  "Adams", "Baker", "Gonzalez", "Nelson", "Carter", "Mitchell", "Roberts", "Turner", "Phillips", "Campbell",
-];
-
-function addDaysISO(iso: string, days: number) {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-async function seedStudents(
-  programId: string,
-  cohortId: string,
-  _radCourses: { id: string; code: string | null }[],
-  skills: { positioning: string; patientCare: string; radSafety: string; imageEval: string },
-) {
-  const rng = mulberry32(2029);
-  const pick = <T,>(arr: T[]) => arr[Math.floor(rng() * arr.length)];
-
-  // Courses with their term index, for dated grade/assessment placement.
-  const courses = await prisma.course.findMany({
-    where: { term: { programId } },
-    include: { term: true },
-    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
-  });
-  const byCode = (code: string) => courses.find((c) => c.code === code);
-  const coursesInTerm = (idx: number) => courses.filter((c) => c.term.index === idx);
-  const maxTerm = Math.max(1, ...courses.map((c) => c.term.index));
-  const termStart = (idx: number) => TERM_START_DATES[idx - 1] ?? TERM_START_DATES[0];
-
-  // Furthest-reached stage for each student, matching the cumulative funnel
-  // actuals (interested 199 ⊃ qualified 39 ⊃ … ⊃ productive 12).
-  const stops: { stage: string; status: string; n: number }[] = [
-    { stage: "interested", status: "prospect", n: 160 },
-    { stage: "qualified", status: "applicant", n: 13 },
-    { stage: "offered", status: "admitted", n: 11 },
-    { stage: "enrolled", status: "enrolled", n: 2 },
-    { stage: "completing", status: "enrolled", n: 1 },
-    { stage: "licensed", status: "completed", n: 0 },
-    { stage: "placed", status: "placed", n: 0 },
-    { stage: "productive", status: "placed", n: 12 },
-  ];
-
-  // How far through the curriculum a student at a given stage has progressed.
-  const completedTermsFor = (stage: string): number => {
-    switch (stage) {
-      case "enrolled": return 0;        // Term 1 in progress
-      case "completing": return maxTerm - 1; // on the final term
-      case "licensed":
-      case "placed":
-      case "productive": return maxTerm; // graduated
-      default: return 0;                 // pre-enrollment: no academic record
-    }
-  };
-
-  // KSA assessment plan: skill → ladder of (term, level, courseCode, method).
-  const ksaPlan: { skillId: string; rungs: { t: number; level: number; code: string; method: string }[] }[] = [
-    { skillId: skills.positioning, rungs: [
-      { t: 1, level: 2, code: "RAD-111", method: "lab check-off" },
-      { t: 2, level: 3, code: "RAD-112", method: "lab check-off" },
-      { t: 4, level: 4, code: "RAD-211", method: "clinical evaluation" },
-    ] },
-    { skillId: skills.patientCare, rungs: [
-      { t: 1, level: 2, code: "RAD-110", method: "simulation" },
-      { t: 2, level: 3, code: "RAD-161", method: "clinical evaluation" },
-    ] },
-    { skillId: skills.radSafety, rungs: [
-      { t: 3, level: 2, code: "RAD-141", method: "written exam" },
-      { t: 4, level: 3, code: "RAD-231", method: "written exam" },
-    ] },
-    { skillId: skills.imageEval, rungs: [
-      { t: 4, level: 3, code: "RAD-231", method: "image critique" },
-      { t: 5, level: 4, code: "RAD-271", method: "capstone portfolio" },
-    ] },
-  ];
-
-  const gradeBank = [
-    { grade: "A", points: 4.0, w: 3 },
-    { grade: "A-", points: 3.7, w: 3 },
-    { grade: "B+", points: 3.3, w: 4 },
-    { grade: "B", points: 3.0, w: 4 },
-    { grade: "B-", points: 2.7, w: 2 },
-    { grade: "C+", points: 2.3, w: 2 },
-    { grade: "C", points: 2.0, w: 1 },
-  ];
-  const weightedGrade = () => {
-    const total = gradeBank.reduce((s, g) => s + g.w, 0);
-    let r = rng() * total;
-    for (const g of gradeBank) { r -= g.w; if (r <= 0) return g; }
-    return gradeBank[0];
-  };
-
-  const usedNames = new Set<string>();
-  const nextName = () => {
-    for (let tries = 0; tries < 50; tries++) {
-      const n = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)}`;
-      if (!usedNames.has(n)) { usedNames.add(n); return n; }
-    }
-    const n = `${pick(FIRST_NAMES)} ${pick(LAST_NAMES)} ${usedNames.size}`;
-    usedNames.add(n);
-    return n;
-  };
-
-  const CLINICAL_SITES = ["FirstHealth Moore Regional Hospital", "Scotland Memorial Hospital", "Pinehurst Outpatient Imaging Center"];
-  let academicSeq = 0;
-  let created = 0;
-  for (const stop of stops) {
-    const completedTerms = completedTermsFor(stop.stage);
-    const isAcademic = ["enrolled", "completing", "licensed", "placed", "productive"].includes(stop.stage);
-    for (let i = 0; i < stop.n; i++) {
-      const name = nextName();
-      const [first, last] = name.split(" ");
-      const email = `${first[0].toLowerCase()}${last.toLowerCase()}@student.sandhills.edu`;
-
-      // Build the academic record for enrolled-and-beyond students.
-      const gradeRows: { courseId: string; termIndex: number; status: string; grade: string | null; gradePoints: number | null; completedDate: Date | null }[] = [];
-      const assessmentRows: { skillId: string; level: number; assessedDate: Date; courseCode: string; method: string }[] = [];
-      const absenceRows: { date: Date; courseCode: string | null; sessionTitle: string; excused: boolean }[] = [];
-      let gpa: number | null = null;
-
-      if (isAcademic) {
-        // Completed terms → finished grades; current term (if any) → in progress.
-        const currentTerm = completedTerms < maxTerm ? completedTerms + 1 : null;
-        let pts = 0, n = 0;
-        for (let t = 1; t <= completedTerms; t++) {
-          for (const c of coursesInTerm(t)) {
-            const g = weightedGrade();
-            pts += g.points; n += 1;
-            gradeRows.push({ courseId: c.id, termIndex: t, status: "completed", grade: g.grade, gradePoints: g.points, completedDate: addDaysISO(termStart(t), 110) });
-          }
-        }
-        if (currentTerm) {
-          for (const c of coursesInTerm(currentTerm)) {
-            gradeRows.push({ courseId: c.id, termIndex: currentTerm, status: "in_progress", grade: null, gradePoints: null, completedDate: null });
-          }
-        }
-        gpa = n > 0 ? pts / n : null;
-
-        // Dated KSA assessments up through completed terms.
-        const reach = currentTerm ?? completedTerms;
-        for (const plan of ksaPlan) {
-          for (const rung of plan.rungs) {
-            if (rung.t <= reach) {
-              assessmentRows.push({ skillId: plan.skillId, level: rung.level, assessedDate: addDaysISO(termStart(rung.t), 40 + Math.floor(rng() * 40)), courseCode: rung.code, method: rung.method });
-            }
-          }
-        }
-
-        // Attendance: a session count proportional to terms underway, with a
-        // handful of dated absences.
-        const termsUnderway = currentTerm ?? completedTerms;
-        const totalSessions = termsUnderway * 62 + Math.floor(rng() * 10);
-        const missed = Math.floor(rng() * 7);
-        for (let m = 0; m < missed; m++) {
-          const t = 1 + Math.floor(rng() * termsUnderway);
-          const opts = coursesInTerm(t);
-          const c = opts.length ? opts[Math.floor(rng() * opts.length)] : null;
-          absenceRows.push({ date: addDaysISO(termStart(t), 10 + Math.floor(rng() * 90)), courseCode: c?.code ?? null, sessionTitle: c ? `${c.name} session` : "Session", excused: rng() < 0.45 });
-        }
-
-        const sectionIndex = (academicSeq % 3) + 1; // 3 lab/clinical groups
-        const clinicalSite = CLINICAL_SITES[academicSeq % CLINICAL_SITES.length];
-        academicSeq += 1;
-        const student = await prisma.student.create({
-          data: {
-            programId, cohortId, name, email, status: stop.status, stageKey: stop.stage,
-            entryYear: 2029, gpa, attendedCount: Math.max(0, totalSessions - missed), missedCount: missed,
-            sectionIndex, clinicalSite,
-            grades: { create: gradeRows },
-            assessments: { create: assessmentRows },
-            absences: { create: absenceRows },
-          },
-        });
-        void student;
-      } else {
-        // Pre-enrollment: pipeline status only.
-        await prisma.student.create({
-          data: { programId, cohortId, name, email, status: stop.status, stageKey: stop.stage, entryYear: 2029 },
-        });
-      }
-      created += 1;
-    }
-  }
-  // Keep TS happy if byCode unused in some configs.
-  void byCode;
-  console.log(`Seeded ${created} students.`);
-}
-
-// Courses that are deliberately co-taught, with the split (in contact hours)
-// between a primary and a secondary instructor for each CLASS session.
-const COTEACH: Record<string, { primaryShare: number; segment: [string, string] }> = {
-  "RAD-110": { primaryShare: 2 / 3, segment: ["Lecture", "Patient-care lab"] }, // 3h class → 2h + 1h
-  "RAD-211": { primaryShare: 2 / 3, segment: ["Procedures lecture", "Image analysis"] },
-  "RAD-271": { primaryShare: 0.5, segment: ["Registry review", "Capstone critique"] }, // even split
-};
-
-const HOMEWORK_BANK: Record<string, string[]> = {
-  CLASS: [
-    "Read assigned chapter; complete end-of-chapter review questions.",
-    "Pre-lecture quiz due before class on the LMS.",
-    "Worksheet: label anatomy on provided projections.",
-    "Prepare 3 questions on the assigned positioning routine.",
-  ],
-  LAB: [
-    "Bring completed positioning prep sheet; lab check-off today.",
-    "Review the procedure video; practice setup before lab.",
-    "Document peer-evaluation of last week's images.",
-  ],
-  CLINICAL: [
-    "Log today's exams in Trajecsys; submit competency attempts.",
-    "Reflective journal entry on a non-routine case.",
-    "Have clinical instructor sign off on weekly objectives.",
-  ],
-};
-
-async function seedSessionStaff(
-  programId: string,
-  cohortId: string,
-  faculty: { id: string; name: string }[],
-  preceptors: { id: string; name: string; siteIndex: number }[],
-) {
-  const rng = mulberry32(7);
-  const courses = await prisma.course.findMany({
-    where: { term: { programId } },
-    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
-    include: { sessions: true },
-  });
-
-  let courseIdx = 0;
-  const siteGroups: Record<number, { id: string; name: string }[]> = { 0: [], 1: [], 2: [] };
-  for (const p of preceptors) siteGroups[p.siteIndex].push({ id: p.id, name: p.name });
-
-  for (const c of courses) {
-    // A consistent primary + secondary instructor per course (round-robin).
-    const primary = faculty[courseIdx % faculty.length];
-    const secondary = faculty[(courseIdx + 1) % faculty.length];
-    courseIdx += 1;
-    const co = c.code ? COTEACH[c.code] : undefined;
-
-    for (const s of c.sessions) {
-      const rows: { sessionId: string; cohortId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
-      if (s.kind === "CLINICAL") {
-        // Preceptor from the site group rotated by session number.
-        const group = siteGroups[s.number % 3];
-        const prec = (group.length ? group : preceptors)[s.number % Math.max(1, group.length || preceptors.length)];
-        if (prec) rows.push({ sessionId: s.id, cohortId, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
-      } else if (co && s.kind === "CLASS") {
-        const primShare = s.lengthHours * co.primaryShare;
-        const secShare = s.lengthHours - primShare;
-        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: primShare, segment: co.segment[0] });
-        if (secShare > 0) rows.push({ sessionId: s.id, cohortId, personId: secondary.id, role: "instructor", contactHours: secShare, segment: co.segment[1] });
-      } else {
-        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
-      }
-      if (rows.length) await prisma.sessionInstructor.createMany({ data: rows });
-
-      // Homework / what-to-prepare for most sessions.
-      const bank = HOMEWORK_BANK[s.kind] ?? [];
-      if (bank.length && rng() < 0.8) {
-        await prisma.session.update({ where: { id: s.id }, data: { homework: bank[Math.floor(rng() * bank.length)] } });
-      }
-    }
-  }
-}
-
-// ---- Generic allied-health program generator (for the data-expansion block) ----
-// Builds a sensibly-structured multi-term program with explicit (small) session
-// counts so session volume stays controlled while term spans stay realistic — the
-// term week-spans drive the cohort-timing engine (current term / expected end / phase).
-// Institution-wide general-education courses shared by EVERY health-sciences
-// program (same catalog code → demand pools across programs). Codes match the
-// Radiography template so RAD's demand aggregates with the rest.
 const SHARED_GENEDS: CourseSeed[] = [
   { code: "ENG-111", name: "Writing and Inquiry", weeklyClassHours: 3, weeklyLabHours: 0, weeklyClinicalHours: 0, credits: 3, semester: "All", type: "GENED", description: "Develops clear writing across genres with emphasis on inquiry, analysis, and revision.", requisites: "", sessions: [{ kind: "CLASS", count: 10, lengthHours: 3, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "General Classroom" }] },
   { code: "BIO-163", name: "Basic Anatomy & Physiology", weeklyClassHours: 4, weeklyLabHours: 2, weeklyClinicalHours: 0, credits: 5, semester: "All", type: "GENED", description: "Structure and function of the human body across the body systems.", requisites: "", sessions: [{ kind: "CLASS", count: 10, lengthHours: 4, maxStudents: 30, facultyNeeded: 1, title: "Lecture", location: "General Classroom" }] },
@@ -1127,123 +844,6 @@ export function genTerms(prefix: string, spanWeeks: number, nTerms: number, hasC
 // Lean per-cohort staffing: assign each course's sessions to a rotating faculty
 // member (clinical sessions to a preceptor), producing per-cohort SessionInstructor
 // rows so workload accrues by cohort → term → year/semester.
-async function seedCohortStaff(
-  cohortId: string, programId: string,
-  faculty: { id: string }[], preceptors: { id: string }[],
-) {
-  if (!faculty.length) return;
-  const courses = await prisma.course.findMany({
-    where: { term: { programId } },
-    orderBy: [{ term: { index: "asc" } }, { sequenceOrder: "asc" }],
-    include: { sessions: { select: { id: true, kind: true, lengthHours: true } } },
-  });
-  const rows: { sessionId: string; cohortId: string; personId: string; role: string; contactHours: number; segment: string | null }[] = [];
-  let ci = 0;
-  for (const co of courses) {
-    const primary = faculty[ci % faculty.length];
-    ci += 1;
-    for (const s of co.sessions) {
-      if (s.kind === "CLINICAL" && preceptors.length) {
-        const prec = preceptors[s.id.charCodeAt(s.id.length - 1) % preceptors.length];
-        rows.push({ sessionId: s.id, cohortId, personId: prec.id, role: "preceptor", contactHours: s.lengthHours, segment: "Clinical supervision" });
-      } else {
-        rows.push({ sessionId: s.id, cohortId, personId: primary.id, role: "instructor", contactHours: s.lengthHours, segment: s.kind === "LAB" ? "Lab supervision" : "Lecture" });
-      }
-    }
-  }
-  if (rows.length) await prisma.sessionInstructor.createMany({ data: rows });
-}
-
-// ---- WBL dated snapshots: per-employer capacity + per-student learner profiles
-type Fac = { layer: string; label: string; detail?: string; weight?: number; binding?: boolean; disclosure?: string; matchKey: string };
-const F = {
-  day: (): Fac => ({ layer: "CAPACITY", label: "Offers daytime clinical shifts", matchKey: "daytime hours" }),
-  evening: (): Fac => ({ layer: "CAPACITY", label: "Offers evening/overnight shifts", matchKey: "evening shift" }),
-  local: (): Fac => ({ layer: "CAPACITY", label: "Local — within ~30 minutes", matchKey: "local site" }),
-  transit: (): Fac => ({ layer: "CAPACITY", label: "On a public-transit line", matchKey: "transit access" }),
-  wage: (): Fac => ({ layer: "CAPACITY", label: "Pays at/above living wage", matchKey: "living wage" }),
-  ct: (): Fac => ({ layer: "CAPACITY", label: "Offers CT/MRI advanced rotations", matchKey: "ct modality" }),
-  arrtReq: (): Fac => ({ layer: "CONSTRAINT", label: "Requires ARRT eligibility to host", binding: true, matchKey: "arrt eligible" }),
-};
-
-async function seedWblSnapshots(
-  institutionId: string,
-  employers: { id: string; name: string; kind: "firstHealth" | "scotland" | "pinehurst" | "night" }[],
-  students: { id: string }[],
-) {
-  // Employer capacity snapshots (dated). Each site's factors determine which
-  // student constraints it can satisfy.
-  const EMP_FACTORS: Record<string, Fac[]> = {
-    firstHealth: [F.day(), F.local(), F.transit(), F.wage(), F.ct(), F.arrtReq()],
-    scotland: [F.day(), F.wage(), F.arrtReq()], // farther out, no CT, off transit
-    pinehurst: [F.day(), F.local(), F.wage(), F.ct(), F.arrtReq()],
-    night: [F.evening(), F.local(), F.wage(), F.arrtReq()], // evenings only — no daytime
-  };
-  for (const e of employers) {
-    await prisma.wblSnapshot.create({
-      data: {
-        institutionId, subjectType: "EMPLOYER", employerId: e.id, asOfDate: new Date("2025-08-01"),
-        summary: `Clinical-partner capacity snapshot for ${e.name}.`,
-        factors: { create: EMP_FACTORS[e.kind] },
-      },
-    });
-  }
-
-  // Learner archetypes — varied so recommendations and needs differ per student.
-  const common: Fac[] = [
-    { layer: "MOTIVATION", label: "Earn a living wage in-region", weight: 1, matchKey: "living wage" },
-    { layer: "CAPACITY", label: "ARRT-eligible at completion", weight: 1, matchKey: "arrt eligible" },
-  ];
-  const daytime = (): Fac => ({ layer: "CONSTRAINT", label: "Needs daytime clinical hours", binding: true, matchKey: "daytime hours" });
-  const ARCHETYPES: { key: string; fields: { maxTravelMinutes: number; transport: string; availability: string; shiftPreference: string; targetWage: number; desiredModality: string }; summary: string; factors: Fac[] }[] = [
-    { key: "A", summary: "Day-only, local, has a car.", fields: { maxTravelMinutes: 30, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 22, desiredModality: "general" },
-      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Must stay within ~30 minutes", binding: true, matchKey: "local site" }] },
-    { key: "B", summary: "Day shifts, relies on public transit.", fields: { maxTravelMinutes: 45, transport: "public-transit", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 21, desiredModality: "general" },
-      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Relies on public transit", binding: true, disclosure: "INFERRED", matchKey: "transit access" }] },
-    { key: "C", summary: "Career-focused — wants a CT rotation.", fields: { maxTravelMinutes: 40, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 23, desiredModality: "CT" },
-      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Needs a CT rotation for career goal", binding: true, matchKey: "ct modality" }, { layer: "MOTIVATION", label: "Advancement into CT/MRI", weight: 0.8, matchKey: "ct modality" }] },
-    { key: "D", summary: "Rural — can travel far, day shifts.", fields: { maxTravelMinutes: 75, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 22, desiredModality: "general" },
-      factors: [...common, daytime()] },
-    { key: "E", summary: "Works days — can only attend evenings.", fields: { maxTravelMinutes: 40, transport: "own-car", availability: "Mon,Tue,Wed,Thu", shiftPreference: "evening", targetWage: 24, desiredModality: "general" },
-      factors: [...common, { layer: "CONSTRAINT", label: "Can only attend evenings", binding: true, matchKey: "evening shift" }] },
-    { key: "F", summary: "Day shifts; needs childcare support.", fields: { maxTravelMinutes: 30, transport: "rides", availability: "Tue,Wed,Thu", shiftPreference: "day", targetWage: 20, desiredModality: "general" },
-      factors: [...common, daytime(), { layer: "CONSTRAINT", label: "Needs onsite/near-site childcare", binding: true, disclosure: "STATED", matchKey: "childcare" }] },
-  ];
-
-  for (let i = 0; i < students.length; i++) {
-    const a = ARCHETYPES[i % ARCHETYPES.length];
-    await prisma.wblSnapshot.create({
-      data: {
-        institutionId, subjectType: "LEARNER_STUDENT", studentId: students[i].id,
-        asOfDate: addDaysISO("2025-09-08", i), summary: a.summary,
-        maxTravelMinutes: a.fields.maxTravelMinutes, transport: a.fields.transport, availability: a.fields.availability,
-        shiftPreference: a.fields.shiftPreference, targetWage: a.fields.targetWage, desiredModality: a.fields.desiredModality,
-        factors: { create: a.factors },
-      },
-    });
-  }
-  // ONE childcare-blocked student (index 5) gets a SECOND, later snapshot showing
-  // the need resolved — so dated history is visible. The OTHER (index 11) keeps
-  // the unmet need, so the placement board still demonstrates "needs support".
-  for (const i of [5]) {
-    const s = students[i];
-    if (!s) continue;
-    await prisma.wblSnapshot.create({
-      data: {
-        institutionId, subjectType: "LEARNER_STUDENT", studentId: s.id,
-        asOfDate: new Date("2026-01-20"), summary: "Re-capture: childcare arranged; now placeable on day rotations.",
-        maxTravelMinutes: 30, transport: "own-car", availability: "Mon,Tue,Wed,Thu,Fri", shiftPreference: "day", targetWage: 21, desiredModality: "general",
-        factors: { create: [
-          { layer: "MOTIVATION", label: "Earn a living wage in-region", weight: 1, matchKey: "living wage" },
-          { layer: "CAPACITY", label: "ARRT-eligible at completion", weight: 1, matchKey: "arrt eligible" },
-          { layer: "CONSTRAINT", label: "Needs daytime clinical hours", binding: true, matchKey: "daytime hours" },
-        ] },
-      },
-    });
-  }
-}
-
-
 export type CnaSession = {
   kind: string; number: number; title: string | null; deliveryMode: string | null; location: string | null;
   lengthHours: number; maxStudents: number; facultyNeeded: number; facultyContactPolicy: number | null;
@@ -1519,7 +1119,7 @@ async function main() {
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   // Sandhills' small Surgical Technology classes read exactly as the partner stated them: 8 enrolled, 6 completing.
   console.log("offering students:", await seedOfferingStudents([
-    { program: "Surgical Technology", cohort: "Class of 2026", withdrawn: 2, completed: true },
+    { program: "Surgical Technology", cohort: "Class of 2026", withdrawn: 2 },
     { program: "Surgical Technology", cohort: "Class of 2027", withdrawn: 2 },
   ]));
   // Every partner site has confirmed the experiences it provides (nothing reads "inferred only").
@@ -1532,8 +1132,12 @@ async function main() {
   // them under the roster levers, written through the apply path — one set of placements for the
   // scheduler, the site capacity view and the site load page, never a site over its seats.
   { const { seedRosterPlacements } = await import("./seed-plan"); for (const inst of await prisma.institution.findMany({ select: { id: true }, orderBy: { name: "asc" } })) { const r = await seedRosterPlacements(prisma, inst.id); if (r) console.log("roster placed by the scheduler:", r); } }
-  console.log("learner records:", await seedLearnerRecords(prisma, sandhills.id));
-  console.log("requirement logs:", await seedRequirementLogs(prisma, sandhills.id));
+  // Every college's learner history — grades, attendance, shift logs, requirement entries — for every offering that has
+  // started, graduated classes included (a college without requirement sets or sites simply logs less).
+  for (const inst of await prisma.institution.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })) {
+    console.log(`learner records — ${inst.name}:`, await seedLearnerRecords(prisma, inst.id));
+    console.log(`requirement logs — ${inst.name}:`, await seedRequirementLogs(prisma, inst.id));
+  }
   // Stage actuals read from the records above.
   { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
   // Every college's partner record points at the shared site registry (one record per site in the world).

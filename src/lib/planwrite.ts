@@ -34,6 +34,7 @@ export const chunks = <T,>(xs: T[], n = 400): T[][] => { const out: T[][] = []; 
  *  - a planned placement per student per site.
  *  Earlier auto-plan rows for the same offerings are replaced; anything made by hand is left alone. */
 export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], opts: { /** ISO date; shifts before it are history and are never re-planned (default: today). The seed passes the window start to write a whole roster. */ cutoff?: string } = {}): Promise<AppliedPlan> {
+  const todayIsoPw = new Date().toISOString().slice(0, 10);
   const cutoff = opts.cutoff ?? new Date().toISOString().slice(0, 10);
   const cutoffDate = new Date(cutoff + "T00:00:00Z");
   // THE PAST IS HISTORY: what already happened keeps its bookings, moves, staff and pins; only shifts from the cutoff on are replaced.
@@ -134,7 +135,8 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
       const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w);
       target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: a.assetId, preceptorId: leadPreceptor(a) });
     }
-    for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: "planned", notes: AUTO_PLAN_NOTE });
+    // A rotation's placement reads by its dates: over (completed), under way (active) or ahead (planned) — a graduated class's are history.
+    for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: w.to < todayIsoPw ? "completed" : w.from <= todayIsoPw ? "active" : "planned", notes: AUTO_PLAN_NOTE });
   }
   if (placements.length) await prisma.wblPlacement.createMany({ data: placements });
 

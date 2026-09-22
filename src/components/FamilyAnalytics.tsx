@@ -18,11 +18,11 @@ export interface FamCohort {
   enrolled: number;
   completers: number;
   stagesActual: Partial<Record<StageKey, number>>;
-  /** Delivery footprint for this cohort (whole program at its enrollment). */
-  facultyFte: number;
-  preceptorFte: number;
-  facultyHours: number;
-  preceptorHours: number;
+  /** Delivery footprint for this cohort (whole program at its enrollment) — optional; the footprint section shows only when it is known. */
+  facultyFte?: number;
+  preceptorFte?: number;
+  facultyHours?: number;
+  preceptorHours?: number;
 }
 
 const STATUS_COLOR: Record<string, string> = { active: "#10b981", completed: "#64748b", planned: "#0ea5e9", archived: "#cbd5e1" };
@@ -49,7 +49,8 @@ export function FamilyAnalytics({
   const tplScoped = useMemo(() => cohorts.filter((c) => template === "all" || c.programId === template), [cohorts, template]);
   const producedByYear = useMemo(() => {
     const m: Record<number, number> = {};
-    for (const c of tplScoped) m[c.gradYear] = (m[c.gradYear] ?? 0) + c.completers;
+    // "Produced" is the goal's own unit — fully productive workers — when the class's records carry it; completers until then.
+    for (const c of tplScoped) m[c.gradYear] = (m[c.gradYear] ?? 0) + (c.stagesActual.productive ?? c.completers);
     return m;
   }, [tplScoped]);
 
@@ -72,7 +73,7 @@ export function FamilyAnalytics({
       let facFte = 0, precFte = 0, facHrs = 0, active = 0;
       for (const c of tplScoped) {
         const ey = c.entryYear ?? c.gradYear - 2;
-        if (ey <= y && y <= c.gradYear) { facFte += c.facultyFte; precFte += c.preceptorFte; facHrs += c.facultyHours; active += 1; }
+        if (ey <= y && y <= c.gradYear) { facFte += c.facultyFte ?? 0; precFte += c.preceptorFte ?? 0; facHrs += c.facultyHours ?? 0; active += 1; }
       }
       m[y] = { facFte, precFte, facHrs, active };
     }
@@ -141,8 +142,8 @@ export function FamilyAnalytics({
             })()}
           </section>
 
-          {/* Delivery footprint — staffing FTE demand across overlapping cohorts, same year axis */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5">
+          {/* Delivery footprint — staffing FTE demand across overlapping cohorts, same year axis (only when the cohorts carry it) */}
+          {cohorts.some((c) => c.facultyFte != null || c.preceptorFte != null) && <section className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700">Delivery footprint — staffing demand</h2>
               <div className="flex items-center gap-3 text-[11px] text-slate-500">
@@ -168,7 +169,7 @@ export function FamilyAnalytics({
               })}
             </div>
             <p className="mt-1 text-[11px] text-slate-400">Because cohorts overlap (a class runs ~2 years), peak staffing demand is the sum of every cohort active that year — read alongside the production goals above.</p>
-          </section>
+          </section>}
 
           {/* Per-year detail table */}
           <section className="overflow-x-auto rounded-xl border border-slate-200">

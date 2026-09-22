@@ -9,7 +9,8 @@
 import { prisma } from "./db";
 import { STAGES, STAGE_INDEX, type StageKey } from "./funnel";
 
-const STATUS_STAGE: Record<string, StageKey | null> = {
+/** Lifecycle status → the funnel stage it stands for (one map for actions, actuals and the seeds). */
+export const STATUS_STAGE: Record<string, StageKey | null> = {
   prospect: "interested", applicant: "qualified", admitted: "offered", enrolled: "enrolled",
   completed: "completing", licensed: "licensed", placed: "placed", productive: "productive", withdrawn: null,
 };

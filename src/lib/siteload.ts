@@ -124,7 +124,8 @@ const TIME_DIMS: LoadDim[] = ["term", "semester", "year", "month", "week", "day"
 export const isTimeDim = (d: LoadDim) => TIME_DIMS.includes(d);
 const labelOf = (r: LoadRow, dim: LoadDim): string => {
   if (dim === "site") return r.site;
-  if (dim === "student") return r.student;
+  // A student is a person, not a name: two people can share one — the label carries the class so a filter or a CSV never merges them.
+  if (dim === "student") return `${r.student} · ${r.program} · ${r.cohort}`;
   // Two programs can both run a "Class of 2028": the label carries the program so they stay apart.
   if (dim === "cohort") return `${r.program} · ${r.cohort}`;
   if (dim === "preceptor") return r.preceptor ?? "(none named)";

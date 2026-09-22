@@ -24,6 +24,10 @@ export interface LearnerLite {
   /** The date the learner's cohort ends (its last term); null when unknown or no cohort. A completion
    *  rate counts only learners whose cohort has ended — nobody can have completed a program still running (Phase 6). */
   cohortEnds?: string | null;
+  /** The class year in the cohort's name ("Class of 2026" → 2026); null when the name carries none. */
+  gradYear?: number | null;
+  /** The learner's own first day and completion date (ISO), when recorded — time to complete reads them. */
+  startDate?: string | null; completionDate?: string | null;
 }
 
 /** Cells smaller than this show no rates: a rate of one or two people is noise, and can identify them (Phase 6). */
@@ -41,12 +45,12 @@ export function ageOn(dobIso: string | null, onIso: string): number | null {
 }
 export const ageBand = (age: number | null): string => age == null ? "unknown" : age < 20 ? "<20" : age < 25 ? "20–24" : age < 30 ? "25–29" : age < 35 ? "30–34" : age < 45 ? "35–44" : age < 55 ? "45–54" : "55+";
 
-export type Dimension = "sex" | "raceEthnicity" | "ageBand" | "county" | "residency" | "priorEducation" | "employmentStatus" | "firstGeneration" | "veteran" | "pellEligible" | "disability" | "program" | "cohort" | "institution" | "entryYear" | "status" | "withdrawalReason";
+export type Dimension = "sex" | "raceEthnicity" | "ageBand" | "county" | "residency" | "priorEducation" | "employmentStatus" | "firstGeneration" | "veteran" | "pellEligible" | "disability" | "program" | "cohort" | "institution" | "entryYear" | "gradYear" | "status" | "withdrawalReason";
 export const DIMENSIONS: { key: Dimension; label: string }[] = [
   { key: "sex", label: "Sex" }, { key: "raceEthnicity", label: "Race / ethnicity" }, { key: "ageBand", label: "Age band" }, { key: "county", label: "County" },
   { key: "residency", label: "Residency" }, { key: "priorEducation", label: "Prior education" }, { key: "employmentStatus", label: "Employment" },
   { key: "firstGeneration", label: "First generation" }, { key: "veteran", label: "Veteran" }, { key: "pellEligible", label: "Pell eligible" }, { key: "disability", label: "Disability" },
-  { key: "program", label: "Program" }, { key: "cohort", label: "Cohort" }, { key: "institution", label: "Institution" }, { key: "entryYear", label: "Entry year" }, { key: "status", label: "Status" }, { key: "withdrawalReason", label: "Withdrawal reason" },
+  { key: "program", label: "Program" }, { key: "cohort", label: "Cohort" }, { key: "institution", label: "Institution" }, { key: "entryYear", label: "Entry year" }, { key: "gradYear", label: "Class year" }, { key: "status", label: "Status" }, { key: "withdrawalReason", label: "Withdrawal reason" },
 ];
 
 const yn = (b: boolean | null) => (b == null ? "unknown" : b ? "yes" : "no");
@@ -58,6 +62,7 @@ export function dimensionValue(l: LearnerLite, dim: Dimension, today: string): s
     case "pellEligible": return yn(l.pellEligible);
     case "disability": return yn(l.disability);
     case "entryYear": return l.entryYear != null ? String(l.entryYear) : "unknown";
+    case "gradYear": return l.gradYear != null ? String(l.gradYear) : "unknown";
     case "cohort": return l.cohort ?? "no cohort";
     default: { const v = l[dim as keyof LearnerLite]; return v == null || v === "" ? "unknown" : String(v); }
   }
@@ -114,6 +119,11 @@ export function crosstab(learners: LearnerLite[], rowDim: Dimension, colDim: Dim
  *  applicants and admits never started, so they are not in the denominator. */
 export const ENTRANT_STATUSES = new Set(["enrolled", "completed", "licensed", "placed", "productive", "withdrawn"]);
 export const COMPLETED_STATUSES = new Set(["completed", "licensed", "placed", "productive"]);
+/** Everyone who ever sat in an offering: enrolled and every stage after it. The statuses a class's roster,
+ *  its requirement progress and its shift logs read — a graduate is still on the roster of the class they finished. */
+export const ENROLLED_AND_BEYOND = ["enrolled", "completed", "licensed", "placed", "productive"] as const;
+/** The roster plus those admitted and not yet started. */
+export const ROSTER_STATUSES = ["admitted", ...ENROLLED_AND_BEYOND] as const;
 export interface OutcomeStats {
   entrants: number; withdrawn: number; completed: number; inProgress: number;
   /** withdrawn ÷ entrants (null when nobody started). */
@@ -138,4 +148,28 @@ export function outcomeStats(learners: { status: string; cohortEnds?: string | n
     if (today && matured(l, today)) { maturedEntrants++; if (done) maturedCompleted++; }
   }
   return { entrants, withdrawn, completed, inProgress, withdrawalRate: entrants ? withdrawn / entrants : null, completionRate: maturedEntrants ? maturedCompleted / maturedEntrants : null, maturedEntrants, maturedCompleted, unmaturedEntrants: entrants - maturedEntrants };
+}
+
+// ── The analytics pickers and the time-to-complete figure (pure; the page and its tests read them) ──
+export interface AnalyticsCohortLite { id: string; name: string; status: string; gradYear: number | null; programId: string; program: string; institutionId: string; institution: string; cohortEnds: string | null }
+/** The institution → program → cohort options for the learner analytics, built from the OFFERINGS, not from who has
+ *  students: a class with nobody on its roster is still listed (and says so), never silently missing. */
+export function analyticsOptions(cohorts: AnalyticsCohortLite[], learners: Pick<LearnerLite, "gradYear" | "entryYear">[] & { cohortId?: string | null }[], sel: { inst?: string; prog?: string }) {
+  const institutions = [...new Map(cohorts.map((c) => [c.institutionId, c.institution])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const inInst = cohorts.filter((c) => !sel.inst || c.institutionId === sel.inst);
+  const programs = [...new Map(inInst.map((c) => [c.programId, c.program])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const counts = new Map<string, number>();
+  for (const l of learners) if (l.cohortId) counts.set(l.cohortId, (counts.get(l.cohortId) ?? 0) + 1);
+  const cohortRows = inInst.filter((c) => !sel.prog || c.programId === sel.prog).map((c) => ({ id: c.id, name: c.name, n: counts.get(c.id) ?? 0, gradYear: c.gradYear, status: c.status, program: c.program }))
+    .sort((a, b) => (b.gradYear ?? 0) - (a.gradYear ?? 0) || a.name.localeCompare(b.name));
+  const gradYears = [...new Set(cohorts.map((c) => c.gradYear).filter((y): y is number => y != null))].sort((a, b) => b - a);
+  const entryYears = [...new Set(learners.map((l) => l.entryYear).filter((y): y is number => y != null))].sort((a, b) => b - a);
+  return { institutions, programs, cohorts: cohortRows, gradYears, entryYears };
+}
+/** Months from a learner's first day to their completion date, for completers with both dates: the median and how many carried both. */
+export function timeToComplete(learners: Pick<LearnerLite, "status" | "startDate" | "completionDate">[]): { medianMonths: number | null; n: number } {
+  const months = learners.filter((l) => COMPLETED_STATUSES.has(l.status) && l.startDate && l.completionDate).map((l) => (new Date(l.completionDate! + "T00:00:00Z").getTime() - new Date(l.startDate! + "T00:00:00Z").getTime()) / (30.4375 * 86400000)).filter((m) => m >= 0).sort((a, b) => a - b);
+  if (!months.length) return { medianMonths: null, n: 0 };
+  const mid = Math.floor(months.length / 2);
+  return { medianMonths: months.length % 2 ? months[mid] : (months[mid - 1] + months[mid]) / 2, n: months.length };
 }

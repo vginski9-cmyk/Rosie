@@ -35,6 +35,14 @@ The students enrolled in one offering, as a group: cohort size, maximum cohort, 
 - **Not the same as:** Not a synonym for the offering. Say offering for the dated run and cohort for its people.
 - **Where:** Enrollment figures, section splits, the students page
 
+### Graduated class (history)
+
+An offering whose last day has passed. It is a record like any other: its roster carries where every learner ended (withdrawn, completed, licensed, placed, fully productive) with completion dates and grades, its clinical shifts are logged on the seats they were booked on, its rotations are marked completed, and its funnel actuals run through fully productive. Nothing drops it by status — the calendar, coverage, site load, the analytics and its own page keep it as history; a forward-looking page narrows by date (the classes whose terms overlap its window), never by status.
+
+- **Retired:** completed cohort (as a class that no longer counts)
+- **Not the same as:** Archived: an offering withdrawn from the record altogether.
+- **Where:** Every students view and picker, the goal page (Outcomes by class), Home (the latest class against its goal), site load, the offering page
+
 ### Term and semester
 
 A term is a block of weeks in a program's structure (Term 1 … Term 5); the offering places each term on real dates. A semester is the college calendar period a term lands in (Fall 2026).

@@ -6,6 +6,7 @@
 // Server-only (Prisma + the query layer). Pure helpers at the bottom are unit-tested.
 
 import { prisma } from "./db";
+import { NOT_ARCHIVED } from "./cohortscope";
 import { getSiteLoad, getCapacityModel, getFamiliesClinical, getActionQueue } from "./queries";
 import { buildInstances, type CohortCalendarInput } from "./capacitymodel";
 import { ruleFromLegacy, describeRule } from "./settingrule";
@@ -137,7 +138,7 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
     // nothing clinical can be placed, sized or verified, and every clinical page for it is an empty state, not a zero.
     const [employers, clinicalSessions] = await Promise.all([
       prisma.employer.count({ where: { institutionId: inst.id } }),
-      prisma.session.count({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: { status: { in: ["planned", "active"] } } } } } } } }),
+      prisma.session.count({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: NOT_ARCHIVED } } } } } }),
     ]);
     if (employers === 0 && clinicalSessions > 0) items.push({ id: `nosupply|${inst.id}`, severity: "blocker", kind: "no-supply", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: clinicalSessions,
       title: `${inst.name}: no clinical sites, assets or preceptors on record`, detail: `${clinicalSessions} clinical session${clinicalSessions === 1 ? "" : "s"} in its planned and running offerings have nowhere to be placed. Coverage, site load and the scheduler show nothing for this college until its sites are added — that is missing data, not zero demand.`, href: "/employers", fix: "add the college's clinical sites and their assets, then map each rotation type to a setting" });
@@ -198,7 +199,7 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
     // The evaluation service's evidence gaps that exist before any plan runs: unreviewed setting rules, supervision models
     // that need review, and secured sites whose limit is neither a figure nor explicitly unrestricted.
     const [clinical, rotationRows, limitRows] = await Promise.all([
-      prisma.session.findMany({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: { status: { in: ["planned", "active"] } } } } } } }, select: { id: true, rotationType: true, clinicalMode: true, facultyNeeded: true, preceptorsNeeded: true, maxStudents: true, course: { select: { term: { select: { program: { select: { id: true, name: true } } } } } } } }),
+      prisma.session.findMany({ where: { kind: "CLINICAL", course: { term: { program: { institutionId: inst.id, cohorts: { some: NOT_ARCHIVED } } } } }, select: { id: true, rotationType: true, clinicalMode: true, facultyNeeded: true, preceptorsNeeded: true, maxStudents: true, course: { select: { term: { select: { program: { select: { id: true, name: true } } } } } } } }),
       prisma.rotationSetting.findMany({ where: { institutionId: inst.id }, select: { rotationType: true, settingCode: true, rule: true, sourceText: true, interpretationStatus: true } }),
       prisma.familySite.findMany({ where: { family: { institutionId: inst.id }, agreementStatus: "secured" }, select: { familyId: true, employerId: true, agreementStatus: true, studentsAtOnce: true, studentsAtOnceMode: true, family: { select: { name: true } }, employer: { select: { name: true } } } }),
     ]);

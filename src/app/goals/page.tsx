@@ -54,6 +54,7 @@ export default async function HomePage() {
                       </div>
                     ))}
                     <span className="pb-1 pl-1 text-[10px] uppercase tracking-wide text-slate-400">fully productive workers a year</span>
+                    {f.latestClass && <span className="ml-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 ring-1 ring-emerald-200" title="The most recent graduated class: what its records say it produced, against the goal that year carried">Class of {f.latestClass.year}: {f.latestClass.actual == null ? "—" : fmt.num(f.latestClass.actual)}{f.latestClass.goal != null ? ` of ${fmt.num(f.latestClass.goal)}` : ""} productive</span>}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {f.programs.map((p) => (

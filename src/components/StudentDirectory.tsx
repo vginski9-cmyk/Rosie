@@ -36,6 +36,7 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
   const [q, setQ] = useState("");
   const [fInst, setFInst] = useState("");
   const [fProg, setFProg] = useState("");
+  const [fCohort, setFCohort] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fSex, setFSex] = useState(""); const [fRace, setFRace] = useState(""); const [fAge, setFAge] = useState(""); const [fCounty, setFCounty] = useState(""); const [fRes, setFRes] = useState("");
   const [showEnroll, setShowEnroll] = useState(false);
@@ -48,11 +49,18 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
     return insts.flatMap((i) => i.programs.map((p) => ({ id: p.id, name: p.name })));
   }, [institutions, fInst]);
 
+  // Every class of the chosen scope — graduated ones included — so a person can be found by the class they sat in.
+  const cohortOptions = useMemo(() => {
+    const insts = fInst ? institutions.filter((i) => i.id === fInst) : institutions;
+    return insts.flatMap((i) => i.programs.filter((p) => !fProg || p.id === fProg).flatMap((p) => p.cohorts.map((c) => ({ id: c.id, name: fProg ? c.name : `${p.name} · ${c.name}` }))));
+  }, [institutions, fInst, fProg]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return students.filter((s) => {
       if (fInst && s.program.institution.id !== fInst) return false;
       if (fProg && s.program.id !== fProg) return false;
+      if (fCohort && s.cohort?.id !== fCohort) return false;
       if (fStatus && s.status !== fStatus) return false;
       if (fSex && (s.sex ?? "") !== fSex) return false;
       if (fRace && (s.raceEthnicity ?? "") !== fRace) return false;
@@ -62,7 +70,7 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
       if (needle && !(s.name.toLowerCase().includes(needle) || (s.email ?? "").toLowerCase().includes(needle))) return false;
       return true;
     });
-  }, [students, q, fInst, fProg, fStatus, fSex, fRace, fAge, fCounty, fRes, today]);
+  }, [students, q, fInst, fProg, fCohort, fStatus, fSex, fRace, fAge, fCounty, fRes, today]);
   const counties = useMemo(() => [...new Set(students.map((s) => s.county).filter((c): c is string => !!c))].sort(), [students]);
 
   const byStatus = useMemo(() => {
@@ -81,16 +89,23 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
         </label>
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Institution</span>
-          <select value={fInst} onChange={(e) => { setFInst(e.target.value); setFProg(""); }} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+          <select value={fInst} onChange={(e) => { setFInst(e.target.value); setFProg(""); setFCohort(""); }} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
             <option value="">All</option>
             {institutions.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
           </select>
         </label>
         <label className="block">
           <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Program</span>
-          <select value={fProg} onChange={(e) => setFProg(e.target.value)} className="w-48 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+          <select value={fProg} onChange={(e) => { setFProg(e.target.value); setFCohort(""); }} className="w-48 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
             <option value="">All</option>
             {programOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Class</span>
+          <select value={fCohort} onChange={(e) => setFCohort(e.target.value)} className="w-52 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm">
+            <option value="">All</option>
+            {cohortOptions.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </label>
         <label className="block">
@@ -105,8 +120,8 @@ export function StudentDirectory({ students, institutions }: { students: DirStud
         <label className="block"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Age band</span><select value={fAge} onChange={(e) => setFAge(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{AGE_BANDS.map((x) => <option key={x} value={x}>{x}</option>)}<option value="unknown">unknown</option></select></label>
         <label className="block"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">County</span><select value={fCounty} onChange={(e) => setFCounty(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{counties.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
         <label className="block"><span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Residency</span><select value={fRes} onChange={(e) => setFRes(e.target.value)} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"><option value="">All</option>{RESIDENCY.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
-        {(q || fInst || fProg || fStatus || fSex || fRace || fAge || fCounty || fRes) && (
-          <button onClick={() => { setQ(""); setFInst(""); setFProg(""); setFStatus(""); setFSex(""); setFRace(""); setFAge(""); setFCounty(""); setFRes(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>
+        {(q || fInst || fProg || fCohort || fStatus || fSex || fRace || fAge || fCounty || fRes) && (
+          <button onClick={() => { setQ(""); setFInst(""); setFProg(""); setFCohort(""); setFStatus(""); setFSex(""); setFRace(""); setFAge(""); setFCounty(""); setFRes(""); }} className="pb-1.5 text-xs text-slate-400 hover:text-rose-600">clear</button>
         )}
         <Link href="/students/analytics" className="ml-auto rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Learner analytics →</Link>
         <button onClick={() => setShowEnroll((v) => !v)} className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white hover:bg-rose-700">{showEnroll ? "Close" : "+ Enroll student"}</button>

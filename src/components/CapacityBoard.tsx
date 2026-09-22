@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { mondayOf } from "@/lib/siteload";
 import {
   buildInstances, weeklyNeed, weeklyNeedByKind, settingAsks, shiftBoard, sumBy, peakOf,
   type DatedInstance, type CohortCalendarInput, type WorkloadAssumptions, type SessionInput,
@@ -120,7 +121,7 @@ function useSetFilter() {
   return useState<Set<string> | null>(null);
 }
 
-export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = [], collapsible = false, assignments = [] }: { cohorts: CapacityCohort[]; view: CapacityView; sites?: ClinicalSite[]; rooms?: CalRoom[]; people?: CalPerson[]; collapsible?: boolean; /** Staff assignments (dated) — lets a staffing bar open to the people who fill it. */ assignments?: DrillAssignment[] }) {
+export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = [], collapsible = false, assignments = [], peakFrom }: { cohorts: CapacityCohort[]; view: CapacityView; sites?: ClinicalSite[]; rooms?: CalRoom[]; people?: CalPerson[]; collapsible?: boolean; /** Staff assignments (dated) — lets a staffing bar open to the people who fill it. */ assignments?: DrillAssignment[]; /** The headline peak counts weeks from this Monday on (default: this week) — a graduated class's own page passes its first day, so its history is its peak. */ peakFrom?: string }) {
   const [cohortsOn, setCohortsOn] = useState<Set<string>>(new Set(cohorts.map((c) => c.cohortId)));
   const [termsOn, setTermsOn] = useState<Set<number> | null>(null); // null = all
   // The sites view starts clinical-only (that's its subject); staffing and the
@@ -195,11 +196,13 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
   // full week-by-week / day-by-day breakdown.
   const [expanded, setExpanded] = useState(!collapsible);
   const summary = useMemo(() => {
-    const w = weeklyNeedByKind(instances);
+    // The peak is a forward figure: weeks before `peakFrom` (this week unless the caller says otherwise) are history.
+    const floor = peakFrom ?? mondayOf(new Date().toISOString().slice(0, 10));
+    const w = weeklyNeedByKind(instances).filter((r) => r.mondayIso >= floor);
     const pf = w.reduce((b, r) => Math.max(b, r.totalFacFte), 0);
     const pp = w.reduce((b, r) => Math.max(b, r.preceptorFte), 0);
     return { peakFac: pf, peakPre: pp, facHeads: Math.ceil(pf - 1e-9), preHeads: Math.ceil(pp - 1e-9) };
-  }, [instances]);
+  }, [instances, peakFrom]);
 
   const pivotFilter = (label: string, options: string[], cur: Set<string> | null, set: (s: Set<string> | null) => void) =>
     options.length > 1 ? (

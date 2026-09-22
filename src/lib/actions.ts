@@ -1,6 +1,9 @@
 "use server";
 
 import { prisma } from "./db";
+import { STATUS_STAGE } from "./pipelineactuals";
+import { NOT_ARCHIVED } from "./cohortscope";
+import { ROSTER_STATUSES } from "./learners";
 import { requireOperational } from "./mode";
 import { isHolidayRule } from "./holidayrule";
 // Planning decisions — locking a goal-year cohort in or out, creating a planned offering, setting a
@@ -261,7 +264,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
  *  import, a pattern change, or on demand). */
 export async function alignInstitutionOfferings(institutionId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignSummary> {
   requireOperational();
-  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true }, orderBy: { startDate: "asc" } });
+  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, ...NOT_ARCHIVED, cohortTerms: { some: { endDate: { gte: new Date() } } }, startDate: { not: null } }, select: { id: true }, orderBy: { startDate: "asc" } });
   const reports: AlignReport[] = [];
   for (const c of cohorts) { const r = await alignOfferingToCalendar(c.id, opts); if (r) reports.push(r); }
   return { offerings: reports.length, termsMoved: reports.reduce((n, r) => n + r.changed.length, 0), courseWindows: reports.reduce((n, r) => n + r.courseWindows, 0), reports };
@@ -277,7 +280,7 @@ export async function confirmRealign(institutionId: string, opts: { resetManual?
   changeSetId: string | null }> {
   requireOperational();
   const { snapshotRealign, recordChange } = await import("./changesets");
-  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, status: { in: ["planned", "active"] }, startDate: { not: null } }, select: { id: true } });
+  const cohorts = await prisma.cohort.findMany({ where: { program: { institutionId }, ...NOT_ARCHIVED, cohortTerms: { some: { endDate: { gte: new Date() } } }, startDate: { not: null } }, select: { id: true } });
   const before = await snapshotRealign(cohorts.map((c) => c.id));
   const res = await alignInstitutionOfferings(institutionId, opts);
   const moved = res.reports.filter((r) => r.changed.length || r.renamed);
@@ -303,12 +306,8 @@ export async function saveFamilyGoalPlan(familyId: string, planJson: string): Pr
 // STUDENTS — intake / enroll / assign (the operational system of record)
 // ---------------------------------------------------------------------------
 
-/** Lifecycle status → the funnel stage it corresponds to (drives pipeline drill-down). */
-const STATUS_TO_STAGE: Record<string, string | null> = {
-  prospect: "interested", applicant: "qualified", admitted: "offered",
-  enrolled: "enrolled", completed: "completing", licensed: "licensed",
-  placed: "placed", productive: "productive", withdrawn: null,
-};
+/** Lifecycle status → the funnel stage it corresponds to (drives pipeline drill-down) — the one map in lib/pipelineactuals. */
+const STATUS_TO_STAGE: Record<string, string | null> = STATUS_STAGE;
 
 /** Intake: create a real student record and place them in a program (and optionally a cohort). */
 export async function enrollStudent(formData: FormData): Promise<void> {
@@ -1737,7 +1736,7 @@ export interface ImportPreview {
 }
 /** What an import WOULD do, before it does it: additions, updates, removals and affected offerings. */
 export async function previewProgramSheetImport(programId: string, sessions: ImportedSession[], mode: ImportMode, unmappedColumns: string[] = []): Promise<ImportPreview> {
-  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: true } } } }, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { name: true } } } });
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: true } } } }, cohorts: { where: { ...NOT_ARCHIVED, cohortTerms: { some: { endDate: { gte: new Date() } } } }, select: { name: true } } } });
   if (!program) throw new Error("Program not found");
   const preview: ImportPreview = { mode, newTerms: [], newCourses: [], additions: [], updates: [], removals: [], affectedOfferings: program.cohorts.map((c) => c.name), unmappedColumns };
   const termByIndex = new Map(program.terms.map((t) => [t.index, t]));
@@ -2110,8 +2109,8 @@ export async function applySchedulerLevers(institutionId: string, levers: import
   const { snapshotPlan, recordChange } = await import("./changesets");
   const data = await getCapacityModel({ institutionId });
   if (!data) return { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0, sections: 0, changeSetId: null };
-  const base = schedulerWindow(data.cohorts);
-  const supply = await getSchedulerData(data.institution.id, base.from, base.to);
+  // Supply over the levers' own window: the plan is built inside it, exactly as the board built it.
+  const supply = await getSchedulerData(data.institution.id, levers.from, levers.to);
   const plan = buildSchedulerPlan(data.cohorts, supply, levers);
   // Blocking blockers stop the apply unless each kind was overridden on purpose (the override is recorded).
   const override = new Set(opts.override ?? []);
@@ -2146,8 +2145,7 @@ export async function previewSchedulerApply(institutionId: string, levers: impor
   const { buildSchedulerPlan, schedulerWindow } = await import("./schedulerplan");
   const data = await getCapacityModel({ institutionId });
   if (!data) return null;
-  const base = schedulerWindow(data.cohorts);
-  const supply = await getSchedulerData(data.institution.id, base.from, base.to);
+  const supply = await getSchedulerData(data.institution.id, levers.from, levers.to);
   const plan = buildSchedulerPlan(data.cohorts, supply, levers);
   const cohortIds = [...new Set(plan.assignments.map((x) => x.unit.cohortId))];
   const [bookings, placements, moves, staff, students] = cohortIds.length ? await Promise.all([
@@ -2155,7 +2153,7 @@ export async function previewSchedulerApply(institutionId: string, levers: impor
     prisma.wblPlacement.count({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } }),
     prisma.shiftMove.count({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } }),
     prisma.sessionInstructor.count({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } }),
-    prisma.student.count({ where: { cohortId: { in: cohortIds }, status: { in: ["enrolled", "admitted"] } } }),
+    prisma.student.count({ where: { cohortId: { in: cohortIds }, status: { in: [...ROSTER_STATUSES] } } }),
   ]) : [0, 0, 0, 0, 0];
   return {
     sections: plan.assignments.length, bookings: plan.assignments.reduce((n, x) => n + Math.max(1, x.parts.length), 0), sitesUsed: plan.summary.sitesUsed,

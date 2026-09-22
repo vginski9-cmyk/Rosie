@@ -1,8 +1,12 @@
 import { notFound } from "next/navigation";
 import { getFamily, getProgramFamilyId } from "@/lib/queries";
+import { gradYearOf as classYearOf } from "@/lib/cohortscope";
 import { GoalPlanner } from "@/components/GoalPlanner";
 import { prisma } from "@/lib/db";
 import { computeCohortTiming, type TimingTerm } from "@/lib/term";
+import { Collapse } from "@/components/Collapse";
+import { FamilyAnalytics, type FamCohort } from "@/components/FamilyAnalytics";
+import type { StageKey } from "@/lib/funnel";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +14,7 @@ export const dynamic = "force-dynamic";
 // Shared by every program template under the same job.
 
 const monthYear = (d: Date | null) => (d ? d.toLocaleDateString(undefined, { month: "short", year: "numeric" }) : null);
-const gradYearOf = (name: string): number => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : 0; };
+const gradYearOf = (name: string): number => classYearOf(name) ?? 0;
 const STATUS_RANK: Record<string, number> = { prospect: 0, applicant: 1, admitted: 2, enrolled: 3, completed: 4, licensed: 5, placed: 6, productive: 7 };
 
 export default async function ProgramGoalPage({ params }: { params: { id: string } }) {
@@ -31,6 +35,11 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
   const today = new Date();
   const nowYear = today.getUTCFullYear();
   const offeringsByYear: Record<number, import("@/components/GoalPlanner").OfferingSummary[]> = {};
+  // Every class as a record for "Outcomes by class" — produced vs goal vs demand per class year, and each class's timeline.
+  const famCohorts: FamCohort[] = [];
+  // The goals the family actually plans by: the saved North-Star ladder over any per-program year targets.
+  const analyticsGoals: Record<number, number> = { ...goalByYear };
+  try { const saved = JSON.parse(family.goalPlan ?? "{}") as { goalsByYear?: Record<string, number> }; for (const [y, g] of Object.entries(saved.goalsByYear ?? {})) analyticsGoals[Number(y)] = Number(g) || 0; } catch { /* no saved plan */ }
   const actualByYear: Record<number, import("@/components/GoalPlanner").ActualFunnel> = {};
   for (const p of family.programs) {
     const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
@@ -54,6 +63,9 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
         }
       }
       const goalProductive = Math.round(co.stages.find((x) => x.stageKey === "productive")?.targetNumber ?? 0);
+      const stagesActual: Partial<Record<StageKey, number>> = {};
+      for (const st of co.stages) if (st.actualNumber != null) stagesActual[st.stageKey as StageKey] = st.actualNumber;
+      famCohorts.push({ id: co.id, name: co.name, programId: p.id, programName: p.name, gradYear: gy, entryYear: co.entryYear ?? null, status: co.status, enrolled, completers: completed, stagesActual });
       const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
       const tm = computeCohortTiming(co.startDate, timingTerms, today, orderedTerms.map((t) => ctById.get(t.id)?.startDate ?? null), orderedTerms.map((t) => ctById.get(t.id)?.endDate ?? null));
       (offeringsByYear[gy] ??= []).push({
@@ -89,6 +101,9 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
           events: family.institution.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate ? e.endDate.toISOString().slice(0, 10) : null, label: e.label, kind: e.kind, season: e.season })),
         }}
       />
+      <Collapse title="Outcomes by class" sub="Produced against the goal and the regional demand, class year by class year; each class from entry to graduation" summary={<>{famCohorts.length} class{famCohorts.length === 1 ? "" : "es"} on record</>}>
+        <FamilyAnalytics cohorts={famCohorts} demandByYear={demandByYear} goalByYear={analyticsGoals} templates={family.programs.map((p) => ({ id: p.id, name: p.name }))} />
+      </Collapse>
     </div>
   );
 }

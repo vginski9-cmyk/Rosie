@@ -22,6 +22,7 @@
 // Returns a summary that says exactly what it did and what it could not do.
 
 import { prisma } from "./db";
+import { ROSTER_STATUSES } from "./learners";
 import { planMeetings } from "./calendarize";
 import { buildInstances, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
 import { demandUnits, recommendPlan, DEFAULT_POLICY, REASON_LABEL, type Policy, type Plan, type Assignment as PlanAssignment, type UnmetReason, type Blocker } from "./scheduler";
@@ -147,7 +148,7 @@ export async function autoAssignPreview(cohortId: string): Promise<AutoAssignPre
   const [sessions, staffed, students, courses, existingSections, existingShifts, unpinned] = await Promise.all([
     prisma.session.findMany({ where: { course: { term: { programId: head.programId } } }, select: { id: true, kind: true, maxStudents: true, facultyNeeded: true, preceptorsNeeded: true, supportStaffNeeded: true, lengthHours: true } }),
     prisma.sessionInstructor.findMany({ where: { cohortId }, select: { sessionId: true, sectionIndex: true, contactHours: true } }),
-    prisma.student.count({ where: { cohortId, status: { in: ["enrolled", "admitted"] } } }),
+    prisma.student.count({ where: { cohortId, status: { in: [...ROSTER_STATUSES] } } }),
     prisma.course.findMany({ where: { term: { programId: head.programId } }, select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } }),
     prisma.studentSection.count({ where: { cohortId } }),
     prisma.studentShift.count({ where: { cohortId } }),
@@ -321,7 +322,7 @@ export async function autoAssignOffering(cohortId: string): Promise<AutoAssignSu
 
   // 4 · Learners: sections by seat order, every clinical shift, pinned to the booked asset.
   const [students, courses, existingSections, existingShifts] = await Promise.all([
-    prisma.student.findMany({ where: { cohortId, status: { in: ["enrolled", "admitted"] } }, select: { id: true, sectionIndex: true }, orderBy: { sectionIndex: "asc" } }),
+    prisma.student.findMany({ where: { cohortId, status: { in: [...ROSTER_STATUSES] } }, select: { id: true, sectionIndex: true }, orderBy: { sectionIndex: "asc" } }),
     prisma.course.findMany({ where: { term: { programId: head.programId } }, select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } }),
     prisma.studentSection.findMany({ where: { cohortId }, select: { studentId: true, courseId: true, kind: true } }),
     prisma.studentShift.findMany({ where: { cohortId }, select: { studentId: true, sessionId: true } }),

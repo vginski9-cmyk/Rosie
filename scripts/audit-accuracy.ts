@@ -16,6 +16,7 @@ import { assetDemand, assetSupply, assetMatch, blocksOn, overrideIndex, override
 import { eligibleSettings } from "../src/lib/settingrule";
 import { SETTING_PRESETS } from "../src/lib/settingPresets";
 import { coursePoolRules } from "../src/lib/requirementstore";
+import { NOT_ARCHIVED } from "../src/lib/cohortscope";
 
 type Finding = { check: string; severity: "error" | "warn" | "info"; detail: string; n?: number };
 const F: Finding[] = [];
@@ -217,6 +218,42 @@ async function auditInstitution(inst: { id: string; name: string }) {
     const mins = sum(rule.rule.minimums.map((m) => m.quantity));
     if (mins > hours) err(tag("G1 pool"), `${c?.code ?? courseId}: minimums ${mins} h exceed the course's ${hours} h of clinical sessions`);
   }
+
+  // ── H. Graduated classes are records ──────────────────────────────────────────────────────────
+  // A class whose last day has passed carries its whole history: terminal statuses with completion dates and a GPA, stage
+  // actuals through productive that never rise along the ladder, no shift still "scheduled" for anyone who did not withdraw,
+  // every completed clinical shift on a booked seat, and its rotations marked completed.
+  const graduated = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, select: { id: true, name: true, status: true, startDate: true, cohortTerms: { select: { endDate: true } }, stages: { orderBy: { sortOrder: "asc" }, select: { stageKey: true, actualNumber: true } }, students: { select: { id: true, status: true, completionDate: true, gpa: true, shifts: { select: { status: true, assetId: true, sessionId: true, sectionIndex: true } } } }, placements: { select: { status: true, endDate: true } } } })
+    .then((rows) => rows.map((c) => ({ ...c, lastEnd: c.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0]?.toISOString().slice(0, 10) ?? null })).filter((c) => c.status === "completed" || (c.lastEnd != null && c.lastEnd < todayIso)));
+  const TERMINAL = new Set(["withdrawn", "completed", "licensed", "placed", "productive"]);
+  const hasSites = (await prisma.employer.count({ where: { institutionId: inst.id } })) > 0;
+  for (const c of graduated) {
+    const tagc = (k: string) => tag(`${k} · ${c.name}`);
+    if (c.status !== "completed") err(tagc("H0 status"), `last day ${c.lastEnd} has passed but the offering reads ${c.status}`);
+    if (!c.students.length) { err(tagc("H2 roster"), "a graduated class with no students on record"); continue; }
+    const grads = c.students.filter((s) => s.status !== "withdrawn");
+    const stillScheduled = sum(grads.map((s) => s.shifts.filter((x) => x.status === "scheduled").length));
+    if (stillScheduled) err(tagc("H1 scheduled history"), `${stillScheduled} clinical shifts of graduates still read "scheduled"`);
+    const nonTerminal = c.students.filter((s) => !TERMINAL.has(s.status)).length;
+    if (nonTerminal) err(tagc("H2 terminal"), `${nonTerminal} students are neither withdrawn nor completed / licensed / placed / productive`);
+    const noDate = grads.filter((s) => !s.completionDate || s.completionDate.toISOString().slice(0, 10) !== c.lastEnd).length;
+    if (noDate) err(tagc("H2 completion date"), `${noDate} graduates lack a completion date equal to the class's last day ${c.lastEnd}`);
+    const noGpa = grads.filter((s) => s.gpa == null).length;
+    if (noGpa) err(tagc("H2 gpa"), `${noGpa} graduates carry no GPA`);
+    const ladder = ["interested", "qualified", "offered", "enrolled", "completing", "licensed", "placed", "productive"].map((k) => c.stages.find((s) => s.stageKey === k)?.actualNumber ?? null);
+    if (ladder.some((v) => v == null)) err(tagc("H3 actuals"), `a stage actual is blank: ${ladder.map((v) => v ?? "·").join(" / ")}`);
+    else for (let i = 1; i < ladder.length; i++) if (ladder[i]! > ladder[i - 1]!) err(tagc("H3 monotone"), `stage actuals rise along the ladder: ${ladder.join(" / ")}`);
+    // A logged shift pinned to a seat must have the booking behind it (pin integrity — an error); one logged with no seat at all
+    // is the plan's own shortfall carried into history (site load says "no seat yet"), reported, never hidden.
+    const completedShifts = grads.flatMap((s) => s.shifts.filter((x) => x.status === "completed"));
+    const pinnedNoBooking = completedShifts.filter((x) => x.assetId && !(bookingOf.get(`${c.id}|${x.assetId}|${x.sessionId}|${x.sectionIndex}`) ?? []).length).length;
+    if (pinnedNoBooking) err(tagc("H4 pin integrity"), `${pinnedNoBooking} completed clinical shifts are pinned to a seat with no booking behind it`);
+    const noSeat = completedShifts.filter((x) => !x.assetId).length;
+    if (noSeat) warn(tagc("H4 unseated history"), `${noSeat} of ${completedShifts.length} completed clinical shifts were logged with no seat${hasSites ? " — the plan could not place them" : " (the college has no sites on record)"}`, noSeat);
+    const openWbl = c.placements.filter((w) => w.status !== "completed" || !w.endDate || w.endDate.toISOString().slice(0, 10) >= todayIso).length;
+    if (openWbl) err(tagc("H5 rotations"), `${openWbl} of ${c.placements.length} rotation placements are not marked completed with a past end date`);
+  }
+  info(tag("H graduated"), `${graduated.length} graduated classes · ${sum(graduated.map((c) => c.students.length))} students · ${sum(graduated.map((c) => sum(c.students.map((s) => s.shifts.filter((x) => x.status === "completed").length))))} completed clinical shifts on record`);
 }
 
 async function main() {

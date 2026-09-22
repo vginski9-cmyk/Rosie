@@ -7,7 +7,7 @@
 // and withdrawal rates, average age and GPA — plus a two-way cross-tab.
 
 import { useMemo, useState } from "react";
-import { DIMENSIONS, SMALL_CELL, pivot, crosstab, ageOn, dimensionValue, outcomeStats, type Dimension, type LearnerLite } from "@/lib/learners";
+import { DIMENSIONS, SMALL_CELL, pivot, crosstab, ageOn, dimensionValue, outcomeStats, analyticsOptions, timeToComplete, type Dimension, type LearnerLite, type AnalyticsCohortLite } from "@/lib/learners";
 import { dec, fmt } from "@/lib/format";
 
 export interface AnalyticsLearner extends LearnerLite { institutionId: string; programId: string; cohortId: string | null }
@@ -16,24 +16,25 @@ const n = (x: number) => fmt.num(x);
 const pct = (x: number | null) => fmt.pct(x);
 const f1 = (x: number | null) => fmt.age(x);
 
-export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearner[]; today: string }) {
+export function LearnerAnalytics({ learners, cohorts: allCohorts = [], today }: { learners: AnalyticsLearner[]; /** Every offering that is a record — the pickers list a class even when nobody is on its roster. */ cohorts?: AnalyticsCohortLite[]; today: string }) {
   const [dim, setDim] = useState<Dimension>("raceEthnicity");
   const [colDim, setColDim] = useState<Dimension>("sex");
-  const [fInst, setFInst] = useState(""); const [fProg, setFProg] = useState(""); const [fCohort, setFCohort] = useState(""); const [fYear, setFYear] = useState(""); const [fStatus, setFStatus] = useState("");
+  const [fInst, setFInst] = useState(""); const [fProg, setFProg] = useState(""); const [fCohort, setFCohort] = useState(""); const [fYear, setFYear] = useState(""); const [fGrad, setFGrad] = useState(""); const [fStatus, setFStatus] = useState("");
   const [slice, setSlice] = useState<{ dim: Dimension; value: string }[]>([]);
 
-  const institutions = useMemo(() => [...new Map(learners.map((l) => [l.institutionId, l.institution])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [learners]);
-  const programs = useMemo(() => [...new Map(learners.filter((l) => !fInst || l.institutionId === fInst).map((l) => [l.programId, l.program])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [learners, fInst]);
-  const cohorts = useMemo(() => [...new Map(learners.filter((l) => (!fInst || l.institutionId === fInst) && (!fProg || l.programId === fProg)).filter((l) => l.cohortId).map((l) => [l.cohortId!, l.cohort!])).entries()].sort((a, b) => a[1].localeCompare(b[1])), [learners, fInst, fProg]);
-  const years = useMemo(() => [...new Set(learners.map((l) => l.entryYear).filter((y): y is number => y != null))].sort((a, b) => b - a), [learners]);
+  // Options come from the offerings (lib/learners analyticsOptions): a graduated class with its roster, a planned one with
+  // nobody yet — every class is listed, and one with no students says so instead of going missing.
+  const opts = useMemo(() => analyticsOptions(allCohorts.length ? allCohorts : [...new Map(learners.filter((l) => l.cohortId).map((l) => [l.cohortId!, { id: l.cohortId!, name: l.cohort ?? "", status: "", gradYear: l.gradYear ?? null, programId: l.programId, program: l.program, institutionId: l.institutionId, institution: l.institution, cohortEnds: l.cohortEnds ?? null }])).values()], learners, { inst: fInst, prog: fProg }), [allCohorts, learners, fInst, fProg]);
+  const { institutions, programs, cohorts, gradYears, entryYears: years } = opts;
 
-  const filtered = useMemo(() => learners.filter((l) => (!fInst || l.institutionId === fInst) && (!fProg || l.programId === fProg) && (!fCohort || l.cohortId === fCohort) && (!fYear || String(l.entryYear) === fYear) && (!fStatus || l.status === fStatus) && slice.every((s) => dimensionValue(l, s.dim, today) === s.value)), [learners, fInst, fProg, fCohort, fYear, fStatus, slice, today]);
+  const filtered = useMemo(() => learners.filter((l) => (!fInst || l.institutionId === fInst) && (!fProg || l.programId === fProg) && (!fCohort || l.cohortId === fCohort) && (!fYear || String(l.entryYear) === fYear) && (!fGrad || String(l.gradYear) === fGrad) && (!fStatus || l.status === fStatus) && slice.every((s) => dimensionValue(l, s.dim, today) === s.value)), [learners, fInst, fProg, fCohort, fYear, fStatus, slice, today]);
   const rows = useMemo(() => pivot(filtered, dim, today), [filtered, dim, today]);
   const ct = useMemo(() => crosstab(filtered, dim, colDim, today), [filtered, dim, colDim, today]);
   const all = useMemo(() => pivot(filtered, "status", today), [filtered, today]);
   const ages = filtered.map((l) => ageOn(l.dob, today)).filter((a): a is number => a != null);
   const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
   const { completed, withdrawn, entrants, withdrawalRate, completionRate, maturedEntrants, maturedCompleted, unmaturedEntrants } = outcomeStats(filtered, today);
+  const ttc = useMemo(() => timeToComplete(filtered), [filtered]);
   const sel = "rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm";
   const lbl = "mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400";
 
@@ -42,14 +43,15 @@ export function LearnerAnalytics({ learners, today }: { learners: AnalyticsLearn
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3">
         <label className="block"><span className={lbl}>Institution</span><select value={fInst} onChange={(e) => { setFInst(e.target.value); setFProg(""); setFCohort(""); }} className={sel}><option value="">All</option>{institutions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
         <label className="block"><span className={lbl}>Program</span><select value={fProg} onChange={(e) => { setFProg(e.target.value); setFCohort(""); }} className={sel}><option value="">All</option>{programs.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-        <label className="block"><span className={lbl}>Cohort</span><select value={fCohort} onChange={(e) => setFCohort(e.target.value)} className={sel}><option value="">All</option>{cohorts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+        <label className="block"><span className={lbl}>Cohort</span><select value={fCohort} onChange={(e) => setFCohort(e.target.value)} className={sel}><option value="">All</option>{cohorts.map((c) => <option key={c.id} value={c.id}>{fProg ? c.name : `${c.program} · ${c.name}`}{c.n === 0 ? " (no students)" : ""}{c.status === "completed" ? " · graduated" : ""}</option>)}</select></label>
         <label className="block"><span className={lbl}>Entry year</span><select value={fYear} onChange={(e) => setFYear(e.target.value)} className={sel}><option value="">All</option>{years.map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
+        <label className="block"><span className={lbl}>Class year</span><select value={fGrad} onChange={(e) => setFGrad(e.target.value)} className={sel}><option value="">All</option>{gradYears.map((y) => <option key={y} value={y}>{y}</option>)}</select></label>
         <label className="block"><span className={lbl}>Status</span><select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className={sel}><option value="">All</option>{["prospect", "applicant", "admitted", "enrolled", "completed", "licensed", "placed", "productive", "withdrawn"].map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
         {slice.length > 0 && <span className="flex flex-wrap items-center gap-1 text-xs">{slice.map((s) => <button key={s.dim + s.value} onClick={() => setSlice(slice.filter((x) => x !== s))} className="rounded-full bg-rose-600 px-2 py-0.5 text-white" title="remove this slice">{DIMENSIONS.find((d) => d.key === s.dim)?.label}: {s.value} ✕</button>)}</span>}
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), completionRate == null ? `no completion rate yet — no cohort has ended (${n(entrants)} entrants still in cohorts running or undated)` : `${pct(completionRate)} of ${n(maturedEntrants)} entrants in cohorts that have ended (${n(maturedCompleted)} completed)${unmaturedEntrants ? ` · ${n(unmaturedEntrants)} entrants in cohorts still running are not counted` : ""}`], ["Withdrawn", n(withdrawn), `${pct(withdrawalRate)} of ${n(entrants)} entrants (withdrawn to date ÷ everyone who started)`], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"]].map(([k, v, s]) => (
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+        {[["Learners", n(filtered.length), `${all.map((r) => `${r.n} ${r.value}`).slice(0, 4).join(" · ")}`], ["Average age", f1(avgAge), `${ages.length} with a date of birth`], ["Completed", n(completed), completionRate == null ? `no completion rate yet — no cohort has ended (${n(entrants)} entrants still in cohorts running or undated)` : `${pct(completionRate)} of ${n(maturedEntrants)} entrants in cohorts that have ended (${n(maturedCompleted)} completed)${unmaturedEntrants ? ` · ${n(unmaturedEntrants)} entrants in cohorts still running are not counted` : ""}`], ["Withdrawn", n(withdrawn), `${pct(withdrawalRate)} of ${n(entrants)} entrants (withdrawn to date ÷ everyone who started)`], ["In progress", n(filtered.filter((l) => ["enrolled"].includes(l.status)).length), "enrolled now"], ["Time to complete", ttc.medianMonths == null ? "—" : `${dec(ttc.medianMonths)} mo`, ttc.n ? `median, ${n(ttc.n)} completer${ttc.n === 1 ? "" : "s"} with a first day and a completion date` : "no completer has both a first day and a completion date on record"]].map(([k, v, s]) => (
           <div key={k} className="rounded-xl border border-slate-200 bg-white p-3"><div className="text-[10px] uppercase tracking-wide text-slate-500">{k}</div><div className="text-xl font-bold tabular-nums text-slate-900">{v}</div><div className="truncate text-[11px] text-slate-500" title={s}>{s}</div></div>
         ))}
       </div>

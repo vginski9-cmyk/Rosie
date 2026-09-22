@@ -32,3 +32,34 @@ describe("learners", () => {
     expect(ct.rows[0]).toEqual({ value: "White", cells: [1, 1], n: 2 });
   });
 });
+
+describe("graduated classes in the analytics", () => {
+  const co = (id: string, name: string, status: string, programId = "p1", program = "Radiography") => ({ id, name, status, gradYear: name.match(/(20\d{2})/) ? Number(name.match(/(20\d{2})/)![1]) : null, programId, program, institutionId: "i1", institution: "Sandhills", cohortEnds: null });
+  it("the pickers come from the offerings: a class with no students is listed and says so, graduated ones first", async () => {
+    const { analyticsOptions } = await import("../src/lib/learners");
+    const cohorts = [co("a", "Class of 2028", "active"), co("b", "Class of 2026", "completed"), co("c", "Class of 2030", "planned", "p2", "Surgical Technology")];
+    const learners = [{ cohortId: "a", gradYear: 2028, entryYear: 2026 }, { cohortId: "a", gradYear: 2028, entryYear: 2026 }, { cohortId: "b", gradYear: 2026, entryYear: 2024 }];
+    const o = analyticsOptions(cohorts, learners, {});
+    expect(o.institutions).toEqual([["i1", "Sandhills"]]);
+    expect(o.programs.map(([, n]) => n)).toEqual(["Radiography", "Surgical Technology"]);
+    expect(o.cohorts.map((c) => `${c.name}:${c.n}:${c.status}`)).toEqual(["Class of 2030:0:planned", "Class of 2028:2:active", "Class of 2026:1:completed"]);
+    expect(o.gradYears).toEqual([2030, 2028, 2026]); expect(o.entryYears).toEqual([2026, 2024]);
+    expect(analyticsOptions(cohorts, learners, { prog: "p2" }).cohorts.map((c) => c.name)).toEqual(["Class of 2030"]);
+  });
+  it("time to complete is the median months from first day to completion date over completers that carry both", async () => {
+    const { timeToComplete } = await import("../src/lib/learners");
+    expect(timeToComplete([])).toEqual({ medianMonths: null, n: 0 });
+    const t = timeToComplete([
+      { status: "productive", startDate: "2024-08-19", completionDate: "2026-05-01" },
+      { status: "completed", startDate: "2024-08-19", completionDate: "2026-05-01" },
+      { status: "withdrawn", startDate: "2024-08-19", completionDate: null },
+      { status: "licensed", startDate: null, completionDate: "2026-05-01" },
+    ]);
+    expect(t.n).toBe(2); expect(t.medianMonths).toBeCloseTo(20.3, 0);
+  });
+  it("the class-year dimension reads the year in the class name", async () => {
+    const { dimensionValue } = await import("../src/lib/learners");
+    expect(dimensionValue(L({ gradYear: 2026 }), "gradYear", "2026-09-22")).toBe("2026");
+    expect(dimensionValue(L({}), "gradYear", "2026-09-22")).toBe("unknown");
+  });
+});

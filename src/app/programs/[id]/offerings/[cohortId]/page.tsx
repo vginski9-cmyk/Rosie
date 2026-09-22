@@ -153,7 +153,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
         <Tile label="Ends" value={exactDate(timing.endDate)} sub={timing.phase === "in-program" ? `now in ${timing.currentTermName ?? "—"}` : lastDay && timing.endDate && lastDay.getTime() !== timing.endDate.getTime() ? `last class meets ${exactDate(lastDay)}` : undefined} />
         <Tile label="Goal" value={fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} sub="fully productive workers" />
-        <Tile label="Students" value={fmt.num(enrolledNow)} sub={ledger && ledger.students.some((s) => s.status === "withdrawn") ? (() => { const o = outcomeStats(ledger.students); return `${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`; })() : undefined} />
+        <Tile label="Students" value={fmt.num(enrolledNow)} sub={ledger ? (() => { const o = outcomeStats(ledger.students, ledger.today); const parts: string[] = []; if (o.completionRate != null) parts.push(`${fmt.num(o.maturedCompleted)} of ${fmt.num(o.maturedEntrants)} completed (${fmt.pct(o.completionRate)})`); if (o.withdrawn) parts.push(`${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`); return parts.length ? parts.join(" · ") : undefined; })() : undefined} />
       </div>
 
       {/* Where it meets — a planning decision (campus, building or room, the college's own reference) */}

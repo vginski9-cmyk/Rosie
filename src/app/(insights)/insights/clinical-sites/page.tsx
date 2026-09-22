@@ -1,5 +1,6 @@
 import { getCapacityModel, getClinicalSupply, getAssetMap, getCalendarProvenance, getCapacityBridge } from "@/lib/queries";
-import { schedulerWindow } from "@/lib/schedulerplan";
+import { plannedWindow } from "@/lib/schedulerplan";
+import { cohortsOverlapping } from "@/lib/cohortscope";
 import { ScopeStrip } from "@/components/ScopeStrip";
 import { CapacityBoard } from "@/components/CapacityBoard";
 import { ClinicalSupplyBoard } from "@/components/ClinicalSupplyBoard";
@@ -13,9 +14,10 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
   const data = await getCapacityModel({ institutionId: searchParams.inst });
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   const supply = await getClinicalSupply(data.institution.id);
-  // The window the asset map is matched over — the same one the scheduler plans in
-  // (earliest dated term start → latest term start + 20 weeks), so the two pages read one demand.
-  const { from, to } = schedulerWindow(data.cohorts);
+  // The window the asset map is matched over — the one the scheduler opens on (the current academic year on, to
+  // 20 weeks past the last term start), so the two pages read one demand; a graduated class is history, not an ask.
+  const { from, to } = plannedWindow(data.cohorts);
+  const cohorts = cohortsOverlapping(data.cohorts, from, to);
   const year = Number(from.slice(0, 4)) + 1;
   const map = await getAssetMap(data.institution.id, from, to);
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
@@ -27,14 +29,14 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
         provisional={provenance}
         bridge={bridge} self="capacity"
         shows="Requirements against a physical ceiling — each date × shift × setting: the learner-shifts the offerings need against what the assets could host. No plan, no preceptors, no holidays, no travel: the ceiling the scheduler places within."
-        population={`Enrollment targets of every planned and running offering at ${data.institution.name} (the goal ladder, not the roster)`}
+        population={`Enrollment targets of every offering in session or ahead inside the window at ${data.institution.name} (the goal ladder, not the roster); graduated classes are history and not counted here`}
         window={`${from} → ${to}`}
         constraints={["agreement tier (secured vs physical)", "asset operating days and shift blocks"]}
         differs={[["Clinical scheduler", "/scheduler", "places these same learner-shifts under levers (holidays, preceptors, continuity, travel) — its “placed” is always at or below this ceiling"], ["Clinical site load", "/insights/site-load", "counts the roster's actual student-shifts, including completed cohorts and undated rows"]]}
       />
-      <AssetMapBoard institutionId={data.institution.id} assets={map.assets} overrides={map.overrides} bookings={map.bookings} rotations={map.rotations} courseRules={map.courseRules} cohorts={data.cohorts} from={from} to={to} year={year} />
+      <AssetMapBoard institutionId={data.institution.id} assets={map.assets} overrides={map.overrides} bookings={map.bookings} rotations={map.rotations} courseRules={map.courseRules} cohorts={cohorts} from={from} to={to} year={year} />
       {supply && <Collapse title="Functional units by weekday and shift" sub="The older grain: beds and units sized by weekday and shift block" summary={<>{supply.sites.length} sites</>}><ClinicalSupplyBoard institutionId={supply.institution.id} sites={supply.sites} rotations={supply.rotations} cohorts={data.cohorts} /></Collapse>}
-      <Collapse title="What each setting needs to host, and when" sub="The request block per setting — students on the heaviest day, days on site, the window, preceptor hours — ready to hand to a partner"><CapacityBoard cohorts={data.cohorts} view="sites" sites={data.clinicalSites} /></Collapse>
+      <Collapse title="What each setting needs to host, and when" sub="The request block per setting — students on the heaviest day, days on site, the window, preceptor hours — ready to hand to a partner"><CapacityBoard cohorts={cohorts} view="sites" sites={data.clinicalSites} /></Collapse>
     </div>
   );
 }

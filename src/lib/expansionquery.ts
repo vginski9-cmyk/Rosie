@@ -3,6 +3,7 @@
 // (faculty, sites and preceptors, assets, rooms), the resolved assumptions — plus the saved scenarios.
 
 import { prisma } from "./db";
+import { NOT_ARCHIVED, gradYearOf, cohortsOverlapping } from "./cohortscope";
 import { getCapacityModel, getAssetMap, getWorkloadPolicies, getRoomsWorkspace } from "./queries";
 import { buildInstances, type CohortCalendarInput, type DatedInstance, type SessionInput } from "./capacitymodel";
 import { resolvePolicy, type PolicyLite, type PersonLite } from "./workload";
@@ -17,7 +18,6 @@ export interface SitePick { employerId: string; name: string; agreementStatus: s
 const parse = <T,>(s: string | null | undefined, fallback: T): T => { if (!s) return fallback; try { return JSON.parse(s) as T; } catch { return fallback; } };
 const mondayOnOrAfter = (iso: string) => { const d = new Date(iso + "T00:00:00Z"); const back = (d.getUTCDay() + 6) % 7; return new Date(d.getTime() + (back ? 7 - back : 0) * 86400000).toISOString().slice(0, 10); };
 const isoOf = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
-const gradYearOf = (name: string): number | null => { const m = name.match(/(20\d{2})/); return m ? Number(m[1]) : null; };
 
 /** The engine's input for a program, as of today. */
 export async function getExpansionInput(programId: string, overrides: Record<string, number> = {}): Promise<ExpansionInput | null> {
@@ -35,16 +35,18 @@ export async function getExpansionInput(programId: string, overrides: Record<str
   const events = inst.academicEvents.map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: isoOf(e.endDate), label: e.label, kind: e.kind, season: e.season }));
   const holidays = holidayMap(events.filter((e) => e.kind === "holiday").map((e) => ({ iso: e.iso, endIso: e.endIso, label: e.label, kind: e.kind })));
 
-  // The operating plan: every dated session of every planned and running offering at the college.
+  // The operating plan from today on: every dated session, of every offering still in session or ahead, at the college
+  // (a graduated class is history — its rows and its seats are not a baseline for the years to come).
   const cap = await getCapacityModel({ institutionId: inst.id });
-  const baselineRows: DatedInstance[] = (cap?.cohorts ?? []).flatMap((c) => buildInstances({
+  const liveCohorts = cohortsOverlapping(cap?.cohorts ?? [], todayIso, null);
+  const baselineRows: DatedInstance[] = liveCohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
     termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
-  } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
-  const stages = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, status: { in: ["planned", "active"] } }, select: { id: true, name: true, stages: { where: { stageKey: "productive" }, select: { targetNumber: true } } } });
+  } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null && i.dateIso >= todayIso));
+  const stages = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, select: { id: true, name: true, stages: { where: { stageKey: "productive" }, select: { targetNumber: true } } } });
   const goalOf = new Map(stages.map((s) => [s.id, { goal: s.stages[0]?.targetNumber ?? 0, gradYear: gradYearOf(s.name) }]));
-  const baselineCohorts = (cap?.cohorts ?? []).map((c) => {
+  const baselineCohorts = liveCohorts.map((c) => {
     const idx = Object.keys(c.termStartByIndex).map(Number).sort((x, y) => x - y);
     const ends = Object.values(c.termEndByIndex ?? {}).filter((v): v is string => !!v).sort();
     return { cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, seats: c.enrollmentByTerm[idx[0]] ?? 0, startIso: c.termStartByIndex[idx[0]]?.slice(0, 10) ?? null, endIso: ends[ends.length - 1]?.slice(0, 10) ?? null, productiveGoal: goalOf.get(c.cohortId)?.goal ?? 0, gradYear: goalOf.get(c.cohortId)?.gradYear ?? null };

@@ -1,5 +1,5 @@
 import { getSiteLoad, getFamilyProgramId, getCalendarProvenance, getCapacityBridge, getCapacityModel } from "@/lib/queries";
-import { schedulerWindow } from "@/lib/schedulerplan";
+import { plannedWindow } from "@/lib/schedulerplan";
 import { prisma } from "@/lib/db";
 import { SiteLoadExplorer } from "@/components/SiteLoadExplorer";
 import { ScopeStrip } from "@/components/ScopeStrip";
@@ -15,7 +15,7 @@ export default async function SiteLoadPage({ searchParams }: { searchParams: { i
   if (!data) return <p className="text-sm text-slate-400">No institution seeded yet.</p>;
   const provenance = (await getCalendarProvenance(data.institution.id)).all;
   const cap = await getCapacityModel({ institutionId: data.institution.id });
-  const win = cap ? schedulerWindow(cap.cohorts) : null;
+  const win = cap ? plannedWindow(cap.cohorts) : null;
   const bridge = win ? await getCapacityBridge(data.institution.id, win.from, win.to) : null;
   const programs = await prisma.program.findMany({ where: { institutionId: data.institution.id }, select: { id: true, name: true, familyId: true } });
   const programIds: Record<string, string> = {};

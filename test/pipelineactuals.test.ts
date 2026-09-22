@@ -24,5 +24,11 @@ describe("pipeline actuals from learner records", () => {
     ]);
     expect(a.enrolled).toBe(8); expect(a.completing).toBe(6); expect(a.licensed).toBeNull(); expect(a.placed).toBeNull();
   });
+  it("a class graduated at its own rates reads the whole ladder, nothing blank: 21 → 18 → 16 → 15 → 15", () => {
+    const rec = (status: string, stageKey: string, n: number) => Array.from({ length: n }, () => ({ status, stageKey, cohortId: "c" }));
+    const a = stageActuals([...rec("withdrawn", "withdrawn", 3), ...rec("completed", "completing", 2), ...rec("licensed", "licensed", 1), ...rec("productive", "productive", 15)]);
+    expect([a.enrolled, a.completing, a.licensed, a.placed, a.productive]).toEqual([21, 18, 16, 15, 15]);
+    expect(Object.values(a).every((v) => v != null)).toBe(true);
+  });
   it("no records means every stage is blank", () => { expect(Object.values(stageActuals([])).every((v) => v === null)).toBe(true); });
 });

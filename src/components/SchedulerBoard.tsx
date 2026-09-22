@@ -50,7 +50,7 @@ const LEVER_NAMES: Record<keyof Policy, string> = {
 };
 const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, courseRules = {}, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, courseRules = {}, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null, range }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
   /** Course rotation pools — the rule a course's generically tagged sessions read (lib/requirementcoverage). */
@@ -59,6 +59,8 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   canApply?: boolean;
   /** What is on the calendar now: the roster's clinical shifts and how many sit on a seat the scheduler booked (the site-load page reads the same rows). */
   roster?: RosterPlacement | null;
+  /** The full range the calendar holds (a graduated class's history back to its first day); the window opens narrower and can widen to this. */
+  range?: { from: string; to: string };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -233,8 +235,9 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           </div>
         </>}
         <div className="mt-2 flex flex-wrap items-end gap-3 text-xs">
-          <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
-          <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
+          <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" min={range?.from} max={range?.to} value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
+          <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" min={range?.from} max={range?.to} value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
+          {range && range.from < window.from && <span className="text-[11px] text-slate-500" title="Graduated classes' shifts are on the calendar as history; widen the window to plan or read them">history on the calendar back to {range.from}</span>}
           <div className="flex flex-wrap items-center gap-1">
             <span className="text-[10px] text-slate-400">Offerings:</span>
             <button onClick={() => setCohortFilter(new Set())} className={`rounded-full px-2 py-0.5 ${cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>all {cohortsInDemand.length}</button>
