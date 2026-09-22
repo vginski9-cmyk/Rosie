@@ -20,6 +20,7 @@
 import type { DatedInstance } from "./capacitymodel";
 import { sectionSpans } from "./sections";
 import { clinicalDemandRows } from "./clinicaldemand";
+import { judgeExposure, unresolvedQuantities, describeRule } from "./settingrule";
 import { blocksOn, overrideIndex, overrideKey, shiftHours, shiftSpan, isoAdd, type AssetLite, type AssetDayOverride, type AssetBookingLite, type RotationCode } from "./assetmap";
 import { shiftBlockOf, weekdayOfIso, type ShiftBlock } from "./clinicalsupply";
 import { dec } from "./format";
@@ -88,7 +89,10 @@ export interface DemandUnit {
   date: string; weekMonday: string; block: ShiftBlock; startTime: string | null; hours: number;
   /** The date the weekly pattern puts this shift on — the key a per-occurrence move is filed under (date differs once a hand-made move applies). */
   originalDate: string;
-  rotationType: string; settingCode: string | null;
+  rotationType: string;
+  /** The PRIMARY setting (first eligible) — a label; the pool is `eligible`, from `rule`. */
+  settingCode: string | null;
+  rule: import("./settingrule").SettingRuleSpec | null; eligible: string[];
   seats: number; preceptorsNeeded: number; facultyNeeded: number; clinicalMode: string | null;
   /** The session's students-per-section ceiling (the template's max), kept for display. */
   seatsPerSection: number;
@@ -114,7 +118,7 @@ export interface SiteCapacityLite { employerId: string; familyId: string | null;
 export interface ConfirmedSetting { employerId: string; settingCode: string }
 /** The readiness funnel (Phase 5): every rung must hold for a placed shift to be ready. */
 export interface Readiness { locationAssigned: boolean; agreementEligible: boolean; staffedByName: boolean; experienceSupported: boolean; conflictFree: boolean; ready: boolean; issues: string[] }
-export type BlockerKind = "unsecured-site" | "holiday" | "over-capacity" | "unprecepted" | "student-overlap" | "experience-unconfirmed";
+export type BlockerKind = "unsecured-site" | "holiday" | "over-capacity" | "unprecepted" | "student-overlap" | "experience-unconfirmed" | "requirement-unreviewed" | "setting-rule-unmet";
 export interface Blocker { kind: BlockerKind; label: string; shifts: number; seats: number; blocking: boolean; examples: string[] }
 /** One campus class or lab occurrence: the cohort's students are on campus then, so no clinical can land on them. */
 export interface CampusBlock { cohortId: string; date: string; startMin: number; endMin: number; label: string }
@@ -139,7 +143,7 @@ export interface SchedulerInput {
   policy: Policy;
 }
 
-export type UnmetReason = "holiday" | "class-day" | "student-busy" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor";
+export type UnmetReason = "holiday" | "class-day" | "student-busy" | "unmapped-setting" | "no-asset-for-setting" | "no-agreement" | "ring" | "drive" | "closed-that-day" | "full" | "too-big" | "no-preceptor" | "mixing-locked";
 export const REASON_LABEL: Record<UnmetReason, string> = {
   "too-big": "no single site has enough seats of this setting on one shift for a section this size",
   holiday: "lands on an observed holiday — needs moving",
@@ -153,6 +157,7 @@ export const REASON_LABEL: Record<UnmetReason, string> = {
   "closed-that-day": "no asset of this setting runs that shift on that date",
   full: "every open asset is already full that shift",
   "no-preceptor": "no free preceptor at any open site that shift",
+  "mixing-locked": "the rule keeps this rotation in one setting (hours may not be mixed, or that is not yet confirmed) and that setting has no seat",
 };
 
 export interface Assignment {
@@ -249,6 +254,8 @@ export interface Plan {
 }
 
 const BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
+/** One rotation group = one cohort, section, course and rotation type — the scope a setting rule's minimums, mixing and continuity are judged over. */
+const groupKey = (u: DemandUnit) => `${u.cohortId}|${u.sectionIndex}|${u.courseId ?? ""}|${u.rotationType.toLowerCase()}`;
 /** Is this seat number in the unit's section? Seats are dealt evenly (lib/sections); the unit carries its span. */
 const seatInUnit = (seat: number, u: { seatStart: number; sectionSeats: number }) => seat >= u.seatStart && seat < u.seatStart + u.sectionSeats;
 const num = (v: number) => dec(v);
@@ -286,7 +293,7 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
         courseId: r.courseId, courseCode: r.courseCode, courseTitle: r.courseTitle, termIndex: r.termIndex, termName: r.termName, weekOfTerm: r.weekOfTerm,
         sessionId: r.session.id, sessionTitle: r.session.title ?? null, sectionIndex: sec, sectionCount: Y,
         date, weekMonday: mondayOf(date), block: shiftBlockOf(startTime), startTime, hours: r.session.lengthHours ?? 0, originalDate: patternIso,
-        rotationType: rt, settingCode: d.settingCode,
+        rotationType: rt, settingCode: d.settingCode, rule: d.rule, eligible: d.eligible,
         seats, preceptorsNeeded: Math.max(0, r.session.preceptorsNeeded ?? 0), facultyNeeded: Math.max(0, r.session.facultyNeeded ?? 0), clinicalMode: r.session.clinicalMode ?? null,
         seatsPerSection: per, seatStart: span.start, sectionSeats: span.seats,
         // A shift moved by hand or by the plan is checked against the calendar on its NEW date.
@@ -410,11 +417,27 @@ export function recommendPlan(input: SchedulerInput): Plan {
    *  A section is placed at ONE site on ONE shift, but may spread across that site's rooms. */
   type CandResult = { cands: Cand[]; partial: Cand[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null; /** Sites still eligible at the stage everything was eliminated (Phase 5). */ eligible: string[] };
   const sitesOf = (pool: AssetLite[]) => [...new Set(pool.map((a) => a.facilityName))].sort();
+  // ── The setting rule while placing (groupKey: one cohort, section, course and rotation type). ──
+  /** Groups whose hours may not be split across settings (forbidden, or not yet confirmed — treated as not permitted and said so). */
+  const lockKey = (u: DemandUnit) => (u.rule && u.rule.mixing !== "allowed" && u.eligible.length > 1 ? groupKey(u) : null);
+  const settingLock = new Map<string, string>();
+  const hoursBySetting = new Map<string, Map<string, number>>();
+  const minimumsShort = (u: DemandUnit): string[] => {
+    if (!u.rule) return [];
+    const placed = hoursBySetting.get(groupKey(u));
+    const r = u.rule.rule;
+    const mins: { setting: string; quantity: number }[] = r.kind === "all-of" ? r.components.map((c) => ({ setting: c.setting, quantity: c.quantity ?? 0 })) : r.kind === "pool" ? r.minimums : r.kind === "n-of" && r.minimumEach != null ? r.settings.map((x) => ({ setting: x, quantity: r.minimumEach ?? 0 })) : [];
+    if (r.kind === "n-of") { const met = mins.filter((m) => (placed?.get(m.setting) ?? 0) >= m.quantity).length; if (met >= r.count) return []; return mins.filter((m) => (placed?.get(m.setting) ?? 0) < m.quantity).map((m) => m.setting); }
+    return mins.filter((m) => m.quantity > 0 && (placed?.get(m.setting) ?? 0) < m.quantity).map((m) => m.setting);
+  };
   const candidates = (u: DemandUnit, pol: Policy): CandResult => {
     const r = candidatesInner(u, pol);
     // A holiday shift that found nowhere else in its week is still "on a holiday, needs moving": that is the
     // fix the reader can make, and the seat shortage on the other days is the reason it could not move itself.
     if (pol.skipHolidays && u.holiday && !r.cands.length && r.reason && r.reason !== "holiday") return { ...r, reason: "holiday", partial: [] };
+    // Locked into one setting by the mixing rule and out of seats there: the binding constraint is the rule, not the room count.
+    const lk = lockKey(u);
+    if (lk && settingLock.has(lk) && !r.cands.length && r.reason && ["closed-that-day", "full", "too-big", "no-asset-for-setting", "no-agreement", "ring"].includes(r.reason)) return { ...r, reason: "mixing-locked", partial: [] };
     return r;
   };
   const candidatesInner = (u: DemandUnit, pol: Policy): CandResult => {
@@ -423,9 +446,16 @@ export function recommendPlan(input: SchedulerInput): Plan {
     // off the holiday inside its week (never onto another holiday) like any other move.
     const onHoliday = !!(pol.skipHolidays && u.holiday);
     if (onHoliday && pol.flexibleDays === 0) return none("holiday");
-    if (!u.settingCode) return none("unmapped-setting");
-    let pool = live.filter((a) => a.settingCode === u.settingCode);
+    if (!u.rule || !u.eligible.length) return none("unmapped-setting");
+    // Every setting the rule allows is eligible — an alternative is an alternative for the SAME demand.
+    let pool = live.filter((a) => u.eligible.includes(a.settingCode));
     if (!pool.length) return none("no-asset-for-setting");
+    // Hours that may not be mixed (or not yet confirmed as mixable) stay in the setting this rotation started in.
+    const lk = lockKey(u); const lockedTo = lk ? settingLock.get(lk) : undefined;
+    if (lockedTo) { pool = pool.filter((a) => a.settingCode === lockedTo); if (!pool.length) return none("mixing-locked"); }
+    // A minimum still short in one setting: that setting first, while any seat of it exists.
+    const short = minimumsShort(u);
+    if (short.length && pool.some((a) => short.includes(a.settingCode))) pool = pool.filter((a) => short.includes(a.settingCode));
     let before = sitesOf(pool);
     pool = pool.filter((a) => agreementOk(agreementFor(a, u.familyId, u.date), pol.agreements));
     if (!pool.length) return none("no-agreement", before);
@@ -454,7 +484,8 @@ export function recommendPlan(input: SchedulerInput): Plan {
     for (const a of pool) for (const { date, movedDays, block: b } of free) {
       const d = { date, movedDays };
       if (!opens(a, d.date, b)) continue;
-      const k = `${a.employerId}|${d.date}|${b}`;
+      // A pool is one site, one shift, ONE setting: a section's seats on a shift are credited to one setting (never a multi-tagged double credit).
+      const k = `${a.employerId}|${d.date}|${b}|${a.settingCode}`;
       const P = pools.get(k) ?? { employerId: a.employerId, siteName: a.facilityName, date: d.date, block: b, movedDays: d.movedDays, assets: [], free: 0, used: 0 };
       const slot = slotFor(a, d.date, b);
       P.assets.push({ a, slot }); P.free += slot.free; P.used += slot.used;
@@ -538,6 +569,7 @@ export function recommendPlan(input: SchedulerInput): Plan {
     }
     siteUsed.set(P.employerId, (siteUsed.get(P.employerId) ?? 0) + seats);
     { const k = `${P.employerId}|${u.familyId ?? ""}|${P.date}|${P.block}`; atSite.set(k, (atSite.get(k) ?? 0) + seats); }
+    { const lk2 = lockKey(u); const code = parts[0].asset.settingCode; if (lk2 && !settingLock.has(lk2)) settingLock.set(lk2, code); const hb = hoursBySetting.get(groupKey(u)) ?? new Map<string, number>(); hb.set(code, (hb.get(code) ?? 0) + (shiftHours(parts[0].asset, P.block) || u.hours)); hoursBySetting.set(groupKey(u), hb); }
     for (const n of seatsOf(u, seatOffset, seats)) busySeatsAt(u.cohortId, P.date, P.block).add(n);
     const hm = home.get(sectionKey(u)) ?? new Map<string, number>(); hm.set(P.employerId, (hm.get(P.employerId) ?? 0) + 1); home.set(sectionKey(u), hm);
     const hw = homeWeeks.get(sectionKey(u)) ?? new Map<string, Set<string>>(); seenSet(hw, P.employerId).add(u.weekMonday); homeWeeks.set(sectionKey(u), hw);
@@ -622,13 +654,15 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
     case "student-busy": return `${who}: these students are already placed on another clinical shift then.`;
     case "holiday": return `${who}: ${u.holiday ?? "an observed holiday"} — the shift needs moving${eligible.length ? `, and no other day that week under the Day lever has a free seat at ${sites}` : ""}.`;
     case "unmapped-setting": return `${who}: rotation type "${u.rotationType}" is not mapped to an asset setting.`;
-    case "no-asset-for-setting": return `${who}: no partner reports an asset of setting ${u.settingCode}.`;
+    case "no-asset-for-setting": return `${who}: no partner reports an asset of setting ${u.eligible.length ? u.eligible.join(" / ") : u.settingCode}.`;
+    case "mixing-locked": return `${who}: this rotation's hours may not be split across settings (or that is not yet confirmed), so they stay in ${u.rule ? "the setting it started in" : "one setting"} — which has no free seat that shift.`;
   }
 }
 
 /** What would place this unit: try each relaxation of the policy in turn. */
 function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit, pol: Policy) => { cands: unknown[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null }): string[] {
   const fixes: string[] = [];
+  if (reason === "mixing-locked") fixes.push(u.rule?.mixing === "unknown" ? `confirm whether hours may be mixed across ${u.eligible.join(" / ")} (the rule for "${u.rotationType}")` : `the rule for "${u.rotationType}" forbids mixing settings — add seats in the setting this rotation started in`);
   if (reason === "too-big") {
     const b = candidates(u, { ...DEFAULT_POLICY, agreements: "any", maxRing: "any" }).biggest;
     fixes.push(`a ${u.seats}-student section needs ${u.seats} ${u.settingCode} seats at one site on one shift; the largest site has ${b?.seats ?? 0}${b ? ` (${b.site})` : ""} — lower students per section on this session, raise learners per shift on the rooms, or let preceptor-led sections split across sites`);
@@ -749,7 +783,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     const s = siteMap.get(x.employerId)!;
     s.usedSeats += x.seats; s.sections++; s.learnerShifts += x.seats; s.hours += x.hours * x.seats;
     if (!s.cohorts.includes(x.unit.cohort)) s.cohorts.push(x.unit.cohort);
-    if (!s.settings.includes(x.unit.settingCode ?? "?")) s.settings.push(x.unit.settingCode ?? "?");
+    if (!s.settings.includes(x.asset.settingCode)) s.settings.push(x.asset.settingCode);
     const k = `${x.employerId}|${x.date}|${x.block}`; perSiteShift.set(k, (perSiteShift.get(k) ?? 0) + Math.ceil(x.unit.preceptorsNeeded));
   }
   for (const [k, need] of perSiteShift) { const s = siteMap.get(k.split("|")[0])!; s.preceptorsPeak = Math.max(s.preceptorsPeak, need); s.preceptorShort += Math.max(0, need - s.preceptorsOnHand); }
@@ -840,6 +874,14 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const byCohortAt = new Map<string, Assignment[]>();
   for (const x of assignments) { const k = `${x.unit.cohortId}|${x.date}|${x.block}`; const l = byCohortAt.get(k) ?? []; l.push(x); byCohortAt.set(k, l); }
   const overlapsAnother = (x: Assignment) => { const r = seatRange(x); return (byCohortAt.get(`${x.unit.cohortId}|${x.date}|${x.block}`) ?? []).some((y) => y !== x && y.unit.id !== x.unit.id && seatRange(y).lo <= r.hi && r.lo <= seatRange(y).hi); };
+  // Each rotation group's exposure by the SEAT's setting, judged against its rule (minimums, mixing, one site).
+  const groupJudgement = new Map<string, ReturnType<typeof judgeExposure>>();
+  {
+    const groups = new Map<string, { rule: NonNullable<DemandUnit["rule"]>; exposure: Record<string, number>; sites: Set<string>; total: number }>();
+    for (const u of input.demand) { if (!u.rule) continue; const k = groupKey(u); const g = groups.get(k) ?? { rule: u.rule, exposure: {}, sites: new Set<string>(), total: 0 }; g.total += u.hours; groups.set(k, g); }
+    for (const x of assignments) { const g = groups.get(groupKey(x.unit)); if (!g) continue; g.exposure[x.asset.settingCode] = (g.exposure[x.asset.settingCode] ?? 0) + x.hours; g.sites.add(x.employerId); }
+    for (const [k, g] of groups) groupJudgement.set(k, judgeExposure(g.rule, g.total, g.exposure, g.sites.size));
+  }
   const blk = new Map<BlockerKind, Blocker>();
   const addBlocker = (kind: BlockerKind, label: string, blocking: boolean, x: Assignment, example: string) => { const b = blk.get(kind) ?? { kind, label, shifts: 0, seats: 0, blocking, examples: [] }; b.shifts++; b.seats += x.seats; if (b.examples.length < 3 && !b.examples.includes(example)) b.examples.push(example); blk.set(kind, b); };
   for (const x of assignments) {
@@ -849,9 +891,15 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     if (!agreementEligible) { issues.push(`site agreement is ${agreement}`); addBlocker("unsecured-site", "placed at a site without a secured agreement", true, x, `${x.siteName} (${agreement}) on ${x.date}`); }
     const needP = Math.ceil(x.unit.preceptorsNeeded), needI = x.unit.facultyNeeded >= 1 ? 1 : 0;
     const staffedByName = x.preceptorIds.length >= needP && (needI === 0 || !!x.instructorId);
-    if (!staffedByName) { issues.push(needP > x.preceptorIds.length ? "no preceptor by name" : "no instructor by name"); addBlocker("unprecepted", "placed with nobody named to precept or instruct", true, x, `${x.unit.cohort} ${x.unit.courseCode ?? ""} §${x.unit.sectionIndex} at ${x.siteName} on ${x.date}`); }
-    const experienceSupported = confirmedKnown && !!x.unit.settingCode && confirmed.has(`${x.employerId}|${x.unit.settingCode}`);
-    if (!experienceSupported) { issues.push(confirmedKnown ? `${x.siteName} has not confirmed it provides ${x.unit.settingCode ?? "this"} experiences` : "experience support unknown"); addBlocker("experience-unconfirmed", "the site has not confirmed the experience (inferred only)", false, x, `${x.siteName} · ${x.unit.settingCode ?? "?"}`); }
+    if (!staffedByName) { const missing = needP > x.preceptorIds.length ? "no preceptor by name" : "no instructor by name"; issues.push(missing); addBlocker("unprecepted", "placed with a required role unfilled — a college instructor or a site preceptor by name, whichever the session's supervision model requires", true, x, `${x.unit.cohort} ${x.unit.courseCode ?? ""} §${x.unit.sectionIndex} at ${x.siteName} on ${x.date} — ${missing}`); }
+    const seatSetting = x.asset.settingCode;
+    const experienceSupported = confirmedKnown && !!seatSetting && confirmed.has(`${x.employerId}|${seatSetting}`);
+    if (!experienceSupported) { issues.push(confirmedKnown ? `${x.siteName} has not confirmed it provides ${seatSetting ?? "this"} experiences` : "experience support unknown"); addBlocker("experience-unconfirmed", "the site has not confirmed the experience (inferred only)", false, x, `${x.siteName} · ${seatSetting ?? "?"}`); }
+    // The setting rule itself: an unreviewed interpretation is a conditional placement, never a ready one.
+    let ruleReviewed = true;
+    if (!x.unit.rule || x.unit.rule.status !== "reviewed" || unresolvedQuantities(x.unit.rule.rule).length) { ruleReviewed = false; issues.push(x.unit.rule ? `the setting rule for "${x.unit.rotationType}" (${describeRule(x.unit.rule.rule)}) is not reviewed` : "no setting rule"); addBlocker("requirement-unreviewed", "placed under a setting rule nobody has reviewed", true, x, `${x.unit.rotationType}: ${x.unit.rule ? describeRule(x.unit.rule.rule) : "unmapped"}`); }
+    const gj = groupJudgement.get(groupKey(x.unit));
+    if (gj && gj.status === "unmet") { issues.push(`setting rule not met for this rotation: ${gj.reasons.map((r) => r.detail).join("; ")}`); addBlocker("setting-rule-unmet", "a rotation whose placements do not satisfy its setting rule (a minimum, no mixing, or one site)", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.unit.rotationType}: ${gj.reasons[0]?.detail ?? ""}`); }
     const cap = siteCapFor(x.employerId, x.unit.familyId);
     const capN = cap ? (cap.studentsAtOnce ?? cap.approvedCapacity) : null;
     const here = atOnce.get(`${x.employerId}|${x.unit.familyId ?? ""}|${x.date}|${x.block}`) ?? 0;
@@ -859,7 +907,8 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     if (capN != null && here > capN) { conflictFree = false; issues.push(`${num(here)} students at ${x.siteName} at once vs ${num(capN)} approved`); addBlocker("over-capacity", "a site over its approved students-at-once", true, x, `${x.siteName}: ${num(here)} vs ${num(capN)} approved on ${x.date} ${x.block}`); }
     if (x.unit.holiday && !x.movedDays) { conflictFree = false; issues.push(`on ${x.unit.holiday}`); addBlocker("holiday", "a shift placed on an observed holiday", true, x, `${x.unit.holiday} ${x.date}`); }
     if (overlapsAnother(x)) { conflictFree = false; issues.push("the same students are placed in two places at once"); addBlocker("student-overlap", "students placed in two places at once", true, x, `${x.unit.cohort} §${x.unit.sectionIndex} ${x.date} ${x.block}`); }
-    x.readiness = { locationAssigned: true, agreementEligible, staffedByName, experienceSupported, conflictFree, ready: agreementEligible && staffedByName && experienceSupported && conflictFree, issues };
+    if (gj && gj.status === "unmet") conflictFree = false;
+    x.readiness = { locationAssigned: true, agreementEligible, staffedByName, experienceSupported: experienceSupported && ruleReviewed, conflictFree, ready: agreementEligible && staffedByName && experienceSupported && ruleReviewed && conflictFree, issues };
   }
   const seatsWhere = (f: (r: Readiness) => boolean) => assignments.reduce((n, x) => n + (x.readiness && f(x.readiness) ? x.seats : 0), 0);
   const readiness = {

@@ -37,7 +37,7 @@ describe("365-day asset map", () => {
     const secured = mk({ id: "a1" });
     const unsecured = mk({ id: "a2", externalId: "H012-GEN-01", employerId: "e2", facilityName: "Cape Fear", agreementStatus: "none" });
     const supply = assetSupply([secured, unsecured], [], "2027-03-01", "2027-03-01");
-    const demand = [{ iso: "2027-03-01", block: "Day" as const, settingCode: "GEN", rotationType: "Diagnostic Radiography", students: 3, sections: 3, cohortId: "c", cohort: "Class of 2028", program: "Radiography", courseCode: "RAD 111", sessionId: "s", startTime: "07:00" }];
+    const demand = [{ iso: "2027-03-01", block: "Day" as const, settingCode: "GEN", eligible: ["GEN"], ruleStatus: "reviewed", rotationType: "Diagnostic Radiography", students: 3, sections: 3, cohortId: "c", cohort: "Class of 2028", program: "Radiography", courseCode: "RAD 111", sessionId: "s", startTime: "07:00" }];
     const cells = assetMatch(demand, supply, [{ id: "b", assetId: "a1", cohortId: "c", sessionId: "s", sectionIndex: 1, date: "2027-03-01", block: "Day", students: 1 }], new Map([["a1", secured], ["a2", unsecured]]));
     expect(cells[0]).toMatchObject({ demand: 3, learners: 2, securedLearners: 1, booked: 1, shortPhysical: 1, shortSecured: 2, unbooked: 2 });
   });

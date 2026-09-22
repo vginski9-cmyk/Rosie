@@ -322,7 +322,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
         dayOverrides: { where: { date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } }, select: { date: true, shiftBlocks: true, note: true } },
       },
     }),
-    prisma.rotationSetting.findMany({ where: { institutionId }, orderBy: { rotationType: "asc" }, select: { rotationType: true, settingCode: true, unitCategory: true } }),
+    prisma.rotationSetting.findMany({ where: { institutionId }, orderBy: { rotationType: "asc" }, select: { rotationType: true, settingCode: true, unitCategory: true, rule: true, sourceText: true, interpretationStatus: true } }),
     prisma.assetBooking.findMany({
       where: { asset: { employer: { institutionId } }, date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } },
       include: { cohort: { select: { name: true, program: { select: { name: true } } } } },
@@ -339,7 +339,9 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   }));
   const overrides = assetsRaw.flatMap((a) => a.dayOverrides.map((o) => ({ assetId: a.id, date: o.date.toISOString().slice(0, 10), shiftBlocks: o.shiftBlocks, note: o.note })));
   const bookings = bookingsRaw.map((b) => ({ id: b.id, assetId: b.assetId, cohortId: b.cohortId, sessionId: b.sessionId, sectionIndex: b.sectionIndex, meetingId: b.meetingId, date: b.date.toISOString().slice(0, 10), block: b.block, students: b.students, note: b.note, cohort: b.cohort.name, program: b.cohort.program.name }));
-  return { assets, overrides, bookings, rotations };
+  const { ruleFromLegacy: ruleOf, KNOWN_SETTINGS } = await import("./settingrule");
+  const known = new Set([...KNOWN_SETTINGS, ...assets.map((a) => a.settingCode)]);
+  return { assets, overrides, bookings, rotations: rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: r.unitCategory, rule: ruleOf(r, known), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus })) };
 }
 
 /** Every program family with its clinical model and the sites / assets that serve it — the "clinical sites by program" index. */
@@ -3249,9 +3251,11 @@ export async function getCapacityBridge(institutionId: string, from: string, to:
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
     termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
   } as import("./capacitymodel").CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
-  const rotations = await prisma.rotationSetting.findMany({ where: institutionId === ALL_INSTITUTIONS ? {} : { institutionId: data.institution.id }, select: { rotationType: true, settingCode: true } });
-  const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotations), from, to));
-  const { demand } = schedulerModel(data.cohorts, rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: "" })));
+  const rotations = await prisma.rotationSetting.findMany({ where: institutionId === ALL_INSTITUTIONS ? {} : { institutionId: data.institution.id }, select: { rotationType: true, settingCode: true, rule: true, sourceText: true, interpretationStatus: true } });
+  const { ruleFromLegacy } = await import("./settingrule");
+  const rotationRows = rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: "", rule: ruleFromLegacy(r), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus }));
+  const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotationRows), from, to));
+  const { demand } = schedulerModel(data.cohorts, rotationRows);
   const schedulerDemand = filterDemand(demand, { from, to, cohortIds: [] }).reduce((n, u) => n + u.seats, 0);
   const load = await getSiteLoad(institutionId === ALL_INSTITUTIONS ? ALL_INSTITUTIONS : data.institution.id);
   const loadRows = (load?.rows ?? []).filter((r) => r.date != null && r.date >= from && r.date <= to);

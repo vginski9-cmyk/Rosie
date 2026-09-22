@@ -79,6 +79,8 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
   })();
   const unmetSeats = reasons.reduce((n, r) => n + r.seats, 0);
   const blocking = plan.blockers.filter((b) => b.blocking);
+  // Which supervision roles the placed and unplaced sessions actually require — the remedy names those roles only.
+  const rolesNeeded = { instructor: [...plan.assignments.map((x) => x.unit), ...plan.unmet.map((u) => u.unit)].some((u) => u.facultyNeeded >= 1), preceptor: [...plan.assignments.map((x) => x.unit), ...plan.unmet.map((u) => u.unit)].some((u) => u.preceptorsNeeded > 0) };
   const warnings = plan.blockers.filter((b) => !b.blocking);
   const tone = need === 0 ? "text-slate-400" : s.placedShare >= 0.999 ? "text-emerald-700" : s.placedShare >= 0.95 ? "text-amber-700" : "text-rose-700";
   const notReady = mode === "operational" ? "would stop an apply" : "not ready to run";
@@ -129,9 +131,11 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
                 <strong className="w-16 shrink-0 tabular-nums text-amber-700">{n0(b.shifts)}</strong>
                 <span className="text-slate-800">{b.label.replace(/^placed /, "seated ")}</span>
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{notReady}</span>
-                {b.kind === "unprecepted" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> add preceptors to those sites&apos; rosters{policy.requirePreceptor ? "" : ", or turn the Preceptors lever on to count only what is staffable"}{onOpenLevers && <> · <button type="button" onClick={onOpenLevers} className="font-medium text-amber-700 hover:underline">levers ↑</button></>}</span>}
+                {b.kind === "unprecepted" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> {rolesNeeded.instructor && !rolesNeeded.preceptor ? "assign a qualified college instructor to each clinical group (Staffing)" : rolesNeeded.preceptor && !rolesNeeded.instructor ? `add preceptors to those sites' rosters${policy.requirePreceptor ? "" : ", or turn the Preceptors lever on to count only what is staffable"}` : `assign college instructors to instructor-led groups and add preceptors to sites for precepted sessions${policy.requirePreceptor ? "" : " (the Preceptors lever counts only what is staffable)"}`}{onOpenLevers && <> · <button type="button" onClick={onOpenLevers} className="font-medium text-amber-700 hover:underline">levers ↑</button></>}</span>}
                 {b.kind === "unsecured-site" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> secure the agreement, or set Sites that count to secured only</span>}
                 {b.kind === "holiday" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> set Holidays to never on a holiday, or move the shift on Design &amp; sequence</span>}
+                {b.kind === "requirement-unreviewed" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> review the rotation&apos;s setting rule (Clinical site capacity → rotations) — the placements are conditional until a person confirms the interpretation</span>}
+                {b.kind === "setting-rule-unmet" && <span className="text-xs text-slate-600"><span className="text-slate-400">fix:</span> the rotation&apos;s minimum, no-mixing or one-site rule is not met by these placements — add seats in the required setting or confirm the rule</span>}
                 {b.examples.length > 0 && <span className="basis-full text-[11px] text-slate-500">e.g. {b.examples.slice(0, 2).join(" · ")}</span>}
               </li>
             ))}

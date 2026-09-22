@@ -10,14 +10,20 @@
 
 import type { DatedInstance } from "./capacitymodel";
 import { shiftBlockOf, type ShiftBlock } from "./clinicalsupply";
+import { ruleFromLegacy, eligibleSettings, type SettingRuleSpec } from "./settingrule";
 
-export interface RotationCodeLite { rotationType: string; settingCode: string | null }
+/** A rotation row as the demand builders read it: the explicit rule when stored; the legacy code otherwise (adapted, never collapsed). */
+export interface RotationCodeLite { rotationType: string; settingCode: string | null; rule?: SettingRuleSpec | null; sourceText?: string | null; interpretationStatus?: string | null }
 export interface ClinicalDemandRow {
   row: DatedInstance;
   dateIso: string;
   block: ShiftBlock;
   rotationType: string;
+  /** The PRIMARY setting (the rule's first eligible setting) — a compatibility label for views keyed by one code; never the whole rule. */
   settingCode: string | null;
+  /** The explicit setting rule (alternatives, components, minimums, mixing, continuity, review status) and every setting it can draw on. */
+  rule: SettingRuleSpec | null;
+  eligible: string[];
   /** Sections of this session on this date (whole; 0 = nothing runs). */
   sections: number;
   /** Students who must be on site: enrollment capped at sections × max students. */
@@ -30,7 +36,7 @@ export const UNSPECIFIED_ROTATION = "(unspecified)";
 
 /** The dated clinical rows of a set of instances, one per session × date, mapped to settings. */
 export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCodeLite[]): ClinicalDemandRow[] {
-  const codeOf = new Map(rotations.map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
+  const ruleOf = new Map(rotations.map((r) => [r.rotationType.trim().toLowerCase(), r.rule === undefined ? ruleFromLegacy({ rotationType: r.rotationType, settingCode: r.settingCode, rule: null, sourceText: r.sourceText ?? null, interpretationStatus: r.interpretationStatus ?? null }) : r.rule]));
   const out: ClinicalDemandRow[] = [];
   for (const r of rows) {
     if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
@@ -38,9 +44,11 @@ export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCod
     const enrollment = Math.max(0, Math.round(r.computed.C ?? 0));
     const seatsPerSection = Math.max(1, r.session.maxStudents ?? 1);
     const rotationType = r.session.rotationType?.trim() || UNSPECIFIED_ROTATION;
+    const rule = ruleOf.get(rotationType.toLowerCase()) ?? null;
+    const eligible = rule ? eligibleSettings(rule.rule) : [];
     out.push({
       row: r, dateIso: r.dateIso, block: shiftBlockOf(r.session.startTime ?? null), rotationType,
-      settingCode: codeOf.get(rotationType.toLowerCase()) ?? null,
+      settingCode: eligible[0] ?? null, rule, eligible,
       sections, students: Math.min(enrollment, sections * seatsPerSection), seatsPerSection,
     });
   }

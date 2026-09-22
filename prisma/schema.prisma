@@ -20,49 +20,49 @@ datasource db {
 /// The tenant root. Everything hangs off an Institution so we can aggregate /
 /// disaggregate across institutions in a multi-tenant deployment later.
 model Institution {
-  id           String   @id @default(cuid())
-  name         String
-  shortName    String?
+  id              String   @id @default(cuid())
+  name            String
+  shortName       String?
   /// Community college | University | …
-  kind         String?
-  city         String?
-  state        String?
-  serviceArea  String? // free-text description of the geographic service area
+  kind            String?
+  city            String?
+  state           String?
+  serviceArea     String? // free-text description of the geographic service area
   /// Academic calendar pattern: each semester starts on the Monday on/after this
   /// MM-DD anchor. Derived term dates (lock-in) follow it, year after year.
   /// Drive-time bands (minutes from the main campus) that code a clinical site's ring.
-  ringCoreMinutes Int @default(30)
-  ringOneMinutes  Int @default(60)
-  ringTwoMinutes  Int @default(90)
-  springStart  String  @default("01-08")
-  summerStart  String  @default("05-28")
-  fallStart    String  @default("08-15")
+  ringCoreMinutes Int      @default(30)
+  ringOneMinutes  Int      @default(60)
+  ringTwoMinutes  Int      @default(90)
+  springStart     String   @default("01-08")
+  summerStart     String   @default("05-28")
+  fallStart       String   @default("08-15")
   /// How a session that lands on an observed holiday is handled (lib/holidayrule):
   /// next-open-day | previous-open-day | flag-only
-  holidayRule  String  @default("next-open-day")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  holidayRule     String   @default("next-open-day")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  academicEvents AcademicEvent[]
-  programs       Program[]
-  programFamilies ProgramFamily[]
-  regions        Region[]
-  occupations    Occupation[]
-  demand         DemandProjection[]
-  calendarBlocks CalendarBlock[]
-  people         Person[]
-  employers      Employer[]
-  skills         Skill[]
+  academicEvents    AcademicEvent[]
+  programs          Program[]
+  programFamilies   ProgramFamily[]
+  regions           Region[]
+  occupations       Occupation[]
+  demand            DemandProjection[]
+  calendarBlocks    CalendarBlock[]
+  people            Person[]
+  employers         Employer[]
+  skills            Skill[]
   proficiencyScales ProficiencyScale[]
-  wblProfiles    WblProfile[]
-  wblSnapshots   WblSnapshot[]
-  assignments    Assignment[]
-  facilities     Facility[]
-  workloadPolicies WorkloadPolicy[]
-  campuses       Campus[]
-  buildings      Building[]
-  equipment      Equipment[]
-  staffRoles     StaffRole[]
+  wblProfiles       WblProfile[]
+  wblSnapshots      WblSnapshot[]
+  assignments       Assignment[]
+  facilities        Facility[]
+  workloadPolicies  WorkloadPolicy[]
+  campuses          Campus[]
+  buildings         Building[]
+  equipment         Equipment[]
+  staffRoles        StaffRole[]
 }
 
 /// A physical teaching space: classroom, lab, clinical/sim facility. Captures the
@@ -71,7 +71,7 @@ model Institution {
 /// A campus: one physical site of the institution (main campus, a health
 /// sciences center, a satellite). Buildings sit on campuses, rooms in buildings.
 model Campus {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
@@ -82,10 +82,10 @@ model Campus {
   notes         String?
   lat           Float?
   lng           Float?
-  geoSource     String?  // census | gazetteer | manual
+  geoSource     String? // census | gazetteer | manual
   /// The campus clinical drive times are measured from (one per institution).
-  isMain        Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  isMain        Boolean     @default(false)
+  createdAt     DateTime    @default(now())
 
   buildings Building[]
   cohorts   Cohort[]
@@ -95,19 +95,19 @@ model Campus {
 
 /// A building on a campus; rooms (Facility) and fixed equipment live in it.
 model Building {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   campusId      String?
-  campus        Campus? @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  campus        Campus?     @relation(fields: [campusId], references: [id], onDelete: SetNull)
   name          String
-  code          String?  // short code, e.g. KENN
+  code          String? // short code, e.g. KENN
   address       String?
   floors        Int?
   notes         String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
 
-  rooms Facility[]
+  rooms     Facility[]
   equipment Equipment[]
 
   @@index([institutionId])
@@ -115,37 +115,37 @@ model Building {
 }
 
 model Facility {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
   /// CLASSROOM | LAB | CLINICAL | SIM | OFFICE | OTHER
-  kind          String  @default("CLASSROOM")
+  kind          String      @default("CLASSROOM")
   /// The building the room is in (Campus → Building → Room).
   buildingId    String?
-  buildingRef   Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  buildingRef   Building?   @relation(fields: [buildingId], references: [id], onDelete: SetNull)
   /// Legacy free-text building name; the relation above is the source of truth.
   building      String?
   roomNumber    String?
   floor         String?
-  capacity      Int?    // seats / stations
-  areaSqft      Int?    // floor area
+  capacity      Int? // seats / stations
+  areaSqft      Int? // floor area
   /// Legacy free-text hours; open hours are the FacilityHours rows.
   hours         String?
   availability  String? // availability notes
   /// Legacy free-text equipment list; equipment is the Equipment model.
   equipment     String?
   notes         String?
-  status        String  @default("active") // active | inactive
-  createdAt     DateTime @default(now())
+  status        String      @default("active") // active | inactive
+  createdAt     DateTime    @default(now())
 
-  openHours FacilityHours[]
-  closures  FacilityClosure[]
-  equipmentHome Equipment[]
+  openHours            FacilityHours[]
+  closures             FacilityClosure[]
+  equipmentHome        Equipment[]
   equipmentAssignments EquipmentAssignment[]
-  sectionSchedules SectionSchedule[]
-  meetings MeetingPattern[]
-  shiftMoves ShiftMove[]
+  sectionSchedules     SectionSchedule[]
+  meetings             MeetingPattern[]
+  shiftMoves           ShiftMove[]
 
   @@index([institutionId])
   @@index([buildingId])
@@ -154,12 +154,12 @@ model Facility {
 /// When a room is open, day by day: one row per weekday span (a split day is
 /// two rows). Structured, so availability and utilization can be computed.
 model FacilityHours {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   facilityId String
   facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  dayOfWeek  String  // Mon | Tue | Wed | Thu | Fri | Sat | Sun
-  openTime   String  // "HH:MM" 24h
-  closeTime  String  // "HH:MM" 24h (may be 24:00)
+  dayOfWeek  String // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  openTime   String // "HH:MM" 24h
+  closeTime  String // "HH:MM" 24h (may be 24:00)
 
   @@index([facilityId])
 }
@@ -167,7 +167,7 @@ model FacilityHours {
 /// A dated exception to a room's open hours: closed for the day, or open
 /// different hours (holiday, maintenance, an event).
 model FacilityClosure {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   facilityId String
   facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   date       DateTime
@@ -183,27 +183,27 @@ model FacilityClosure {
 /// mobile between rooms of a building, or portable anywhere. Mobile and
 /// portable equipment can be assigned to rooms for periods.
 model Equipment {
-  id            String @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  name          String
+  id             String      @id @default(cuid())
+  institutionId  String
+  institution    Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name           String
   /// Imaging | Simulation | Medical device | Lab bench | Sterile processing | AV / IT | Computing | Furniture | Safety | Other
-  category      String  @default("Other")
+  category       String      @default("Other")
   /// fixed (installed in its home room) | mobile (moves between rooms) | portable (goes anywhere, incl. off campus)
-  mobility      String  @default("fixed")
-  quantity      Int     @default(1)
-  make          String?
-  model         String?
-  serial        String?
+  mobility       String      @default("fixed")
+  quantity       Int         @default(1)
+  make           String?
+  model          String?
+  serial         String?
   /// Home room (fixed: where it is installed; mobile/portable: where it is stored).
   homeFacilityId String?
-  homeFacility  Facility? @relation(fields: [homeFacilityId], references: [id], onDelete: SetNull)
-  buildingId    String?
-  building      Building? @relation(fields: [buildingId], references: [id], onDelete: SetNull)
-  status        String  @default("active") // active | maintenance | retired
-  acquiredDate  DateTime?
-  notes         String?
-  createdAt     DateTime @default(now())
+  homeFacility   Facility?   @relation(fields: [homeFacilityId], references: [id], onDelete: SetNull)
+  buildingId     String?
+  building       Building?   @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  status         String      @default("active") // active | maintenance | retired
+  acquiredDate   DateTime?
+  notes          String?
+  createdAt      DateTime    @default(now())
 
   assignments EquipmentAssignment[]
 
@@ -213,16 +213,16 @@ model Equipment {
 
 /// Mobile / portable equipment placed in a room for a period (open-ended when `to` is null).
 model EquipmentAssignment {
-  id          String @id @default(cuid())
+  id          String    @id @default(cuid())
   equipmentId String
   equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
   facilityId  String
-  facility    Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  quantity    Int     @default(1)
+  facility    Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  quantity    Int       @default(1)
   from        DateTime?
   to          DateTime?
   note        String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([equipmentId])
   @@index([facilityId])
@@ -232,12 +232,12 @@ model EquipmentAssignment {
 /// the workload engine what the role covers on a shift: faculty (counts toward
 /// faculty coverage), preceptor, support, or other.
 model StaffRole {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  key           String   // slug used as Person.role, e.g. "clinical-instructor"
+  key           String // slug used as Person.role, e.g. "clinical-instructor"
   label         String
-  family        String   @default("faculty") // faculty | preceptor | support | other
+  family        String      @default("faculty") // faculty | preceptor | support | other
   notes         String?
 
   @@unique([institutionId, key])
@@ -249,12 +249,12 @@ model StaffRole {
 
 /// An occupation, keyed by SOC code (e.g. 29-2034 Radiologic Technologists).
 model Occupation {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   socCode       String
   title         String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
 
   demand   DemandProjection[]
   programs Program[]
@@ -269,20 +269,20 @@ model Occupation {
 /// variants). The family is where multi-year workforce goals are anchored and
 /// where the constellation of cohorts across all its templates is monitored.
 model ProgramFamily {
-  id            String   @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  occupationId  String?
-  occupation    Occupation? @relation(fields: [occupationId], references: [id])
-  name          String
-  description   String?
+  id                      String      @id @default(cuid())
+  institutionId           String
+  institution             Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId            String?
+  occupation              Occupation? @relation(fields: [occupationId], references: [id])
+  name                    String
+  description             String?
   /// Serialized North-Star goal plan (anchor, rates, term retention, demand) —
   /// edited in the family hub's goal planner. JSON blob for portability.
-  goalPlan      String?
+  goalPlan                String?
   /// How this job's clinicals are administered: hours (set hours per service
   /// area), competency (cases / competencies per setting), mixed.
-  clinicalModel String  @default("hours")
-  clinicalNotes String?
+  clinicalModel           String      @default("hours")
+  clinicalNotes           String?
   /// Programmatic accreditation (JRCERT for radiography): the program number the accreditor's forms ask for
   /// and the program's accredited total clinical capacity (students in clinical at any one time).
   accreditor              String?
@@ -294,26 +294,29 @@ model ProgramFamily {
   /// capacityBasis: seats (learners per shift per room / unit — radiography), cases (a site's daily
   /// case volume ÷ cases one student needs a day — surgical technology), staff (qualified staff on
   /// shift × students each may supervise — nurse aide, nursing).
-  capacityBasis        String  @default("seats")
-  casesPerStudentDay   Float?
-  caseDaysPerYear      Int?
-  studentsPerStaff     Float?
+  capacityBasis           String      @default("seats")
+  casesPerStudentDay      Float?
+  caseDaysPerYear         Int?
+  studentsPerStaff        Float?
   /// Primary experience setting (everything else is an out-rotation); blank = the most-required area.
-  rotationPrimarySetting String?
+  rotationPrimarySetting  String?
   /// Which site agreements may host: secured | secured+asked | any.
-  rotationAgreements   String  @default("secured+asked")
-  rotationKeepHome     Boolean @default(true)
-  rotationSkipHolidays Boolean @default(true)
+  rotationAgreements      String      @default("secured+asked")
+  rotationKeepHome        Boolean     @default(true)
+  rotationSkipHolidays    Boolean     @default(true)
   /// The program's clinical quirks in words (case logs, competency sign-offs, call shifts …).
-  rotationNotes        String?
-  createdAt     DateTime @default(now())
+  rotationNotes           String?
+  createdAt               DateTime    @default(now())
 
-  programs Program[]
-  interventions Intervention[]
-  serviceAreas ServiceArea[]
-  familySites FamilySite[]
-  allocations SettingAllocation[]
-  requirementSets ClinicalRequirementSet[]
+  programs         Program[]
+  interventions    Intervention[]
+  requirements     ClinicalRequirement[]
+  supervisionRules SupervisionRule[]
+  extractionJobs   ExtractionJob[]
+  serviceAreas     ServiceArea[]
+  familySites      FamilySite[]
+  allocations      SettingAllocation[]
+  requirementSets  ClinicalRequirementSet[]
 
   @@index([institutionId])
 }
@@ -321,12 +324,12 @@ model ProgramFamily {
 /// A geography the demand is measured against. `kind` is one of:
 /// NATIONAL | STATE | MSA | RADIUS_60 | RADIUS_45 | SERVICE_AREA.
 model Region {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
   kind          String
-  sortOrder     Int      @default(0)
+  sortOrder     Int         @default(0)
 
   demand DemandProjection[]
 
@@ -337,19 +340,19 @@ model Region {
 /// One demand observation: occupation x region x year.
 /// jobs = stock of jobs; openings = growth + replacement openings that year.
 model DemandProjection {
-  id            String   @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  occupationId  String
-  occupation    Occupation @relation(fields: [occupationId], references: [id], onDelete: Cascade)
-  regionId      String
-  region        Region   @relation(fields: [regionId], references: [id], onDelete: Cascade)
-  year          Int
-  jobs          Float?
-  openings      Float?
-  growthPct     Float?
+  id             String      @id @default(cuid())
+  institutionId  String
+  institution    Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId   String
+  occupation     Occupation  @relation(fields: [occupationId], references: [id], onDelete: Cascade)
+  regionId       String
+  region         Region      @relation(fields: [regionId], references: [id], onDelete: Cascade)
+  year           Int
+  jobs           Float?
+  openings       Float?
+  growthPct      Float?
   replacementPct Float?
-  turnoverPct   Float?
+  turnoverPct    Float?
 
   @@unique([occupationId, regionId, year])
   @@index([institutionId])
@@ -362,59 +365,63 @@ model DemandProjection {
 /// A program type: any variation in entry point, sequencing, or instructional
 /// model (Traditional ADN, LPN-to-RN bridge, Accelerated BSN, ...).
 model Program {
-  id            String   @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  occupationId  String?
-  occupation    Occupation? @relation(fields: [occupationId], references: [id])
-  familyId      String?
-  family        ProgramFamily? @relation(fields: [familyId], references: [id])
-  name          String
-  programType   String // e.g. "Traditional Full Time"
-  credential    String? // e.g. "Diploma", "AAS", "Certificate"
-  serviceArea   String?
+  id                       String         @id @default(cuid())
+  institutionId            String
+  institution              Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  occupationId             String?
+  occupation               Occupation?    @relation(fields: [occupationId], references: [id])
+  familyId                 String?
+  family                   ProgramFamily? @relation(fields: [familyId], references: [id])
+  name                     String
+  programType              String // e.g. "Traditional Full Time"
+  credential               String? // e.g. "Diploma", "AAS", "Certificate"
+  serviceArea              String?
   /// Open question carried from the program inventory (e.g. "confirm one cohort or two per year").
-  inventoryNote String?
-  status        String   @default("active") // active | draft | archived
+  inventoryNote            String?
+  status                   String         @default("active") // active | draft | archived
   monthsToFullProductivity Int? // lag from completion to "fully productive"
   // --- Launch cadence & delivery calendar ---
   /// Calendar slots this program delivers in, in order (CSV of FALL|SPRING|SUMMER).
   /// Programs that skip summer use "FALL,SPRING"; trimester programs use all three.
-  termSlots     String   @default("FALL,SPRING,SUMMER")
+  termSlots                String         @default("FALL,SPRING,SUMMER")
   /// ANNUAL | BIENNIAL | MULTI_PER_YEAR | ON_DEMAND
-  launchCadence String   @default("ANNUAL")
+  launchCadence            String         @default("ANNUAL")
   /// Term codes a new cohort launches in (CSV). One for annual, several for multi-per-year.
-  launchTerms   String   @default("FALL")
+  launchTerms              String         @default("FALL")
   /// Years between launch cycles (2 = biennial). Ignored for ON_DEMAND.
-  launchIntervalYears Int @default(1)
+  launchIntervalYears      Int            @default(1)
   /// Fallback planned seats per cohort when a year has no explicit target.
-  defaultCohortSeats Float?
+  defaultCohortSeats       Float?
   /// semester | continuous — whether each term ends with the college's semester (a credit program on the academic
   /// calendar) or runs its template weeks straight from the chosen start, across semester boundaries (a
   /// continuing-education class). Holidays and closed weeks apply either way.
-  calendarMode  String   @default("semester")
+  calendarMode             String         @default("semester")
   // --- Workload assumption cells (clinical capacity model AH–AN) ---
   /// "Full time faculty student contact hours" — cell AI2.
-  facContactHours   Float @default(16)
+  facContactHours          Float          @default(16)
   /// "Number of hours in work week" (faculty) — cell AJ2.
-  facWorkWeekHours  Float @default(40)
+  facWorkWeekHours         Float          @default(40)
   /// "Number of weeks in Term" (faculty) — cell AL2.
-  facTermWeeks      Float @default(16)
+  facTermWeeks             Float          @default(16)
   /// "Full time preceptor contact hours" — cell AI5.
-  preContactHours   Float @default(40)
+  preContactHours          Float          @default(40)
   /// "Number of hours in work week" (preceptor) — cell AJ5.
-  preWorkWeekHours  Float @default(40)
+  preWorkWeekHours         Float          @default(40)
   /// "Number of weeks in Term" (preceptor) — cell AL5.
-  preTermWeeks      Float @default(16)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  preTermWeeks             Float          @default(16)
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
 
-  terms        Term[]
-  cohorts      Cohort[]
-  yearTargets  ProgramYearTarget[]
+  terms         Term[]
+  cohorts       Cohort[]
+  yearTargets   ProgramYearTarget[]
   programSkills ProgramSkill[]
-  assignments  Assignment[]
-  students     Student[]
+  assignments   Assignment[]
+  students      Student[]
+
+  requirements     ClinicalRequirement[]
+  supervisionRules SupervisionRule[]
+  extractionJobs   ExtractionJob[]
 
   @@index([institutionId])
 }
@@ -422,12 +429,12 @@ model Program {
 /// Annual North-Star targets for a program: how many credentials to produce and
 /// the cohort capacity required to get there.
 model ProgramYearTarget {
-  id              String  @id @default(cuid())
-  programId       String
-  program         Program @relation(fields: [programId], references: [id], onDelete: Cascade)
-  year            Int
-  credentialTarget Float?  // target completers/credentials for the year
-  cohortCapacity   Float?  // seats needed to hit the target given funnel rates
+  id               String  @id @default(cuid())
+  programId        String
+  program          Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  year             Int
+  credentialTarget Float? // target completers/credentials for the year
+  cohortCapacity   Float? // seats needed to hit the target given funnel rates
 
   @@unique([programId, year])
   @@index([programId])
@@ -436,9 +443,9 @@ model ProgramYearTarget {
 /// An archetypal term in the program sequence (Term 1..N). startWeek/endWeek
 /// define the instructional window used to validate session timing.
 model Term {
-  id        String  @id @default(cuid())
+  id        String    @id @default(cuid())
   programId String
-  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program   Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
   index     Int // 1-based position in the sequence
   name      String
   /// Fall | Spring | Summer — the semester this term is delivered in (from the
@@ -449,10 +456,10 @@ model Term {
   /// Real-world first day of the term — anchors the day-by-day calendar.
   startDate DateTime?
 
-  courses Course[]
+  courses     Course[]
   assignments Assignment[]
   cohortTerms CohortTerm[]
-  placements WblPlacement[]
+  placements  WblPlacement[]
 
   @@unique([programId, index])
   @@index([programId])
@@ -461,33 +468,37 @@ model Term {
 /// A course within a term. Weekly hours capture the instructional load a single
 /// student must complete for each component; totals are derived by the engine.
 model Course {
-  id                 String @id @default(cuid())
-  termId             String
-  term               Term   @relation(fields: [termId], references: [id], onDelete: Cascade)
-  code               String?
-  name               String
-  sequenceOrder      Int    @default(0) // position within the term (drag-to-reorder)
-  weeklyClassHours   Float  @default(0) // catalog "Class Hours" (weekly contact)
-  weeklyLabHours     Float  @default(0) // catalog "Lab Hours"
-  weeklyClinicalHours Float @default(0) // catalog "Clinical Hours"
+  id                  String  @id @default(cuid())
+  termId              String
+  term                Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
+  code                String?
+  name                String
+  sequenceOrder       Int     @default(0) // position within the term (drag-to-reorder)
+  weeklyClassHours    Float   @default(0) // catalog "Class Hours" (weekly contact)
+  weeklyLabHours      Float   @default(0) // catalog "Lab Hours"
+  weeklyClinicalHours Float   @default(0) // catalog "Clinical Hours"
   // --- Catalog metadata (for the curriculum flow + course detail) ---
-  creditHours        Float?
-  semesterOffered    String? // Fall | Spring | Summer | All
-  description        String?
-  requisites         String? // prerequisite / corequisite narrative
+  creditHours         Float?
+  semesterOffered     String? // Fall | Spring | Summer | All
+  description         String?
+  requisites          String? // prerequisite / corequisite narrative
   /// JSON design targets against the family's requirement set by the END of this course, by rule key
   /// (e.g. {"mandatory": 12, "elective": 4} for radiography; {"total": 40, "general-fs": 10} for surgical
   /// technology). Blank = paced evenly across the clinical courses.
-  requirementPlan    String  @default("{}")
-  courseType         String? // CORE | GENED | SUPPORT — for flow-chart coloring
+  requirementPlan     String  @default("{}")
+  courseType          String? // CORE | GENED | SUPPORT — for flow-chart coloring
 
-  sessions Session[]
+  sessions             Session[]
   clinicalRequirements CourseClinicalRequirement[]
-  cohortDates CohortCourseDates[]
-  courseSkills CourseSkill[]
-  grades   StudentCourseGrade[]
-  meetings MeetingPattern[]
-  studentSections StudentSection[]
+  cohortDates          CohortCourseDates[]
+  courseSkills         CourseSkill[]
+  grades               StudentCourseGrade[]
+  meetings             MeetingPattern[]
+  studentSections      StudentSection[]
+
+  requirements     ClinicalRequirement[]
+  fulfillments     RequirementFulfillment[]
+  supervisionRules SupervisionRule[]
 
   @@index([termId])
 }
@@ -496,32 +507,32 @@ model Course {
 /// kind = CLASS | LAB | CLINICAL. The engine scales these by enrollment to
 /// compute how many real sections/slots/instructors are needed.
 model Session {
-  id            String @id @default(cuid())
-  courseId      String
-  course        Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  kind          String
-  number        Int
-  title         String?
-  lengthHours   Float  @default(0)
-  deliveryMode  String? // in-person | online | hybrid
-  location      String? // lecture hall | skills lab | clinical site ...
-  maxStudents   Int    @default(1) // capacity of ONE instance of this session
+  id                     String  @id @default(cuid())
+  courseId               String
+  course                 Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind                   String
+  number                 Int
+  title                  String?
+  lengthHours            Float   @default(0)
+  deliveryMode           String? // in-person | online | hybrid
+  location               String? // lecture hall | skills lab | clinical site ...
+  maxStudents            Int     @default(1) // capacity of ONE instance of this session
   /// Faculty per instance — Float because clinical oversight is often fractional
   /// (e.g. 1/21 of a clinical instructor per 1-student preceptor session).
-  facultyNeeded Float  @default(1)
-  supportStaffNeeded Float @default(0)
-  preceptorsNeeded   Float @default(0) // clinical only
-  week          Int?
-  dayOfWeek     String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
-  startTime     String? // time of day, "HH:MM" (24h)
-  endTime       String? // stated end of the session's window on its day, "HH:MM" — the booking runs start→end when the sheet gives both
+  facultyNeeded          Float   @default(1)
+  supportStaffNeeded     Float   @default(0)
+  preceptorsNeeded       Float   @default(0) // clinical only
+  week                   Int?
+  dayOfWeek              String? // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  startTime              String? // time of day, "HH:MM" (24h)
+  endTime                String? // stated end of the session's window on its day, "HH:MM" — the booking runs start→end when the sheet gives both
   /// Per-section day/time when the sheet states them ("Section 1: 8-10:50a; Section 2: 1:40-4:30p"):
   /// comma-separated entries "HH:MM" or "Wed@HH:MM", in section order. Section 1 = first entry.
-  sectionTimes  String?
-  rotationType  String? // clinical: Med-Surg, OR, Imaging, ...
-  clinicalMode  String? // clinical: instructor-led | preceptor-led | hybrid
-  notes         String?
-  homework      String? // assignment / homework / prep tied to this session
+  sectionTimes           String?
+  rotationType           String? // clinical: Med-Surg, OR, Imaging, ...
+  clinicalMode           String? // clinical: instructor-led | preceptor-led | hybrid
+  notes                  String?
+  homework               String? // assignment / homework / prep tied to this session
   /// "Contact hour policy for faculty during session (___hrs per contact hour)" — workbook column N.
   facultyContactPolicy   Float?
   /// "Contact hour policy for support staff during session (___hrs per contact hour)" — workbook column P.
@@ -529,13 +540,16 @@ model Session {
   /// "Contact hour policy for preceptors during session (___hrs per contact hour)" — workbook column U.
   preceptorContactPolicy Float?
 
-  skillLinks SessionSkill[]
-  instructors SessionInstructor[]
+  skillLinks       SessionSkill[]
+  instructors      SessionInstructor[]
+  requirements     ClinicalRequirement[]
+  fulfillments     RequirementFulfillment[]
+  supervisionRules SupervisionRule[]
   sectionSchedules SectionSchedule[]
-  resources SessionResource[]
-  overrides SessionOverride[]
-  shiftMoves ShiftMove[]
-  studentShifts StudentShift[]
+  resources        SessionResource[]
+  overrides        SessionOverride[]
+  shiftMoves       ShiftMove[]
+  studentShifts    StudentShift[]
 
   @@index([courseId])
 }
@@ -544,16 +558,16 @@ model Session {
 /// reading / video / practice / material — what students read, watch, or practice
 /// for this session. Richer than the legacy Session.homework string.
 model SessionResource {
-  id         String @id @default(cuid())
+  id         String   @id @default(cuid())
   sessionId  String
-  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   /// HOMEWORK | ASSIGNMENT | READING | VIDEO | PRACTICE | MATERIAL
-  kind       String  @default("READING")
+  kind       String   @default("READING")
   title      String
   url        String?
   detail     String?
   estMinutes Int?
-  sortOrder  Int     @default(0)
+  sortOrder  Int      @default(0)
   createdAt  DateTime @default(now())
 
   @@index([sessionId])
@@ -564,11 +578,11 @@ model SessionResource {
 /// N sections (six labs can't all run at once) across different slots/rooms. Each
 /// row overrides one section's weekly slot for a specific cohort run.
 model SectionSchedule {
-  id           String  @id @default(cuid())
+  id           String    @id @default(cuid())
   cohortId     String
-  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort       Cohort    @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   sessionId    String
-  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session      Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   sectionIndex Int
   dayOfWeek    String?
   startTime    String? // "HH:MM"
@@ -591,25 +605,25 @@ model SectionSchedule {
 /// and 1.25 h by three instructors — or two rows at the same offset when two
 /// people teach together. Contact hours × the person's workload policy = load.
 model SessionInstructor {
-  id           String  @id @default(cuid())
-  sessionId    String
-  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  personId     String
-  person       Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  id             String  @id @default(cuid())
+  sessionId      String
+  session        Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  personId       String
+  person         Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
   /// The OFFERING (cohort run) this staffing belongs to. Null = a template-level
   /// default applying to any offering that hasn't assigned its own staff.
-  cohortId     String?
-  cohort       Cohort? @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohortId       String?
+  cohort         Cohort? @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   /// Which section (shift) of the session, 1-based.
-  sectionIndex Int     @default(1)
-  role         String  @default("instructor") // instructor | preceptor | support | coordinator | supervisor
-  contactHours Float   // portion of the session length this person covers
+  sectionIndex   Int     @default(1)
+  role           String  @default("instructor") // instructor | preceptor | support | coordinator | supervisor
+  contactHours   Float // portion of the session length this person covers
   /// Minutes into the session this person's portion starts (null = unspecified);
   /// two rows whose spans overlap are co-teaching.
   startOffsetMin Float?
-  segment      String? // what they cover, e.g. "Lecture" | "Lab supervision"
+  segment        String? // what they cover, e.g. "Lecture" | "Lab supervision"
   /// "auto-plan" when the clinical scheduler's applied plan wrote the row (replaced on re-apply, removed on clear); null = hand-made.
-  note         String?
+  note           String?
 
   @@index([sessionId])
   @@index([personId])
@@ -628,22 +642,22 @@ model SessionInstructor {
 /// engine for the years they cover; holidays & breaks flag every session that
 /// lands on them.
 model AcademicEvent {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   date          DateTime
   endDate       DateTime?
   label         String
-  kind          String   // term_start | term_end | session_start | holiday | other
-  season        String?  // Spring | Summer | Fall
-  source        String?  // the pasted line it was read from
-  createdAt     DateTime @default(now())
+  kind          String // term_start | term_end | session_start | holiday | other
+  season        String? // Spring | Summer | Fall
+  source        String? // the pasted line it was read from
+  createdAt     DateTime    @default(now())
 
   @@index([institutionId, date])
 }
 
 model CalendarBlock {
-  id            String  @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   blockKey      String
@@ -677,47 +691,47 @@ model CalendarBlock {
 /// (via CohortTerm), assigns real instructors (SessionInstructor.cohortId), and
 /// enrolls real students.
 model Cohort {
-  id        String  @id @default(cuid())
-  programId String
-  program   Program @relation(fields: [programId], references: [id], onDelete: Cascade)
-  name      String
-  entryYear Int?
+  id            String    @id @default(cuid())
+  programId     String
+  program       Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  name          String
+  entryYear     Int?
   /// Entry term code (FALL|SPRING|SUMMER) — used for on-demand / explicit cohorts.
   entryTermCode String?
   /// Planned Term-1 seats for this specific cohort (overrides program defaults).
   plannedSeats  Float?
   /// When true this cohort is an explicit launch included in the plan as-is.
-  isExplicit    Boolean @default(false)
+  isExplicit    Boolean   @default(false)
   /// --- Offering / instantiation fields ---
   /// Real-world first day of this offering's first term (anchors the calendar).
   startDate     DateTime?
   /// planned | active | completed | archived
-  status        String  @default("planned")
+  status        String    @default("planned")
   /// Cohort-specific talent-pipeline plan: { goal, rates, termOverrides } JSON —
   /// set from the goal page's per-offering panel; overrides the family defaults.
   pipelineRates String?
   /// Where this offering meets: a campus of the college (the main campus, a county center, a partner high school). Null = not set.
   campusId      String?
-  campus        Campus? @relation(fields: [campusId], references: [id], onDelete: SetNull)
+  campus        Campus?   @relation(fields: [campusId], references: [id], onDelete: SetNull)
   /// Where on that campus, in the college's own words ("Bullock Bldg, Rm 173").
   locationNote  String?
   /// The college's own reference for the offering (a section or course number), kept beside the readable name.
   code          String?
 
-  stages      FunnelStage[]
-  assetBookings AssetBooking[]
-  students    Student[]
-  applications Student[] @relation("applications")
-  cohortTerms CohortTerm[]
+  stages           FunnelStage[]
+  assetBookings    AssetBooking[]
+  students         Student[]
+  applications     Student[]           @relation("applications")
+  cohortTerms      CohortTerm[]
   sessionOverrides SessionOverride[]
-  shiftMoves ShiftMove[]
-  courseDates CohortCourseDates[]
-  sessionStaff SessionInstructor[]
-  studentSections StudentSection[]
-  studentShifts StudentShift[]
+  shiftMoves       ShiftMove[]
+  courseDates      CohortCourseDates[]
+  sessionStaff     SessionInstructor[]
+  studentSections  StudentSection[]
+  studentShifts    StudentShift[]
   sectionSchedules SectionSchedule[]
-  placements  WblPlacement[]
-  meetings    MeetingPattern[]
+  placements       WblPlacement[]
+  meetings         MeetingPattern[]
 
   @@index([programId])
 }
@@ -725,11 +739,11 @@ model Cohort {
 /// Per-offering scheduling of a template term: the real-world start date this
 /// cohort begins a given Term. Lets one template be run on different calendars.
 model CohortTerm {
-  id        String  @id @default(cuid())
+  id        String    @id @default(cuid())
   cohortId  String
-  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort    Cohort    @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   termId    String
-  term      Term    @relation(fields: [termId], references: [id], onDelete: Cascade)
+  term      Term      @relation(fields: [termId], references: [id], onDelete: Cascade)
   startDate DateTime?
   /// Last instructional day of THIS offering's term — the coded "semester ends"
   /// when the academic calendar carries one, else the last template week.
@@ -750,16 +764,16 @@ model CohortTerm {
 /// lengths (8-, 12-, 14-, 16-week), so each offering can date every course —
 /// the start anchors that course's session weeks; the end marks its last day.
 model CohortCourseDates {
-  id        String  @id @default(cuid())
+  id        String    @id @default(cuid())
   cohortId  String
-  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort    Cohort    @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   courseId  String
-  course    Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   startDate DateTime?
   endDate   DateTime?
   /// true when the alignment engine derived this window from the term dates and
   /// the course's session weeks (re-alignment rewrites it); false when typed.
-  auto      Boolean @default(false)
+  auto      Boolean   @default(false)
 
   @@unique([cohortId, courseId])
   @@index([cohortId])
@@ -769,30 +783,30 @@ model CohortCourseDates {
 /// timeless, while a specific offering can move a session's week, day, time,
 /// or annotate it — without touching any other offering.
 model SessionOverride {
-  id        String  @id @default(cuid())
-  cohortId  String
-  cohort    Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
-  sessionId String
-  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id                     String  @id @default(cuid())
+  cohortId               String
+  cohort                 Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  sessionId              String
+  session                Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   // Every input column of the session table can be overridden per offering —
   // null = inherit the template's value. Same shape as Session's inputs.
-  week      Int?
-  dayOfWeek String?
-  startTime String?
-  notes     String?
-  title        String?
-  deliveryMode String?
-  location     String?
-  lengthHours  Float?
-  maxStudents  Int?
+  week                   Int?
+  dayOfWeek              String?
+  startTime              String?
+  notes                  String?
+  title                  String?
+  deliveryMode           String?
+  location               String?
+  lengthHours            Float?
+  maxStudents            Int?
   facultyNeeded          Float?
   facultyContactPolicy   Float?
   supportStaffNeeded     Float?
   supportContactPolicy   Float?
   preceptorsNeeded       Float?
   preceptorContactPolicy Float?
-  rotationType String?
-  clinicalMode String?
+  rotationType           String?
+  clinicalMode           String?
 
   @@unique([cohortId, sessionId])
   @@index([cohortId])
@@ -821,31 +835,31 @@ model FunnelStage {
 /// People who staff or support delivery: instructors, support staff,
 /// preceptors, clinical supervisors, program coordinators.
 model Person {
-  id            String @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  name          String
-  role          String // instructor | support | preceptor | supervisor | coordinator
-  title         String? // job title, e.g. "Clinical Coordinator", "Lead MRI Tech"
-  email         String?
+  id              String                  @id @default(cuid())
+  institutionId   String
+  institution     Institution             @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name            String
+  role            String // instructor | support | preceptor | supervisor | coordinator
+  title           String? // job title, e.g. "Clinical Coordinator", "Lead MRI Tech"
+  email           String?
   /// Whether the person is currently affiliated with the org (employed/contracted).
   /// Distinct from "currently working" — which is derived from active assignments
   /// in the term in session today.
-  active        Boolean @default(true)
+  active          Boolean                 @default(true)
   /// Affiliation window. endDate set = departed/inactive.
-  startDate     DateTime?
-  endDate       DateTime?
-  employmentType String? // full-time | part-time | adjunct | contract | preceptor
-  employerId    String?
-  employer      Employer? @relation(fields: [employerId], references: [id])
+  startDate       DateTime?
+  endDate         DateTime?
+  employmentType  String? // full-time | part-time | adjunct | contract | preceptor
+  employerId      String?
+  employer        Employer?               @relation(fields: [employerId], references: [id])
   /// Home unit / asset at the partner site (a preceptor's OR suite, imaging room).
-  assetId       String?
-  asset         ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
-  assignments   Assignment[]
-  sessionStaff  SessionInstructor[]
-  meetings      MeetingPattern[]
-  shiftMoves    ShiftMove[]
-  preceptedShifts StudentShift[] @relation("shiftPreceptor")
+  assetId         String?
+  asset           ClinicalAsset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  assignments     Assignment[]
+  sessionStaff    SessionInstructor[]
+  meetings        MeetingPattern[]
+  shiftMoves      ShiftMove[]
+  preceptedShifts StudentShift[]          @relation("shiftPreceptor")
   preceptedLogs   StudentRequirementLog[] @relation("logPreceptor")
   verifiedLogs    StudentRequirementLog[] @relation("logVerifier")
 
@@ -868,65 +882,65 @@ model Person {
 /// employment type, then employer + position, then the institution's own for
 /// the position, then the institution's default for the role.
 model WorkloadPolicy {
-  id            String @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  id                     String         @id @default(cuid())
+  institutionId          String
+  institution            Institution    @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   /// null = the institution's own staff; set = the partner's (preceptors at a site)
-  employerId    String?
-  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  employerId             String?
+  employer               Employer?      @relation(fields: [employerId], references: [id], onDelete: Cascade)
   /// Narrower still: the people whose home unit / asset this is (a specific OR suite, an imaging room).
-  assetId       String?
-  asset         ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assetId                String?
+  asset                  ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
   /// Position: role (instructor | preceptor | support | supervisor | coordinator) …
-  role          String
+  role                   String
   /// … optionally narrowed to an employment type (full-time | part-time | adjunct | contract | preceptor) …
-  employmentType String?
+  employmentType         String?
   /// … and/or a job title (matches Person.title, case-insensitive).
-  title         String?
-  label         String?  // e.g. "Full-time faculty", "Adjunct"
+  title                  String?
+  label                  String? // e.g. "Full-time faculty", "Adjunct"
   /// Contact (student-facing) hours per week that make a full load.
-  contactHoursPerWeek Float
+  contactHoursPerWeek    Float
   /// Hours in the work week.
-  workWeekHours Float @default(40)
+  workWeekHours          Float          @default(40)
   /// Weeks in a term and in a working year (annual load).
-  termWeeks     Float @default(16)
-  annualWeeks   Float @default(32)
+  termWeeks              Float          @default(16)
+  annualWeeks            Float          @default(32)
   /// Work hours credited per contact hour (null = workWeekHours ÷ contactHoursPerWeek).
-  hoursPerContactHour Float?
+  hoursPerContactHour    Float?
   /// Contact hours per week above which the person is overloaded (null = contactHoursPerWeek).
   maxContactHoursPerWeek Float?
-  notes         String?
-  createdAt     DateTime @default(now())
+  notes                  String?
+  createdAt              DateTime       @default(now())
 
   @@index([institutionId])
   @@index([employerId])
 }
 
 model ClinicalUnit {
-  id            String   @id @default(cuid())
-  employerId    String
-  employer      Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
-  externalId    String?  // asset-map unit_id (C001…)
-  unitType      String   // Med-Surg / Telemetry · ICU / CCU · Operating Room Suite · SNF Nursing Unit …
-  unitCategory  String   // Inpatient beds · Surgical · Emergency · Imaging · Laboratory · Long-term care beds · Adult care beds · Behavioral health
-  unitName      String?
-  capacityCount Float?
-  uom           String?  // beds | rooms | bays | scanners | stations
+  id                   String   @id @default(cuid())
+  employerId           String
+  employer             Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  externalId           String? // asset-map unit_id (C001…)
+  unitType             String // Med-Surg / Telemetry · ICU / CCU · Operating Room Suite · SNF Nursing Unit …
+  unitCategory         String // Inpatient beds · Surgical · Emergency · Imaging · Laboratory · Long-term care beds · Adult care beds · Behavioral health
+  unitName             String?
+  capacityCount        Float?
+  uom                  String? // beds | rooms | bays | scanners | stations
   /// VERIFIED (licensure/SMFP) | ESTIMATE (derived from licensed beds) | GAP (unknown)
-  dataSource    String   @default("ESTIMATE")
-  shiftsPerDay  Int      @default(2)
-  shiftLengthHrs Float   @default(12)
+  dataSource           String   @default("ESTIMATE")
+  shiftsPerDay         Int      @default(2)
+  shiftLengthHrs       Float    @default(12)
   /// Comma list of shift blocks the unit runs: Day,Evening,Night
-  shiftBlocks   String   @default("Day,Night")
+  shiftBlocks          String   @default("Day,Night")
   /// Comma list of weekdays the unit can host students: Mon,Tue,…
-  days          String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
-  studentsPerShift Int   @default(0)
-  studentsPerPreceptor Int @default(1)
-  preceptorsPerShift Int @default(0)
-  natcepEligible Boolean?
-  status        String   @default("active") // active | inactive
-  notes         String?
-  createdAt     DateTime @default(now())
+  days                 String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+  studentsPerShift     Int      @default(0)
+  studentsPerPreceptor Int      @default(1)
+  preceptorsPerShift   Int      @default(0)
+  natcepEligible       Boolean?
+  status               String   @default("active") // active | inactive
+  notes                String?
+  createdAt            DateTime @default(now())
 
   meetings   MeetingPattern[]
   shiftMoves ShiftMove[]
@@ -942,14 +956,14 @@ model ClinicalUnit {
 /// rows of the family's clinical requirement grid, each served by one or more
 /// asset settings (setting codes) and/or functional-unit categories.
 model ServiceArea {
-  id             String @id @default(cuid())
+  id             String        @id @default(cuid())
   familyId       String
   family         ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  code           String  // GEN | ED | PORT | OR | FLUORO | CT | COMP …
+  code           String // GEN | ED | PORT | OR | FLUORO | CT | COMP …
   name           String
-  settingCodes   String  @default("") // csv of asset setting codes that serve it
-  unitCategories String  @default("") // csv of functional-unit categories that serve it
-  sortOrder      Int     @default(0)
+  settingCodes   String        @default("") // csv of asset setting codes that serve it
+  unitCategories String        @default("") // csv of functional-unit categories that serve it
+  sortOrder      Int           @default(0)
   notes          String?
 
   requirements CourseClinicalRequirement[]
@@ -960,12 +974,12 @@ model ServiceArea {
 /// The clinical requirement one course places on one service area, per
 /// student: hours (hours-based programs) and/or cases (competency-based).
 model CourseClinicalRequirement {
-  id              String @id @default(cuid())
+  id              String      @id @default(cuid())
   courseId        String
-  course          Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course          Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
   serviceAreaId   String
   serviceArea     ServiceArea @relation(fields: [serviceAreaId], references: [id], onDelete: Cascade)
-  hoursPerStudent Float  @default(0)
+  hoursPerStudent Float       @default(0)
   casesPerStudent Float?
   notes           String?
 
@@ -975,43 +989,51 @@ model CourseClinicalRequirement {
 /// A clinical site's relationship with ONE program family — the same hospital
 /// can be secured for radiography and only a prospect for surgical technology.
 model FamilySite {
-  id              String @id @default(cuid())
-  familyId        String
-  family          ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  employerId      String
-  employer        Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
-  agreementStatus String  @default("none") // none | prospect | asked | secured | declined
+  id                    String        @id @default(cuid())
+  familyId              String
+  family                ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  employerId            String
+  employer              Employer      @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  agreementStatus       String        @default("none") // none | prospect | asked | secured | declined
   /// Phase 5: when the affiliation agreement ends — placements after this date are not agreement-eligible.
-  agreementEnds   DateTime?
-  contactName     String?
-  contactEmail    String?
-  notes           String?
+  agreementEnds         DateTime?
+  contactName           String?
+  contactEmail          String?
+  notes                 String?
   /// Accreditor recognition of this site as a clinical setting for THIS family (JRCERT Form 1010R for
   /// radiography): the capacity the accreditor approved (students the program may assign here at any one
   /// time), a pending request, and the human-resource count the form asks for — qualified practitioners /
   /// radiographers typically scheduled during the hours students are on site. Physical resources are
   /// counted from the site's assets.
-  accreditorStatus      String   @default("none") // none | requested | recognized
+  accreditorStatus      String        @default("none") // none | requested | recognized
   approvedCapacity      Int?
   requestedCapacity     Int?
   qualifiedStaffOnShift Int?
-  staffCountSource      String   @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
-  studentHoursWindow    String?  // e.g. "07:00–15:30"
+  staffCountSource      String        @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
+  studentHoursWindow    String? // e.g. "07:00–15:30"
   accreditorNotes       String?
   capacityUpdatedAt     DateTime?
   /// AVAILABILITY the site agreed for THIS family (the rotation planner's hard limits at this site):
   /// students at any one time, the site's daily case volume for the family's cases (blank = the
   /// site's annual surgical cases ÷ case days), and the days / shift blocks students may attend.
   studentsAtOnce        Int?
+  /// What a blank `studentsAtOnce` means: known (the number above) | unrestricted (the site set no limit for this
+  /// family — other limits still apply) | unknown (not asked; never unlimited, never zero).
+  studentsAtOnceMode    String        @default("unknown")
   casesPerDay           Float?
-  daysAllowed           String?  // csv of Mon..Sun; blank = every day the assets run
-  blocksAllowed         String?  // csv of Day,Evening,Night; blank = every block the assets run
+  daysAllowed           String? // csv of Mon..Sun; blank = every day the assets run
+  blocksAllowed         String? // csv of Day,Evening,Night; blank = every block the assets run
+  /// inherit (use the assets' schedules — the meaning blank days always had) | specific (the days / blocks above,
+  /// plus `availability` windows and exceptions) | unavailable | unknown.
+  availabilityMode      String        @default("inherit")
+  /// JSON: { timezone, windows: [{days, from, to}], exceptions: [{from, to, note}], unavailable: [{from, to, note}] }.
+  availability          String?
   availabilityNotes     String?
   /// Provenance (Phase 3) for the agreement, capacity and staff figures on this record.
-  evidenceSource String?
-  evidenceOwner  String?
-  verifiedAt     DateTime?
-  reviewBy       DateTime?
+  evidenceSource        String?
+  evidenceOwner         String?
+  verifiedAt            DateTime?
+  reviewBy              DateTime?
 
   @@unique([familyId, employerId])
 }
@@ -1020,16 +1042,16 @@ model FamilySite {
 /// allocated supply layered between the physical ceiling and what is booked.
 /// "Moore Regional offers Radiography 15 Day shifts a week in GEN, 1 learner each."
 model SettingAllocation {
-  id               String @id @default(cuid())
+  id               String        @id @default(cuid())
   familyId         String
   family           ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
   employerId       String
-  employer         Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  employer         Employer      @relation(fields: [employerId], references: [id], onDelete: Cascade)
   settingCode      String
-  block            String  // Day | Evening | Night
-  shiftsPerWeek    Float   @default(0)
-  hoursPerShift    Float   @default(8)
-  learnersPerShift Int     @default(1)
+  block            String // Day | Evening | Night
+  shiftsPerWeek    Float         @default(0)
+  hoursPerShift    Float         @default(8)
+  learnersPerShift Int           @default(1)
   from             DateTime?
   to               DateTime?
   notes            String?
@@ -1042,48 +1064,62 @@ model SettingAllocation {
 /// of the 365-day asset map. Its operating rule (days × shift blocks) is the
 /// physical ceiling; the learner rule (learners per shift) is layered on top.
 model ClinicalAsset {
-  id            String   @id @default(cuid())
-  employerId    String
-  employer      Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
-  externalId    String?  // asset_id, e.g. H001-GEN-01
-  settingCode   String   // GEN | ED | PORT | OR | FLUORO | CT | MRI | …
-  setting       String   // "General diagnostic radiography"
-  assetType     String   // "Fixed radiographic room"
-  assetNumber   Int      @default(1)
-  operatingRule String   @default("24x7") // 24x7 | Weekday Day | Custom
-  days          String   @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
-  shiftBlocks   String   @default("Day,Evening,Night")
-  hoursPerShift Float    @default(8) // default / fallback shift length
+  id                 String           @id @default(cuid())
+  employerId         String
+  employer           Employer         @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  externalId         String? // asset_id, e.g. H001-GEN-01
+  settingCode        String // GEN | ED | PORT | OR | FLUORO | CT | MRI | …
+  setting            String // "General diagnostic radiography"
+  assetType          String // "Fixed radiographic room"
+  assetNumber        Int              @default(1)
+  operatingRule      String           @default("24x7") // 24x7 | Weekday Day | Custom
+  days               String           @default("Mon,Tue,Wed,Thu,Fri,Sat,Sun")
+  shiftBlocks        String           @default("Day,Evening,Night")
+  hoursPerShift      Float            @default(8) // default / fallback shift length
   /// The shift structure, block by block: when each shift starts and how long it runs.
-  dayStart      String   @default("07:00")
-  dayHours      Float    @default(8)
-  eveningStart  String   @default("15:00")
-  eveningHours  Float    @default(8)
-  nightStart    String   @default("23:00")
-  nightHours    Float    @default(8)
-  serves        String?  // populations / case mix the asset supports
+  dayStart           String           @default("07:00")
+  dayHours           Float            @default(8)
+  eveningStart       String           @default("15:00")
+  eveningHours       Float            @default(8)
+  nightStart         String           @default("23:00")
+  nightHours         Float            @default(8)
+  serves             String? // populations / case mix the asset supports
   /// Learner rule: students the asset can host per shift (1 for a radiographic room).
-  learnersPerShift Int   @default(1)
-  preceptorsPerShift Int @default(1)
-  dataSource    String   @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
-  status        String   @default("active")
-  notes         String?
+  learnersPerShift   Int              @default(1)
+  /// What `learnersPerShift` means: known (a stated limit) | unrestricted (explicitly no limit from this field —
+  /// other limits still apply) | unknown (nobody has said; never read as unlimited or as zero).
+  limitMode          String           @default("known")
+  preceptorsPerShift Int              @default(1)
+  dataSource         String           @default("ESTIMATE") // VERIFIED | ESTIMATE | GAP
+  status             String           @default("active")
+  notes              String?
+  /// Availability of this asset to students: specific (its operating rule + day exceptions, the default the map
+  /// always had) | unavailable | unknown. The rule fields above are the "specific" schedule.
+  availabilityMode   String           @default("specific")
+  timezone           String? // IANA zone the schedule is stated in (null = the institution's)
+  /// Educational capabilities beyond the setting code (JSON list: [{kind, code, label, status, note}] — populations,
+  /// procedures, modalities the asset supports; status supported | limited | unsupported | unknown).
+  capabilities       String           @default("[]")
+  /// Which learner / program types may use it and what they may not do here (free text, shown as limits).
+  learnerTypes       String?
+  restrictions       String?
+  siteCapabilities   SiteCapability[]
   /// How the accreditor counts this asset (JRCERT: radiographic room, R&F room, mobile unit, C-arm, or
   /// excluded — mammography, CT, MR, ultrasound, nuclear medicine, interventional, cardiovascular, bone
   /// densitometry, therapy). Blank = derived from the setting and asset type.
-  accreditorClass String?
+  accreditorClass    String?
   /// Provenance (Phase 3): where the row came from, who owns it, when it was verified with the site, when to review.
-  evidenceSource String?
-  evidenceOwner  String?
-  verifiedAt     DateTime?
-  reviewBy       DateTime?
-  createdAt     DateTime @default(now())
+  evidenceSource     String?
+  evidenceOwner      String?
+  verifiedAt         DateTime?
+  reviewBy           DateTime?
+  createdAt          DateTime         @default(now())
 
-  dayOverrides  AssetDay[]
-  bookings      AssetBooking[]
+  dayOverrides     AssetDay[]
+  bookings         AssetBooking[]
   workloadPolicies WorkloadPolicy[]
-  homePeople    Person[]
-  studentShifts StudentShift[]
+  homePeople       Person[]
+  studentShifts    StudentShift[]
 
   @@index([employerId])
 }
@@ -1092,13 +1128,13 @@ model ClinicalAsset {
 /// day, or running a different set of shift blocks (holiday, maintenance,
 /// surge). The 365-day map is the rule plus these exceptions.
 model AssetDay {
-  id       String  @id @default(cuid())
-  assetId  String
-  asset    ClinicalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  date     DateTime
+  id          String        @id @default(cuid())
+  assetId     String
+  asset       ClinicalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  date        DateTime
   /// Shift blocks actually operating that day (csv); empty = closed.
-  shiftBlocks String @default("")
-  note     String?
+  shiftBlocks String        @default("")
+  note        String?
 
   @@unique([assetId, date])
 }
@@ -1106,35 +1142,47 @@ model AssetDay {
 /// A learner shift booked onto a specific asset on a specific date and shift
 /// block — the assignment that turns "supply vs demand" into a schedule.
 model AssetBooking {
-  id           String   @id @default(cuid())
+  id           String        @id @default(cuid())
   assetId      String
   asset        ClinicalAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
   cohortId     String
-  cohort       Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort       Cohort        @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   sessionId    String?
-  sectionIndex Int      @default(1)
+  sectionIndex Int           @default(1)
   meetingId    String?
   date         DateTime
-  block        String   // Day | Evening | Night
-  students     Int      @default(1)
+  block        String // Day | Evening | Night
+  students     Int           @default(1)
   note         String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime      @default(now())
 
   @@index([assetId, date])
   @@index([cohortId])
 }
 
 model RotationSetting {
-  id            String @id @default(cuid())
-  institutionId String
-  rotationType  String
-  unitCategory  String
-  unitType      String?
-  /// Asset-map setting code this rotation is served by (GEN / ED / PORT / OR / FLUORO …).
-  settingCode   String?
+  id                   String    @id @default(cuid())
+  institutionId        String
+  rotationType         String
+  unitCategory         String
+  unitType             String?
+  /// LEGACY single setting code (GEN / ED / PORT / OR / FLUORO …). Kept for compatibility and as the
+  /// first eligible setting of `rule`; no live calculation reads it alone once `rule` exists.
+  settingCode          String?
+  /// The explicit setting rule (lib/settingrule SettingRuleSpec as JSON): alternatives, components with
+  /// quantities, minimums inside a pool, any-N-of, mixing and continuity — with its interpretation status.
+  rule                 String?
+  /// The rotation wording as the program wrote it, verbatim.
+  sourceText           String?
+  /// proposed (a lexical or AI proposal) | needs-review | reviewed (a person confirmed the interpretation).
+  interpretationStatus String    @default("needs-review")
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  /// Bumped on every write; a stale editor cannot overwrite a reviewed interpretation.
+  revision             Int       @default(1)
   /// patients per student for this rotation (tightens the students-per-shift ceiling)
-  patientsPerStudent Float?
-  notes         String?
+  patientsPerStudent   Float?
+  notes                String?
 
   @@unique([institutionId, rotationType])
 }
@@ -1147,62 +1195,62 @@ model RotationSetting {
 /// pattern puts it) moved to another date / time / place. Keyed by the SESSION so
 /// exactly one chip moves — never every session that shares a weekly booking.
 model ShiftMove {
-  id            String   @id @default(cuid())
+  id            String          @id @default(cuid())
   cohortId      String
-  cohort        Cohort   @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort        Cohort          @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   sessionId     String
-  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sectionIndex  Int      @default(1)
+  session       Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sectionIndex  Int             @default(1)
   meetingId     String?
   meeting       MeetingPattern? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
   fromDate      DateTime
   toDate        DateTime
   startTime     String?
   facilityId    String?
-  facility      Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  facility      Facility?       @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   employerId    String?
-  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  employer      Employer?       @relation(fields: [employerId], references: [id], onDelete: SetNull)
   unitId        String?
-  unit          ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  unit          ClinicalUnit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
   staffPersonId String?
-  staff         Person?   @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
+  staff         Person?         @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
   /// "auto-plan" when the clinical scheduler's applied plan moved this occurrence (a ± day or shift-block change); null = moved by hand.
   note          String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime        @default(now())
 
   @@unique([cohortId, sessionId, sectionIndex, fromDate])
   @@index([cohortId])
 }
 
 model MeetingPattern {
-  id           String  @id @default(cuid())
-  cohortId     String
-  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
-  courseId     String
-  course       Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  kind         String  // CLASS | LAB | CLINICAL
-  sectionIndex Int     @default(1) // 1-based section number
-  sectionCount Int     @default(1) // total sections for this (course, kind) in this cohort
-  seats        Int     @default(0) // students assigned to THIS section
-  dayOfWeek    String  // Mon | Tue | Wed | Thu | Fri | Sat | Sun
-  startTime    String  // HH:MM (24h)
-  lengthHours  Float   @default(1)
-  termIndex    Int     @default(1)
-  startWeek    Int     @default(1) // first instructional week it recurs
-  endWeek      Int     @default(16) // last instructional week
-  facilityId   String?
-  facility     Facility? @relation(fields: [facilityId], references: [id], onDelete: SetNull)
+  id            String        @id @default(cuid())
+  cohortId      String
+  cohort        Cohort        @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  courseId      String
+  course        Course        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  kind          String // CLASS | LAB | CLINICAL
+  sectionIndex  Int           @default(1) // 1-based section number
+  sectionCount  Int           @default(1) // total sections for this (course, kind) in this cohort
+  seats         Int           @default(0) // students assigned to THIS section
+  dayOfWeek     String // Mon | Tue | Wed | Thu | Fri | Sat | Sun
+  startTime     String // HH:MM (24h)
+  lengthHours   Float         @default(1)
+  termIndex     Int           @default(1)
+  startWeek     Int           @default(1) // first instructional week it recurs
+  endWeek       Int           @default(16) // last instructional week
+  facilityId    String?
+  facility      Facility?     @relation(fields: [facilityId], references: [id], onDelete: SetNull)
   /// CLINICAL meetings are hosted at a partner site rather than a campus room —
   /// this puts the rotation on the same master calendar, attributed to the partner.
-  employerId   String?
-  employer     Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  employerId    String?
+  employer      Employer?     @relation(fields: [employerId], references: [id], onDelete: SetNull)
   /// The functional unit (bed unit / OR suite / …) inside the site that hosts this section.
-  unitId       String?
-  unit         ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  unitId        String?
+  unit          ClinicalUnit? @relation(fields: [unitId], references: [id], onDelete: SetNull)
   staffPersonId String?
-  staff         Person?  @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
-  moves        ShiftMove[]
+  staff         Person?       @relation(fields: [staffPersonId], references: [id], onDelete: SetNull)
+  createdAt     DateTime      @default(now())
+  moves         ShiftMove[]
 
   @@index([cohortId])
   @@index([courseId])
@@ -1213,42 +1261,42 @@ model MeetingPattern {
 
 /// An employer / clinical partner that hires graduates and/or hosts WBL.
 model Employer {
-  id            String @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
-  name          String
-  setting       String? // acute-care hospital | imaging center | ambulatory surgical center ...
-  wblSlots      Int?    // clinical/WBL slots the partner can host
-  notes         String?
+  id                      String        @id @default(cuid())
+  institutionId           String
+  institution             Institution   @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  name                    String
+  setting                 String? // acute-care hospital | imaging center | ambulatory surgical center ...
+  wblSlots                Int? // clinical/WBL slots the partner can host
+  notes                   String?
   /// Partnership lifecycle: prospect | active | paused | archived
-  status        String  @default("active")
-  contactName   String?
-  contactEmail  String?
-  contactPhone  String?
+  status                  String        @default("active")
+  contactName             String?
+  contactEmail            String?
+  contactPhone            String?
   /// Street address of the site — every partner and clinical site has one.
-  address       String?
-  city          String?
-  state         String?
-  zip           String?
+  address                 String?
+  city                    String?
+  state                   String?
+  zip                     String?
   /// ── Clinical asset map (facility level) ──
-  externalId    String?  // asset-map facility_id (H001…)
-  organization  String?  // licensee / health system
-  facilityType  String?  // Acute care hospital | Ambulatory surgery center | Nursing home | …
-  county        String?
-  ring          String?  // Core | Ring 1 | Ring 2 | Ring 3 — auto-coded from drive time unless ringSource = manual
+  externalId              String? // asset-map facility_id (H001…)
+  organization            String? // licensee / health system
+  facilityType            String? // Acute care hospital | Ambulatory surgery center | Nursing home | …
+  county                  String?
+  ring                    String? // Core | Ring 1 | Ring 2 | Ring 3 — auto-coded from drive time unless ringSource = manual
   /// Location and distance from the delivering campus, auto-coded from the address (Census geocoder online,
   /// a built-in NC gazetteer offline) — the ring falls out of the drive time under the institution's bands.
-  lat           Float?
-  lng           Float?
-  geoSource     String?  // census | gazetteer | manual
-  distanceMiles Float?
-  driveMinutes  Float?
-  ringSource    String   @default("auto") // auto | manual
-  licensedBeds  Int?
-  nursingHomeBeds Int?
-  adultCareBeds Int?
-  operatingRooms Int?
-  annualSurgicalCases Int?
+  lat                     Float?
+  lng                     Float?
+  geoSource               String? // census | gazetteer | manual
+  distanceMiles           Float?
+  driveMinutes            Float?
+  ringSource              String        @default("auto") // auto | manual
+  licensedBeds            Int?
+  nursingHomeBeds         Int?
+  adultCareBeds           Int?
+  operatingRooms          Int?
+  annualSurgicalCases     Int?
   /// Case volume detail from the facility capacity tracker (state-reported OR activity): the inpatient /
   /// ambulatory split, the modeled operating days a year the average is taken over, and where it came from.
   inpatientSurgicalCases  Int?
@@ -1256,28 +1304,30 @@ model Employer {
   operatingDaysPerYear    Int?
   surgicalCaseSource      String?
   /// Agreement lifecycle with THIS institution: none | prospect | asked | secured | declined
-  agreementStatus String @default("none")
-  agreementNotes  String?
-  sourceNote    String?
+  agreementStatus         String        @default("none")
+  agreementNotes          String?
+  sourceNote              String?
   /// The shared site record this partner record is a college's view of. Several colleges can approach the
   /// same hospital: each keeps its own Employer row (agreement, contacts, drive time from ITS campus, the
   /// assets it has been granted) and they all point at one ClinicalSite.
-  siteId        String?
-  site          ClinicalSite? @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  siteId                  String?
+  site                    ClinicalSite? @relation(fields: [siteId], references: [id], onDelete: SetNull)
 
-  units ClinicalUnit[]
-  assets ClinicalAsset[]
-  familySites FamilySite[]
-  allocations SettingAllocation[]
-  provisions SiteRequirementProvision[]
-  requirementLogs StudentRequirementLog[]
-  people Person[]
-  wblSnapshots WblSnapshot[]
-  placements WblPlacement[]
-  workloadPolicies WorkloadPolicy[]
+  units             ClinicalUnit[]
+  assets            ClinicalAsset[]
+  siteCapabilities  SiteCapability[]
+  extractionJobs    ExtractionJob[]
+  familySites       FamilySite[]
+  allocations       SettingAllocation[]
+  provisions        SiteRequirementProvision[]
+  requirementLogs   StudentRequirementLog[]
+  people            Person[]
+  wblSnapshots      WblSnapshot[]
+  placements        WblPlacement[]
+  workloadPolicies  WorkloadPolicy[]
   alignmentProfiles AlignmentProfile[]
-  meetings MeetingPattern[]
-  shiftMoves ShiftMove[]
+  meetings          MeetingPattern[]
+  shiftMoves        ShiftMove[]
 
   @@index([institutionId])
   @@index([siteId])
@@ -1287,23 +1337,23 @@ model Employer {
 /// (optionally tied to a cohort + term window). The operational record behind
 /// "assign WBL" — distinct from the WblSnapshot (a point-in-time fit/readiness capture).
 model WblPlacement {
-  id           String @id @default(cuid())
+  id           String    @id @default(cuid())
   studentId    String
-  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student      Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
   employerId   String
-  employer     Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  employer     Employer  @relation(fields: [employerId], references: [id], onDelete: Cascade)
   cohortId     String?
-  cohort       Cohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  cohort       Cohort?   @relation(fields: [cohortId], references: [id], onDelete: SetNull)
   termId       String?
-  term         Term? @relation(fields: [termId], references: [id], onDelete: SetNull)
+  term         Term?     @relation(fields: [termId], references: [id], onDelete: SetNull)
   startDate    DateTime?
   endDate      DateTime?
   hoursPerWeek Float?
-  modality     String?  // CT | MRI | general | mammography ...
+  modality     String? // CT | MRI | general | mammography ...
   /// planned | active | completed | cancelled
-  status       String  @default("planned")
+  status       String    @default("planned")
   notes        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@index([studentId])
   @@index([employerId])
@@ -1321,11 +1371,11 @@ model WblPlacement {
 
 /// An institution's proficiency scale (e.g. 5 levels: Awareness → Expert).
 model ProficiencyScale {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
-  isDefault     Boolean @default(false)
+  isDefault     Boolean     @default(false)
 
   levels ProficiencyLevel[]
 
@@ -1334,7 +1384,7 @@ model ProficiencyScale {
 
 /// One level on a proficiency scale. `level` is the comparable numeric rank.
 model ProficiencyLevel {
-  id      String @id @default(cuid())
+  id      String           @id @default(cuid())
   scaleId String
   scale   ProficiencyScale @relation(fields: [scaleId], references: [id], onDelete: Cascade)
   level   Int
@@ -1347,18 +1397,18 @@ model ProficiencyLevel {
 /// A Knowledge, Skill, or Ability in the institution's library. Reusable across
 /// programs and courses, short-term and long-term alike.
 model Skill {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   name          String
-  type          String  @default("SKILL") // KNOWLEDGE | SKILL | ABILITY
+  type          String      @default("SKILL") // KNOWLEDGE | SKILL | ABILITY
   category      String? // grouping, e.g. "Technical", "Professional", "Clinical"
   definition    String?
   howUsed       String? // context-of-use narrative (role-specific)
-  source        String  @default("manual") // manual | lightcast | import
+  source        String      @default("manual") // manual | lightcast | import
   externalId    String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   descriptors   SkillLevelDescriptor[]
   programSkills ProgramSkill[]
@@ -1384,7 +1434,7 @@ model SkillLevelDescriptor {
 /// Graduate proficiency benchmark: the level a program expects its graduates to
 /// reach in a skill.
 model ProgramSkill {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   programId   String
   program     Program @relation(fields: [programId], references: [id], onDelete: Cascade)
   skillId     String
@@ -1400,11 +1450,11 @@ model ProgramSkill {
 /// Course-level curriculum mapping: the level a course develops a skill to, and
 /// whether it introduces / reinforces / masters it.
 model CourseSkill {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   courseId    String
-  course      Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
   skillId     String
-  skill       Skill  @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  skill       Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
   targetLevel Int
   role        String? // INTRODUCED | REINFORCED | MASTERED
 
@@ -1422,7 +1472,7 @@ model CourseSkill {
 
 /// A profile of one side of a work-based-learning relationship.
 model WblProfile {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   subjectType   String // LEARNER | EMPLOYER
@@ -1432,8 +1482,8 @@ model WblProfile {
   employerId    String?
   tier          String? // employer tier or learner segment
   summary       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
   factors WblFactor[]
 
@@ -1442,18 +1492,18 @@ model WblProfile {
 
 /// One factor in a WBL profile, on one of the three layers.
 model WblFactor {
-  id         String @id @default(cuid())
+  id         String     @id @default(cuid())
   profileId  String
   profile    WblProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   layer      String // MOTIVATION | CONSTRAINT | CAPACITY
   label      String
   detail     String?
   /// Strength / importance of this factor (0–1+).
-  weight     Float   @default(1)
+  weight     Float      @default(1)
   /// True if this is a hard requirement that must be met (a "binding" constraint).
-  binding    Boolean @default(false)
+  binding    Boolean    @default(false)
   /// How the factor surfaced: STATED | INFERRED | HIDDEN | UNKNOWN.
-  disclosure String  @default("STATED")
+  disclosure String     @default("STATED")
   /// Free-text key used to match a learner factor to an employer factor.
   matchKey   String?
 
@@ -1470,17 +1520,17 @@ model WblFactor {
 // ---------------------------------------------------------------------------
 
 model WblSnapshot {
-  id            String   @id @default(cuid())
-  institutionId String
-  institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  id               String      @id @default(cuid())
+  institutionId    String
+  institution      Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   /// LEARNER_STUDENT | EMPLOYER
-  subjectType   String
-  studentId     String?
-  student       Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  employerId    String?
-  employer      Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
-  asOfDate      DateTime
-  summary       String?
+  subjectType      String
+  studentId        String?
+  student          Student?    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  employerId       String?
+  employer         Employer?   @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  asOfDate         DateTime
+  summary          String?
   /// Optional structured snapshot fields (learner side) for richer recommendations.
   maxTravelMinutes Int?
   transport        String? // own-car | public-transit | rides | none
@@ -1488,7 +1538,7 @@ model WblSnapshot {
   shiftPreference  String? // day | evening | flexible
   targetWage       Float?
   desiredModality  String? // CT | MRI | general | mammography ...
-  createdAt        DateTime @default(now())
+  createdAt        DateTime    @default(now())
 
   factors WblSnapshotFactor[]
 
@@ -1498,15 +1548,15 @@ model WblSnapshot {
 }
 
 model WblSnapshotFactor {
-  id         String @id @default(cuid())
+  id         String      @id @default(cuid())
   snapshotId String
   snapshot   WblSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  layer      String  // MOTIVATION | CONSTRAINT | CAPACITY
+  layer      String // MOTIVATION | CONSTRAINT | CAPACITY
   label      String
   detail     String?
-  weight     Float   @default(1)
-  binding    Boolean @default(false)
-  disclosure String  @default("STATED")
+  weight     Float       @default(1)
+  binding    Boolean     @default(false)
+  disclosure String      @default("STATED")
   matchKey   String?
 
   @@index([snapshotId])
@@ -1520,17 +1570,17 @@ model WblSnapshotFactor {
 /// some FTE. Reconciled against the faculty/preceptor FTE DEMAND the capacity
 /// engine computes, to surface staffing gaps.
 model Assignment {
-  id            String @id @default(cuid())
+  id            String      @id @default(cuid())
   institutionId String
   institution   Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
   personId      String
-  person        Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  person        Person      @relation(fields: [personId], references: [id], onDelete: Cascade)
   programId     String
-  program       Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  program       Program     @relation(fields: [programId], references: [id], onDelete: Cascade)
   termId        String?
-  term          Term?   @relation(fields: [termId], references: [id], onDelete: SetNull)
-  role          String  // instructor | preceptor | support | coordinator
-  fteCommitment Float   @default(1) // how much instructional FTE this person supplies
+  term          Term?       @relation(fields: [termId], references: [id], onDelete: SetNull)
+  role          String // instructor | preceptor | support | coordinator
+  fteCommitment Float       @default(1) // how much instructional FTE this person supplies
   notes         String?
 
   @@index([programId])
@@ -1542,13 +1592,13 @@ model Assignment {
 /// engine, this is how skill-delivery and competency-assessment volume scale too
 /// — closing the loop from curriculum design → delivery → assessment → funnel.
 model SessionSkill {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   sessionId   String
   session     Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   skillId     String
   skill       Skill   @relation(fields: [skillId], references: [id], onDelete: Cascade)
   mode        String  @default("DELIVER") // DELIVER | ASSESS | BOTH
-  targetLevel Int?    // level this session develops/assesses the skill to
+  targetLevel Int? // level this session develops/assesses the skill to
 
   @@unique([sessionId, skillId])
   @@index([skillId])
@@ -1566,71 +1616,71 @@ model SessionSkill {
 
 /// One enrolled (or prospective) student in a program cohort.
 model Student {
-  id            String  @id @default(cuid())
-  programId     String
-  program       Program @relation(fields: [programId], references: [id], onDelete: Cascade)
-  cohortId      String?
-  cohort        Cohort? @relation(fields: [cohortId], references: [id], onDelete: SetNull)
+  id                  String    @id @default(cuid())
+  programId           String
+  program             Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  cohortId            String?
+  cohort              Cohort?   @relation(fields: [cohortId], references: [id], onDelete: SetNull)
   /// The offering this person applied to (set from first interest); cohortId is only set once they enroll.
   /// The offering's talent-pipeline actuals count everyone who applied to it or enrolled in it.
   applicationCohortId String?
-  applicationCohort   Cohort? @relation("applications", fields: [applicationCohortId], references: [id], onDelete: SetNull)
-  name          String
-  email         String?
+  applicationCohort   Cohort?   @relation("applications", fields: [applicationCohortId], references: [id], onDelete: SetNull)
+  name                String
+  email               String?
   /// Lifecycle status: prospect | applicant | admitted | enrolled | completed | licensed | placed | withdrawn
-  status        String  @default("enrolled")
+  status              String    @default("enrolled")
   /// Current funnel stage key (matches FunnelStage.stageKey) — drives drill-down.
-  stageKey      String?
-  entryYear     Int?
-  gpa           Float?
-  attendedCount Int     @default(0)
-  missedCount   Int     @default(0)
+  stageKey            String?
+  entryYear           Int?
+  gpa                 Float?
+  attendedCount       Int       @default(0)
+  missedCount         Int       @default(0)
   /// Cohort section/group this student belongs to (1-based). Maps the student to
   /// specific lab/clinical section shifts on the calendar.
-  sectionIndex  Int     @default(1)
+  sectionIndex        Int       @default(1)
   /// Phase 4: a withdrawn student's FUTURE assignments leave operational demand unless this is set
   /// (e.g. a leave of absence with a planned return keeps their shifts on the books).
-  keepAssignments Boolean @default(false)
+  keepAssignments     Boolean   @default(false)
   /// Clinical rotation site/group, when on clinical rotations.
-  clinicalSite  String?
+  clinicalSite        String?
   // --- Demographics (coded dropdowns, for aggregate / disaggregate analytics) ---
-  dob           DateTime?
+  dob                 DateTime?
   /// Female | Male | Intersex | Prefer not to say
-  sex           String?
+  sex                 String?
   /// IPEDS categories: Hispanic or Latino | American Indian or Alaska Native | Asian | Black or African American | Native Hawaiian or Other Pacific Islander | White | Two or more races | Unknown / prefer not to say
-  raceEthnicity String?
-  phone         String?
-  address       String?
-  city          String?
-  county        String?
-  state         String?
-  zip           String?
+  raceEthnicity       String?
+  phone               String?
+  address             String?
+  city                String?
+  county              String?
+  state               String?
+  zip                 String?
   /// in-district | in-state | out-of-state | international
-  residency     String?
+  residency           String?
   /// HS diploma | GED | Some college | Certificate | Associate | Bachelor's | Graduate
-  priorEducation String?
+  priorEducation      String?
   /// unemployed | part-time | full-time | incumbent worker (healthcare) | student only
-  employmentStatus String?
-  firstGeneration Boolean?
-  veteran       Boolean?
-  pellEligible  Boolean?
-  disability    Boolean?
-  dependents    Int?
-  primaryLanguage String?
+  employmentStatus    String?
+  firstGeneration     Boolean?
+  veteran             Boolean?
+  pellEligible        Boolean?
+  disability          Boolean?
+  dependents          Int?
+  primaryLanguage     String?
   /// academic | financial | personal / family | health | employment | relocated | transferred | other
-  withdrawalReason String?
-  startDate     DateTime?
-  completionDate DateTime?
-  createdAt     DateTime @default(now())
+  withdrawalReason    String?
+  startDate           DateTime?
+  completionDate      DateTime?
+  createdAt           DateTime  @default(now())
 
-  sections    StudentSection[]
-  shifts      StudentShift[]
-  requirementLogs StudentRequirementLog[]
-  grades      StudentCourseGrade[]
-  assessments StudentSkillAssessment[]
-  absences    StudentAbsence[]
-  wblSnapshots WblSnapshot[]
-  placements  WblPlacement[]
+  sections          StudentSection[]
+  shifts            StudentShift[]
+  requirementLogs   StudentRequirementLog[]
+  grades            StudentCourseGrade[]
+  assessments       StudentSkillAssessment[]
+  absences          StudentAbsence[]
+  wblSnapshots      WblSnapshot[]
+  placements        WblPlacement[]
   alignmentProfiles AlignmentProfile[]
 
   @@index([programId])
@@ -1641,14 +1691,14 @@ model Student {
 /// A student's seat in one section of one course kind (class / lab / clinical)
 /// of an offering — the class assignment.
 model StudentSection {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   studentId    String
   student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
   cohortId     String
   cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   courseId     String
   course       Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  kind         String  // CLASS | LAB | CLINICAL
+  kind         String // CLASS | LAB | CLINICAL
   sectionIndex Int     @default(1)
 
   @@unique([studentId, cohortId, courseId, kind])
@@ -1658,29 +1708,29 @@ model StudentSection {
 /// A student on one clinical shift (a clinical session × section of an
 /// offering), optionally on a specific physical asset.
 model StudentShift {
-  id           String @id @default(cuid())
+  id           String         @id @default(cuid())
   studentId    String
-  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student      Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
   cohortId     String
-  cohort       Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  cohort       Cohort         @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   sessionId    String
-  session      Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  sectionIndex Int     @default(1)
+  session      Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sectionIndex Int            @default(1)
   assetId      String?
   asset        ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
   note         String?
   /// The log: scheduled until the shift happens, then completed (hours credited) or absent / excused (no hours).
-  status       String   @default("scheduled") // scheduled | completed | absent | excused
-  hoursLogged  Float?   // hours credited toward the course's clinical requirement (defaults to the session length when completed)
+  status       String         @default("scheduled") // scheduled | completed | absent | excused
+  hoursLogged  Float? // hours credited toward the course's clinical requirement (defaults to the session length when completed)
   loggedAt     DateTime?
   /// Who precepted the shift as logged (defaults to the section's assigned preceptor).
   preceptorId  String?
-  preceptor    Person?  @relation("shiftPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
+  preceptor    Person?        @relation("shiftPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
   /// The asset setting the hours count toward (GEN, OR, ED …): the pinned asset's setting, else the session's rotation setting.
   settingCode  String?
   /// Service area the coordinator pinned this shift to (the rotation planner keeps it there on every rebuild).
   pinnedArea   String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime       @default(now())
 
   requirementLogs StudentRequirementLog[]
 
@@ -1691,15 +1741,15 @@ model StudentShift {
 
 /// A student's outcome in one course (dated, with letter grade / points).
 model StudentCourseGrade {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   studentId     String
-  student       Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student       Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
   courseId      String
-  course        Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  course        Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   termIndex     Int
-  status        String   @default("in_progress") // in_progress | completed | withdrawn | failed
-  grade         String?  // letter grade
-  gradePoints   Float?   // 0–4 scale
+  status        String    @default("in_progress") // in_progress | completed | withdrawn | failed
+  grade         String? // letter grade
+  gradePoints   Float? // 0–4 scale
   completedDate DateTime?
 
   @@index([studentId])
@@ -1713,10 +1763,10 @@ model StudentSkillAssessment {
   student      Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   skillId      String
   skill        Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
-  level        Int      // proficiency level reached (maps to the institution scale)
+  level        Int // proficiency level reached (maps to the institution scale)
   assessedDate DateTime
-  courseCode   String?  // where the assessment happened
-  method       String?  // checkoff | exam | clinical eval | simulation ...
+  courseCode   String? // where the assessment happened
+  method       String? // checkoff | exam | clinical eval | simulation ...
 
   @@index([studentId])
   @@index([skillId])
@@ -1750,21 +1800,21 @@ model StudentAbsence {
 /// have several (P0 intake, mid-placement, exit, +6mo, +24mo) — blend evolution
 /// is read by comparing checkpoints.
 model AlignmentProfile {
-  id          String  @id @default(cuid())
-  subjectType String  // LEARNER | EMPLOYER
+  id          String    @id @default(cuid())
+  subjectType String // LEARNER | EMPLOYER
   studentId   String?
-  student     Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student     Student?  @relation(fields: [studentId], references: [id], onDelete: Cascade)
   employerId  String?
   employer    Employer? @relation(fields: [employerId], references: [id], onDelete: Cascade)
   /// Checkpoint in the placement lifecycle: P0 (intake) | PMID | P1 (exit) | P6 | P24
-  checkpoint  String  @default("P0")
+  checkpoint  String    @default("P0")
   /// MVD tier this intake was conducted at: 1 | 2 | 3
-  mvdTier     Int     @default(2)
+  mvdTier     Int       @default(2)
   /// The narrative capture — "tell me how you came to be considering this."
   narrative   String?
   /// Who conducted the intake (free text; staff name).
   conductedBy String?
-  capturedAt  DateTime @default(now())
+  capturedAt  DateTime  @default(now())
 
   tags AlignmentTag[]
 
@@ -1778,15 +1828,15 @@ model AlignmentProfile {
 /// CONSTRAINT → binding (true = strikes placements, a design parameter);
 /// CAPACITY → note (what the person brings; recognition text).
 model AlignmentTag {
-  id           String @id @default(cuid())
-  profileId    String
-  profile      AlignmentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  layer        String // MOTIVATION | CONSTRAINT | CAPACITY
-  code         String // taxonomy leaf code, e.g. "B.2.b", "H.6.a", "EC3.a", "EP2.b"
-  tier         Int?   // motivations only: 1..4
-  binding      Boolean @default(false) // constraints only
+  id            String           @id @default(cuid())
+  profileId     String
+  profile       AlignmentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  layer         String // MOTIVATION | CONSTRAINT | CAPACITY
+  code          String // taxonomy leaf code, e.g. "B.2.b", "H.6.a", "EC3.a", "EP2.b"
+  tier          Int? // motivations only: 1..4
+  binding       Boolean          @default(false) // constraints only
   conditionalOn String? // motivations only: leaf code this is conditional on
-  note         String?
+  note          String?
 
   @@index([profileId])
   @@index([code])
@@ -1796,31 +1846,31 @@ model AlignmentTag {
 /// from the template library or authored fresh. Lives on the partner-lane ×
 /// funnel-stage matrix and is sequenced (order + window) within its lane.
 model Intervention {
-  id          String @id @default(cuid())
-  familyId    String
-  family      ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  id             String        @id @default(cuid())
+  familyId       String
+  family         ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
   /// Partner lane: MIDDLE_SCHOOL | HIGH_SCHOOL | COMMUNITY_COLLEGE | EMPLOYER | CROSS_CUTTING
-  lane        String
+  lane           String
   /// Pipeline stage: AWARENESS | READINESS | APPLICATION | WBL | SUPPORTS | RETENTION
-  stage       String
-  title       String
-  description String?
+  stage          String
+  title          String
+  description    String?
   /// Priority population(s): comma-separated, e.g. "K-12", "Adult learners",
   /// "Declared pre-Rad", "Single parents", "First-generation"
-  populations String?
-  owner       String? // named owner (person/org), per the TPS workgroup model
+  populations    String?
+  owner          String? // named owner (person/org), per the TPS workgroup model
   /// proposed | planned | active | complete | paused
-  status      String  @default("proposed")
-  sequence    Int     @default(0) // order within its lane
-  startDate   DateTime?
-  endDate     DateTime?
-  estCostLow  Int?    // annual $ band
-  estCostHigh Int?
+  status         String        @default("proposed")
+  sequence       Int           @default(0) // order within its lane
+  startDate      DateTime?
+  endDate        DateTime?
+  estCostLow     Int? // annual $ band
+  estCostHigh    Int?
   /// Funnel stage key this intervention is trying to move (interested | qualified |
   /// offered | enrolled | completing | licensed | placed | productive)
   targetStageKey String?
-  notes       String?
-  createdAt   DateTime @default(now())
+  notes          String?
+  createdAt      DateTime      @default(now())
 
   @@index([familyId])
 }
@@ -1831,45 +1881,46 @@ model Intervention {
 /// groups) and items (procedures, case specialties, hour blocks), each mapped to the asset settings
 /// that can provide it — so sites, assets and rotations are configured against what students must finish.
 model ClinicalRequirementSet {
-  id         String @id @default(cuid())
-  familyId   String
-  family     ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  name       String
-  authority  String   // ARRT | ARC/STSA (CAAHEP) | CMS / NC DHSR …
-  edition    String?  // e.g. "2022 edition, effective January 1, 2022"
-  kind       String   @default("competency") // competency | cases | hours
-  summary    String?
+  id          String        @id @default(cuid())
+  familyId    String
+  family      ProgramFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  name        String
+  authority   String // ARRT | ARC/STSA (CAAHEP) | CMS / NC DHSR …
+  edition     String? // e.g. "2022 edition, effective January 1, 2022"
+  kind        String        @default("competency") // competency | cases | hours
+  summary     String?
   /// JSON list of rules: [{ key, label, min, of, scope, notes }]
-  rules      String   @default("[]")
-  sourceUrl  String?
+  rules       String        @default("[]")
+  sourceUrl   String?
   /// Starter content from the public standard until the program verifies it against the current edition.
-  verified   Boolean  @default(false)
+  verified    Boolean       @default(false)
   /// Provenance (Phase 3): who verified the list against the edition, when, and when to review.
-  verifiedBy String?
-  verifiedAt DateTime?
-  reviewBy   DateTime?
-  notes      String?
+  verifiedBy  String?
+  verifiedAt  DateTime?
+  reviewBy    DateTime?
+  notes       String?
   /// JSON: the body's own definitions (trauma, pediatric, geriatric; first / second scrub, observation).
-  definitions String  @default("{}")
-  createdAt  DateTime @default(now())
+  definitions String        @default("{}")
+  createdAt   DateTime      @default(now())
 
   items ClinicalRequirementItem[]
 
   @@index([familyId])
 }
+
 model ClinicalRequirementItem {
-  id            String @id @default(cuid())
+  id            String                     @id @default(cuid())
   setId         String
-  set           ClinicalRequirementSet @relation(fields: [setId], references: [id], onDelete: Cascade)
-  category      String   // Chest · Fluoroscopy · General Surgery · Orthopedic …
+  set           ClinicalRequirementSet     @relation(fields: [setId], references: [id], onDelete: Cascade)
+  category      String // Chest · Fluoroscopy · General Surgery · Orthopedic …
   name          String
-  mandatory     Boolean  @default(true)
-  electiveGroup String?  // the elective rule this item counts toward (e.g. "head", "fluoro")
-  minCount      Int?     // cases / repetitions required (case-based sets)
-  role          String?  // first scrub | second scrub | observation (case-based sets)
-  settingCodes  String   @default("") // csv of asset settings that can provide it
+  mandatory     Boolean                    @default(true)
+  electiveGroup String? // the elective rule this item counts toward (e.g. "head", "fluoro")
+  minCount      Int? // cases / repetitions required (case-based sets)
+  role          String? // first scrub | second scrub | observation (case-based sets)
+  settingCodes  String                     @default("") // csv of asset settings that can provide it
   notes         String?
-  sortOrder     Int      @default(0)
+  sortOrder     Int                        @default(0)
   provisions    SiteRequirementProvision[]
   logs          StudentRequirementLog[]
 
@@ -1883,34 +1934,34 @@ model ClinicalRequirementItem {
 /// an attempt that did not reach competency). This is what completion is measured from;
 /// hours are the ledger, these are the requirements.
 model StudentRequirementLog {
-  id           String @id @default(cuid())
+  id           String                  @id @default(cuid())
   studentId    String
-  student      Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student      Student                 @relation(fields: [studentId], references: [id], onDelete: Cascade)
   itemId       String
   item         ClinicalRequirementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   shiftId      String?
-  shift        StudentShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  shift        StudentShift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   employerId   String?
-  employer     Employer? @relation(fields: [employerId], references: [id], onDelete: SetNull)
+  employer     Employer?               @relation(fields: [employerId], references: [id], onDelete: SetNull)
   preceptorId  String?
-  preceptor    Person? @relation("logPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
+  preceptor    Person?                 @relation("logPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
   date         DateTime
   /// competent | attempted (competency sets) — case sets use role
-  outcome      String   @default("competent")
+  outcome      String                  @default("competent")
   /// first scrub | second scrub | observation (case sets)
   role         String?
-  simulated    Boolean  @default(false)
+  simulated    Boolean                 @default(false)
   /// Cases logged in this entry (case sets); competencies are always 1.
-  count        Int      @default(1)
+  count        Int                     @default(1)
   /// What was done — the procedure / projections / case (e.g. "lap chole", "AP & lat, wheelchair")
   procedure    String?
   /// csv flags the body cares about: pediatric, geriatric, trauma
-  flags        String   @default("")
+  flags        String                  @default("")
   verifiedById String?
-  verifiedBy   Person? @relation("logVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  verifiedBy   Person?                 @relation("logVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
   verifiedAt   DateTime?
   notes        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime                @default(now())
 
   @@index([studentId])
   @@index([itemId])
@@ -1924,25 +1975,25 @@ model StudentRequirementLog {
 /// myelography here". Absent a record, the site is INFERRED to provide an item when it has an
 /// active asset in one of the item's settings — shown as unverified until someone confirms it.
 model SiteRequirementProvision {
-  id           String @id @default(cuid())
-  employerId   String
-  employer     Employer @relation(fields: [employerId], references: [id], onDelete: Cascade)
-  itemId       String
-  item         ClinicalRequirementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id            String                  @id @default(cuid())
+  employerId    String
+  employer      Employer                @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  itemId        String
+  item          ClinicalRequirementItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// provides | limited (rare / seasonal / by arrangement) | none
-  status       String   @default("provides")
+  status        String                  @default("provides")
   /// Procedures or cases of this kind the site does in a year (blank = not known).
-  annualVolume Int?
+  annualVolume  Int?
   /// Case-based sets: the most a student may do on this item here — first scrub | second scrub | observe.
-  studentRole  String?
+  studentRole   String?
   /// VERIFIED (confirmed with the site) | ESTIMATE
-  source       String   @default("VERIFIED")
-  notes        String?
+  source        String                  @default("VERIFIED")
+  notes         String?
   /// Provenance (Phase 3): who confirmed it with the site, when, and when to review.
   evidenceOwner String?
   verifiedAt    DateTime?
   reviewBy      DateTime?
-  updatedAt    DateTime @updatedAt
+  updatedAt     DateTime                @updatedAt
 
   @@unique([employerId, itemId])
   @@index([itemId])
@@ -1952,17 +2003,17 @@ model SiteRequirementProvision {
 /// created, changed and removed, and enough to undo it (Phase 5). Undo restores the snapshot; a change that was
 /// undone keeps its record with `undoneAt`.
 model ChangeSet {
-  id            String   @id @default(cuid())
-  kind          String   // scheduler-apply | auto-assign | realign
+  id            String    @id @default(cuid())
+  kind          String // scheduler-apply | auto-assign | realign
   label         String
   institutionId String?
-  cohortIds     String   @default("[]") // JSON string[]
+  cohortIds     String    @default("[]") // JSON string[]
   /// JSON counts: { created: {...}, changed: {...}, removed: {...}, conflictsAdded, conflictsResolved, blockers }
-  summary       String   @default("{}")
+  summary       String    @default("{}")
   /// JSON snapshot the undo handler needs (ids created, prior rows for restore).
-  undo          String   @default("{}")
-  overridden    String?  // the blockers the user overrode to apply, if any (JSON)
-  createdAt     DateTime @default(now())
+  undo          String    @default("{}")
+  overridden    String? // the blockers the user overrode to apply, if any (JSON)
+  createdAt     DateTime  @default(now())
   undoneAt      DateTime?
 
   @@index([institutionId, createdAt])
@@ -1972,20 +2023,20 @@ model ChangeSet {
 /// engines the live pages use, kept apart from the operating plan. `design` is the ExpansionDesign JSON,
 /// `overrides` the assumption keys this scenario changes, `result` the last evaluation's summary.
 model Scenario {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   institutionId String
   programId     String
   familyId      String?
   name          String
-  kind          String   @default("expansion")
-  status        String   @default("draft") // draft | recommended | archived
-  design        String   @default("{}")
-  overrides     String   @default("{}")
+  kind          String    @default("expansion")
+  status        String    @default("draft") // draft | recommended | archived
+  design        String    @default("{}")
+  overrides     String    @default("{}")
   result        String?
   evaluatedAt   DateTime?
   notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([institutionId, programId])
 }
@@ -1995,19 +2046,19 @@ model Scenario {
 /// workspace, a college, a job family or a program (the most specific wins). Defaults live in code
 /// (lib/assumptions); a row here overrides them without touching any operating plan.
 model Assumption {
-  id         String   @id @default(cuid())
-  scope      String   // global | inst:<id> | family:<id> | program:<id>
+  id         String    @id @default(cuid())
+  scope      String // global | inst:<id> | family:<id> | program:<id>
   key        String
   value      Float
   low        Float?
   high       Float?
   source     String?
   owner      String?
-  status     String   @default("estimate") // default | estimate | verified
+  status     String    @default("estimate") // default | estimate | verified
   verifiedAt DateTime?
   reviewBy   DateTime?
   notes      String?
-  updatedAt  DateTime @updatedAt
+  updatedAt  DateTime  @updatedAt
 
   @@unique([scope, key])
 }
@@ -2016,29 +2067,233 @@ model Assumption {
 /// do not own it; each college's relationship with it (approached, asked, secured, its drive time, the assets
 /// it may use) is that college's Employer row, linked here by siteId.
 model ClinicalSite {
-  id            String   @id @default(cuid())
-  name          String
-  organization  String?  // licensee / health system
-  facilityType  String?
-  address       String?
-  city          String?
-  state         String?
-  zip           String?
-  county        String?
-  lat           Float?
-  lng           Float?
-  geoSource     String?  // census | gazetteer | manual
-  licensedBeds  Int?
-  nursingHomeBeds Int?
-  adultCareBeds Int?
-  operatingRooms Int?
+  id                  String   @id @default(cuid())
+  name                String
+  organization        String? // licensee / health system
+  facilityType        String?
+  address             String?
+  city                String?
+  state               String?
+  zip                 String?
+  county              String?
+  lat                 Float?
+  lng                 Float?
+  geoSource           String? // census | gazetteer | manual
+  licensedBeds        Int?
+  nursingHomeBeds     Int?
+  adultCareBeds       Int?
+  operatingRooms      Int?
   annualSurgicalCases Int?
-  externalId    String?  // a facility id from a state file, when it has one
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @default(now()) @updatedAt
+  externalId          String? // a facility id from a state file, when it has one
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
 
   partners Employer[]
 
   @@index([name])
+}
+
+// ═══ Structured, versioned educational requirements (recommendation 1) ══════════════════════════════
+/// A requirement's stable identity, located at ONE scope: a family standard shared by its programs, or a
+/// program, course or session specialization that references (never duplicates) the shared one.
+model ClinicalRequirement {
+  id            String         @id @default(cuid())
+  institutionId String
+  scope         String // family | program | course | session
+  familyId      String?
+  family        ProgramFamily? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  programId     String?
+  program       Program?       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  courseId      String?
+  course        Course?        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sessionId     String?
+  session       Session?       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// Stable key inside its scope (e.g. "clinical-hours", "or-rotation").
+  key           String
+  label         String
+  /// The shared requirement this one specializes, when it does.
+  parentId      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  versions     RequirementVersion[]
+  fulfillments RequirementFulfillment[]
+
+  @@index([institutionId])
+  @@index([familyId])
+  @@index([programId])
+  @@index([courseId])
+  @@index([sessionId])
+}
+
+/// One immutable published version of a requirement (drafts may change; a published version never does — a
+/// change is a new version). Quantity + unit + basis; the setting rule; the capabilities it requires; the
+/// supervision it needs; timing; the source and the review that interpreted it.
+model RequirementVersion {
+  id                   String              @id @default(cuid())
+  requirementId        String
+  requirement          ClinicalRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  version              Int
+  status               String              @default("draft") // draft | published | retired
+  effectiveFrom        DateTime?
+  effectiveTo          DateTime?
+  /// The obligation, once: value + unit + basis. Hours, shifts, cases, competencies and exposures are never converted into one another.
+  quantity             Float?
+  unit                 String              @default("hours") // hours | shifts | cases | competencies | exposures
+  basis                String              @default("per-learner") // per-learner | per-group | per-session | per-offering
+  /// lib/settingrule SettingRuleSpec (JSON).
+  settingRule          String?
+  /// JSON list of required capabilities: [{kind, code, label, required, completion}] — experience, procedure, population, modality, competency.
+  capabilities         String              @default("[]")
+  /// lib/supervision SupervisionSpec (JSON), when the requirement states one.
+  supervision          String?
+  /// JSON: { durationHours, weeks, window, prerequisites, sequencing, continuity } — design-relative, never dated.
+  timing               String?
+  /// The source, verbatim, and where it came from (JSON: { kind, name, page/sheet/cell, excerpt, hash, extractionJobId }).
+  sourceText           String?
+  sourceRef            String?
+  /// unknown | unofficial (a transcription, a draft) | official (the program's approved document) — review never upgrades this.
+  sourceAuthority      String              @default("unknown")
+  interpretationStatus String              @default("needs-review") // proposed | needs-review | reviewed
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  publishedBy          String?
+  publishedAt          DateTime?
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  fulfillments RequirementFulfillment[]
+
+  @@unique([requirementId, version])
+  @@index([status])
+}
+
+/// Which session (or course) fulfils which requirement, and how much of it — so ten sessions citing one 60-hour
+/// obligation accumulate toward 60 once, and gaps and overcounting are visible.
+model RequirementFulfillment {
+  id            String              @id @default(cuid())
+  requirementId String
+  requirement   ClinicalRequirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  versionId     String?
+  version       RequirementVersion? @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  sessionId     String?
+  session       Session?            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  courseId      String?
+  course        Course?             @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  /// How much of the obligation this contributes, in the requirement's unit, per learner.
+  amount        Float?
+  note          String?
+  createdAt     DateTime            @default(now())
+
+  @@index([requirementId])
+  @@index([sessionId])
+  @@index([courseId])
+}
+
+/// Supervision as an explicit resource model (recommendation 5), at family, program, course or session scope —
+/// the most specific applies, but a local rule may never relax a mandatory one above it (conflicts are flagged).
+model SupervisionRule {
+  id         String         @id @default(cuid())
+  scope      String // family | program | course | session
+  familyId   String?
+  family     ProgramFamily? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  programId  String?
+  program    Program?       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  courseId   String?
+  course     Course?        @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  sessionId  String?
+  session    Session?       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// lib/supervision SupervisionSpec (JSON).
+  spec       String
+  /// mandatory (regulatory / program approval) | planning (a local assumption) — planning never relaxes mandatory.
+  authority  String         @default("planning")
+  sourceText String?
+  sourceRef  String?
+  status     String         @default("needs-review") // proposed | needs-review | reviewed
+  reviewedBy String?
+  reviewedAt DateTime?
+  validFrom  DateTime?
+  validTo    DateTime?
+  revision   Int            @default(1)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@index([familyId])
+  @@index([programId])
+  @@index([courseId])
+  @@index([sessionId])
+}
+
+/// An educational capability a site (or one of its assets) offers beyond the asset's setting code: a population,
+/// procedure, modality or experience, with a provision status, limits, validity and evidence (recommendation 3).
+/// Several capabilities on one asset share that asset's seat pool — they never add supply.
+model SiteCapability {
+  id              String         @id @default(cuid())
+  employerId      String
+  employer        Employer       @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  assetId         String?
+  asset           ClinicalAsset? @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  settingCode     String?
+  kind            String // population | procedure | modality | experience
+  code            String
+  label           String
+  status          String         @default("unknown") // supported | limited | unsupported | unknown
+  /// Capacity this capability adds on its own basis (cases per period …), labelled — never learner seats.
+  capacityValue   Float?
+  capacityUnit    String? // cases-per-year | cases-per-day | learners-at-once | shifts-per-week
+  learnerTypes    String?
+  restrictions    String?
+  supervisionNote String?
+  validFrom       DateTime?
+  validTo         DateTime?
+  evidenceSource  String?
+  evidenceOwner   String?
+  verifiedAt      DateTime?
+  reviewBy        DateTime?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([employerId])
+  @@index([assetId])
+}
+
+/// An AI-assisted (or deterministic) extraction of program or site inputs from an upload or pasted text
+/// (recommendation 6): the source identity and hash, the parsed references, the PROPOSAL with anchors and
+/// questions, its review and — only on explicit application — the change set it produced. Retry-safe.
+model ExtractionJob {
+  id                 String         @id @default(cuid())
+  institutionId      String
+  kind               String // program | site
+  programId          String?
+  program            Program?       @relation(fields: [programId], references: [id], onDelete: Cascade)
+  familyId           String?
+  family             ProgramFamily? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  employerId         String?
+  employer           Employer?      @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  sourceName         String
+  sourceHash         String
+  format             String // xlsx | csv | tsv | paste | text | pdf | docx
+  bytes              Int            @default(0)
+  status             String         @default("queued") // queued | parsing | extracting | review | applied | failed | cancelled
+  /// The parsed source: JSON list of { ref, text } fragments (sheet!cell, page/paragraph) the anchors must point into.
+  parsed             String?
+  /// The validated proposal (JSON): items with field-level anchors, questions, and the server's validation verdicts.
+  proposal           String?
+  questions          String         @default("[]")
+  error              String?
+  provider           String?
+  model              String?
+  promptVersion      String?
+  attempts           Int            @default(0)
+  createdBy          String?
+  appliedAt          DateTime?
+  appliedChangeSetId String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  @@index([institutionId, createdAt])
+  @@index([sourceHash])
 }

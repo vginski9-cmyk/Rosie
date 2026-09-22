@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { recommendPlan, demandUnits, DEFAULT_POLICY, type DemandUnit, type SchedulerInput, type Policy } from "../src/lib/scheduler";
 import type { AssetLite } from "../src/lib/assetmap";
+import { onlyRule } from "../src/lib/settingrule";
 import type { DatedInstance } from "../src/lib/capacitymodel";
 
 const asset = (o: Partial<AssetLite> & { id: string; employerId: string; facilityName: string }): AssetLite => ({
@@ -13,7 +14,7 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
   date: "2027-08-23", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-23",
   // Sections deal seats: section 2 of a 2-seat session holds seats 3–4, never section 1's students.
-  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
+  rotationType: "General Radiography", settingCode: "GEN", rule: onlyRule(o.settingCode ?? "GEN"), eligible: [o.settingCode ?? "GEN"], seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
   demand: [], assets: [], overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], policy: { ...DEFAULT_POLICY, ...policy }, ...over,

@@ -151,19 +151,23 @@ export function assetSupply(assets: AssetLite[], overrides: AssetDayOverride[], 
   return out;
 }
 
-export interface RotationCode { rotationType: string; settingCode: string | null }
-export interface AssetDemandPoint { iso: string; block: ShiftBlock; settingCode: string | null; rotationType: string; students: number; sections: number; cohortId: string; cohort: string; program: string; courseCode: string | null; sessionId: string; startTime: string | null }
+export interface RotationCode { rotationType: string; settingCode: string | null; rule?: import("./settingrule").SettingRuleSpec | null; sourceText?: string | null; interpretationStatus?: string | null }
+export interface AssetDemandPoint { iso: string; block: ShiftBlock; settingCode: string | null; /** Every setting the rotation's rule allows (the primary first). */ eligible: string[]; /** The rule's interpretation status — "reviewed" or a caveat the view must show. */ ruleStatus: string | null; rotationType: string; students: number; sections: number; cohortId: string; cohort: string; program: string; courseCode: string | null; sessionId: string; startTime: string | null }
 
 /** Dated clinical demand mapped to setting codes (rotation type → code). */
 export function assetDemand(rows: DatedInstance[], rotations: RotationCode[]): AssetDemandPoint[] {
   // One definition of dated clinical demand (lib/clinicaldemand) — the scheduler starts from the same rows.
-  return clinicalDemandRows(rows, rotations).map((d) => ({ iso: d.dateIso, block: d.block, settingCode: d.settingCode, rotationType: d.rotationType,
+  return clinicalDemandRows(rows, rotations).map((d) => ({ iso: d.dateIso, block: d.block, settingCode: d.settingCode, eligible: d.eligible, ruleStatus: d.rule?.status ?? null, rotationType: d.rotationType,
     students: d.students, sections: d.sections, cohortId: d.row.cohortId, cohort: d.row.cohort, program: d.row.program, courseCode: d.row.courseCode, sessionId: d.row.session.id, startTime: d.row.session.startTime ?? null }));
 }
 
 export interface AssetMatchCell extends AssetSupplyCell {
   demand: number; booked: number; shortPhysical: number; shortSecured: number; unbooked: number;
   rotationTypes: string[]; cohorts: string[];
+  /** Secured seats on the same date × block in the OTHER settings the rotations' rules allow — alternatives the reader can weigh before calling a shortfall. */
+  altSecuredLearners: number; altSettings: string[];
+  /** Demand here whose rule is not yet reviewed (an alternative may or may not be approved). */
+  unreviewed: number;
 }
 /** Every date × block × setting with demand: physical seats, secured seats, demand, booked, shortfalls. */
 export function assetMatch(demand: AssetDemandPoint[], supply: Map<string, AssetSupplyCell>, bookings: AssetBookingLite[], assetById: Map<string, AssetLite>): AssetMatchCell[] {
@@ -174,8 +178,10 @@ export function assetMatch(demand: AssetDemandPoint[], supply: Map<string, Asset
     if (!d.settingCode) continue;
     const k = `${d.iso}|${d.block}|${d.settingCode}`;
     const s = supply.get(k);
-    const c = acc.get(k) ?? { iso: d.iso, block: d.block, settingCode: d.settingCode, assets: s?.assets ?? 0, learners: s?.learners ?? 0, securedAssets: s?.securedAssets ?? 0, securedLearners: s?.securedLearners ?? 0, assetIds: s?.assetIds ?? [], demand: 0, booked: booked.get(k) ?? 0, shortPhysical: 0, shortSecured: 0, unbooked: 0, rotationTypes: [], cohorts: [] };
+    const c = acc.get(k) ?? { iso: d.iso, block: d.block, settingCode: d.settingCode, assets: s?.assets ?? 0, learners: s?.learners ?? 0, securedAssets: s?.securedAssets ?? 0, securedLearners: s?.securedLearners ?? 0, assetIds: s?.assetIds ?? [], demand: 0, booked: booked.get(k) ?? 0, shortPhysical: 0, shortSecured: 0, unbooked: 0, rotationTypes: [], cohorts: [], altSecuredLearners: 0, altSettings: [], unreviewed: 0 };
     c.demand += d.students;
+    if (d.ruleStatus && d.ruleStatus !== "reviewed") c.unreviewed += d.students;
+    for (const alt of d.eligible.slice(1)) { if (!c.altSettings.includes(alt)) { c.altSettings.push(alt); c.altSecuredLearners += supply.get(`${d.iso}|${d.block}|${alt}`)?.securedLearners ?? 0; } }
     if (!c.rotationTypes.includes(d.rotationType)) c.rotationTypes.push(d.rotationType);
     if (!c.cohorts.includes(d.cohort)) c.cohorts.push(d.cohort);
     acc.set(k, c);

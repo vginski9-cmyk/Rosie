@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { recommendPlan, DEFAULT_POLICY, type DemandUnit, type SchedulerInput, type Policy } from "../src/lib/scheduler";
 import type { AssetLite } from "../src/lib/assetmap";
+import { onlyRule } from "../src/lib/settingrule";
 import { withdrawnRule, type LoadRow } from "../src/lib/siteload";
 
 // Phase 5 (docs/metrics-audit.md §11): the validation fixtures. Each case is a small world with a
@@ -15,7 +16,7 @@ const unit = (o: Partial<DemandUnit> & { id: string }): DemandUnit => ({
   courseId: "c1", courseCode: "RAD-151", courseTitle: "Clinical Ed I", termIndex: 1, termName: "First Fall", weekOfTerm: 1,
   sessionId: "s1", sessionTitle: null, sectionIndex: 1, sectionCount: 1,
   date: "2027-08-24", weekMonday: "2027-08-23", block: "Day", startTime: "07:00", hours: 8, originalDate: "2027-08-24",
-  rotationType: "General Radiography", settingCode: "GEN", seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
+  rotationType: "General Radiography", settingCode: "GEN", rule: onlyRule(o.settingCode ?? "GEN"), eligible: [o.settingCode ?? "GEN"], seats: 2, seatsPerSection: 2, seatStart: ((o.sectionIndex ?? 1) - 1) * (o.seats ?? 2) + 1, sectionSeats: o.seats ?? 2, preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led", holiday: null, moved: false, holidayMoved: null, ...o,
 });
 const base = (over: Partial<SchedulerInput> = {}, policy: Partial<Policy> = {}): SchedulerInput => ({
   demand: [], assets: [], overrides: [], existingBookings: [], preceptors: [], instructors: [], students: [], familyAgreements: [], siteCaps: [], confirmedSettings: [], policy: { ...DEFAULT_POLICY, ...policy }, ...over,
