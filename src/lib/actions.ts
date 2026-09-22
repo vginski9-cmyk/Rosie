@@ -1719,10 +1719,55 @@ const sessionDataFrom = (r: ImportedSession) => ({
  *  (created if missing), courses by code (else title) within the term, and —
  *  when `replace` is on — the imported course × type's existing sessions are
  *  replaced by the sheet's rows; otherwise the rows are appended. */
-export async function importProgramSheet(programId: string, sessions: ImportedSession[], opts: { replace: boolean }): Promise<{ terms: number; courses: number; sessions: number }> {
-  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: true } } } });
+export type ImportMode = "append" | "merge" | "replace";
+export interface ImportPreview {
+  mode: ImportMode;
+  /** New terms and courses the sheet would create. */
+  newTerms: number[]; newCourses: string[];
+  /** Sessions the sheet adds, updates (merge: matched by course × type × number) and — replace only — removes. */
+  additions: string[]; updates: { label: string; changes: string[] }[]; removals: string[];
+  /** Planned offerings whose sessions would be affected (their calendars read the template). */
+  affectedOfferings: string[];
+  /** Sheet columns that no field takes — reported, never silently dropped. */
+  unmappedColumns: string[];
+}
+/** What an import WOULD do, before it does it: additions, updates, removals and affected offerings. */
+export async function previewProgramSheetImport(programId: string, sessions: ImportedSession[], mode: ImportMode, unmappedColumns: string[] = []): Promise<ImportPreview> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: true } } } }, cohorts: { where: { status: { in: ["planned", "active"] } }, select: { name: true } } } });
   if (!program) throw new Error("Program not found");
-  let termsCreated = 0, coursesCreated = 0, sessionsCreated = 0;
+  const preview: ImportPreview = { mode, newTerms: [], newCourses: [], additions: [], updates: [], removals: [], affectedOfferings: program.cohorts.map((c) => c.name), unmappedColumns };
+  const termByIndex = new Map(program.terms.map((t) => [t.index, t]));
+  const groups = new Map<string, { termNumber: number; code: string | null; title: string | null; rows: ImportedSession[] }>();
+  for (const s of sessions) { const tn = Math.max(1, Math.round(s.termNumber ?? 1)); const key = `${tn}|${(s.courseCode ?? s.courseTitle ?? "").toLowerCase()}`; const g = groups.get(key) ?? { termNumber: tn, code: s.courseCode, title: s.courseTitle, rows: [] }; g.rows.push(s); groups.set(key, g); }
+  const compare: (keyof ImportedSession)[] = ["title", "lengthHours", "maxStudents", "facultyNeeded", "preceptorsNeeded", "week", "dayOfWeek", "startTime", "location", "deliveryMode", "rotationType", "clinicalMode", "notes"];
+  const touched = new Set<string>();
+  for (const g of groups.values()) {
+    const term = termByIndex.get(g.termNumber);
+    if (!term) { if (!preview.newTerms.includes(g.termNumber)) preview.newTerms.push(g.termNumber); preview.additions.push(...g.rows.map((r) => `Term ${g.termNumber} · ${g.code ?? g.title} ${r.kind.toLowerCase()} #${r.number}`)); continue; }
+    const course = term.courses.find((c) => (g.code && (c.code ?? "").toLowerCase() === g.code.toLowerCase()) || (!g.code && g.title && c.name.toLowerCase() === g.title.toLowerCase()));
+    if (!course) { preview.newCourses.push(g.code ?? g.title ?? "course"); preview.additions.push(...g.rows.map((r) => `${g.code ?? g.title} ${r.kind.toLowerCase()} #${r.number}`)); continue; }
+    const kinds = new Set(g.rows.map((r) => r.kind));
+    for (const r of g.rows) {
+      const label = `${course.code ?? course.name} ${r.kind.toLowerCase()} #${r.number}`;
+      const existing = mode === "append" ? undefined : course.sessions.find((x) => x.kind === r.kind && x.number === (r.number ?? -1));
+      if (!existing) { preview.additions.push(label); continue; }
+      touched.add(existing.id);
+      const changes = compare.filter((k) => r[k] != null && String(r[k]) !== String((existing as unknown as Record<string, unknown>)[k] ?? "")).map((k) => `${k}: ${String((existing as unknown as Record<string, unknown>)[k] ?? "—")} → ${String(r[k])}`);
+      if (changes.length) preview.updates.push({ label, changes }); else touched.delete(existing.id);
+    }
+    if (mode === "replace") for (const x of course.sessions) if (kinds.has(x.kind as ImportedSession["kind"]) && !g.rows.some((r) => r.kind === x.kind && r.number === x.number)) preview.removals.push(`${course.code ?? course.name} ${x.kind.toLowerCase()} #${x.number}${x.title ? ` · ${x.title}` : ""}`);
+  }
+  return preview;
+}
+
+/** Import session rows into the TEMPLATE. `mode`: append (add every row as a new numbered session — the old default),
+ *  merge (update sessions matched by course × type × number, add the rest, delete nothing — the new default), or replace
+ *  (the imported course × type's sessions become exactly the sheet's rows; only after an explicit preview and choice). */
+export async function importProgramSheet(programId: string, sessions: ImportedSession[], opts: { mode?: ImportMode; replace?: boolean }): Promise<{ terms: number; courses: number; sessions: number; updated: number; removed: number }> {
+  const mode: ImportMode = opts.mode ?? (opts.replace ? "replace" : "merge");
+  const program = await prisma.program.findUnique({ where: { id: programId }, include: { terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: true } } } } } });
+  if (!program) throw new Error("Program not found");
+  let termsCreated = 0, coursesCreated = 0, sessionsCreated = 0, updated = 0, removed = 0;
   const termByIndex = new Map(program.terms.map((t) => [t.index, t]));
   const groups = new Map<string, { termNumber: number; semester: string | null; code: string | null; title: string | null; rows: ImportedSession[] }>();
   for (const s of sessions) {
@@ -1738,30 +1783,40 @@ export async function importProgramSheet(programId: string, sessions: ImportedSe
       const prevEnd = Math.max(0, ...[...termByIndex.values()].map((t) => t.endWeek ?? 0));
       term = await prisma.term.create({
         data: { programId, index: g.termNumber, name: g.semester ? `Term ${g.termNumber} · ${g.semester}` : `Term ${g.termNumber}`, startWeek: prevEnd + 1, endWeek: prevEnd + 16 },
-        include: { courses: true },
+        include: { courses: { include: { sessions: true } } },
       });
       termByIndex.set(g.termNumber, term); termsCreated++;
     }
     let course = term.courses.find((c) => (g.code && (c.code ?? "").toLowerCase() === g.code.toLowerCase()) || (!g.code && g.title && c.name.toLowerCase() === g.title.toLowerCase()));
     if (!course) {
       const last = await prisma.course.findFirst({ where: { termId: term.id }, orderBy: { sequenceOrder: "desc" } });
-      course = await prisma.course.create({ data: { termId: term.id, code: g.code, name: g.title ?? g.code ?? "Course", sequenceOrder: (last?.sequenceOrder ?? -1) + 1 } });
+      course = { ...(await prisma.course.create({ data: { termId: term.id, code: g.code, name: g.title ?? g.code ?? "Course", sequenceOrder: (last?.sequenceOrder ?? -1) + 1 } })), sessions: [] };
       term.courses.push(course); coursesCreated++;
     }
     const kinds = [...new Set(g.rows.map((r) => r.kind))];
-    if (opts.replace) {
-      for (const k of kinds) { const ck = `${course.id}|${k}`; if (!cleared.has(ck)) { await prisma.session.deleteMany({ where: { courseId: course.id, kind: k } }); cleared.add(ck); } }
+    if (mode === "replace") {
+      // Only the sessions the sheet does not name are removed; the named ones are updated in place so their ids (and the offerings' overrides) survive.
+      for (const k of kinds) { const ck = `${course.id}|${k}`; if (cleared.has(ck)) continue; cleared.add(ck); const keep = new Set(g.rows.filter((r) => r.kind === k && r.number != null).map((r) => Math.round(r.number!))); const gone = course.sessions.filter((x) => x.kind === k && !keep.has(x.number)); if (gone.length) { await prisma.session.deleteMany({ where: { id: { in: gone.map((x) => x.id) } } }); removed += gone.length; } }
     }
     for (const r of g.rows) {
+      const existing = mode === "append" ? undefined : course.sessions.find((x) => x.kind === r.kind && r.number != null && x.number === Math.round(r.number));
+      if (existing) {
+        // Merge / replace: only the cells the sheet fills in change; a blank cell never wipes a value.
+        const data = Object.fromEntries(Object.entries(sessionDataFrom(r)).filter(([k, v]) => v != null && (r as unknown as Record<string, unknown>)[k === "lengthHours" ? "lengthHours" : k] != null)) as Record<string, unknown>;
+        if (Object.keys(data).length) { await prisma.session.update({ where: { id: existing.id }, data }); updated++; }
+        continue;
+      }
       const last = await prisma.session.findFirst({ where: { courseId: course.id, kind: r.kind }, orderBy: { number: "desc" } });
-      const number = opts.replace && r.number != null ? Math.round(r.number) : (last?.number ?? 0) + 1;
+      const number = mode !== "append" && r.number != null ? Math.round(r.number) : (last?.number ?? 0) + 1;
       await prisma.session.create({ data: { courseId: course.id, kind: r.kind, number, ...sessionDataFrom(r) } });
       sessionsCreated++;
     }
   }
+  const { auditChange } = await import("./changesets");
+  await auditChange({ kind: "import-apply", label: `Imported ${sessions.length} session rows (${mode})`, institutionId: program.institutionId, summary: { created: { terms: termsCreated, courses: coursesCreated, sessions: sessionsCreated }, changed: { sessions: updated }, removed: { sessions: removed } } });
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/programs/${programId}/structure`);
-  return { terms: termsCreated, courses: coursesCreated, sessions: sessionsCreated };
+  return { terms: termsCreated, courses: coursesCreated, sessions: sessionsCreated, updated, removed };
 }
 
 /** Import session rows into ONE OFFERING as overrides: each row is matched to the

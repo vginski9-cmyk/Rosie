@@ -3,6 +3,8 @@ import { getProgramFull } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
 import { setProgramCalendarMode } from "@/lib/actions";
 import { requirementLedger, supervisionBook, ruleBook } from "@/lib/requirementstore";
+import { ExtractionReview } from "@/components/ExtractionReview";
+import { listExtractions } from "@/lib/extractionactions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +58,7 @@ export default async function StructureEditor({ params }: { params: { id: string
         requirements={ledger.requirements}
         familyId={ledger.familyId}
         settings={[...rules.known].sort()}
+        extraction={<ExtractionReview target={{ kind: "program", programId: program.id, familyId: program.familyId }} jobs={await listExtractions({ kind: "program", programId: program.id })} title="Describe or upload the program's requirements" />}
         assumptions={{
           facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks,
           preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks,

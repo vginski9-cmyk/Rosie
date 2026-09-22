@@ -11,6 +11,7 @@
 // date come from the booking, so this page and the scheduler describe the same calendar. A shift the
 // plan could not seat has no asset: it is counted as "no seat yet", never as load on a site's seats.
 
+import { csvCell } from "./csvsafe";
 import { driveBandLabel, RING_ORDER } from "./geo";
 
 export interface LoadRow {
@@ -181,12 +182,12 @@ export function pivot(rows: LoadRow[], rowDim: LoadDim, colDim: LoadDim | null, 
 /** The filtered rows as CSV (RFC 4180). */
 export function rowsToCsv(rows: LoadRow[]): string {
   const head = ["Date", "Day", "Year", "Semester", "Week of", "Term", "Program", "Cohort", "Class", "Student", "Site", "Health system", "County", "Drive time", "Facility type", "Drive min", "Setting", "Asset", "Shift", "Seats per shift", "Hours", "Status", "Preceptor", "Agreement"];
-  const cell = (v: string | number | null | undefined) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cell = csvCell;
   const lines = rows.map((r) => [r.date, r.dayOfWeek, r.year, r.semester, r.date ? mondayOf(r.date) : null, r.term, r.program, r.cohort, r.course, r.student, r.site, r.system, r.county, r.ring ? bandOf(r.ring) : null, r.facilityType, r.driveMinutes != null ? Math.round(r.driveMinutes) : null, r.setting, r.asset ?? NO_SEAT, r.block, r.seatsPerShift, r.hours, r.status, r.preceptor, r.agreement].map(cell).join(","));
   return [head.join(","), ...lines].join("\r\n") + "\r\n";
 }
 export function pivotToCsv(p: ReturnType<typeof pivot>, rowLabel: string): string {
-  const cell = (v: string | number | null | undefined) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cell = csvCell;
   const head = [rowLabel, ...p.cols.map((c) => c.label), "Total"];
   const lines = p.rows.map((r) => [r.label, ...p.cols.map((c) => r.cells[c.key] ?? 0), r.total].map(cell).join(","));
   lines.push(["Total", ...p.cols.map((c) => p.colTotals[c.key] ?? 0), p.grand].map(cell).join(","));

@@ -7,6 +7,8 @@ import { dec, fmt } from "@/lib/format";
 import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
 import { SiteCapabilityPanel } from "@/components/SiteCapabilityPanel";
+import { ExtractionReview } from "@/components/ExtractionReview";
+import { listExtractions } from "@/lib/extractionactions";
 import { Collapse } from "@/components/Collapse";
 import { UnverifiedStandard } from "@/components/Evidence";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
@@ -101,6 +103,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <AssetRoster employerId={e.id} siteName={e.name} siteExternalId={e.externalId} assets={rosterAssets} settings={settings} programName="" organizationHref="#exceptions" />
         </div>
+        <ExtractionReview target={{ kind: "site", employerId: e.id }} jobs={await listExtractions({ kind: "site", employerId: e.id })} title="Describe or upload this site's capabilities" />
         <div className="rounded-xl border border-slate-200 bg-white p-3"><SiteCapabilityPanel employerId={e.id} {...(() => { const r = capabilityRows(e); return { capabilities: r.capabilities, assets: r.assetLimits }; })()} /></div>
         <div id="exceptions" className="scroll-mt-16">
           <Collapse title="Closures & per-asset detail" sub="Closed dates, accreditor class and the year's shift totals" summary={<>{e.assetOverrides.length} exception day{e.assetOverrides.length === 1 ? "" : "s"} · <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${year}`} className="text-rose-600 hover:underline">workbook ↓</a></>}>

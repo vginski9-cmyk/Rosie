@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
@@ -39,7 +39,7 @@ const n0 = (n: number) => dec(n);
 const n1 = (n: number) => dec(n);
 const n2 = (n: number) => dec(n);
 
-export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [] }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[] }) {
+export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [], extraction = null }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[]; /** The "describe or upload" panel (a server-rendered child). */ extraction?: React.ReactNode }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
   // Courses are closed by default: one row each; open one to edit its catalog fields and sessions.
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -245,6 +245,8 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
       </details>
 
       <RequirementsLedger programId={pid} familyId={familyId} requirements={requirements} settings={settings} sessions={terms.flatMap((t): LedgerSession[] => t.courses.flatMap((c) => c.sessions.filter((s) => s.kind === "CLINICAL").map((s) => ({ id: s.id, courseId: c.id, hours: s.lengthHours, label: `${c.code ?? c.name} clinical ${s.number}${s.title ? ` · ${s.title}` : ""}` }))))} />
+
+      {extraction}
 
       <details className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Import from a spreadsheet <span className="font-normal text-slate-400">— Excel, CSV or pasted cells; you check the mapping, then import</span></summary>

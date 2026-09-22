@@ -4,6 +4,8 @@
 // the rows the query built and returns sheets as arrays of arrays, so it can be tested and
 // written as .xlsx or .csv.
 
+import { csvCell } from "./csvsafe";
+
 export interface RotationRow {
   student: string; seat: number; cohort: string; program: string;
   course: string; courseName: string; term: string;
@@ -56,7 +58,7 @@ export function rotationSheets(rows: RotationRow[]): Record<string, (string | nu
 
 /** RFC 4180 CSV of one sheet. */
 export function sheetToCsv(rows: (string | number | null)[][]): string {
-  const cell = (v: string | number | null) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cell = csvCell;
   return rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }
 

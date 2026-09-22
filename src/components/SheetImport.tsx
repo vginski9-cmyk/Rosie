@@ -9,7 +9,9 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { detectHeader, rowsToSessions, textToRows, IMPORT_FIELDS, IMPORT_FIELD_LABEL, type ImportField, type HeaderDetection } from "@/lib/sheetimport";
-import { importProgramSheet, importOfferingSheet } from "@/lib/actions";
+import { importProgramSheet, importOfferingSheet, previewProgramSheetImport, type ImportMode, type ImportPreview } from "@/lib/actions";
+import { proposeRuleFromText } from "@/lib/settingrule";
+import { supervisionFromLegacy } from "@/lib/supervision";
 
 export function SheetImport({ mode, programId, cohortId }: { mode: "template" | "offering"; programId: string; cohortId?: string }) {
   const router = useRouter();
@@ -17,7 +19,8 @@ export function SheetImport({ mode, programId, cohortId }: { mode: "template" | 
   const [rows, setRows] = useState<unknown[][]>([]);
   const [source, setSource] = useState<string | null>(null);
   const [mapEdits, setMapEdits] = useState<Record<number, ImportField | "">>({});
-  const [replace, setReplace] = useState(true);
+  const [importMode, setImportMode] = useState<ImportMode>("merge");
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -53,12 +56,28 @@ export function SheetImport({ mode, programId, cohortId }: { mode: "template" | 
     setOpen(true);
   };
 
+  // Semantic review of each clinical row: what its rotation wording would mean and whether its staffing policy is stated.
+  const semantics = useMemo(() => (parsed ? parsed.sessions.map((s) => {
+    if (s.kind !== "CLINICAL") return { readiness: "parsed" as const, notes: [] as string[] };
+    const notes: string[] = [];
+    const rule = s.rotationType ? proposeRuleFromText(s.rotationType) : null;
+    if (!s.rotationType) notes.push("no rotation type");
+    else if (!rule) notes.push(`"${s.rotationType}": no setting recognised — map it after import`);
+    else if (rule.rule.kind !== "only") notes.push(`"${s.rotationType}" reads as ${rule.rule.kind === "any-of" ? "alternatives" : "both required"} — approval, mixing and continuity to confirm`);
+    const sup = supervisionFromLegacy({ clinicalMode: s.clinicalMode, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, maxStudents: s.maxStudents });
+    if (sup.status !== "reviewed") notes.push(sup.questions[0] ?? "supervision policy to confirm");
+    return { readiness: notes.length ? ("needs-review" as const) : ("parsed" as const), notes };
+  }) : []), [parsed]);
+  const needsReview = semantics.filter((x) => x.readiness === "needs-review").length;
+  const unmappedColumns = headerCells.filter((h, i) => h && !det?.map[i]);
+  const showPreview = () => { if (!parsed) return; startTransition(async () => { setPreview(await previewProgramSheetImport(programId, parsed.sessions, importMode, unmappedColumns)); }); };
   const run = () => {
     if (!parsed) return;
+    if (mode === "template" && importMode === "replace" && !preview) { showPreview(); return; }
     startTransition(async () => {
       if (mode === "template") {
-        const r = await importProgramSheet(programId, parsed.sessions, { replace });
-        setResult(`✓ Imported ${r.sessions} sessions — ${r.courses} new course${r.courses === 1 ? "" : "s"}, ${r.terms} new term${r.terms === 1 ? "" : "s"}. Every field is editable below.`);
+        const r = await importProgramSheet(programId, parsed.sessions, { mode: importMode });
+        setResult(`✓ ${r.sessions} sessions added, ${r.updated} updated${r.removed ? `, ${r.removed} removed` : ""} — ${r.courses} new course${r.courses === 1 ? "" : "s"}, ${r.terms} new term${r.terms === 1 ? "" : "s"}. ${needsReview ? `${needsReview} clinical rows need interpretation review (setting rule / supervision) before they count as ready for planning.` : "Every field is editable below."}`);
       } else if (cohortId) {
         const r = await importOfferingSheet(cohortId, programId, parsed.sessions);
         setResult(`✓ ${r.matched} rows matched to this offering's sessions and stored as its overrides.${r.unmatched.length ? ` ${r.unmatched.length} not matched: ${r.unmatched.slice(0, 5).join("; ")}${r.unmatched.length > 5 ? " …" : ""}` : ""}`);
@@ -124,18 +143,28 @@ export function SheetImport({ mode, programId, cohortId }: { mode: "template" | 
               {parsed && (
                 <div className="rounded-lg border border-slate-200 bg-white">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
-                    <span className="text-sm font-semibold text-slate-800">{parsed.sessions.length} sessions ready{parsed.skipped ? ` · ${parsed.skipped} rows skipped` : ""}</span>
-                    <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-slate-800">{parsed.sessions.length} rows parsed successfully{parsed.skipped ? ` · ${parsed.skipped} rows skipped` : ""}{needsReview ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">{needsReview} need interpretation review</span> : null}</span>
+                    <div className="flex flex-wrap items-center gap-3">
                       {mode === "template" && (
-                        <label className="flex items-center gap-1.5 text-xs text-slate-600">
-                          <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
-                          replace the imported courses&apos; existing sessions of the same type (off = append)
-                        </label>
+                        <fieldset className="flex items-center gap-2 text-xs text-slate-600"><legend className="sr-only">Import mode</legend>
+                          {([["merge", "merge — update matched sessions, add the rest, delete nothing"], ["append", "append — add every row as a new session"], ["replace", "replace — the courses' sessions of these types become the sheet's rows (shows what is removed first)"]] as [ImportMode, string][]).map(([m, l]) => <label key={m} className="flex items-center gap-1" title={l}><input type="radio" name="importMode" checked={importMode === m} onChange={() => { setImportMode(m); setPreview(null); }} />{m}</label>)}
+                          <button type="button" onClick={showPreview} className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-50">preview changes</button>
+                        </fieldset>
                       )}
-                      <button type="button" onClick={run} disabled={pending || !parsed.sessions.length} className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50">{pending ? "Importing…" : mode === "template" ? "Import into the template" : "Import into this offering"}</button>
+                      <button type="button" onClick={run} disabled={pending || !parsed.sessions.length} className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-50">{pending ? "Importing…" : mode === "template" ? (importMode === "replace" && !preview ? "Preview the replacement" : `Import (${importMode})`) : "Import into this offering"}</button>
                     </div>
                   </div>
                   {parsed.issues.length > 0 && <ul className="border-b border-amber-100 bg-amber-50/60 px-3 py-1.5 text-[11px] text-amber-800">{parsed.issues.slice(0, 8).map((w, i) => <li key={i}>⚠ {w}</li>)}{parsed.issues.length > 8 && <li>… {parsed.issues.length - 8} more</li>}</ul>}
+                  {unmappedColumns.length > 0 && <p className="border-b border-slate-100 px-3 py-1.5 text-[11px] text-slate-600">Columns no field takes (kept out, not silently dropped): {unmappedColumns.join(", ")} — map them above if they matter.</p>}
+                  {preview && (
+                    <div className="border-b border-slate-100 bg-slate-50 px-3 py-2 text-[11px] text-slate-700">
+                      <div className="font-semibold text-slate-800">What “{preview.mode}” would do</div>
+                      <div>{preview.additions.length} added · {preview.updates.length} updated · <span className={preview.removals.length ? "font-semibold text-rose-700" : ""}>{preview.removals.length} removed</span>{preview.newTerms.length ? ` · new terms ${preview.newTerms.join(", ")}` : ""}{preview.newCourses.length ? ` · new courses ${preview.newCourses.join(", ")}` : ""}</div>
+                      {preview.updates.slice(0, 6).map((u) => <div key={u.label}>↻ {u.label}: {u.changes.join("; ")}</div>)}{preview.updates.length > 6 && <div>… {preview.updates.length - 6} more updates</div>}
+                      {preview.removals.slice(0, 8).map((r) => <div key={r} className="text-rose-700">− {r}</div>)}{preview.removals.length > 8 && <div className="text-rose-700">… {preview.removals.length - 8} more removed</div>}
+                      {preview.affectedOfferings.length > 0 && <div className="text-slate-500">Planned / running offerings that read this template: {preview.affectedOfferings.join(", ")} — their own overrides and dated sessions are not rewritten by this import.</div>}
+                    </div>
+                  )}
                   <div className="max-h-72 overflow-auto">
                     <table className="w-full text-[11px]">
                       <thead className="sticky top-0 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500">
@@ -154,7 +183,7 @@ export function SheetImport({ mode, programId, cohortId }: { mode: "template" | 
                             <td className="px-2 py-1 text-right tabular-nums">{s.preceptorsNeeded ?? "—"}</td>
                             <td className="px-2 py-1">{[s.week != null ? `wk ${s.week}` : null, s.dayOfWeek, s.startTime].filter(Boolean).join(" · ") || "—"}</td>
                             <td className="px-2 py-1">{[s.deliveryMode, s.location].filter(Boolean).join(" · ") || "—"}</td>
-                            <td className="px-2 py-1">{[s.rotationType, s.clinicalMode].filter(Boolean).join(" · ") || "—"}</td>
+                            <td className="px-2 py-1">{[s.rotationType, s.clinicalMode].filter(Boolean).join(" · ") || "—"}{semantics[i]?.notes.length ? <span className="block text-[10px] text-amber-700" title={semantics[i].notes.join("; ")}>needs interpretation review: {semantics[i].notes[0]}</span> : s.kind === "CLINICAL" ? <span className="block text-[10px] text-emerald-700">parsed — rule and supervision stated</span> : null}</td>
                           </tr>
                         ))}
                       </tbody>
