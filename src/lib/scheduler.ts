@@ -84,7 +84,7 @@ export const DEFAULT_POLICY: Policy = {
 };
 
 export interface DemandUnit {
-  id: string;              // `${sessionId}|${sectionIndex}|${date}`
+  id: string;              // `${cohortId}|${sessionId}|${sectionIndex}|${date}`
   cohortId: string; cohort: string; programId: string; program: string; familyId: string | null;
   courseId: string | null; courseCode: string | null; courseTitle: string; termIndex: number; termName: string; weekOfTerm: number;
   sessionId: string; sessionTitle: string | null; sectionIndex: number; sectionCount: number;
@@ -280,12 +280,13 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 const mondayOf = (iso: string) => isoAdd(iso, -((new Date(iso + "T00:00:00Z").getUTCDay() + 6) % 7));
 
 // ── 1. Demand units from the capacity model ──────────────────────────────────
-export interface MoveLite { sessionId: string; sectionIndex: number; fromDate: string; toDate: string; startTime: string | null }
+export interface MoveLite { /** The offering the move belongs to — two offerings of one program share session ids, so a move is never applied across them. */ cohortId?: string; sessionId: string; sectionIndex: number; fromDate: string; toDate: string; startTime: string | null }
 
 /** One unit per SECTION of every dated clinical shift; per-occurrence moves applied. */
 export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}, holidays: Record<string, string> = {}, courseRules: import("./clinicaldemand").CourseRules = {}): DemandUnit[] {
-  const moveKey = (sid: string, sec: number, d: string) => `${sid}|${sec}|${d}`;
-  const mv = new Map(moves.map((m) => [moveKey(m.sessionId, m.sectionIndex, m.fromDate), m]));
+  const moveKey = (cid: string | undefined, sid: string, sec: number, d: string) => `${cid ?? ""}|${sid}|${sec}|${d}`;
+  const mv = new Map(moves.map((m) => [moveKey(m.cohortId, m.sessionId, m.sectionIndex, m.fromDate), m]));
+  const findMove = (cid: string, sid: string, sec: number, d: string) => mv.get(moveKey(cid, sid, sec, d)) ?? mv.get(moveKey(undefined, sid, sec, d));
   const out: DemandUnit[] = [];
   // One definition of dated clinical demand (lib/clinicaldemand) — site capacity starts from the same rows;
   // here each row is split into its sections, seats dealt in section order until the students are seated.
@@ -301,11 +302,12 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
       const seats = span.seats;
       // A hand-made move is filed under the pattern date; when the holiday rule already moved the shift, either key finds it.
       const patternIso = r.holidayMoved?.fromIso ?? d.dateIso;
-      const m = mv.get(moveKey(r.session.id, sec, d.dateIso)) ?? (r.holidayMoved ? mv.get(moveKey(r.session.id, sec, patternIso)) : undefined);
+      const m = findMove(r.cohortId, r.session.id, sec, d.dateIso) ?? (r.holidayMoved ? findMove(r.cohortId, r.session.id, sec, patternIso) : undefined);
       const date = m?.toDate ?? d.dateIso;
       const startTime = m?.startTime ?? r.session.startTime ?? null;
       out.push({
-        id: `${r.session.id}|${sec}|${d.dateIso}`,
+        // Two offerings of one program share session ids: the cohort is part of the identity.
+        id: `${r.cohortId}|${r.session.id}|${sec}|${d.dateIso}`,
         cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, program: r.program, familyId: familyByCohort[r.cohortId] ?? null,
         courseId: r.courseId, courseCode: r.courseCode, courseTitle: r.courseTitle, termIndex: r.termIndex, termName: r.termName, weekOfTerm: r.weekOfTerm,
         sessionId: r.session.id, sessionTitle: r.session.title ?? null, sectionIndex: sec, sectionCount: Y,

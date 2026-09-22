@@ -358,3 +358,46 @@ describe("no student is ever in two places at once", () => {
     expect(plan.blockers.find((b) => b.kind === "student-overlap")).toBeUndefined();
   });
 });
+
+describe("two offerings of one program share session ids (accuracy audit)", () => {
+  const row = (cohortId: string, cohort: string) => ({
+    session: { id: "s-shared", kind: "CLINICAL", title: "Wk 1", lengthHours: 8, maxStudents: 2, rotationType: "General Radiography", startTime: "07:00", preceptorsNeeded: 1, facultyNeeded: 0, clinicalMode: "Preceptor-led" },
+    computed: { C: 2, Y: 1 }, cohortId, cohort, programId: "p1", program: "Rad", courseCode: "RAD-151", courseTitle: "Clin I", courseId: "c1",
+    termIndex: 1, termName: "First Fall", semester: "Fall", weekOfTerm: 1, monday: null, mondayIso: "2027-08-23", date: null, dateIso: "2027-08-23", month: "2027-08", holiday: null,
+  }) as unknown as DatedInstance;
+  it("gives each offering its own demand unit on the same date, and a per-occurrence move applies only to the offering it belongs to", () => {
+    const units = demandUnits([row("co1", "Class of 2028"), row("co2", "Class of 2028 · 2nd class")], [{ rotationType: "general radiography", settingCode: "GEN" }], [{ cohortId: "co2", sessionId: "s-shared", sectionIndex: 1, fromDate: "2027-08-23", toDate: "2027-08-25", startTime: null }]);
+    expect(units).toHaveLength(2);
+    expect(new Set(units.map((u) => u.id)).size).toBe(2);
+    expect(units.find((u) => u.cohortId === "co1")!.date).toBe("2027-08-23");
+    expect(units.find((u) => u.cohortId === "co2")!.date).toBe("2027-08-25");
+    // a move with no offering named still applies (older callers), to every offering that matches
+    const generic = demandUnits([row("co1", "A"), row("co2", "B")], [{ rotationType: "general radiography", settingCode: "GEN" }], [{ sessionId: "s-shared", sectionIndex: 1, fromDate: "2027-08-23", toDate: "2027-08-24", startTime: null }]);
+    expect(generic.every((u) => u.date === "2027-08-24")).toBe(true);
+  });
+  it("counts placed shifts per offering — two offerings on one seat map are two placements, not one", () => {
+    const units = demandUnits([row("co1", "A"), row("co2", "B")], [{ rotationType: "general radiography", settingCode: "GEN" }]);
+    const plan = recommendPlan(base({ demand: units, assets: [asset({ id: "a1", employerId: "e1", facilityName: "H", learnersPerShift: 4 })], preceptors: [{ id: "p1", name: "P", employerId: "e1", role: "preceptor" }, { id: "p2", name: "Q", employerId: "e1", role: "preceptor" }] }));
+    expect(plan.assignments).toHaveLength(2);
+    expect(plan.summary.placedShifts).toBe(2);
+    expect(plan.evaluation.summary.placements).toBe(2);
+  });
+});
+
+describe("an applied plan's own moves never seed the next plan (accuracy audit)", () => {
+  it("schedulerModel keeps hand-made moves and drops auto-plan moves, so a re-applied plan starts from the pattern date", async () => {
+    const { schedulerModel } = await import("../src/lib/schedulerplan");
+    const cohort = {
+      cohortId: "co1", cohort: "A", status: "planned", programId: "p1", program: "Rad", familyId: null, family: null, students: 2, enrollmentByTerm: { 1: 2 },
+      termStartByIndex: { 1: "2027-08-23T00:00:00.000Z" }, termEndByIndex: { 1: "2027-12-10" }, termWeeksByIndex: { 1: 16 }, holidays: {}, holidayRule: "flag" as const, assumptions: undefined,
+      courses: [{ code: "RAD-151", title: "Clin I", courseId: "c1", termIndex: 1, termName: "Fall", sessions: [{ id: "s1", kind: "CLINICAL", title: null, lengthHours: 8, maxStudents: 2, facultyNeeded: 0, facultyContactPolicy: null, supportStaffNeeded: 0, supportContactPolicy: null, preceptorsNeeded: 1, preceptorContactPolicy: null, week: 1, dayOfWeek: "Mon", startTime: "07:00", rotationType: "General Radiography", clinicalMode: "Preceptor-led", deliveryMode: null, location: null, notes: null }] }],
+      moves: [
+        { note: "auto-plan", sessionId: "s1", sectionIndex: 1, fromDate: "2027-08-23", toDate: "2027-08-25", startTime: null, facilityId: null, employerId: null, staffPersonId: null, loc: null, staffName: null },
+      ],
+    };
+    const auto = schedulerModel([cohort as never], [{ rotationType: "general radiography", settingCode: "GEN", unitCategory: "", rule: null, sourceText: null, interpretationStatus: "reviewed" } as never]);
+    expect(auto.demand.map((u) => u.date)).toEqual(["2027-08-23"]);
+    const hand = schedulerModel([{ ...cohort, moves: [{ ...cohort.moves[0], note: null }] } as never], [{ rotationType: "general radiography", settingCode: "GEN", unitCategory: "", rule: null, sourceText: null, interpretationStatus: "reviewed" } as never]);
+    expect(hand.demand.map((u) => u.date)).toEqual(["2027-08-25"]);
+  });
+});

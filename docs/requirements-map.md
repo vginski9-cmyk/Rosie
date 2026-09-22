@@ -178,6 +178,32 @@ The first cut kept the requirements in a ledger beside the template with hand-ke
 - **Two new template columns**: `Session.experiences` (populations / procedures / modalities the session must include — the rule says *where*, this says *what*) and `Session.progression` (Orientation · Observation · Assist · Perform · Independent with supervision · Capstone). They are editable in the row, import through the sheet importer (header synonyms "experiences", "procedures", "progression", "stage", "scrub role"…), export in the Raw Data sheet, and the extraction proposes them when a document states them.
 - **Program-wide and family standards** stay in a short collapsed summary above the terms (totals per unit, interpretations to review, quantities not stated).
 
+## 9. Accuracy audit (follow-up)
+
+`scripts/audit-accuracy.ts` recomputes every clinical total independently from the raw rows and cross-checks the template, the dated demand, the scheduler's plan, the roster on the calendar (bookings and student shifts), the capacity view, site load, site caps, staffing and the requirements. It is read-only and runs per college:
+
+```
+npx tsx scripts/audit-accuracy.ts            # every college
+npx tsx scripts/audit-accuracy.ts Sandhills  # one college
+```
+
+What it checks: demand students = min(enrollment, sections × max) per dated row; dated rows inside their term and on their weekday; assets and rules inside the setting taxonomy; placed + unmet = demand; no asset-shift over its learners per shift or on a closed shift; a section's parts add up and its seat ranges never overlap; every placement in an eligible setting, within the Day lever, at a secured site, never on a holiday; no student in two places at once; preceptors belong to the site and are never double-booked; the family's students-at-once never exceeded; the plan's supply figure equals an independent count; the roster's bookings never over-fill an asset-shift; every pinned student shift has the booking behind it; site load's seated count equals the roster's; the capacity view's demand and supply equal the scheduler's on the same rows; and every course pool's minimums fit its hours.
+
+**Defects it found, all fixed:**
+
+| Defect | Effect before | Fix |
+|---|---|---|
+| A demand unit's identity did not include the offering, and two offerings of one program share session ids (Sandhills runs a "2nd class" for each Radiography year) | Every count keyed by unit id — placed shifts, evaluation placements, unmet grouping — merged the two offerings: the scheduler reported 13,125 placed shifts for 21,733 placements | `DemandUnit.id` = cohort · session · section · date |
+| Per-occurrence moves were keyed without the offering | A move on one offering also moved its sibling's shift on the same date | moves carry `cohortId`; lookup is cohort-scoped |
+| An applied plan's own moves fed the next plan as if a person had made them | Every re-apply started ± 2 days from the previous plan's dates and could drift another ± 2 (8,254 auto-plan moves at Sandhills after one refresh) | the scheduler ignores `auto-plan` moves; hand-made moves are still honoured |
+| Re-applying a plan rewrote the past | Bookings, moves and staff for dates already worked were deleted and re-created; logged (completed) shifts kept pins to bookings that no longer existed (1,252 orphan pins) and site load counted them as seats, reading 234 asset-shifts over 100% | `writeSchedulerPlan` takes a cutoff (default today): history is never re-planned; under an explicit full replace a logged shift's seat follows the new booking |
+| Site load counted a pin without a booking as a seat | Over-100% asset-shifts that did not exist | a seat is a booking; a pin without one is unseated on its pattern date |
+| The capacity view matched demand to its primary setting only | Demand a rule allowed in an alternative setting read as "physically short" (225 learner-shifts at Sandhills) while the scheduler placed it | `assetMatch` allocates per date × block across the eligible settings, primary first, counted once (`hostedInAlternatives`) |
+
+**Audit result after the fixes (all four colleges): 0 errors.** Remaining warnings are data, not engine: sessions dated one or two days after their offering's stated term end (Carteret NAS 111 #10, three Lenoir CE offerings, Sandhills SUR 135 #30 — the term end date is short of the template's last week), and future student-shifts without a booked seat, which are the plan's unplaced sections plus named students beyond the seats the plan booked.
+
+Regression tests: `test/scheduler.test.ts` (cohort-scoped units and moves; auto-plan moves ignored), `test/assetmap.test.ts` (allocation across eligible settings).
+
 ## 7. Known limitations
 
 - Test 34 (scope-filter cohort reset) not addressed. Test 12 has no path that produces an incomplete evaluation.

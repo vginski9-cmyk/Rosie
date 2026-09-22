@@ -51,7 +51,9 @@ export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCod
     termEndByIndex: c.termEndByIndex, termWeeksByIndex: c.termWeeksByIndex, holidays: c.holidays, holidayRule: c.holidayRule, courses: c.courses,
   } as CohortCalendarInput, c.assumptions).filter((i) => i.dateIso != null));
   const familyByCohort = Object.fromEntries(cohorts.map((c) => [c.cohortId, c.familyId ?? null]));
-  const moves = cohorts.flatMap((c) => (c.moves ?? []).map((m) => ({ sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })));
+  // Hand-made moves are facts the plan must honour; an earlier applied plan's own moves are the plan being replaced —
+  // starting from them would drift a shift another ± flexibleDays every time the plan is applied.
+  const moves = cohorts.flatMap((c) => (c.moves ?? []).filter((m) => m.note !== AUTO_PLAN_NOTE).map((m) => ({ cohortId: c.cohortId, sessionId: m.sessionId, sectionIndex: m.sectionIndex, fromDate: m.fromDate, toDate: m.toDate, startTime: m.startTime ?? null })));
   const campus: CampusBlock[] = [];
   for (const r of rows) {
     if (r.session.kind === "CLINICAL" || !r.dateIso) continue;

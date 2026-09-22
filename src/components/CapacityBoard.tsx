@@ -30,6 +30,8 @@ export interface ShiftMeeting {
 }
 /** One-off move: the occurrence of session × section patterned on fromDate happens on toDate instead. */
 export interface ShiftMoveInfo {
+  /** "auto-plan" when an applied scheduler plan made the move — the next plan starts from the pattern date, never from an earlier plan's move. */
+  note?: string | null;
   sessionId: string; sectionIndex: number;
   fromDate: string; toDate: string; startTime: string | null;
   facilityId: string | null; employerId: string | null; staffPersonId: string | null;

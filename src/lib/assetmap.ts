@@ -166,6 +166,8 @@ export interface AssetMatchCell extends AssetSupplyCell {
   rotationTypes: string[]; cohorts: string[];
   /** Secured seats on the same date × block in the OTHER settings the rotations' rules allow — alternatives the reader can weigh before calling a shortfall. */
   altSecuredLearners: number; altSettings: string[];
+  /** Learner-shifts of this primary setting hosted on an alternative setting's seats (the rule allows it) — counted here, never twice. */
+  hostedInAlternatives: number; hostedSecuredInAlternatives: number;
   /** Demand here whose rule is not yet reviewed (an alternative may or may not be approved). */
   unreviewed: number;
 }
@@ -174,20 +176,37 @@ export function assetMatch(demand: AssetDemandPoint[], supply: Map<string, Asset
   const booked = new Map<string, number>();
   for (const b of bookings) { const a = assetById.get(b.assetId); if (!a) continue; const k = `${b.date}|${b.block}|${a.settingCode}`; booked.set(k, (booked.get(k) ?? 0) + b.students); }
   const acc = new Map<string, AssetMatchCell>();
+  // Seats are a shared pool per date × block × setting: demand takes its primary setting first, then, when the rule
+  // allows alternatives, whatever those settings have left on the same date and block. A learner-shift hosted in an
+  // alternative is counted once (in its primary cell, as hosted via an alternative), never as a second demand.
+  const freePhys = new Map<string, number>(); const freeSecured = new Map<string, number>();
+  const free = (m: Map<string, number>, k: string, seats: number) => { if (!m.has(k)) m.set(k, seats); return m.get(k)!; };
   for (const d of demand) {
     if (!d.settingCode) continue;
     const k = `${d.iso}|${d.block}|${d.settingCode}`;
     const s = supply.get(k);
-    const c = acc.get(k) ?? { iso: d.iso, block: d.block, settingCode: d.settingCode, assets: s?.assets ?? 0, learners: s?.learners ?? 0, securedAssets: s?.securedAssets ?? 0, securedLearners: s?.securedLearners ?? 0, assetIds: s?.assetIds ?? [], demand: 0, booked: booked.get(k) ?? 0, shortPhysical: 0, shortSecured: 0, unbooked: 0, rotationTypes: [], cohorts: [], altSecuredLearners: 0, altSettings: [], unreviewed: 0 };
+    const c = acc.get(k) ?? { iso: d.iso, block: d.block, settingCode: d.settingCode, assets: s?.assets ?? 0, learners: s?.learners ?? 0, securedAssets: s?.securedAssets ?? 0, securedLearners: s?.securedLearners ?? 0, assetIds: s?.assetIds ?? [], demand: 0, booked: booked.get(k) ?? 0, shortPhysical: 0, shortSecured: 0, unbooked: 0, rotationTypes: [], cohorts: [], altSecuredLearners: 0, altSettings: [], unreviewed: 0, hostedInAlternatives: 0, hostedSecuredInAlternatives: 0 };
     c.demand += d.students;
     if (d.ruleStatus && d.ruleStatus !== "reviewed") c.unreviewed += d.students;
+    // Physical: primary first, then each alternative's remaining seats.
+    let left = d.students;
+    const takePhys = (code: string) => { const kk = `${d.iso}|${d.block}|${code}`; const f = free(freePhys, kk, supply.get(kk)?.learners ?? 0); const t = Math.min(left, f); freePhys.set(kk, f - t); left -= t; return t; };
+    takePhys(d.settingCode);
+    for (const alt of d.eligible.slice(1)) { if (left <= 0) break; c.hostedInAlternatives += takePhys(alt); }
+    c.shortPhysical += left;
+    // Secured: the same allocation over secured seats only.
+    let leftS = d.students;
+    const takeSec = (code: string) => { const kk = `${d.iso}|${d.block}|${code}`; const f = free(freeSecured, kk, supply.get(kk)?.securedLearners ?? 0); const t = Math.min(leftS, f); freeSecured.set(kk, f - t); leftS -= t; return t; };
+    takeSec(d.settingCode);
+    for (const alt of d.eligible.slice(1)) { if (leftS <= 0) break; c.hostedSecuredInAlternatives += takeSec(alt); }
+    c.shortSecured += leftS;
     for (const alt of d.eligible.slice(1)) { if (!c.altSettings.includes(alt)) { c.altSettings.push(alt); c.altSecuredLearners += supply.get(`${d.iso}|${d.block}|${alt}`)?.securedLearners ?? 0; } }
     if (!c.rotationTypes.includes(d.rotationType)) c.rotationTypes.push(d.rotationType);
     if (!c.cohorts.includes(d.cohort)) c.cohorts.push(d.cohort);
     acc.set(k, c);
   }
   const out = [...acc.values()];
-  for (const c of out) { c.shortPhysical = Math.max(0, c.demand - c.learners); c.shortSecured = Math.max(0, c.demand - c.securedLearners); c.unbooked = Math.max(0, c.demand - c.booked); }
+  for (const c of out) c.unbooked = Math.max(0, c.demand - c.booked);
   return out.sort((a, b) => a.iso.localeCompare(b.iso) || ASSET_BLOCKS.indexOf(a.block) - ASSET_BLOCKS.indexOf(b.block) || a.settingCode.localeCompare(b.settingCode));
 }
 
@@ -199,7 +218,7 @@ export function settingVerdicts(cells: AssetMatchCell[], assets: AssetLite[]): S
     const as = assets.filter((a) => a.settingCode === code && isLive(a));
     return {
       settingCode: code, setting: as[0]?.setting ?? code, rotationTypes: [...new Set(cs.flatMap((c) => c.rotationTypes))],
-      demandShifts: cs.reduce((n, c) => n + c.demand, 0), hostedPhysical: cs.reduce((n, c) => n + Math.min(c.demand, c.learners), 0), hostedSecured: cs.reduce((n, c) => n + Math.min(c.demand, c.securedLearners), 0),
+      demandShifts: cs.reduce((n, c) => n + c.demand, 0), hostedPhysical: cs.reduce((n, c) => n + (c.demand - c.shortPhysical), 0), hostedSecured: cs.reduce((n, c) => n + (c.demand - c.shortSecured), 0),
       booked: cs.reduce((n, c) => n + Math.min(c.demand, c.booked), 0), shortDays: cs.filter((c) => c.shortSecured > 0).length,
       peak: cs.reduce<AssetMatchCell | null>((b, c) => (c.demand > (b?.demand ?? -1) ? c : b), null),
       assetsPhysical: as.length, assetsSecured: as.filter((a) => a.agreementStatus === "secured").length,

@@ -20,7 +20,7 @@ export async function seedRosterPlacements(_prisma: PrismaClient, institutionId:
   const { from, to } = schedulerWindow(data.cohorts);
   const supply = await getSchedulerData(institutionId, from, to);
   const plan = buildSchedulerPlan(data.cohorts, supply, { policy: ROSTER_POLICY, from, to, cohortIds: [] });
-  const r = plan.assignments.length ? await writeSchedulerPlan(planInputs(plan.assignments)) : { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0 };
+  const r = plan.assignments.length ? await writeSchedulerPlan(planInputs(plan.assignments), { cutoff: from }) : { bookings: 0, placements: 0, meetings: 0, moves: 0, staffed: 0, shifts: 0, offSite: 0 };
   const whyUnplaced: Record<string, number> = {};
   for (const u of plan.unmet) whyUnplaced[u.reason] = (whyUnplaced[u.reason] ?? 0) + u.unit.seats;
   return { institution: data.institution.name, from, to, demand: plan.summary.demandSeats, placed: plan.summary.placedSeats, unplaced: plan.summary.demandSeats - plan.summary.placedSeats, sites: plan.summary.sitesUsed, bookings: r.bookings, shifts: r.shifts, moves: r.moves, staffed: r.staffed, whyUnplaced };

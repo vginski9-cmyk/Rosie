@@ -2282,7 +2282,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
           sessionOverrides: true,
           courseDates: { select: { courseId: true, startDate: true, endDate: true } },
           meetings: { select: { id: true, courseId: true, kind: true, sectionIndex: true, sectionCount: true, seats: true, dayOfWeek: true, startTime: true, lengthHours: true, termIndex: true, facilityId: true, employerId: true, unitId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, unit: { select: { unitType: true } }, staff: { select: { name: true } } }, orderBy: { sectionIndex: "asc" as const } },
-          shiftMoves: { select: { sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
+          shiftMoves: { select: { note: true, sessionId: true, sectionIndex: true, fromDate: true, toDate: true, startTime: true, facilityId: true, employerId: true, staffPersonId: true, facility: { select: { name: true } }, employer: { select: { name: true } }, staff: { select: { name: true } } } },
           sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
           _count: { select: { students: true } },
           // The named roster: students on the offering who have not withdrawn. Once they exist they ARE the demand, whatever the target said.
@@ -2390,7 +2390,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         // Per-occurrence moves: ONE shift (session × section, on one date) bumped
         // to another date / time / place — keyed by the session, so nothing else follows.
         moves: co.shiftMoves.map((mv) => ({
-          sessionId: mv.sessionId, sectionIndex: mv.sectionIndex,
+          note: mv.note ?? null, sessionId: mv.sessionId, sectionIndex: mv.sectionIndex,
           fromDate: mv.fromDate.toISOString().slice(0, 10), toDate: mv.toDate.toISOString().slice(0, 10),
           startTime: mv.startTime, facilityId: mv.facilityId, employerId: mv.employerId, staffPersonId: mv.staffPersonId,
           loc: mv.employer?.name ? `@ ${mv.employer.name}` : mv.facility?.name ?? null,
@@ -3138,10 +3138,13 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
     const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, asset: { select: { id: true, employerId: true, settingCode: true, externalId: true, assetType: true, assetNumber: true, learnersPerShift: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, preceptorsNeeded: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
     for (const s of shifts) {
       const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
-      const employerId = s.asset?.employerId ?? m?.employerId ?? null;
-      const e = employerId ? empById.get(employerId) : undefined;
       // A seated shift lands on the booking's date and block (the plan may have moved it); an unseated one on its pattern date.
       const seat = s.asset ? seatOf.get(`${s.session.id}|${s.sectionIndex}|${s.asset.id}`) ?? null : null;
+      // A pin with no booking behind it is not a seat: the roster's seat is the booking (asset × date × block); without one the
+      // shift is unseated on its pattern date, never counted as load on that asset.
+      const seated = seat ? s.asset : null;
+      const employerId = (seat ? s.asset?.employerId : null) ?? m?.employerId ?? null;
+      const e = employerId ? empById.get(employerId) : undefined;
       const iso = seat?.date ?? dates.get(s.session.id) ?? null;
       const d = iso ? new Date(iso + "T00:00:00Z") : null;
       rows.push({
@@ -3150,8 +3153,8 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
         date: iso, hours: s.status === "completed" ? s.hoursLogged ?? s.session.lengthHours : s.status === "absent" || s.status === "excused" ? 0 : s.session.lengthHours, status: s.status,
         year: d ? d.getUTCFullYear() : null, semester: d ? seasonOfDate(d) : null, dayOfWeek: d ? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getUTCDay()] : null,
         employerId, site: e?.name ?? "site TBD", system: e?.organization ?? null, county: e?.county ?? null, ring: e?.ring ?? null, facilityType: e?.facilityType ?? null, driveMinutes: e?.driveMinutes ?? null,
-        setting: s.asset?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
-        assetId: s.asset?.id ?? null, asset: s.asset ? assetName(s.asset) : null, block: s.asset ? seat?.block ?? "Day" : null, seatsPerShift: s.asset?.learnersPerShift ?? null,
+        setting: seated?.settingCode ?? s.settingCode ?? rotations.get((s.session.rotationType ?? "").trim().toLowerCase()) ?? null,
+        assetId: seated?.id ?? null, asset: seated ? assetName(seated) : null, block: seated ? seat!.block : null, seatsPerShift: seated?.learnersPerShift ?? null,
         preceptorId: s.preceptorId ?? m?.staffPersonId ?? null, preceptor: s.preceptor?.name ?? m?.staff?.name ?? null,
         agreement: employerId ? agreementBy.get(employerId) ?? e?.agreementStatus ?? "none" : "none",
         studentStatus: s.student.status, keepAssignments: s.student.keepAssignments, preceptorsNeeded: s.session.preceptorsNeeded ?? 0,

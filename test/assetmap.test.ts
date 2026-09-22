@@ -65,3 +65,20 @@ describe("365-day asset map", () => {
     expect(wb.TOTALS[3]).toContain(21);
   });
 });
+
+describe("the asset map allocates demand across eligible settings (accuracy audit)", () => {
+  it("a rotation whose rule allows an alternative is hosted on the alternative's seats when its primary setting is full — counted once, and the setting verdict counts it as hosted", async () => {
+    const { settingVerdicts } = await import("../src/lib/assetmap");
+    const gen = mk({ id: "g1", learnersPerShift: 1 });
+    const ed = mk({ id: "e1", externalId: "H001-ED-01", settingCode: "ED", setting: "Emergency", learnersPerShift: 5 });
+    const supply = assetSupply([gen, ed], [], "2027-03-01", "2027-03-01");
+    const demand = [{ iso: "2027-03-01", block: "Day" as const, settingCode: "GEN", eligible: ["GEN", "ED"], ruleStatus: "reviewed", rotationType: "Imaging rotations", students: 3, sections: 3, cohortId: "c", cohort: "Class of 2028", program: "Radiography", courseCode: "RAD 111", sessionId: "s", startTime: "07:00" }];
+    const cells = assetMatch(demand, supply, [], new Map([["g1", gen], ["e1", ed]]));
+    expect(cells).toHaveLength(1);
+    expect(cells[0]).toMatchObject({ demand: 3, learners: 1, shortPhysical: 0, shortSecured: 0, hostedInAlternatives: 2, hostedSecuredInAlternatives: 2 });
+    expect(settingVerdicts(cells, [gen, ed])[0]).toMatchObject({ settingCode: "GEN", demandShifts: 3, hostedPhysical: 3, hostedSecured: 3 });
+    // an ED demand point on the same shift finds the ED seats the GEN overflow already took
+    const both = assetMatch([...demand, { ...demand[0], settingCode: "ED", eligible: ["ED"], students: 4 }], supply, [], new Map([["g1", gen], ["e1", ed]]));
+    expect(both.find((c) => c.settingCode === "ED")).toMatchObject({ demand: 4, learners: 5, shortPhysical: 1 });
+  });
+});
