@@ -55,7 +55,7 @@ function SupplyChart({ need, rows }: { need: number; rows: { label: string; valu
           </div>
         </div>
       ))}
-      <p className="text-[10px] leading-snug text-slate-500">Seats on the dates and shift blocks the sections fall on, summed over the window. A total above demand does not mean every day fits — the share on the left is what does.</p>
+      <p className="text-[10px] leading-snug text-slate-500">Seats on the dates and shift blocks the sections fall on, summed over the window — a ceiling, not a plan. The share on the left is what actually fits day by day; it can never exceed the first bar, and a bar above demand does not mean every day fits.</p>
     </div>
   );
 }
@@ -103,12 +103,25 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
             </ul>
           </div>
           <SupplyChart need={need} rows={[
-            { label: "Supply at the sites that count", value: have, color: RING.placed, note: "every open asset-shift on the dates and shift blocks the sections fall on, in every setting their rotation rules allow, at sites allowed by the Sites and Drive-time levers, × learners per shift" },
-            { label: "…that a preceptor could cover", value: staffable, color: RING.staffed, note: `the same seats, capped per site and shift by the preceptors on its roster × ${policy.studentsPerPreceptor ? `${policy.studentsPerPreceptor} students each` : "each asset's own students-per-preceptor ratio"}` },
-            { label: "Supply if every site counted", value: everySite, color: "#94a3b8", note: "the same dates and shift blocks at every live site, whatever its agreement or drive time — the most the levers could ever unlock" },
+            { label: "Seats at the sites that count, on those dates", value: have, color: RING.placed, note: "every open asset-shift on the dates and shift blocks the sections fall on, in every setting their rotation rules allow, at sites allowed by the Sites and Drive-time levers, × learners per shift" },
+            { label: "…of which a preceptor on the site's roster could cover", value: staffable, color: RING.staffed, note: `the same seats, capped per site and shift by the preceptors on its roster × ${policy.studentsPerPreceptor ? `${policy.studentsPerPreceptor} students each` : "each asset's own students-per-preceptor ratio"}` },
+            { label: "Seats if every site counted", value: everySite, color: "#94a3b8", note: "the same dates and shift blocks at every live site, whatever its agreement or drive time — the most the levers could ever unlock" },
           ]} />
         </div>
         {c.settingsWithoutSupply.length > 0 && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">No site that counts offers {c.settingsWithoutSupply.join(", ")} — those shifts cannot be placed whatever the totals say.</p>}
+        <details className="mt-3 text-xs text-slate-600">
+          <summary className="cursor-pointer font-medium text-slate-700 hover:text-rose-700">How to read these numbers</summary>
+          <dl className="mt-2 grid gap-x-6 gap-y-1.5 md:grid-cols-2">
+            <div><dt className="font-semibold text-slate-800">Demand · {n0(need)} learner-shifts</dt><dd>One student on one clinical shift. Every dated clinical section of the chosen offerings, × the students in it, over the window. It comes from the program template (sessions, weeks, sections) and the offerings' term dates — not from who is enrolled today.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Can be placed · {pct(s.placedShare)}</dt><dd>The engine tried every shift against every seat under these levers and found a seat for {n0(s.placedSeats)} learner-shifts. A seat is one learner place on one asset (a unit, room or machine) on one date and shift block, in a setting the rotation&apos;s rule allows. This is the answer; the bars are the ceilings it worked inside.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Seats at the sites that count · {n0(have)}</dt><dd>The seats that existed on the sections&apos; own dates and shift blocks, at sites the Sites and Drive-time levers allow, in every eligible setting. A ceiling: placed can never be above it. It can be far above demand and still leave shifts unplaced, because a seat on Tuesday cannot host a section that meets on Thursday, and two sections cannot share one seat.</dd></div>
+            <div><dt className="font-semibold text-slate-800">…that a preceptor could cover · {n0(staffable)}</dt><dd>The same seats, capped per site and shift by the preceptors on that site&apos;s roster × students per preceptor. Only meaningful for precepted sessions; instructor-led groups need a college instructor instead.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Seats if every site counted · {n0(everySite)}</dt><dd>The same dates and shift blocks at every live site, whatever its agreement or drive time — what loosening the Sites and Drive-time levers all the way could unlock. Not a plan either.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Preceptor available · {pct(s.preceptorShifts ? s.preceptorsAssigned / s.preceptorShifts : null)}</dt><dd>Of the placed shifts that require a preceptor, the share where a free preceptor on that site&apos;s roster was put on the shift by name. &ldquo;Seats only&rdquo; (the default lever) places first and staffs afterwards; &ldquo;require a free preceptor&rdquo; refuses a seat with nobody to precept.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Ready to run · {pct(rd.readyShare)}</dt><dd>Placed shifts that also pass every check: secured agreement, the required role named, the site&apos;s experience confirmed, the setting rule reviewed and satisfied, no conflicts. Anything unknown or unreviewed keeps a shift out of this number — it is the strictest figure on purpose.</dd></div>
+            <div><dt className="font-semibold text-slate-800">What none of this says</dt><dd>Nothing here is written to the calendar, and none of it is a regulatory judgement. A placed shift is a seat that fits; a ready shift is one every record supports. The roster on the calendar is a separate, earlier run of the same engine — the line above the levers says how it compares.</dd></div>
+          </dl>
+        </details>
       </div>
 
       {(unmetSeats > 0 || blocking.length > 0) && (
