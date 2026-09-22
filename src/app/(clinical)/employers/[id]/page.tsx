@@ -214,7 +214,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
           {e.meetings.length === 0 ? <p className="text-sm text-slate-400">No clinical section booking here yet.</p> : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
               <table className="min-w-full text-xs">
-                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold">Preceptor</th></tr></thead>
+                <thead className="bg-slate-50 text-left text-[10px] uppercase tracking-wide text-slate-500"><tr><th className="px-3 py-2 font-semibold">Offering</th><th className="px-3 py-2 font-semibold">Course · section</th><th className="px-3 py-2 font-semibold">When</th><th className="px-3 py-2 font-semibold">Unit</th><th className="px-3 py-2 text-right font-semibold">Seats</th><th className="px-3 py-2 font-semibold" title="The section's usual lead staff on the calendar pattern: its preceptor, or its college instructor on an instructor-led section">Lead staff</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {e.meetings.map((m) => (
                     <tr key={m.id}>
@@ -223,7 +223,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
                       <td className="px-3 py-1.5 tabular-nums">{m.dayOfWeek} {m.startTime} · {dec(m.lengthHours)}h</td>
                       <td className="px-3 py-1.5">{m.unit?.unitType ?? <span className="text-slate-400">—</span>}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">{m.seats}</td>
-                      <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}</td>
+                      <td className={`px-3 py-1.5 ${m.staff?.name ? "" : "text-amber-600"}`}>{m.staff?.name ?? "unassigned"}{m.staff?.role && <span className="ml-1 text-[10px] text-slate-400">{m.staff.role}</span>}</td>
                     </tr>
                   ))}
                 </tbody>

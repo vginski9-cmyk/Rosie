@@ -385,7 +385,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           <Collapse
             title="Students"
             sub="Sections, preceptors and clinical hours logged"
-            summary={<>{active.length} enrolled · <span className="text-emerald-700">{n1(logged)} of {n1(required)} h logged</span>{short > 0 ? <> · <span className="text-rose-600">{short} short</span></> : null}{unpre > 0 ? <> · <span className="text-amber-700">{unpre} unprecepted</span></> : null}</>}
+            summary={<>{active.length} enrolled · <span className="text-emerald-700">{n1(logged)} of {n1(required)} h logged</span>{short > 0 ? <> · <span className="text-rose-600">{short} short</span></> : null}{unpre > 0 ? <> · <span className="text-amber-700">{unpre} unsupervised</span></> : null}</>}
           >
             <ReadOnly what="The shift ledger"><OfferingLedger ledger={ledger} programId={program.id} /></ReadOnly>
           </Collapse>

@@ -12,7 +12,7 @@ export default async function ExceptionsPage() {
   const items = await getExceptionQueue();
   return (
     <div className="space-y-4">
-      <PageHeader crumb={{ href: "/setup", label: "Setup" }} title="Exceptions" lede="What the records raise: over-capacity days, unsecured placements, holiday collisions, unprecepted shifts, calendar conflicts, coverage gaps, unverified inputs. Fixing them is data work, not strategy." />
+      <PageHeader crumb={{ href: "/setup", label: "Setup" }} title="Exceptions" lede="What the records raise: over-capacity days, unsecured placements, holiday collisions, unsupervised shifts, calendar conflicts, coverage gaps, unverified inputs. Fixing them is data work, not strategy." />
       <ExceptionQueue items={items} />
     </div>
   );

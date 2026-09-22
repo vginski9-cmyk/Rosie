@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { overCapacityDays, unsecuredPlacements, unpreceptedShifts, sortExceptions, blockedFamilies, requirementFindings, type LoadRowLite, type ExceptionItem } from "../src/lib/exceptions";
+import { overCapacityDays, unsecuredPlacements, unsupervisedShifts, sortExceptions, blockedFamilies, requirementFindings, type LoadRowLite, type ExceptionItem } from "../src/lib/exceptions";
 
 // Phase 7 (docs/metrics-audit.md §13): the exception queue's rules over site-load rows.
 
@@ -33,17 +33,24 @@ describe("exception rules", () => {
     expect(u).toHaveLength(1);
     expect(u[0]).toMatchObject({ familyId: "f1", shifts: 3, students: 2, sites: ["Hoke", "Randolph"] });
   });
-  it("an unnamed preceptor is a gap only where the session needs one, and only ahead of today", () => {
+  it("an unnamed supervisor is a gap only where the session needs that role, and only ahead of today", () => {
     const rows = [
       row({ studentId: "a", date: "2026-10-06", preceptorId: null }),
       row({ studentId: "b", date: "2026-10-06", preceptorId: null }),
-      row({ studentId: "a", date: "2026-10-13", preceptorId: null, preceptorsNeeded: 0 }), // instructor-led
+      row({ studentId: "a", date: "2026-10-13", preceptorId: null, preceptorsNeeded: 0 }), // instructor-led, no model on the row — no preceptor needed, no instructor asked for
       row({ studentId: "a", date: "2026-08-04", preceptorId: null }),                     // past
       row({ studentId: "c", date: "2026-10-20" }),
     ];
-    const p = unpreceptedShifts(rows, today);
+    const p = unsupervisedShifts(rows, today);
     expect(p).toHaveLength(1);
-    expect(p[0]).toMatchObject({ cohortId: "c1", shifts: 2, students: 2 });
+    expect(p[0]).toMatchObject({ cohortId: "c1", shifts: 2, students: 2, noPreceptor: 2, noInstructor: 0 });
+    // Instructor-led shifts: an instructor missing is the gap; a preceptor is not required there. A combined shift missing both counts once, in both splits.
+    const led = [
+      row({ studentId: "a", date: "2026-10-06", preceptorId: null, preceptorsNeeded: 0, instructorNeeded: true, instructorId: null }),
+      row({ studentId: "b", date: "2026-10-06", preceptorId: null, preceptorsNeeded: 0, instructorNeeded: true, instructorId: "i1" }),
+      row({ studentId: "c", date: "2026-10-06", preceptorId: null, preceptorNeeded: true, instructorNeeded: true, instructorId: null }),
+    ];
+    expect(unsupervisedShifts(led, today)[0]).toMatchObject({ shifts: 2, noInstructor: 2, noPreceptor: 1 });
   });
   it("sorts blockers first and names the families that may not read green", () => {
     const item = (o: Partial<ExceptionItem> & { id: string; severity: ExceptionItem["severity"] }): ExceptionItem => ({ kind: "other", institutionId: null, institution: null, familyId: null, family: null, title: o.id, detail: "", href: "/", fix: "", count: 1, ...o });

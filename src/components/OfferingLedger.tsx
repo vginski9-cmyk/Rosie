@@ -28,7 +28,7 @@ export function OfferingLedger({ ledger, programId }: { ledger: Ledger; programI
         <span className="text-slate-300">·</span>
         <span><span className="font-semibold tabular-nums text-emerald-700">{h1(logged)}</span> of {h1(required)} clinical hours logged across the offering{ledger.currentTerm ? ` · now in ${ledger.currentTerm.name}` : ""}</span>
         {pill(short.length, "short of clinical hours", "bg-rose-100 text-rose-700")}
-        {pill(unprecepted.length, "with unprecepted shifts", "bg-amber-100 text-amber-700")}
+        {pill(unprecepted.length, "with unsupervised shifts", "bg-amber-100 text-amber-700")}
         {pill(missingSec.length, "missing a section", "bg-amber-100 text-amber-700")}
         {pill(unstaffed.length, "in a section with no instructor", "bg-amber-100 text-amber-700")}
         <form action={logShiftsThrough.bind(null, ledger.cohortId, null)} className="ml-auto flex items-center gap-1">
@@ -62,7 +62,7 @@ export function OfferingLedger({ ledger, programId }: { ledger: Ledger; programI
                     <td key={c.courseId} className="px-2 py-1.5 text-right tabular-nums" title={`${c.site ?? "site TBD"}${c.preceptors.length ? ` · ${c.preceptors.join(", ")}` : ""} · ${c.shifts} shifts · ${c.done} done`}>
                       {gone ? "—" : c.shifts === 0 ? <span className="text-amber-600">no shifts</span> : <>
                         <span className={c.logged > 0 ? "font-semibold text-emerald-700" : "text-slate-500"}>{h1(c.logged)}</span><span className="text-slate-400"> / {h1(c.scheduled)}</span>
-                        <span className="block text-[10px] text-slate-400">{c.site ? c.site.split(" — ")[0].slice(0, 22) : <span className="text-amber-600">site TBD</span>}{c.missed > 0 && <span className="text-rose-600"> · {c.missed} missed</span>}{c.unprecepted > 0 && <span className="text-amber-600"> · {c.unprecepted} no preceptor</span>}</span>
+                        <span className="block text-[10px] text-slate-400">{c.site ? c.site.split(" — ")[0].slice(0, 22) : <span className="text-amber-600">site TBD</span>}{c.missed > 0 && <span className="text-rose-600"> · {c.missed} missed</span>}{c.unprecepted > 0 && <span className="text-amber-600"> · {c.unprecepted} no supervisor</span>}</span>
                       </>}
                     </td>
                   ))}

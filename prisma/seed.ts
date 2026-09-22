@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
-import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs } from "./seed-roster";
+import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs, seedInstructors } from "./seed-roster";
 import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
@@ -1128,6 +1128,9 @@ async function main() {
   // typed setting rules, supervision rules, explicit limit modes and versioned requirements — repeat-safe, additive,
   // ambiguous wording left as needs-review for a person. The same script runs against a live database (--dry-run first).
   { const { backfillRequirements } = await import("../scripts/backfill-requirements"); const r = await backfillRequirements(prisma); console.log("requirements backfilled:", JSON.stringify({ rotations: { total: r.rotations.total, reviewedSingle: r.rotations.reviewedSingle, reviewNeeded: r.rotations.reviewNeeded }, supervision: r.supervision, sites: r.sites, requirements: { created: r.requirements.created, versions: r.requirements.versions, fulfillments: r.requirements.fulfillments, setStandards: r.requirements.setStandards, discrepancies: r.requirements.discrepancies.length } })); }
+  // INSTRUCTORS FOR INSTRUCTOR-LED CLINICALS: a college whose clinical sessions need a whole instructor and has none on
+  // the roster (the Nurse Aide colleges) gets a dummy bench, as Sandhills has, so the scheduler can name one per shift.
+  for (const inst of await prisma.institution.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } })) { const n = await seedInstructors(prisma, inst.id); if (n) console.log(`instructors seeded — ${inst.name}:`, n); }
   // THE ROSTER IS PLACED BY THE SCHEDULER: every college's clinical shifts go where the engine puts
   // them under the roster levers, written through the apply path — one set of placements for the
   // scheduler, the site capacity view and the site load page, never a site over its seats.

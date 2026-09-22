@@ -37,7 +37,7 @@ export function ExceptionQueue({ items }: { items: ExceptionItem[] }) {
         <h2 className="text-lg font-semibold text-slate-900">What needs fixing first</h2>
         <span className="text-xs text-slate-500">{fmt.num(blockers.length)} blocker{blockers.length === 1 ? "" : "s"} · {fmt.num(warnings.length)} warning{warnings.length === 1 ? "" : "s"} · {fmt.num(notes.length)} note{notes.length === 1 ? "" : "s"} — worst first, each linking to where it gets fixed</span>
       </div>
-      {items.length === 0 && <p className="mt-2 text-sm text-emerald-700">Nothing outstanding — no over-capacity sites, unsecured placements, holiday sessions, unprecepted students, calendar conflicts or coverage gaps.</p>}
+      {items.length === 0 && <p className="mt-2 text-sm text-emerald-700">Nothing outstanding — no over-capacity sites, unsecured placements, holiday sessions, unsupervised shifts, calendar conflicts or coverage gaps.</p>}
       {blockers.length > 0 && <ul className="mt-3 space-y-1.5">{blockers.slice(0, 10).map((x) => <Item key={x.id} x={x} />)}</ul>}
       {blockers.length > 10 && (
         <details className="mt-1.5 text-xs">

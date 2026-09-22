@@ -864,6 +864,7 @@ model Person {
   meetings        MeetingPattern[]
   shiftMoves      ShiftMove[]
   preceptedShifts StudentShift[]          @relation("shiftPreceptor")
+  instructedShifts StudentShift[]         @relation("shiftInstructor")
   preceptedLogs   StudentRequirementLog[] @relation("logPreceptor")
   verifiedLogs    StudentRequirementLog[] @relation("logVerifier")
 
@@ -1730,6 +1731,9 @@ model StudentShift {
   /// Who precepted the shift as logged (defaults to the section's assigned preceptor).
   preceptorId  String?
   preceptor    Person?        @relation("shiftPreceptor", fields: [preceptorId], references: [id], onDelete: SetNull)
+  /// The college instructor on the shift as logged (defaults to the section's assigned instructor; null where the session needs none).
+  instructorId String?
+  instructor   Person?        @relation("shiftInstructor", fields: [instructorId], references: [id], onDelete: SetNull)
   /// The asset setting the hours count toward (GEN, OR, ED …): the pinned asset's setting, else the session's rotation setting.
   settingCode  String?
   /// Service area the coordinator pinned this shift to (the rotation planner keeps it there on every rebuild).
@@ -1741,6 +1745,7 @@ model StudentShift {
   @@unique([studentId, cohortId, sessionId])
   @@index([cohortId, sessionId])
   @@index([preceptorId])
+  @@index([instructorId])
 }
 
 /// A student's outcome in one course (dated, with letter grade / points).

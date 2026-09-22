@@ -55,13 +55,14 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   });
 
   // Each (cohort, course, section)'s MAIN site + lead preceptor → the meeting pattern the calendar reads.
-  const bySection = new Map<string, { employer: Map<string, number>; preceptor: Map<string, number> }>();
+  const bySection = new Map<string, { employer: Map<string, number>; preceptor: Map<string, number>; instructor: Map<string, number> }>();
   for (const a of assignments) {
     if (!a.courseId) continue;
     const k = `${a.cohortId}|${a.courseId}|${a.sectionIndex}`;
-    const s = bySection.get(k) ?? { employer: new Map(), preceptor: new Map() };
+    const s = bySection.get(k) ?? { employer: new Map(), preceptor: new Map(), instructor: new Map() };
     s.employer.set(a.employerId, (s.employer.get(a.employerId) ?? 0) + 1);
     for (const p of a.preceptorIds) s.preceptor.set(p, (s.preceptor.get(p) ?? 0) + 1);
+    if (a.instructorId) s.instructor.set(a.instructorId, (s.instructor.get(a.instructorId) ?? 0) + 1);
     bySection.set(k, s);
   }
   let meetings = 0;
@@ -70,7 +71,9 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   for (const [k, s] of bySection) {
     const [cohortId, courseId, sec] = k.split("|");
     mainSite.set(k, top(s.employer));
-    const r = await prisma.meetingPattern.updateMany({ where: { cohortId, courseId, kind: "CLINICAL", sectionIndex: Number(sec) }, data: { employerId: top(s.employer), staffPersonId: top(s.preceptor) } });
+    // The pattern's lead staff is the section's usual preceptor, else its instructor (an instructor-led site has no preceptor); never a null overwrite of someone set by hand.
+    const lead = top(s.preceptor) ?? top(s.instructor);
+    const r = await prisma.meetingPattern.updateMany({ where: { cohortId, courseId, kind: "CLINICAL", sectionIndex: Number(sec) }, data: { employerId: top(s.employer), ...(lead ? { staffPersonId: lead } : {}) } });
     meetings += r.count;
   }
 
@@ -84,6 +87,7 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   for (const r of handRows) { const k = `${r.cohortId}|${r.sessionId}|${r.sectionIndex}`; const l = handBySection.get(k) ?? []; l.push({ id: r.id, personId: r.personId, employerId: r.person.employerId }); handBySection.set(k, l); }
   const handAt = (a: PlanAssignmentInput) => (handBySection.get(`${a.cohortId}|${a.sessionId}|${a.sectionIndex}`) ?? []).filter((h) => h.employerId === a.employerId).map((h) => h.personId);
   const leadPreceptor = (a: PlanAssignmentInput) => handAt(a)[0] ?? a.preceptorIds[0] ?? null;
+  const leadStaff = (a: PlanAssignmentInput) => leadPreceptor(a) ?? a.instructorId ?? null;
   // A preceptor stays with their employer. Once the plan books a shift at a site, a preceptor from some
   // OTHER site cannot be on it — those assignments come off (the plan puts the site's own people on).
   const offSite = new Set<string>();
@@ -97,7 +101,7 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
     const sectionMain = a.courseId ? mainSite.get(`${a.cohortId}|${a.courseId}|${a.sectionIndex}`) ?? null : null;
     const elsewhere = sectionMain != null && sectionMain !== a.employerId;
     if (!(a.movedDays || a.changedBlock || elsewhere || from !== a.date)) continue;
-    moveRows.set(k, { cohortId: a.cohortId, sessionId: a.sessionId, sectionIndex: a.sectionIndex, fromDate: new Date(from + "T00:00:00Z"), toDate: new Date(a.date + "T00:00:00Z"), startTime: a.changedBlock ? a.startTime ?? null : null, employerId: a.employerId, staffPersonId: leadPreceptor(a), note: AUTO_PLAN_NOTE });
+    moveRows.set(k, { cohortId: a.cohortId, sessionId: a.sessionId, sectionIndex: a.sectionIndex, fromDate: new Date(from + "T00:00:00Z"), toDate: new Date(a.date + "T00:00:00Z"), startTime: a.changedBlock ? a.startTime ?? null : null, employerId: a.employerId, staffPersonId: leadStaff(a), note: AUTO_PLAN_NOTE });
   }
   for (const c of chunks([...moveRows.values()])) await prisma.shiftMove.createMany({ data: c });
 
@@ -114,12 +118,12 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   for (const a of assignments) { if (!handAt(a).length) for (const p of a.preceptorIds) addStaff(a, p, "preceptor"); if (a.instructorId) addStaff(a, a.instructorId, "instructor"); }
   for (const c of chunks(staffRows)) await prisma.sessionInstructor.createMany({ data: c });
 
-  // Students follow their section. Each student's shifts are pinned to the booked asset and
-  // preceptor (created when missing, pinned when unpinned, left alone when someone pinned or
+  // Students follow their section. Each student's shifts are pinned to the booked asset, preceptor
+  // and instructor (created when missing, pinned when unpinned, left alone when someone pinned or
   // logged them by hand), and one planned placement per student × site spans that site's dates.
   const students = await prisma.student.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, sectionIndex: true } });
   const placements: { studentId: string; employerId: string; cohortId: string; startDate: Date; endDate: Date; status: string; notes: string }[] = [];
-  const target = new Map<string, { studentId: string; cohortId: string; sessionId: string; sectionIndex: number; assetId: string; preceptorId: string | null }>();
+  const target = new Map<string, { studentId: string; cohortId: string; sessionId: string; sectionIndex: number; assetId: string; preceptorId: string | null; instructorId: string | null }>();
   for (const st of students) {
     const mine = assignments.filter((a) => {
       if (a.cohortId !== st.cohortId) return false;
@@ -133,31 +137,31 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
     const bySite = new Map<string, { from: string; to: string }>();
     for (const a of mine) {
       const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w);
-      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: a.assetId, preceptorId: leadPreceptor(a) });
+      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: a.assetId, preceptorId: leadPreceptor(a), instructorId: a.instructorId ?? null });
     }
     // A rotation's placement reads by its dates: over (completed), under way (active) or ahead (planned) — a graduated class's are history.
     for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: w.to < todayIsoPw ? "completed" : w.from <= todayIsoPw ? "active" : "planned", notes: AUTO_PLAN_NOTE });
   }
   if (placements.length) await prisma.wblPlacement.createMany({ data: placements });
 
-  const existing = await prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, studentId: true, sessionId: true, sectionIndex: true, note: true, assetId: true, preceptorId: true, status: true } });
+  const existing = await prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, studentId: true, sessionId: true, sectionIndex: true, note: true, assetId: true, preceptorId: true, instructorId: true, status: true } });
   const seen = new Set<string>();
-  const updates = new Map<string, { ids: string[]; data: { assetId: string; preceptorId: string | null; sectionIndex: number; note: string } }>();
+  const updates = new Map<string, { ids: string[]; data: { assetId: string; preceptorId: string | null; instructorId: string | null; sectionIndex: number; note: string } }>();
   const stale: string[] = []; const unpin: string[] = []; const repin: { id: string; assetId: string }[] = [];
   for (const row of existing) {
     const k = `${row.studentId}|${row.sessionId}`;
     const t = target.get(k);
     if (!t) { if (pastSessions.has(`${row.cohortId ?? ""}|${row.sessionId}`)) continue; if (row.note === AUTO_PLAN_NOTE) stale.push(row.id); else if (row.note === PLAN_PIN_NOTE) unpin.push(row.id); continue; }
     seen.add(k);
-    // A logged shift keeps its history (status, hours, preceptor); only when the caller re-plans its date on purpose
+    // A logged shift keeps its history (status, hours, preceptor, instructor); only when the caller re-plans its date on purpose
     // (a cutoff before it) does its seat follow the new booking, so no pin ever points at a booking that no longer exists.
     if (row.status !== "scheduled") { if (row.assetId && row.assetId !== t.assetId && (row.note === AUTO_PLAN_NOTE || row.note === PLAN_PIN_NOTE)) repin.push({ id: row.id, assetId: t.assetId }); continue; }
     const ours = row.note === AUTO_PLAN_NOTE || row.note === PLAN_PIN_NOTE || row.note === "auto-assign";
     if (!ours && row.assetId) continue; // pinned by hand
     const note = row.note === AUTO_PLAN_NOTE ? AUTO_PLAN_NOTE : PLAN_PIN_NOTE;
-    if (row.assetId === t.assetId && row.preceptorId === t.preceptorId && row.sectionIndex === t.sectionIndex && row.note === note) continue;
-    const uk = `${t.assetId}|${t.preceptorId ?? ""}|${t.sectionIndex}|${note}`;
-    const u = updates.get(uk) ?? { ids: [], data: { assetId: t.assetId, preceptorId: t.preceptorId, sectionIndex: t.sectionIndex, note } };
+    if (row.assetId === t.assetId && row.preceptorId === t.preceptorId && row.instructorId === t.instructorId && row.sectionIndex === t.sectionIndex && row.note === note) continue;
+    const uk = `${t.assetId}|${t.preceptorId ?? ""}|${t.instructorId ?? ""}|${t.sectionIndex}|${note}`;
+    const u = updates.get(uk) ?? { ids: [], data: { assetId: t.assetId, preceptorId: t.preceptorId, instructorId: t.instructorId, sectionIndex: t.sectionIndex, note } };
     u.ids.push(row.id); updates.set(uk, u);
   }
   const creates = [...target.entries()].filter(([k]) => !seen.has(k)).map(([, t]) => ({ ...t, note: AUTO_PLAN_NOTE }));
@@ -165,7 +169,7 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   for (const u of updates.values()) for (const ids of chunks(u.ids)) await prisma.studentShift.updateMany({ where: { id: { in: ids } }, data: u.data });
   for (const ids of chunks(stale)) await prisma.studentShift.deleteMany({ where: { id: { in: ids } } });
   for (const r of repin) await prisma.studentShift.update({ where: { id: r.id }, data: { assetId: r.assetId } });
-  for (const ids of chunks(unpin)) await prisma.studentShift.updateMany({ where: { id: { in: ids } }, data: { assetId: null, preceptorId: null, note: null } });
+  for (const ids of chunks(unpin)) await prisma.studentShift.updateMany({ where: { id: { in: ids } }, data: { assetId: null, preceptorId: null, instructorId: null, note: null } });
 
   return { bookings: assignments.reduce((n, a) => n + (a.parts?.length || 1), 0), placements: placements.length, meetings, moves: moveRows.size, staffed: staffRows.length, shifts: creates.length + [...updates.values()].reduce((n, u) => n + u.ids.length, 0), offSite: offSite.size };
 }
@@ -180,5 +184,5 @@ export async function clearSchedulerPlanRows(cohortIds: string[]): Promise<void>
   await prisma.shiftMove.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.sessionInstructor.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.studentShift.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
-  await prisma.studentShift.updateMany({ where: { cohortId: { in: cohortIds }, note: PLAN_PIN_NOTE }, data: { assetId: null, preceptorId: null, note: null } });
+  await prisma.studentShift.updateMany({ where: { cohortId: { in: cohortIds }, note: PLAN_PIN_NOTE }, data: { assetId: null, preceptorId: null, instructorId: null, note: null } });
 }

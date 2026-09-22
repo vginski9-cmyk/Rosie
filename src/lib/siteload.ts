@@ -4,8 +4,15 @@
 // with their share of the load, the students and programs they carry, how full each shift runs
 // against the seats the site's assets offer (never averaged across a day: a Day shift is measured
 // against Day seats, a Night shift against Night seats), the same per asset, and the load grouped by
-// system, county, drive-time band, facility type, setting, asset, shift, program, cohort, term or
-// month. Pure — the query builds the rows, the page reads the summary.
+// system, county, drive-time band, facility type, setting, asset, shift, program, cohort, term,
+// month, supervisor or supervision model. Pure — the query builds the rows, the page reads the summary.
+//
+// SUPERVISION IS ONE RECORD WITH TWO ROLES. Every row names the college instructor and the site
+// preceptor on the shift (the pins the plan wrote, else the section's usual lead staff by role) and
+// states the time each gives: the role's hours on the shift, the learners on that shift, and this
+// learner's share (hours ÷ learners, credited only when someone is named in the role), so a site's
+// or a person's total adds back up to the time a named supervisor gave.
+// A role the template does not require reads "none required" — never a gap.
 //
 // The rows are the placements the scheduler wrote (lib/planwrite): the seat, the shift block and the
 // date come from the booking, so this page and the scheduler describe the same calendar. A shift the
@@ -23,6 +30,14 @@ export interface LoadRow {
   year: number | null; semester: string | null; dayOfWeek: string | null;
   employerId: string | null; site: string; system: string | null; county: string | null; ring: string | null; facilityType: string | null; driveMinutes: number | null;
   setting: string | null; preceptorId: string | null; preceptor: string | null;
+  /** The college instructor on the shift (pinned by the plan or the log; the section's pattern instructor otherwise). */
+  instructorId: string | null; instructor: string | null;
+  /** The template's supervision model for the session, and which roles it requires on this shift. */
+  supervision: "instructor-led" | "precepted" | "combined" | "unknown"; instructorNeeded: boolean; preceptorNeeded: boolean;
+  /** Supervision time: learners on this shift (same cohort × session × section, attended or due), each role's hours on the
+   *  shift, and this learner's share of them (hours ÷ learners; 0 when the learner was absent). Fractional instructor
+   *  oversight (Sandhills' 0.04 of an instructor on a precepted rotation) is that fraction of the shift, with nobody named. */
+  learnersOnShift: number; instructorHours: number; instructorShare: number; instructorOversight: boolean; preceptorHours: number; preceptorShare: number;
   /** The seat: the asset the roster booked for this shift and its shift block. Null when the shift has no booked seat yet
    *  (the site is then the section's pattern site, or "site TBD"); such a row is never load on a site's seats. */
   assetId: string | null; asset: string | null; block: string | null;
@@ -79,12 +94,34 @@ export interface SiteStat {
   /** The same ledger per asset — the seat-level view behind the site number. */
   assets: AssetStat[];
   preceptorsUsed: number; preceptorsOnRecord: number | null; studentDaysPerPreceptor: number | null;
+  /** Instructors named on the site's shifts, student-shifts per instructor, and the supervisor hours the site's learners received (Σ shares). */
+  instructorsUsed: number; studentDaysPerInstructor: number | null; instructorHours: number; preceptorHours: number;
+  /** Shifts whose required supervisor (either role) is not named — the gap the watch tile counts. */
+  unsupervisedShifts: number;
   completedDays: number; absentDays: number;
 }
-export type LoadDim = "site" | "system" | "county" | "ring" | "facilityType" | "setting" | "asset" | "block" | "seat" | "program" | "cohort" | "course" | "term" | "semester" | "year" | "month" | "week" | "day" | "dayOfWeek" | "student" | "preceptor" | "status" | "agreement";
-export type LoadMeasure = "studentDays" | "students" | "hours" | "sites" | "preceptors";
-export const MEASURE_LABEL: Record<LoadMeasure, string> = { studentDays: "Student-shifts", students: "Students", hours: "Student-hours", sites: "Sites", preceptors: "Preceptors" };
-export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive time from campus", facilityType: "Facility type", setting: "Setting", asset: "Asset (unit / room)", block: "Shift", seat: "Seat", program: "Program", cohort: "Cohort", course: "Class", term: "Term", semester: "Semester", year: "Year", month: "Month", week: "Week", day: "Date", dayOfWeek: "Day of week", student: "Student", preceptor: "Preceptor", status: "Status", agreement: "Agreement" };
+/** Which required roles a shift names: the "Supervised by" reading. */
+export type SupervisedBy = "instructor and preceptor" | "instructor named" | "preceptor named" | "nobody named" | "none required";
+export function supervisedBy(r: Pick<LoadRow, "instructorId" | "preceptorId" | "instructorNeeded" | "preceptorNeeded">): SupervisedBy {
+  const i = !!r.instructorId, p = !!r.preceptorId;
+  if (i && p) return "instructor and preceptor";
+  if (i) return "instructor named";
+  if (p) return "preceptor named";
+  return r.instructorNeeded || r.preceptorNeeded ? "nobody named" : "none required";
+}
+/** A required role with nobody named: which one(s). */
+export function supervisorMissing(r: Pick<LoadRow, "instructorId" | "preceptorId" | "instructorNeeded" | "preceptorNeeded">): { instructor: boolean; preceptor: boolean } {
+  return { instructor: r.instructorNeeded && !r.instructorId, preceptor: r.preceptorNeeded && !r.preceptorId };
+}
+/** Learners per supervisor on the shift, as a ratio label ("1 : 10"); the supervisor is whichever role the template requires (the instructor first). */
+export function ratioLabel(r: Pick<LoadRow, "learnersOnShift" | "instructorNeeded" | "preceptorNeeded" | "instructorId" | "preceptorId">): string {
+  const any = r.instructorNeeded || r.preceptorNeeded || r.instructorId || r.preceptorId;
+  return any ? `1 : ${Math.max(1, r.learnersOnShift)}` : "no supervisor";
+}
+export type LoadDim = "site" | "system" | "county" | "ring" | "facilityType" | "setting" | "asset" | "block" | "seat" | "program" | "cohort" | "course" | "term" | "semester" | "year" | "month" | "week" | "day" | "dayOfWeek" | "student" | "preceptor" | "instructor" | "supervision" | "supervised" | "ratio" | "status" | "agreement";
+export type LoadMeasure = "studentDays" | "students" | "hours" | "sites" | "preceptors" | "instructors" | "instructorHours" | "preceptorHours";
+export const MEASURE_LABEL: Record<LoadMeasure, string> = { studentDays: "Student-shifts", students: "Students", hours: "Student-hours", sites: "Sites", preceptors: "Preceptors", instructors: "Instructors", instructorHours: "Instructor hours", preceptorHours: "Preceptor hours" };
+export const DIM_LABEL: Record<LoadDim, string> = { site: "Site", system: "Health system", county: "County", ring: "Drive time from campus", facilityType: "Facility type", setting: "Setting", asset: "Asset (unit / room)", block: "Shift", seat: "Seat", program: "Program", cohort: "Cohort", course: "Class", term: "Term", semester: "Semester", year: "Year", month: "Month", week: "Week", day: "Date", dayOfWeek: "Day of week", student: "Student", preceptor: "Preceptor", instructor: "Instructor", supervision: "Supervision model", supervised: "Supervised by", ratio: "Learners per supervisor", status: "Status", agreement: "Agreement" };
 const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const SEM = ["Spring", "Summer", "Fall"];
 const BLOCKS = ["Day", "Evening", "Night"];
@@ -115,7 +152,11 @@ const keyOf = (r: LoadRow, dim: LoadDim): string => {
     case "semester": return r.semester && r.year != null ? `${r.year} ${String(SEM.indexOf(r.semester)).padStart(1, "0")} ${r.semester}` : "undated";
     case "dayOfWeek": return r.dayOfWeek ? `${DOW.indexOf(r.dayOfWeek)} ${r.dayOfWeek}` : "undated";
     case "student": return r.studentId;
-    case "preceptor": return r.preceptorId ?? "(none named)";
+    case "preceptor": return r.preceptorId ?? (r.preceptorNeeded ? "(none named)" : "(none required)");
+    case "instructor": return r.instructorId ?? (r.instructorNeeded ? "(none named)" : "(none required)");
+    case "supervision": return r.supervision;
+    case "supervised": return supervisedBy(r);
+    case "ratio": return ratioLabel(r).replace(/^1 : (\d+)$/, (_, n) => `${String(n).padStart(3, "0")} 1 : ${n}`);
     case "status": return r.status;
     case "agreement": return r.agreement;
   }
@@ -128,7 +169,9 @@ const labelOf = (r: LoadRow, dim: LoadDim): string => {
   if (dim === "student") return `${r.student} · ${r.program} · ${r.cohort}`;
   // Two programs can both run a "Class of 2028": the label carries the program so they stay apart.
   if (dim === "cohort") return `${r.program} · ${r.cohort}`;
-  if (dim === "preceptor") return r.preceptor ?? "(none named)";
+  if (dim === "preceptor") return r.preceptor ?? (r.preceptorNeeded ? "(none named)" : "(none required)");
+  if (dim === "instructor") return r.instructor ?? (r.instructorNeeded ? "(none named)" : "(none required)");
+  if (dim === "ratio") return ratioLabel(r);
   if (dim === "semester") return r.semester && r.year != null ? `${r.semester} ${r.year}` : "undated";
   if (dim === "dayOfWeek") return r.dayOfWeek ?? "undated";
   if (dim === "ring") return bandOf(r.ring);
@@ -136,15 +179,16 @@ const labelOf = (r: LoadRow, dim: LoadDim): string => {
   if (dim === "block") return r.block ?? NO_SEAT;
   return keyOf(r, dim);
 };
-export const valueOf = (r: LoadRow, m: LoadMeasure, acc: { students: Set<string>; sites: Set<string>; preceptors: Set<string>; days: number; hours: number }): number => m === "studentDays" ? acc.days : m === "students" ? acc.students.size : m === "hours" ? acc.hours : m === "sites" ? acc.sites.size : acc.preceptors.size;
+export const valueOf = (r: LoadRow, m: LoadMeasure, acc: { students: Set<string>; sites: Set<string>; preceptors: Set<string>; instructors: Set<string>; days: number; hours: number; instructorHours: number; preceptorHours: number }): number =>
+  m === "studentDays" ? acc.days : m === "students" ? acc.students.size : m === "hours" ? acc.hours : m === "sites" ? acc.sites.size : m === "preceptors" ? acc.preceptors.size : m === "instructors" ? acc.instructors.size : m === "instructorHours" ? acc.instructorHours : acc.preceptorHours;
 
 /** The filter a query bar produces: every field is a set of allowed values (empty = any), plus a date window. */
 export interface LoadFilter {
   program?: Set<string>; cohort?: Set<string>; course?: Set<string>; term?: Set<string>; semester?: Set<string>; year?: Set<string>; dayOfWeek?: Set<string>;
-  site?: Set<string>; system?: Set<string>; county?: Set<string>; ring?: Set<string>; facilityType?: Set<string>; setting?: Set<string>; asset?: Set<string>; block?: Set<string>; seat?: Set<string>; agreement?: Set<string>; status?: Set<string>; student?: Set<string>; preceptor?: Set<string>;
+  site?: Set<string>; system?: Set<string>; county?: Set<string>; ring?: Set<string>; facilityType?: Set<string>; setting?: Set<string>; asset?: Set<string>; block?: Set<string>; seat?: Set<string>; agreement?: Set<string>; status?: Set<string>; student?: Set<string>; preceptor?: Set<string>; instructor?: Set<string>; supervision?: Set<string>; supervised?: Set<string>;
   from?: string | null; to?: string | null;
 }
-const FILTER_DIMS: (keyof LoadFilter & LoadDim)[] = ["program", "cohort", "course", "term", "semester", "year", "dayOfWeek", "site", "system", "county", "ring", "facilityType", "setting", "asset", "block", "seat", "agreement", "status", "student", "preceptor"];
+const FILTER_DIMS: (keyof LoadFilter & LoadDim)[] = ["program", "cohort", "course", "term", "semester", "year", "dayOfWeek", "site", "system", "county", "ring", "facilityType", "setting", "asset", "block", "seat", "agreement", "status", "student", "preceptor", "instructor", "supervision", "supervised"];
 export function applyFilter(rows: LoadRow[], f: LoadFilter): LoadRow[] {
   return rows.filter((r) => {
     if (f.from && (!r.date || r.date < f.from)) return false;
@@ -162,9 +206,10 @@ export function optionsOf(rows: LoadRow[], dim: LoadDim): string[] {
 
 /** Any rows × any columns, any measure — the pivot behind the "query" view. */
 export function pivot(rows: LoadRow[], rowDim: LoadDim, colDim: LoadDim | null, measure: LoadMeasure): { cols: { key: string; label: string }[]; rows: { key: string; label: string; cells: Record<string, number>; total: number }[]; colTotals: Record<string, number>; grand: number } {
-  type Acc = { students: Set<string>; sites: Set<string>; preceptors: Set<string>; days: number; hours: number };
-  const mk = (): Acc => ({ students: new Set(), sites: new Set(), preceptors: new Set(), days: 0, hours: 0 });
-  const add = (a: Acc, r: LoadRow) => { a.days++; a.hours += r.hours; a.students.add(r.studentId); a.sites.add(r.employerId ?? r.site); if (r.preceptorId) a.preceptors.add(r.preceptorId); };
+  type Acc = { students: Set<string>; sites: Set<string>; preceptors: Set<string>; instructors: Set<string>; days: number; hours: number; instructorHours: number; preceptorHours: number };
+  const mk = (): Acc => ({ students: new Set(), sites: new Set(), preceptors: new Set(), instructors: new Set(), days: 0, hours: 0, instructorHours: 0, preceptorHours: 0 });
+  // Supervisor hours are the learners' SHARES summed: over a shift they add up to the supervisor's hours, so a person's or a site's total is the time they gave, not the shift length × learners.
+  const add = (a: Acc, r: LoadRow) => { a.days++; a.hours += r.hours; a.students.add(r.studentId); a.sites.add(r.employerId ?? r.site); if (r.preceptorId) a.preceptors.add(r.preceptorId); if (r.instructorId) a.instructors.add(r.instructorId); a.instructorHours += r.instructorShare; a.preceptorHours += r.preceptorShare; };
   const cols = new Map<string, string>(); const rowsM = new Map<string, { label: string; cells: Map<string, Acc>; all: Acc }>(); const colAcc = new Map<string, Acc>(); const grand = mk();
   for (const r of rows) {
     const rk = keyOf(r, rowDim); const ck = colDim ? keyOf(r, colDim) : "all";
@@ -182,9 +227,11 @@ export function pivot(rows: LoadRow[], rowDim: LoadDim, colDim: LoadDim | null, 
 
 /** The filtered rows as CSV (RFC 4180). */
 export function rowsToCsv(rows: LoadRow[]): string {
-  const head = ["Date", "Day", "Year", "Semester", "Week of", "Term", "Program", "Cohort", "Class", "Student", "Site", "Health system", "County", "Drive time", "Facility type", "Drive min", "Setting", "Asset", "Shift", "Seats per shift", "Hours", "Status", "Preceptor", "Agreement"];
+  const head = ["Date", "Day", "Year", "Semester", "Week of", "Term", "Program", "Cohort", "Class", "Student", "Site", "Health system", "County", "Drive time", "Facility type", "Drive min", "Setting", "Asset", "Shift", "Seats per shift", "Hours", "Status", "Preceptor", "Instructor", "Supervision", "Supervised by", "Learners on shift", "Instructor hours on shift", "Instructor hours (this student's share)", "Preceptor hours on shift", "Preceptor hours (this student's share)", "Agreement"];
   const cell = csvCell;
-  const lines = rows.map((r) => [r.date, r.dayOfWeek, r.year, r.semester, r.date ? mondayOf(r.date) : null, r.term, r.program, r.cohort, r.course, r.student, r.site, r.system, r.county, r.ring ? bandOf(r.ring) : null, r.facilityType, r.driveMinutes != null ? Math.round(r.driveMinutes) : null, r.setting, r.asset ?? NO_SEAT, r.block, r.seatsPerShift, r.hours, r.status, r.preceptor, r.agreement].map(cell).join(","));
+  const hrs = (x: number) => Math.round(x * 100) / 100;
+  const lines = rows.map((r) => [r.date, r.dayOfWeek, r.year, r.semester, r.date ? mondayOf(r.date) : null, r.term, r.program, r.cohort, r.course, r.student, r.site, r.system, r.county, r.ring ? bandOf(r.ring) : null, r.facilityType, r.driveMinutes != null ? Math.round(r.driveMinutes) : null, r.setting, r.asset ?? NO_SEAT, r.block, r.seatsPerShift, r.hours, r.status,
+    r.preceptor ?? (r.preceptorNeeded ? "" : "none required"), r.instructor ?? (r.instructorNeeded ? "" : r.instructorOversight ? "oversight only" : "none required"), r.supervision, supervisedBy(r), r.learnersOnShift, hrs(r.instructorHours), hrs(r.instructorShare), hrs(r.preceptorHours), hrs(r.preceptorShare), r.agreement].map(cell).join(","));
   return [head.join(","), ...lines].join("\r\n") + "\r\n";
 }
 export function pivotToCsv(p: ReturnType<typeof pivot>, rowLabel: string): string {
@@ -236,13 +283,16 @@ export function siteStats(rows: LoadRow[], seats: SiteSeats[] = [], familySettin
     // Seated rows only: the shift ledger (date × block) and the asset ledger (asset × date × block).
     const byShift = new Map<string, { students: Set<string>; families: Set<string | null>; assets: Set<string>; block: string }>();
     const byAsset = new Map<string, { name: string; settingCode: string; seatsPerShift: number; rows: number; shifts: Map<string, Set<string>> }>();
-    const preceptors = new Set<string>();
-    let placed = 0;
+    const preceptors = new Set<string>(); const instructors = new Set<string>();
+    let placed = 0, instructorHours = 0, preceptorHours = 0, unsupervised = 0;
     for (const r of list) {
       const p = byProgram.get(r.program) ?? { days: 0, students: new Set() }; p.days++; p.students.add(r.studentId); byProgram.set(r.program, p);
       bySetting.set(r.setting ?? "(no setting)", (bySetting.get(r.setting ?? "(no setting)") ?? 0) + 1);
       if (r.date) { const d = byDay.get(r.date) ?? new Set(); d.add(r.studentId); byDay.set(r.date, d); }
       if (r.preceptorId) preceptors.add(r.preceptorId);
+      if (r.instructorId) instructors.add(r.instructorId);
+      instructorHours += r.instructorShare; preceptorHours += r.preceptorShare;
+      { const gap = supervisorMissing(r); if (gap.instructor || gap.preceptor) unsupervised++; }
       if (r.assetId && r.date && r.block) {
         placed++;
         const sk = `${r.date}|${r.block}`;
@@ -284,6 +334,7 @@ export function siteStats(rows: LoadRow[], seats: SiteSeats[] = [], familySettin
       seatsPerShift, utilization: seat && open > 0 ? used / open : null, peakShare: seat ? peakShare : null,
       assets,
       preceptorsUsed: preceptors.size, preceptorsOnRecord: seat?.preceptorsOnRecord ?? null, studentDaysPerPreceptor: preceptors.size ? list.length / preceptors.size : null,
+      instructorsUsed: instructors.size, studentDaysPerInstructor: instructors.size ? list.length / instructors.size : null, instructorHours, preceptorHours, unsupervisedShifts: unsupervised,
       completedDays: list.filter((r) => r.status === "completed").length, absentDays: list.filter((r) => r.status === "absent").length,
     };
   }).sort((a, b) => b.studentDays - a.studentDays || a.site.localeCompare(b.site));

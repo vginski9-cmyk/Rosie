@@ -49,7 +49,7 @@ export interface SupervisionSpec {
 const MODE_WORDS: [RegExp, SupervisionMode][] = [
   [/hybrid|combined|both|instructor.*preceptor|preceptor.*instructor/i, "combined"],
   [/instructor|faculty|group/i, "instructor-led"],
-  [/preceptor|1:1|one[- ]to[- ]one/i, "preceptor-led"],
+  [/precept|1:1|one[- ]to[- ]one/i, "preceptor-led"],
 ];
 /** The legacy mode string → a mode, or unknown. Explicit words only; nothing is coerced. */
 export function modeFromText(text: string | null | undefined): SupervisionMode {
@@ -57,6 +57,60 @@ export function modeFromText(text: string | null | undefined): SupervisionMode {
   if (!t) return "unknown";
   for (const [re, m] of MODE_WORDS) if (re.test(t)) return m;
   return "unknown";
+}
+
+/** The time each supervisor role spends on one shift and how it is attributed to one learner.
+ *  A whole instructor (facultyNeeded ≥ 1) is on the shift for its full length, ⌈facultyNeeded⌉ of them; a fractional
+ *  figure (Sandhills' 0.04 on a precepted rotation) is oversight: that fraction of the shift, nobody named per shift.
+ *  A preceptor is on the shift for its full length, preceptorsNeeded of them (at least one when one is named).
+ *  A learner's share is the role's hours ÷ the learners on that shift, so the shares over a shift add up to the
+ *  supervisor's hours and a site's or a person's total stays honest. Learners < 1 is treated as 1. */
+export interface SupervisionTime {
+  learners: number;
+  instructorHours: number;
+  instructorShare: number;
+  /** true when the instructor figure is fractional oversight rather than presence */
+  instructorOversight: boolean;
+  preceptorHours: number;
+  preceptorShare: number;
+}
+export function supervisionTime(s: { facultyNeeded: number | null | undefined; preceptorsNeeded: number | null | undefined; lengthHours: number | null | undefined; learners: number; preceptorNamed?: boolean }): SupervisionTime {
+  const len = Math.max(0, s.lengthHours ?? 0);
+  const learners = Math.max(1, Math.floor(s.learners || 0));
+  const fac = Math.max(0, s.facultyNeeded ?? 0);
+  const instructorOversight = fac > 0 && fac < 1;
+  const instructorHours = fac >= 1 ? len * Math.ceil(fac) : fac * len;
+  const pre = Math.max(s.preceptorNamed ? 1 : 0, Math.max(0, s.preceptorsNeeded ?? 0));
+  const preceptorHours = pre * len;
+  return { learners, instructorHours, instructorShare: instructorHours / learners, instructorOversight, preceptorHours, preceptorShare: preceptorHours / learners };
+}
+
+/** How one shift reads in site load, the rotation export and the ledger: its supervision model, which roles it needs,
+ *  and the time each role gives — computed the same way everywhere (supervisionTime), so the numbers agree page to page.
+ *  The hours ON the shift are what the template says the role gives; a learner's SHARE is credited only when someone is
+ *  actually named in that role (or the role is fractional oversight, which names nobody by design), and never to a learner
+ *  who was not on the shift (absent / excused) — so a total of shares is time a named person gave, not time nobody did. */
+export type ShiftSupervision = "instructor-led" | "precepted" | "combined" | "unknown";
+export interface ShiftSupervisionFields {
+  supervision: ShiftSupervision;
+  /** A whole instructor is required on the shift (facultyNeeded ≥ 1, or the model says instructor-led / combined). */
+  instructorNeeded: boolean;
+  /** A preceptor is required on the shift (preceptorsNeeded > 0, or the model says precepted / combined). */
+  preceptorNeeded: boolean;
+  learnersOnShift: number;
+  instructorHours: number; instructorShare: number; instructorOversight: boolean;
+  preceptorHours: number; preceptorShare: number;
+}
+export function supervisionOnShift(s: { clinicalMode: string | null | undefined; facultyNeeded: number | null | undefined; preceptorsNeeded: number | null | undefined; lengthHours: number | null | undefined; learners: number; preceptorNamed?: boolean; instructorNamed?: boolean; attended?: boolean }): ShiftSupervisionFields {
+  const mode = modeFromText(s.clinicalMode);
+  const supervision: ShiftSupervision = mode === "preceptor-led" ? "precepted" : mode;
+  const fac = s.facultyNeeded ?? 0, pre = s.preceptorsNeeded ?? 0;
+  const instructorNeeded = fac >= 1 || mode === "instructor-led" || mode === "combined";
+  const preceptorNeeded = pre > 0 || mode === "preceptor-led" || mode === "combined";
+  const t = supervisionTime({ facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, lengthHours: s.lengthHours, learners: s.learners, preceptorNamed: s.preceptorNamed });
+  const on = s.attended ?? true;
+  const iGiven = on && (s.instructorNamed || t.instructorOversight), pGiven = on && !!s.preceptorNamed;
+  return { supervision, instructorNeeded, preceptorNeeded, learnersOnShift: t.learners, instructorHours: t.instructorHours, instructorShare: iGiven ? t.instructorShare : 0, instructorOversight: t.instructorOversight, preceptorHours: t.preceptorHours, preceptorShare: pGiven ? t.preceptorShare : 0 };
 }
 
 export interface LegacySessionStaffing { clinicalMode: string | null; facultyNeeded: number | null; preceptorsNeeded: number | null; maxStudents: number | null }

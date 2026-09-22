@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { supervisionFromLegacy, staffDemand, overlappingObligations, roleFinding, requires, modeFromText } from "../src/lib/supervision";
+import { supervisionFromLegacy, staffDemand, overlappingObligations, roleFinding, requires, modeFromText, supervisionTime, supervisionOnShift } from "../src/lib/supervision";
 import { checkSupervision, recommend, summarize, evaluatePlacement, checkReadiness } from "../src/lib/evaluate";
 
 // Fixture assumptions only — one instructor per ten-learner group is a synthetic policy, not a regulatory ratio.
@@ -17,6 +17,44 @@ describe("supervision — explicit roles from the legacy columns", () => {
     const u = supervisionFromLegacy({ clinicalMode: "Observation only", facultyNeeded: 0, preceptorsNeeded: 0, maxStudents: 4 });
     expect(u.mode).toBe("unknown"); expect(u.status).toBe("needs-review"); expect(u.questions[0]).toMatch(/not a recognized supervision model/);
     expect(modeFromText(null)).toBe("unknown");
+  });
+  it("a 'Precepted Experience' is preceptor-led (the word is a form of precept, not an unknown model)", () => {
+    expect(modeFromText("Precepted Experience")).toBe("preceptor-led");
+    const s = supervisionFromLegacy({ clinicalMode: "Precepted Experience", facultyNeeded: 0.05, preceptorsNeeded: 1, maxStudents: 1 });
+    expect(s.mode).toBe("preceptor-led"); expect(s.status).toBe("reviewed");
+    expect(requires(s, "preceptor")).toBe(true); expect(requires(s, "instructor")).toBe(false);
+    expect(s.roles.find((r) => r.role === "instructor")!.note).toMatch(/oversight/);
+  });
+  it("supervision time on one shift: the supervisor's hours, and each learner's share adds back up to them", () => {
+    // Instructor-led, 6 h, a group of 10: the instructor is there 6 h; each learner is one tenth of that time.
+    const g = supervisionTime({ facultyNeeded: 1, preceptorsNeeded: 0, lengthHours: 6, learners: 10 });
+    expect(g).toMatchObject({ learners: 10, instructorHours: 6, instructorOversight: false, preceptorHours: 0, preceptorShare: 0 });
+    expect(g.instructorShare).toBeCloseTo(0.6, 6);
+    expect(g.instructorShare * g.learners).toBeCloseTo(g.instructorHours, 6);
+    // Radiography, 8 h precepted 1:1 with 0.04 of an instructor's oversight: the preceptor gives the learner the whole shift; the instructor 0.32 h, nobody named.
+    const r = supervisionTime({ facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1 });
+    expect(r).toMatchObject({ learners: 1, preceptorHours: 8, preceptorShare: 8, instructorOversight: true });
+    expect(r.instructorHours).toBeCloseTo(0.32, 6);
+    // Two instructors are needed (1.5 rounds up to whole people); a named preceptor counts even when the template asks for none; zero learners never divides by zero.
+    expect(supervisionTime({ facultyNeeded: 1.5, preceptorsNeeded: 0, lengthHours: 4, learners: 8 }).instructorHours).toBe(8);
+    expect(supervisionTime({ facultyNeeded: 0, preceptorsNeeded: 0, lengthHours: 8, learners: 0, preceptorNamed: true })).toMatchObject({ learners: 1, preceptorHours: 8, preceptorShare: 8, instructorHours: 0 });
+    // A logged shift passes its logged hours as the length; nothing is credited when the length is missing.
+    expect(supervisionTime({ facultyNeeded: 1, preceptorsNeeded: 0, lengthHours: null, learners: 5 }).instructorHours).toBe(0);
+  });
+  it("a shift's reading: the model and the roles it needs; a share is credited only to a learner on the shift and only when someone is named in the role", () => {
+    const led = { clinicalMode: "Instructor-Led Clinical Group", facultyNeeded: 1, preceptorsNeeded: 0, lengthHours: 6, learners: 10 };
+    const named = supervisionOnShift({ ...led, instructorNamed: true });
+    expect(named).toMatchObject({ supervision: "instructor-led", instructorNeeded: true, preceptorNeeded: false, learnersOnShift: 10, instructorHours: 6, preceptorHours: 0 });
+    expect(named.instructorShare).toBeCloseTo(0.6, 6);
+    // Nobody named: the template still says 6 h of instructor time are on the shift, but no learner received it from anyone.
+    expect(supervisionOnShift({ ...led })).toMatchObject({ instructorHours: 6, instructorShare: 0 });
+    // Absent learner: on the roster of the shift, not on the shift — no share.
+    expect(supervisionOnShift({ ...led, instructorNamed: true, attended: false }).instructorShare).toBe(0);
+    // Precepted Radiography with fractional oversight: the preceptor's 8 h go to the one learner when named; the oversight is credited with nobody named, by design.
+    const rad = supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1, preceptorNamed: true });
+    expect(rad).toMatchObject({ supervision: "precepted", instructorNeeded: false, preceptorNeeded: true, preceptorHours: 8, preceptorShare: 8, instructorOversight: true });
+    expect(rad.instructorShare).toBeCloseTo(0.32, 6);
+    expect(supervisionOnShift({ clinicalMode: "Precepted Experience", facultyNeeded: 0.04, preceptorsNeeded: 1, lengthHours: 8, learners: 1 }).preceptorShare).toBe(0);
   });
   it("24. an instructor-led row with no staff count keeps the mode and flags the missing policy — never zero staff", () => {
     const s = supervisionFromLegacy({ clinicalMode: "instructor-led", facultyNeeded: 0, preceptorsNeeded: null, maxStudents: 10 });

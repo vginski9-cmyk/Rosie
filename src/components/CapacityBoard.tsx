@@ -630,7 +630,8 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
                         <div className="flex items-end gap-5">
                           {wk.days.map(({ dateIso, list }) => {
                             const shifts = list.reduce((n2, r) => n2 + nz2(r.computed.Y), 0);
-                            const inst = list.filter((r) => r.session.kind !== "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.facultyNeeded ?? 0), 0);
+                            // Instructors: every non-clinical section's faculty, plus a whole instructor per clinical section that needs one (facultyNeeded ≥ 1 — an instructor-led group); fractional clinical oversight is counted in hours, never as a person, as the scheduler does.
+                            const inst = list.reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.kind !== "CLINICAL" ? r.session.facultyNeeded ?? 0 : (r.session.facultyNeeded ?? 0) >= 1 ? r.session.facultyNeeded ?? 0 : 0), 0);
                             const pre = list.filter((r) => r.session.kind === "CLINICAL").reduce((n2, r) => n2 + nz2(r.computed.Y) * (r.session.preceptorsNeeded ?? 0), 0);
                             const facH = list.reduce((n2, r) => n2 + nz2(r.computed.Z), 0);
                             const preH = list.reduce((n2, r) => n2 + nz2(r.computed.AC), 0);
@@ -641,13 +642,14 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
                                     const Y = nz2(r.computed.Y);
                                     const len = r.session.lengthHours ?? 0;
                                     const clin = r.session.kind === "CLINICAL";
+                                    const clinInstr = clin && (r.session.facultyNeeded ?? 0) >= 1 ? Y * (r.session.facultyNeeded ?? 0) : 0;
                                     const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
                                     const hrs = clin ? nz2(r.computed.AC) : nz2(r.computed.Z);
-                                    const tip = `${r.session.startTime ? r.session.startTime + " · " : ""}${r.courseCode ?? r.courseTitle}${r.session.title ? ` — ${r.session.title}` : ""} · ${len}h × ${n0(Y)} shift${Y === 1 ? "" : "s"} = ${clin ? n0(hrs) : n1(hrs)} ${clin ? "preceptor" : "fac"} contact hrs · ${clin ? n0(people) : n1(people)} ${clin ? "preceptors" : "instructors"}${clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : ""}${clin && nz2(r.computed.Z) > 0 ? ` · +${n1(nz2(r.computed.Z))}h fac oversight` : ""} · ${r.cohort}`;
+                                    const tip = `${r.session.startTime ? r.session.startTime + " · " : ""}${r.courseCode ?? r.courseTitle}${r.session.title ? ` — ${r.session.title}` : ""} · ${len}h × ${n0(Y)} shift${Y === 1 ? "" : "s"} = ${clin ? n0(hrs) : n1(hrs)} ${clin ? "preceptor" : "fac"} contact hrs · ${clin ? n0(people) : n1(people)} ${clin ? "preceptors" : "instructors"}${clinInstr > 0 ? ` · ${n1(clinInstr)} instructors (${n1(nz2(r.computed.Z))}h)` : ""}${clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : ""}${clin && clinInstr === 0 && nz2(r.computed.Z) > 0 ? ` · +${n1(nz2(r.computed.Z))}h fac oversight` : ""} · ${r.cohort}`;
                                     return (
                                       <div key={i} className="flex w-14 shrink-0 flex-col items-center" title={tip}>
                                         <span className="text-[9px] font-semibold tabular-nums leading-tight text-slate-700">{len}h × {n0(Y)}</span>
-                                        <span className={`text-[9px] tabular-nums leading-tight ${clin ? "text-amber-700" : "text-emerald-700"}`}>{clin ? `${n0(people)} prec` : `${n1(people)} inst`}</span>
+                                        <span className={`text-[9px] tabular-nums leading-tight ${clin ? "text-amber-700" : "text-emerald-700"}`}>{clin ? (clinInstr > 0 ? (people > 0 ? `${n0(people)} prec · ${n1(clinInstr)} inst` : `${n1(clinInstr)} inst`) : `${n0(people)} prec`) : `${n1(people)} inst`}</span>
                                         <div className="mt-0.5 w-9 rounded-t-[4px]" style={{ height: Math.max(6, Math.round((len / maxLen) * 110)), background: KIND_COLORS[r.session.kind] ?? "#64748b" }} />
                                         <span className="mt-1 font-mono text-[9px] leading-tight text-slate-500">{r.session.startTime ?? "—"}</span>
                                         <span className="w-full truncate text-center text-[9px] font-medium leading-tight text-slate-600">{r.courseCode ?? r.courseTitle}</span>
@@ -808,6 +810,8 @@ function blocksFor(dayRows: DatedInstance[]): Block[] {
     const clin = r.session.kind === "CLINICAL";
     const people = clin ? Y * (r.session.preceptorsNeeded ?? 0) : Y * (r.session.facultyNeeded ?? 0);
     if (clin) b.preceptors += people; else b.instructors += people;
+    // A clinical section that needs a whole instructor (an instructor-led group) counts that instructor too; fractional oversight is hours, not a person.
+    if (clin && (r.session.facultyNeeded ?? 0) >= 1) b.instructors += Y * (r.session.facultyNeeded ?? 0);
     if (!r.session.staffName) b.unassigned += Y;
     b.items.push(`${r.courseCode ?? r.courseTitle} ${r.session.kind.toLowerCase()}${Y > 1 ? ` ×${n0(Y)} sections` : ""}${clin && r.session.rotationType ? ` @ ${r.session.rotationType}` : r.session.location ? ` · ${r.session.location}` : ""}${r.session.staffName ? ` · ${r.session.staffName}` : ""}`);
     if (b.end && r.session.lengthHours) { const e2 = endTime(t, r.session.lengthHours); if (e2 && e2 > b.end) b.end = e2; }

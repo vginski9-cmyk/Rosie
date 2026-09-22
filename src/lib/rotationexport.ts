@@ -12,6 +12,9 @@ export interface RotationRow {
   week: number | null; date: string | null; weekday: string | null; start: string | null; hours: number;
   session: string; setting: string | null; area: string | null; site: string | null; asset: string | null;
   preceptor: string | null; status: string; hoursLogged: number | null; pinned: boolean; note: string | null;
+  /** Supervision on the shift (lib/supervision supervisionOnShift): the college instructor, the model, the learners on the
+   *  shift and this student's share of each role's hours. Optional so older callers' rows still export; blank when absent. */
+  instructor?: string | null; supervision?: string | null; learnersOnShift?: number | null; instructorHours?: number | null; preceptorHours?: number | null;
 }
 
 const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -25,9 +28,10 @@ export interface RotationRuleSheetRow { rotationType: string; rule: string; word
 export function rotationSheets(rows: RotationRow[], rules: RotationRuleSheetRow[] = [], assumptions: string[] = []): Record<string, (string | number | null)[][]> {
   const sorted = [...rows].sort((a, b) => (a.date ?? "9999").localeCompare(b.date ?? "9999") || (a.start ?? "").localeCompare(b.start ?? "") || a.course.localeCompare(b.course) || a.seat - b.seat || a.student.localeCompare(b.student));
   const log: (string | number | null)[][] = [[
-    "Student", "Seat", "Cohort", "Program", "Course", "Course title", "Term", "Week", "Date", "Day", "Start", "Hours", "Session", "Setting", "Service area", "Site", "Asset", "Preceptor", "Status", "Hours logged", "Pinned", "Note",
+    "Student", "Seat", "Cohort", "Program", "Course", "Course title", "Term", "Week", "Date", "Day", "Start", "Hours", "Session", "Setting", "Service area", "Site", "Asset", "Preceptor", "Instructor", "Supervision", "Learners on shift", "Instructor hours (student's share)", "Preceptor hours (student's share)", "Status", "Hours logged", "Pinned", "Note",
   ]];
-  for (const r of sorted) log.push([r.student, r.seat, r.cohort, r.program, r.course, r.courseName, r.term, r.week, r.date, r.weekday, r.start, r.hours, r.session, r.setting, r.area, r.site, r.asset, r.preceptor, r.status, r.hoursLogged, r.pinned ? "yes" : "", r.note]);
+  const hrs = (x: number | null | undefined) => (x == null ? null : Math.round(x * 100) / 100);
+  for (const r of sorted) log.push([r.student, r.seat, r.cohort, r.program, r.course, r.courseName, r.term, r.week, r.date, r.weekday, r.start, r.hours, r.session, r.setting, r.area, r.site, r.asset, r.preceptor, r.instructor ?? null, r.supervision ?? null, r.learnersOnShift ?? null, hrs(r.instructorHours), hrs(r.preceptorHours), r.status, r.hoursLogged, r.pinned ? "yes" : "", r.note]);
 
   // Week grid: one row per student (per course when several), one column per week Monday; cell = site · setting, days on site.
   const weeks = [...new Set(rows.filter((r) => r.date).map((r) => mondayOf(r.date!)))].sort();

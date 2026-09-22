@@ -205,10 +205,29 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const shortPhys = sum(cells.map((c) => c.shortPhysical));
   info(tag("E capacity"), `asset map: ${cells.length} cells · demand ${cellDemand} · physically short ${shortPhys} learner-shifts (scheduler unmet ${unmetSeats}, of which not-a-supply-shortage reasons ${sum(plan.unmet.filter((u) => !["full", "closed-that-day", "no-asset-for-setting", "too-big"].includes(u.reason)).map((u) => u.unit.seats))})`);
 
-  // ── F. Staffing: preceptor hours the template says vs the plan ──────────────────────────────────
+  // ── F. Staffing: preceptor hours the template says vs the plan; instructors carried from the plan to every shift ──
   const precHoursTemplate = sum(inWindowDemand.map((d) => (d.row.computed.AC ?? 0)));
   const precShiftsPlan = plan.summary.preceptorShifts;
   info(tag("F staffing"), `template preceptor contact hours in window ${precHoursTemplate.toFixed(0)} · plan preceptor-shifts ${precShiftsPlan} · assigned ${plan.summary.preceptorsAssigned} · instructor shifts ${plan.summary.instructorShifts} / assigned ${plan.summary.instructorsAssigned}`);
+  // F1 every completed clinical shift whose session needs a whole instructor (facultyNeeded ≥ 1) names one — an error where the
+  // college has active instructors to name, a warning where it has nobody on the roster. F2 the pin is one of the section's
+  // instructor rows (a name from nowhere is a defect). F3 site load names an instructor on at least every pinned shift (the
+  // section's pattern instructor is the only permitted excess). Double-booking of instructors across sections is B5's check.
+  const activeInstructors = new Set((await prisma.person.findMany({ where: { institutionId: inst.id, role: "instructor", active: true }, select: { id: true } })).map((p) => p.id));
+  const ledShifts = await prisma.studentShift.findMany({ where: { cohort: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, session: { kind: "CLINICAL", facultyNeeded: { gte: 1 } } }, select: { cohortId: true, sessionId: true, sectionIndex: true, status: true, instructorId: true, student: { select: { status: true } } } });
+  const instructorRows = new Set((await prisma.sessionInstructor.findMany({ where: { role: "instructor", cohort: { program: { institutionId: inst.id } } }, select: { cohortId: true, sessionId: true, sectionIndex: true, personId: true } })).map((r) => `${r.cohortId}|${r.sessionId}|${r.sectionIndex}|${r.personId}`));
+  const completedLed = ledShifts.filter((s) => s.status === "completed");
+  const noInstructor = completedLed.filter((s) => !s.instructorId).length;
+  if (noInstructor) (activeInstructors.size ? err : warn)(tag("F1 instructor on the shift"), `${noInstructor} of ${completedLed.length} completed instructor-led clinical shifts name no college instructor${activeInstructors.size ? "" : " (the college has no active instructor on record)"}`, noInstructor);
+  const dueLed = ledShifts.filter((s) => s.status === "scheduled" && s.student.status !== "withdrawn");
+  const dueNoInstructor = dueLed.filter((s) => !s.instructorId).length;
+  if (dueNoInstructor) warn(tag("F1 instructor ahead"), `${dueNoInstructor} of ${dueLed.length} upcoming instructor-led clinical shifts name no college instructor yet`, dueNoInstructor);
+  const badPin = ledShifts.filter((s) => s.instructorId && !instructorRows.has(`${s.cohortId}|${s.sessionId}|${s.sectionIndex}|${s.instructorId}`)).length;
+  if (badPin) err(tag("F2 instructor pin"), `${badPin} clinical shifts are pinned to an instructor who is not on that section's staff`);
+  const loadInstr = load ? load.rows.filter((r) => r.instructorId).length : 0;
+  const pinnedInstr = (await prisma.studentShift.count({ where: { cohort: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, session: { kind: "CLINICAL" }, instructorId: { not: null }, OR: [{ status: { not: "scheduled" } }, { student: { status: { not: "withdrawn" } } }] } }));
+  if (load && loadInstr < pinnedInstr) err(tag("F3 site load instructors"), `site load names an instructor on ${loadInstr} rows but ${pinnedInstr} shifts carry an instructor pin`);
+  info(tag("F instructors"), `${activeInstructors.size} active instructors · ${completedLed.length - noInstructor} of ${completedLed.length} completed instructor-led shifts name one · site-load rows with an instructor ${loadInstr}`);
 
   // ── G. Requirements vs the template ────────────────────────────────────────────────────────────
   const pools = await coursePoolRules(data.cohorts.map((c) => c.programId));

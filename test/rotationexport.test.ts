@@ -24,3 +24,16 @@ describe("rotation export", () => {
     expect(sheetToCsv([["a", 'b "c"', null], [1, "x,y", 2]])).toBe('a,"b ""c""",\r\n1,"x,y",2\r\n');
   });
 });
+
+describe("rotation log — supervision columns", () => {
+  it("states the instructor, the model, the learners on the shift and this student's share of each role's hours; a row without them exports blank", () => {
+    const r1 = { student: "Ada", seat: 1, cohort: "Cohort 41", program: "Nurse Aide", course: "NAS-101", courseName: "Nurse Aide I", term: "Term 1", week: 3, date: "2026-09-08", weekday: "Tue", start: "07:00", hours: 6, session: "CLINICAL 1", setting: "LTC", area: "LTC", site: "Kinston Rehab", asset: "LTC 1", preceptor: null, status: "completed", hoursLogged: 6, pinned: false, note: null, instructor: "R. Ellis", supervision: "instructor-led", learnersOnShift: 10, instructorHours: 0.6, preceptorHours: 0 };
+    const r2 = { ...r1, student: "Bo", seat: 2, instructor: undefined, supervision: undefined, learnersOnShift: undefined, instructorHours: undefined, preceptorHours: undefined };
+    const log = rotationSheets([r1, r2])["Rotation log"];
+    const head = log[0] as string[];
+    for (const col of ["Preceptor", "Instructor", "Supervision", "Learners on shift", "Instructor hours (student's share)", "Preceptor hours (student's share)"]) expect(head).toContain(col);
+    const at = (line: (string | number | null)[], col: string) => line[head.indexOf(col)];
+    expect([at(log[1], "Instructor"), at(log[1], "Supervision"), at(log[1], "Learners on shift"), at(log[1], "Instructor hours (student's share)"), at(log[1], "Preceptor hours (student's share)")]).toEqual(["R. Ellis", "instructor-led", 10, 0.6, 0]);
+    expect([at(log[2], "Instructor"), at(log[2], "Supervision"), at(log[2], "Instructor hours (student's share)")]).toEqual([null, null, null]);
+  });
+});

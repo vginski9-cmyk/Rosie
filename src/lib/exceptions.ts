@@ -36,7 +36,7 @@ export const sortExceptions = (items: ExceptionItem[]) => [...items].sort((a, b)
 export const blockedFamilies = (items: ExceptionItem[]) => { const m = new Map<string, number>(); for (const x of items) if (x.severity === "blocker" && x.familyId) m.set(x.familyId, (m.get(x.familyId) ?? 0) + 1); return m; };
 
 // ── Pure rules over site-load rows (tested) ─────────────────────────────────────────────────────
-export interface LoadRowLite { studentId: string; cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; date: string | null; status: string; employerId: string | null; site: string; agreement: string; preceptorId: string | null; preceptorsNeeded?: number }
+export interface LoadRowLite { studentId: string; cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; date: string | null; status: string; employerId: string | null; site: string; agreement: string; preceptorId: string | null; preceptorsNeeded?: number; instructorId?: string | null; /** The template requires a college instructor on the shift (the site-load row's reading of the supervision model). */ instructorNeeded?: boolean; /** The template requires a preceptor (defaults to preceptorsNeeded > 0). */ preceptorNeeded?: boolean }
 export interface CapLite { familyId: string; employerId: string; studentsAtOnce: number | null }
 
 /** Site-days where a program has more students at a site than the site allows at once. */
@@ -74,16 +74,22 @@ export function unsecuredPlacements(rows: LoadRowLite[], todayIso: string): { fa
   return [...by.values()].map((o) => ({ familyId: o.familyId, family: o.family, programId: o.programId, shifts: o.shifts, students: o.students.size, sites: [...o.sites].sort() })).sort((a, b) => b.shifts - a.shifts);
 }
 
-/** Future scheduled shifts that need a preceptor and have nobody named, by offering. */
-export function unpreceptedShifts(rows: LoadRowLite[], todayIso: string): { cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; shifts: number; students: number }[] {
-  const by = new Map<string, { cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; shifts: number; students: Set<string> }>();
+/** Future scheduled shifts whose required supervisor is not named — a preceptor where the session needs one, a college
+ *  instructor where it needs one — by offering, with the split. A role the template does not require is never a gap. */
+export function unsupervisedShifts(rows: LoadRowLite[], todayIso: string): { cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; shifts: number; students: number; noPreceptor: number; noInstructor: number }[] {
+  const by = new Map<string, { cohortId: string; cohort: string; programId: string; familyId: string | null; family: string | null; shifts: number; students: Set<string>; noPreceptor: number; noInstructor: number }>();
   for (const r of rows) {
-    if (!r.date || r.date < todayIso || r.status !== "scheduled" || !(r.preceptorsNeeded && r.preceptorsNeeded > 0) || r.preceptorId) continue;
-    const o = by.get(r.cohortId) ?? { cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, familyId: r.familyId, family: r.family, shifts: 0, students: new Set<string>() };
-    o.shifts++; o.students.add(r.studentId); by.set(r.cohortId, o);
+    if (!r.date || r.date < todayIso || r.status !== "scheduled") continue;
+    const needP = r.preceptorNeeded ?? !!(r.preceptorsNeeded && r.preceptorsNeeded > 0);
+    const noP = needP && !r.preceptorId, noI = !!r.instructorNeeded && !r.instructorId;
+    if (!noP && !noI) continue;
+    const o = by.get(r.cohortId) ?? { cohortId: r.cohortId, cohort: r.cohort, programId: r.programId, familyId: r.familyId, family: r.family, shifts: 0, students: new Set<string>(), noPreceptor: 0, noInstructor: 0 };
+    o.shifts++; o.students.add(r.studentId); if (noP) o.noPreceptor++; if (noI) o.noInstructor++; by.set(r.cohortId, o);
   }
   return [...by.values()].map((o) => ({ ...o, students: o.students.size })).sort((a, b) => b.shifts - a.shifts);
 }
+/** @deprecated the preceptor-only reading — kept for callers that pass rows without a supervision model. */
+export const unpreceptedShifts = (rows: LoadRowLite[], todayIso: string) => unsupervisedShifts(rows.map((r) => ({ ...r, instructorNeeded: false })), todayIso);
 
 // ── Pure rules over the requirement records (tested): the evaluation service's evidence gaps, before any plan runs ──
 export interface ClinicalSessionLite { id: string; programId: string; program: string; rotationType: string | null; clinicalMode: string | null; facultyNeeded: number | null; preceptorsNeeded: number | null; maxStudents: number | null }
@@ -142,7 +148,7 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
     ]);
     if (employers === 0 && clinicalSessions > 0) items.push({ id: `nosupply|${inst.id}`, severity: "blocker", kind: "no-supply", institutionId: inst.id, institution: inst.name, familyId: null, family: null, count: clinicalSessions,
       title: `${inst.name}: no clinical sites, assets or preceptors on record`, detail: `${clinicalSessions} clinical session${clinicalSessions === 1 ? "" : "s"} in its planned and running offerings have nowhere to be placed. Coverage, site load and the scheduler show nothing for this college until its sites are added — that is missing data, not zero demand.`, href: "/employers", fix: "add the college's clinical sites and their assets, then map each rotation type to a setting" });
-    // Site load rows: over-capacity site-days, unsecured placements, unprecepted shifts.
+    // Site load rows: over-capacity site-days, unsecured placements, shifts whose required supervisor is not named.
     const load = await getSiteLoad(inst.id);
     if (load) {
       for (const o of overCapacityDays(load.rows, caps, todayIso)) {
@@ -154,9 +160,10 @@ export async function getExceptionQueue(todayIso = new Date().toISOString().slic
         items.push({ id: `unsecured|${u.familyId ?? u.programId}`, severity: "blocker", kind: "unsecured-placement", institutionId: inst.id, institution: inst.name, familyId: u.familyId, family: u.family, count: u.shifts,
           title: `${u.shifts} student-shifts placed at ${u.sites.length} site${u.sites.length === 1 ? "" : "s"} without a secured agreement`, detail: `${u.family ?? "Program"}: ${u.students} students at ${u.sites.slice(0, 3).join(", ")}${u.sites.length > 3 ? ", …" : ""}.`, href: clinicalHref(u.familyId), fix: "secure the agreement, or move the shifts to a secured site" });
       }
-      for (const p of unpreceptedShifts(load.rows, todayIso)) {
+      for (const p of unsupervisedShifts(load.rows, todayIso)) {
+        const split = [p.noPreceptor ? `${p.noPreceptor} without a preceptor` : null, p.noInstructor ? `${p.noInstructor} without an instructor` : null].filter(Boolean).join(" · ");
         items.push({ id: `unprecepted|${p.cohortId}`, severity: "blocker", kind: "unprecepted", institutionId: inst.id, institution: inst.name, familyId: p.familyId, family: p.family, count: p.shifts,
-          title: `${p.cohort}: ${p.shifts} upcoming clinical shifts have no preceptor named`, detail: `${p.students} students are scheduled on site with nobody named to precept them.`, href: `/programs/${p.programId}/offerings/${p.cohortId}`, fix: "name preceptors on the offering's staffing panel, or apply a scheduler plan" });
+          title: `${p.cohort}: ${p.shifts} upcoming clinical shifts have no supervisor named (${split})`, detail: `${p.students} students are scheduled on site with the role the session's supervision model requires — a site preceptor or a college instructor — not named.`, href: `/programs/${p.programId}/offerings/${p.cohortId}`, fix: p.noInstructor && !p.noPreceptor ? "assign a college instructor to each clinical group on the offering's staffing panel, or apply a scheduler plan" : p.noPreceptor && !p.noInstructor ? "name preceptors on the offering's staffing panel, or apply a scheduler plan" : "name preceptors and assign instructors on the offering's staffing panel, or apply a scheduler plan" });
       }
     }
     // Sessions on holidays that nobody has moved.
