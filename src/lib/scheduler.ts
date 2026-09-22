@@ -283,13 +283,13 @@ const mondayOf = (iso: string) => isoAdd(iso, -((new Date(iso + "T00:00:00Z").ge
 export interface MoveLite { sessionId: string; sectionIndex: number; fromDate: string; toDate: string; startTime: string | null }
 
 /** One unit per SECTION of every dated clinical shift; per-occurrence moves applied. */
-export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}, holidays: Record<string, string> = {}): DemandUnit[] {
+export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], moves: MoveLite[] = [], familyByCohort: Record<string, string | null> = {}, holidays: Record<string, string> = {}, courseRules: import("./clinicaldemand").CourseRules = {}): DemandUnit[] {
   const moveKey = (sid: string, sec: number, d: string) => `${sid}|${sec}|${d}`;
   const mv = new Map(moves.map((m) => [moveKey(m.sessionId, m.sectionIndex, m.fromDate), m]));
   const out: DemandUnit[] = [];
   // One definition of dated clinical demand (lib/clinicaldemand) — site capacity starts from the same rows;
   // here each row is split into its sections, seats dealt in section order until the students are seated.
-  for (const d of clinicalDemandRows(rows, rotations)) {
+  for (const d of clinicalDemandRows(rows, rotations, courseRules)) {
     const r = d.row;
     const Y = d.sections, per = d.seatsPerSection;
     if (Y === 0 || d.students === 0) continue;

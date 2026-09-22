@@ -32,7 +32,7 @@ export default async function ClinicalSitesPage({ searchParams }: { searchParams
         constraints={["agreement tier (secured vs physical)", "asset operating days and shift blocks"]}
         differs={[["Clinical scheduler", "/scheduler", "places these same learner-shifts under levers (holidays, preceptors, continuity, travel) — its “placed” is always at or below this ceiling"], ["Clinical site load", "/insights/site-load", "counts the roster's actual student-shifts, including completed cohorts and undated rows"]]}
       />
-      <AssetMapBoard institutionId={data.institution.id} assets={map.assets} overrides={map.overrides} bookings={map.bookings} rotations={map.rotations} cohorts={data.cohorts} from={from} to={to} year={year} />
+      <AssetMapBoard institutionId={data.institution.id} assets={map.assets} overrides={map.overrides} bookings={map.bookings} rotations={map.rotations} courseRules={map.courseRules} cohorts={data.cohorts} from={from} to={to} year={year} />
       {supply && <Collapse title="Functional units by weekday and shift" sub="The older grain: beds and units sized by weekday and shift block" summary={<>{supply.sites.length} sites</>}><ClinicalSupplyBoard institutionId={supply.institution.id} sites={supply.sites} rotations={supply.rotations} cohorts={data.cohorts} /></Collapse>}
       <Collapse title="What each setting needs to host, and when" sub="The request block per setting — students on the heaviest day, days on site, the window, preceptor hours — ready to hand to a partner"><CapacityBoard cohorts={data.cohorts} view="sites" sites={data.clinicalSites} /></Collapse>
     </div>

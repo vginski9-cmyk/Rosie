@@ -230,7 +230,7 @@ Rules:
 - A clinical row with no staffing count keeps its mode and asks for the policy; never assume zero staff or a ratio.
 - basis is "stated" when the source says it, "suggested-default" when you are proposing a default; mark defaults sparingly and visibly.
 Item kinds and fields:
-- session: termNumber, courseCode, courseTitle, kind (CLASS|LAB|CLINICAL), number, title, lengthHours, maxStudents, facultyNeeded, preceptorsNeeded, week, dayOfWeek, startTime, rotationType, clinicalMode, location, deliveryMode, notes
+- session: termNumber, courseCode, courseTitle, kind (CLASS|LAB|CLINICAL), number, title, lengthHours, maxStudents, facultyNeeded, preceptorsNeeded, week, dayOfWeek, startTime, rotationType, clinicalMode, experiences (comma-separated populations / procedures / modalities the session must include), progression (Orientation | Observation | Assist | Perform | Independent with supervision | Capstone), location, deliveryMode, notes
 - setting-rule: rotationType, sourceText, rule (a JSON string: {"rule":{"kind":"only|any-of|all-of|pool|n-of",...},"mixing":"allowed|forbidden|unknown","continuity":"one-site|none|unknown","scope":"learner","sourceText":"…","status":"proposed","questions":[…]}) — setting codes from this list only: ${[...KNOWN_SETTINGS].join(", ")}
 - supervision: clinicalMode, facultyNeeded, preceptorsNeeded, maxStudents, learnersPerStaff, sourceText
 - requirement: label, quantity, unit (hours|shifts|cases|competencies|exposures), basis (per-learner|per-group|per-session|per-offering), sourceText, rule (JSON string as above, optional)
@@ -264,6 +264,6 @@ export function sessionsFromItems(items: ValidatedItem[]): ImportedSession[] {
     kind: (["CLASS", "LAB", "CLINICAL"].includes(String(it.fields.kind)) ? String(it.fields.kind) : /clinic/i.test(String(it.fields.kind ?? "")) ? "CLINICAL" : /lab/i.test(String(it.fields.kind ?? "")) ? "LAB" : "CLASS") as ImportedSession["kind"],
     number: n(it.fields.number), title: s(it.fields.title), deliveryMode: s(it.fields.deliveryMode), location: s(it.fields.location), lengthHours: n(it.fields.lengthHours), maxStudents: n(it.fields.maxStudents),
     facultyNeeded: n(it.fields.facultyNeeded), facultyContactPolicy: null, supportStaffNeeded: null, supportContactPolicy: null, week: n(it.fields.week), dayOfWeek: s(it.fields.dayOfWeek), startTime: s(it.fields.startTime), notes: s(it.fields.notes),
-    preceptorsNeeded: n(it.fields.preceptorsNeeded), preceptorContactPolicy: null, rotationType: s(it.fields.rotationType), clinicalMode: s(it.fields.clinicalMode), sourceRow: i + 1,
+    preceptorsNeeded: n(it.fields.preceptorsNeeded), preceptorContactPolicy: null, rotationType: s(it.fields.rotationType), clinicalMode: s(it.fields.clinicalMode), experiences: s(it.fields.experiences), progression: s(it.fields.progression), sourceRow: i + 1,
   }));
 }

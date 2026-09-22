@@ -28,7 +28,9 @@ type Tab = "verdict" | "dates" | "book" | "assets" | "rotations" | "io";
 
 export interface RotationCodeRow { rotationType: string; settingCode: string | null; unitCategory: string; rule?: import("@/lib/settingrule").SettingRuleSpec | null; sourceText?: string | null; interpretationStatus?: string | null; revision?: number; reviewedBy?: string | null; reviewedAt?: string | null }
 
-export function AssetMapBoard({ institutionId, assets, overrides, bookings, rotations, cohorts, from, to, year }: {
+export function AssetMapBoard({ institutionId, assets, overrides, bookings, rotations, cohorts, from, to, year , courseRules = {} }: {
+  /** Course rotation pools — the rule a course's generically tagged sessions read (lib/requirementcoverage). */
+  courseRules?: Record<string, import("@/lib/settingrule").SettingRuleSpec>;
   institutionId: string; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: AssetBookingLite[]; rotations: RotationCodeRow[];
   cohorts: CapacityCohort[]; from: string; to: string; year: number;
 }) {
@@ -48,7 +50,7 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
   // The 365-day supply and totals are the other server-side cost — computed once the page is in the browser.
   const liveAssets = hydrated ? assets : [];
   const supply = useMemo(() => assetSupply(liveAssets, overrides, from, to), [liveAssets, overrides, from, to]);
-  const demand = useMemo(() => assetDemand(rows, rotations), [rows, rotations]);
+  const demand = useMemo(() => assetDemand(rows, rotations, courseRules), [rows, rotations, courseRules]);
   // "Secured" is a job family's agreement with a site, so each family's demand is matched against the supply as that family sees it.
   const familyByCohort = useMemo(() => new Map(cohorts.map((c) => [c.cohortId, c.familyId ?? null])), [cohorts]);
   const cells = useMemo(() => {

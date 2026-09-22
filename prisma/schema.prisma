@@ -530,6 +530,10 @@ model Session {
   /// comma-separated entries "HH:MM" or "Wed@HH:MM", in section order. Section 1 = first entry.
   sectionTimes           String?
   rotationType           String? // clinical: Med-Surg, OR, Imaging, ...
+  /// What the learner must experience on this session (populations, procedures, modalities) — comma-separated; the setting rule says where, this says what.
+  experiences            String?
+  /// Where the session sits in the learner's progression (observation → assist → perform → capstone).
+  progression            String?
   clinicalMode           String? // clinical: instructor-led | preceptor-led | hybrid
   notes                  String?
   homework               String? // assignment / homework / prep tied to this session

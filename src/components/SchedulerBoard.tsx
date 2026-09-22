@@ -50,9 +50,11 @@ const LEVER_NAMES: Record<keyof Policy, string> = {
 };
 const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, courseRules = {}, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
+  /** Course rotation pools — the rule a course's generically tagged sessions read (lib/requirementcoverage). */
+  courseRules?: Record<string, import("@/lib/settingrule").SettingRuleSpec>;
   /** Phase 13: the strategic product reads the plan and never writes it; apply, undo and clear are shown only in the operational module. */
   canApply?: boolean;
   /** What is on the calendar now: the roster's clinical shifts and how many sit on a seat the scheduler booked (the site-load page reads the same rows). */
@@ -81,11 +83,11 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
   // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
   // so what is on screen is what gets written.
-  const model = useMemo(() => schedulerModel(cohorts, rotations), [cohorts, rotations]);
+  const model = useMemo(() => schedulerModel(cohorts, rotations, courseRules), [cohorts, rotations, courseRules]);
   const demandAll = model.demand;
   const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: [...cohortFilter] }), [policy, window, cohortFilter]);
   const demand = useMemo(() => filterDemand(demandAll, levers), [demandAll, levers]);
-  const supply = useMemo(() => ({ assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings }), [assets, overrides, bookings, rotations, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings]);
+  const supply = useMemo(() => ({ assets, overrides, bookings, rotations, courseRules, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings }), [assets, overrides, bookings, rotations, courseRules, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings]);
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
   const autoBookings = useMemo(() => bookings.filter((b) => b.note === AUTO_PLAN_NOTE), [bookings]);
 

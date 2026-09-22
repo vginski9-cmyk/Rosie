@@ -111,8 +111,10 @@ export async function backfillRequirements(prisma: PrismaClient, opts: { dryRun?
       const v = await prisma.requirementVersion.create({ data: { requirementId: req.id, version: 1, status: stated == null ? "draft" : "published", quantity: stated, unit: "hours", basis: "per-learner", settingRule: spec ? ruleSpecJson(spec) : null, sourceText: `${cr.serviceArea.name}: ${cr.hoursPerStudent} hours per student (course clinical requirement)`, sourceRef: JSON.stringify({ kind: "legacy", model: "CourseClinicalRequirement", id: cr.id }), sourceAuthority: "unknown", interpretationStatus: stated == null ? "needs-review" : spec?.status ?? "needs-review", publishedAt: stated == null ? null : new Date(), publishedBy: stated == null ? null : "backfill", notes: [cr.notes, zeroNote].filter(Boolean).join(" ") || null } });
       versionId = v.id; report.requirements.versions++;
     }
-    const existing = new Set((await prisma.requirementFulfillment.findMany({ where: { requirementId: req.id }, select: { sessionId: true } })).map((f) => f.sessionId));
-    for (const s of links) { if (existing.has(s.id)) continue; await prisma.requirementFulfillment.create({ data: { requirementId: req.id, versionId, sessionId: s.id, amount: s.amount, note: s.amount == null ? `backfill: the session's rotation reaches ${s.shared.join(", ")} — how its hours divide is not yet stated` : "backfill: the session's rotation reaches only this area" } }); report.requirements.fulfillments++; }
+    // Which sessions represent the requirement is derived from the template (lib/requirementcoverage), not written here:
+    // the links counted above are the report's reconciliation, and a person states a share only where a session reaches
+    // several requirements. Earlier backfill-written links (note "backfill: …") are ignored by the ledger.
+    void versionId; report.requirements.fulfillments += links.length;
   }
 
   // 5. Credentialing sets → a family-scope standard per set (competencies / cases), capabilities = the items. Shared, referenced, never duplicated per program.

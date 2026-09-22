@@ -8,6 +8,12 @@ import { updateSession, deleteSession, addSession, setSessionTiming } from "@/li
 import { dec } from "@/lib/format";
 import { explainSession, hm } from "@/lib/explain";
 import { SupervisionEditor } from "@/components/SupervisionEditor";
+import { SettingRuleEditor, RuleStatusChip, ruleSummary, type RuleRowView } from "@/components/SettingRuleEditor";
+import { settingName } from "@/lib/settingPresets";
+import { eligibleSettings } from "@/lib/settingrule";
+
+/** One site's share of a setting: how many assets and learner seats it carries, and the family's agreement with it. */
+export interface SiteSupply { employerId: string; name: string; assets: number; seats: number; agreement: string }
 
 // The Raw Data & Calculations session table, one course at a time — every
 // workbook column (A–AE) with its full header, one session per row. Click a
@@ -18,6 +24,7 @@ export interface SheetSession extends SessionInput {
   /** The explicit supervision rule that applies (from the requirement store), when the page loaded it. */
   supervision?: import("@/components/SupervisionEditor").SupervisionView;
   startTime: string | null;
+  experiences?: string | null; progression?: string | null;
 }
 
 const num = (v: number | null, dp = 2) => (v == null ? "—" : dec(v));
@@ -26,9 +33,19 @@ const fmtT = (t: string | null) => { if (!t) return "—"; const [h, m] = t.spli
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function SessionSheet({
-  programId, courseId, courseCode, courseTitle, termNumber, semester, sessions, enrollment, assumptions, allSessions = [],
+  programId, courseId, courseCode, courseTitle, termNumber, semester, sessions, enrollment, assumptions, allSessions = [], institutionId = null, settings = [], ruleRows = {}, supplyBySetting = {}, courseRule = null,
 }: {
   programId: string;
+  /** The college — needed to save a rotation type's setting rule from the row. */
+  institutionId?: string | null;
+  /** The setting codes the college knows (for the rule editor). */
+  settings?: string[];
+  /** The setting rule each rotation type means, keyed by lower-cased rotation type — the template's own AND / OR tags. */
+  ruleRows?: Record<string, RuleRowView>;
+  /** The college's sites per setting code — every clinical row lists the settings and sites it is eligible for. */
+  supplyBySetting?: Record<string, SiteSupply[]>;
+  /** The course's rotation pool (lib/requirementcoverage) when its requirements spread across settings its sessions are not tagged for — the rule its generic sessions read. */
+  courseRule?: import("@/lib/settingrule").SettingRuleSpec | null;
   courseId: string;
   courseCode: string | null;
   courseTitle: string;
@@ -81,12 +98,42 @@ export function SessionSheet({
                 <span className="min-w-0 flex-1 truncate text-slate-800">{r.title ?? <span className="text-slate-300">untitled</span>}</span>
                 <span className="tabular-nums text-slate-500">{r.week != null ? `wk ${r.week}` : "no week"}{r.dayOfWeek ? ` · ${r.dayOfWeek}` : ""}{r.startTime ? ` · ${fmtT(r.startTime)}` : ""}</span>
                 <span className="tabular-nums text-slate-500">{dec(r.lengthHours)}h · max {r.maxStudents}{r.deliveryMode ? ` · ${r.deliveryMode}` : ""}{r.location ? ` · ${r.location}` : ""}{r.kind === "CLINICAL" && r.rotationType ? ` · ${r.rotationType}` : ""}</span>
+                {r.kind === "CLINICAL" && r.rotationType && (() => { const rr = ruleRows[r.rotationType.trim().toLowerCase()]; return <span className="inline-flex items-center gap-1 text-[10px] text-slate-500"><RuleStatusChip status={rr?.rule?.status ?? null} />{rr?.rule ? ruleSummary(rr.rule) : "no setting rule"}</span>; })()}
+                {r.kind === "CLINICAL" && (r.experiences || r.progression) && <span className="text-[10px] text-slate-500">{[r.progression, r.experiences].filter(Boolean).join(" · ")}</span>}
                 <span className="tabular-nums text-emerald-800">{comp.divByZero ? "#DIV/0!" : `${num(comp.Y, 0)} sections`} · {num(comp.Z, 1)} faculty h{r.kind === "CLINICAL" ? ` · ${num(comp.AC, 0)} preceptor h` : ""}</span>
                 {isDirty && <span className="rounded-full bg-rose-600 px-1.5 py-0.5 text-[9px] font-semibold text-white">unsaved</span>}
               </button>
               {isOpen && (
                 <div className="border-t border-slate-100 px-3 py-3">
                   <Meaning row={r} enrollment={enrollment} assumptions={assumptions} rows={rows} />
+                  {r.kind === "CLINICAL" && institutionId && r.rotationType && (() => { const key = r.rotationType.trim().toLowerCase(); const rr = ruleRows[key] ?? { rotationType: r.rotationType.trim(), unitCategory: "Inpatient beds", rule: null, revision: 0, reviewedBy: null, reviewedAt: null, sourceText: null }; return (
+                    <div className="mb-2">
+                      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">What “{r.rotationType}” means in settings <span className="font-normal normal-case text-slate-400">— the rule every session with this rotation type shares: only A · A or B · A and B · minimums inside a total · any N of; whether hours may be mixed; one site or not</span></div>
+                      <SettingRuleEditor institutionId={institutionId} row={rr} settings={settings} />
+                      {courseRule && (!rr.rule || rr.rule.rule.kind === "only") && (
+                        <div className="mt-1 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2 text-[11px]">
+                          <div className="flex flex-wrap items-center gap-2"><span className="font-semibold uppercase tracking-wide text-violet-700">This course's rotation pool</span><RuleStatusChip status={courseRule.status} /><span className="text-slate-700">{ruleSummary(courseRule)}</span></div>
+                          <div className="mt-0.5 text-slate-600">{courseRule.sourceText}. The course's requirements name settings its sessions are not tagged for, so every session of the course reads this pool instead of its single tag: the scheduler seats the minimums first, and coverage allocates the course's hours to the requirements in order.</div>
+                          {courseRule.questions[0] && <div className="mt-0.5 text-amber-800">{courseRule.questions[0]}</div>}
+                        </div>
+                      )}
+                      {(() => { const eff = courseRule && (!rr.rule || rr.rule.rule.kind === "only") ? courseRule : rr.rule; if (!eff) return null; const codes = eligibleSettings(eff.rule); const rule = eff; return (
+                        <div className="mt-1 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2 text-[11px]">
+                          <div className="font-semibold uppercase tracking-wide text-slate-500">Eligible under this rule — tagged from the college's setting taxonomy</div>
+                          <ul className="mt-0.5 space-y-0.5">
+                            {codes.map((code) => { const sites = supplyBySetting[code] ?? []; return (
+                              <li key={code} className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="rounded border border-rose-200 bg-rose-50 px-1 font-mono text-[10px] text-rose-800">{code}</span>
+                                <span className="text-slate-700">{settingName(code)}</span>
+                                <span className="text-slate-500">— {sites.length ? sites.map((x) => `${x.name} (${x.assets} asset${x.assets === 1 ? "" : "s"} · ${x.seats} seat${x.seats === 1 ? "" : "s"} per shift · ${x.agreement})`).join(" · ") : "no site of this setting on record — nothing can be placed here until one is added"}</span>
+                              </li>
+                            ); })}
+                          </ul>
+                          {rule.status !== "reviewed" && <div className="mt-0.5 text-amber-800">The rule is not reviewed: these sites are where shifts would go conditionally, not where they are approved to go.</div>}
+                        </div>
+                      ); })()}
+                    </div>
+                  ); })()}
                   {r.kind === "CLINICAL" && r.supervision && <div className="mb-2"><SupervisionEditor target={{ scope: "session", sessionId: r.id }} view={r.supervision} learners={Math.max(1, r.maxStudents)} hours={r.lengthHours} groups={Math.max(1, comp.Y ?? 1)} /></div>}
                   <SessionFieldGrid
                     row={r as unknown as FieldRow} seq={{ ...seq, G: String(r.number) }} enrollment={enrollment} assumptions={assumptions}

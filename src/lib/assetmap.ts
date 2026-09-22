@@ -155,9 +155,9 @@ export interface RotationCode { rotationType: string; settingCode: string | null
 export interface AssetDemandPoint { iso: string; block: ShiftBlock; settingCode: string | null; /** Every setting the rotation's rule allows (the primary first). */ eligible: string[]; /** The rule's interpretation status — "reviewed" or a caveat the view must show. */ ruleStatus: string | null; rotationType: string; students: number; sections: number; cohortId: string; cohort: string; program: string; courseCode: string | null; sessionId: string; startTime: string | null }
 
 /** Dated clinical demand mapped to setting codes (rotation type → code). */
-export function assetDemand(rows: DatedInstance[], rotations: RotationCode[]): AssetDemandPoint[] {
+export function assetDemand(rows: DatedInstance[], rotations: RotationCode[], courseRules: import("./clinicaldemand").CourseRules = {}): AssetDemandPoint[] {
   // One definition of dated clinical demand (lib/clinicaldemand) — the scheduler starts from the same rows.
-  return clinicalDemandRows(rows, rotations).map((d) => ({ iso: d.dateIso, block: d.block, settingCode: d.settingCode, eligible: d.eligible, ruleStatus: d.rule?.status ?? null, rotationType: d.rotationType,
+  return clinicalDemandRows(rows, rotations, courseRules).map((d) => ({ iso: d.dateIso, block: d.block, settingCode: d.settingCode, eligible: d.eligible, ruleStatus: d.rule?.status ?? null, rotationType: d.rotationType,
     students: d.students, sections: d.sections, cohortId: d.row.cohortId, cohort: d.row.cohort, program: d.row.program, courseCode: d.row.courseCode, sessionId: d.row.session.id, startTime: d.row.session.startTime ?? null }));
 }
 

@@ -40,6 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     "This session occurs during Week __ of term", "This session occurs on ____.", "Start time", "Notes",
     "Number of preceptors required to teach full clinical session", "Contact hour policy for preceptors during session (___hrs per contact hour)",
     "Clinical Rotation Type", "Clinical Mode",
+    "Clinical experiences", "Progression stage",
   ];
   const raw: (string | number | null)[][] = [HEAD];
   for (const [i, t] of program.terms.entries()) {
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           s.facultyNeeded, s.facultyContactPolicy, s.supportStaffNeeded, s.supportContactPolicy,
           s.week, s.dayOfWeek ? DAY_NAME[s.dayOfWeek] ?? s.dayOfWeek : "", clock(s.startTime), s.notes ?? "",
           s.preceptorsNeeded, s.preceptorContactPolicy, s.rotationType ?? "", s.clinicalMode ?? "",
+          s.experiences ?? "", s.progression ?? "",
         ]);
       }
     }

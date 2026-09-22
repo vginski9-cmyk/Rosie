@@ -29,6 +29,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         overrides={sched.overrides}
         bookings={sched.bookings}
         rotations={sched.rotations}
+        courseRules={sched.courseRules}
         preceptors={sched.preceptors}
         instructors={sched.instructors}
         students={sched.students}

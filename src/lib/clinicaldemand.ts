@@ -10,7 +10,7 @@
 
 import type { DatedInstance } from "./capacitymodel";
 import { shiftBlockOf, type ShiftBlock } from "./clinicalsupply";
-import { ruleFromLegacy, eligibleSettings, type SettingRuleSpec } from "./settingrule";
+import { ruleFromLegacy, eligibleSettings, proposeRuleFromText, type SettingRuleSpec } from "./settingrule";
 
 /** A rotation row as the demand builders read it: the explicit rule when stored; the legacy code otherwise (adapted, never collapsed). */
 export interface RotationCodeLite { rotationType: string; settingCode: string | null; rule?: SettingRuleSpec | null; sourceText?: string | null; interpretationStatus?: string | null }
@@ -35,8 +35,14 @@ export interface ClinicalDemandRow {
 export const UNSPECIFIED_ROTATION = "(unspecified)";
 
 /** The dated clinical rows of a set of instances, one per session × date, mapped to settings. */
-export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCodeLite[]): ClinicalDemandRow[] {
+/** Course rotation pools (lib/requirementcoverage): the rule a course's generically tagged sessions read instead of their rotation's single setting. */
+export type CourseRules = Record<string, SettingRuleSpec>;
+export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCodeLite[], courseRules: CourseRules = {}): ClinicalDemandRow[] {
   const ruleOf = new Map(rotations.map((r) => [r.rotationType.trim().toLowerCase(), r.rule === undefined ? ruleFromLegacy({ rotationType: r.rotationType, settingCode: r.settingCode, rule: null, sourceText: r.sourceText ?? null, interpretationStatus: r.interpretationStatus ?? null }) : r.rule]));
+  // A rotation type nobody has mapped is TAGGED AUTOMATICALLY from its wording against the setting taxonomy ("LTC",
+  // "Med-Surg or LTC", "OR") — as a PROPOSED rule, so demand reaches every eligible setting and site at once while every
+  // placement under it stays conditional until a person reviews the interpretation. Wording that matches nothing stays unmapped.
+  const autoOf = (rotationType: string) => { const k = rotationType.trim().toLowerCase(); if (!ruleOf.has(k)) ruleOf.set(k, proposeRuleFromText(rotationType)); return ruleOf.get(k) ?? null; };
   const out: ClinicalDemandRow[] = [];
   for (const r of rows) {
     if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
@@ -44,7 +50,11 @@ export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCod
     const enrollment = Math.max(0, Math.round(r.computed.C ?? 0));
     const seatsPerSection = Math.max(1, r.session.maxStudents ?? 1);
     const rotationType = r.session.rotationType?.trim() || UNSPECIFIED_ROTATION;
-    const rule = ruleOf.get(rotationType.toLowerCase()) ?? null;
+    const own = rotationType === UNSPECIFIED_ROTATION ? null : autoOf(rotationType);
+    // A course whose requirements spread across settings its sessions are not tagged for: the generically tagged session
+    // reads the course's pool rule (every requirement setting, quantities as minimums) — a compound rotation rule is kept.
+    const pool = r.courseId ? courseRules[r.courseId] : undefined;
+    const rule = pool && (!own || own.rule.kind === "only") ? pool : own;
     const eligible = rule ? eligibleSettings(rule.rule) : [];
     out.push({
       row: r, dateIso: r.dateIso, block: shiftBlockOf(r.session.startTime ?? null), rotationType,

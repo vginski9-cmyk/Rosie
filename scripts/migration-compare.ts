@@ -36,7 +36,7 @@ async function main() {
     if (!data || !data.cohorts.length) continue;
     const { from, to } = schedulerWindow(data.cohorts);
     const supply = await getSchedulerData(inst.id, from, to);
-    const { demand, campus, holidays } = schedulerModel(data.cohorts, supply.rotations);
+    const { demand, campus, holidays } = schedulerModel(data.cohorts, supply.rotations, supply.courseRules ?? {});
     const inWindow = demand.filter((u) => u.date >= from && u.date <= to);
     if (!inWindow.length) continue;
     // Legacy: the first setting only, treated as reviewed — exactly what the single-setting mapping meant.

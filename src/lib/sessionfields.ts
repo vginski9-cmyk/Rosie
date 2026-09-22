@@ -31,7 +31,7 @@ export type EditableField =
   | "kind" | "title" | "deliveryMode" | "location" | "lengthHours" | "maxStudents"
   | "facultyNeeded" | "facultyContactPolicy" | "supportStaffNeeded" | "supportContactPolicy"
   | "week" | "dayOfWeek" | "startTime" | "notes" | "preceptorsNeeded" | "preceptorContactPolicy"
-  | "rotationType" | "clinicalMode";
+  | "rotationType" | "clinicalMode" | "experiences" | "progression";
 
 /** Drop-down choices — starting lists; every value already in the data joins the
  *  list, and people can add their own from any field. */
@@ -48,6 +48,8 @@ export const FIELD_OPTIONS = {
     "Imaging", "Laboratory", "Hospice",
   ],
   clinicalMode: ["Instructor-led", "Preceptor-led", "Hybrid", "Simulation", "Observation"],
+  /** Where the session sits in the learner's progression — observation first, then assisting, then performing. */
+  progression: ["Orientation", "Observation", "Assist (second scrub / supervised)", "Perform (first scrub / direct care)", "Independent with supervision", "Capstone / preceptorship"],
 } as const;
 
 export const KIND_LABELS: Record<SessionKindKey, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
@@ -79,6 +81,11 @@ export const SESSION_FIELDS: SessionField[] = [
   { col: "U", header: H("U"), field: "preceptorContactPolicy", kind: "edit", input: "number", step: 0.25, options: FIELD_OPTIONS.contactPolicy },
   { col: "V", header: H("V"), field: "rotationType", kind: "edit", input: "select", options: FIELD_OPTIONS.rotationType },
   { col: "W", header: H("W"), field: "clinicalMode", kind: "edit", input: "select", options: FIELD_OPTIONS.clinicalMode },
+  // Two template columns beyond the workbook's own (R1/R2): what the learner must experience on this shift and where it
+  // sits in the progression. Both round-trip through the importer and the export; the extraction proposes them when a
+  // document states them.
+  { col: "AF", header: "Clinical experiences (populations, procedures or modalities this session must include — comma-separated)", field: "experiences", kind: "edit", input: "text", wide: true, hint: "e.g. laparoscopic, orthopedic, pediatric; a session's setting rule says WHERE, this says WHAT" },
+  { col: "AG", header: "Progression stage (where this session sits in the learner's progression)", field: "progression", kind: "edit", input: "select", options: FIELD_OPTIONS.progression, hint: "observation before assisting before performing; a capstone comes last" },
   { col: "X", header: H("X"), field: null, kind: "calc", hint: CAPACITY_FORMULAS.X },
   { col: "Y", header: H("Y"), field: null, kind: "calc", hint: CAPACITY_FORMULAS.Y },
   { col: "Z", header: H("Z"), field: null, kind: "calc", hint: CAPACITY_FORMULAS.Z },
@@ -106,6 +113,7 @@ export function defaultSession(kind: SessionKindKey): Record<EditableField, stri
     week: 1, dayOfWeek: null, startTime: null, notes: null,
     preceptorsNeeded: kind === "CLINICAL" ? 1 : 0, preceptorContactPolicy: kind === "CLINICAL" ? 1 : null,
     rotationType: null, clinicalMode: kind === "CLINICAL" ? "Preceptor-led" : null,
+    experiences: null, progression: null,
   };
   return base as Record<EditableField, string | number | null>;
 }

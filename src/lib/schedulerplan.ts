@@ -16,6 +16,8 @@ export interface SchedulerSupply {
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[];
   /** Phase 5: what each site may hold at once and which settings it has confirmed — the readiness funnel's inputs. */
   siteCaps?: SiteCapacityLite[]; confirmedSettings?: ConfirmedSetting[];
+  /** Course rotation pools (lib/requirementcoverage) — the rule a course's generically tagged sessions read; keyed by course id. */
+  courseRules?: Record<string, import("./settingrule").SettingRuleSpec>;
 }
 
 /** The levers the roster is placed with — the seed places every demo offering's clinical shifts
@@ -42,7 +44,7 @@ const toMin = (t: string | null | undefined) => { if (!t) return null; const [h,
 
 /** Every dated session of every offering, split two ways: the clinical sections that need a
  *  home (demand) and the campus classes and labs the cohort is in (when a clinical cannot be). */
-export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCodeRow[]): { demand: DemandUnit[]; campus: CampusBlock[]; holidays: Record<string, string> } {
+export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCodeRow[], courseRules: Record<string, import("./settingrule").SettingRuleSpec> = {}): { demand: DemandUnit[]; campus: CampusBlock[]; holidays: Record<string, string> } {
   const rows: DatedInstance[] = cohorts.flatMap((c) => buildInstances({
     cohortId: c.cohortId, cohort: c.cohort, programId: c.programId, program: c.program, enrollmentByTerm: c.enrollmentByTerm,
     termStartByIndex: Object.fromEntries(Object.entries(c.termStartByIndex).map(([k, v]) => [k, v ? new Date(v) : null])),
@@ -59,7 +61,7 @@ export function schedulerModel(cohorts: CapacityCohort[], rotations: RotationCod
     campus.push({ cohortId: r.cohortId, date: r.dateIso, startMin: start, endMin: start + Math.round(hours * 60), label: `${r.courseCode ?? r.courseTitle} ${r.session.kind === "LAB" ? "lab" : "class"}` });
   }
   const holidays = Object.assign({}, ...cohorts.map((c) => c.holidays ?? {})) as Record<string, string>;
-  return { demand: demandUnits(rows, rotations, moves, familyByCohort, holidays), campus, holidays };
+  return { demand: demandUnits(rows, rotations, moves, familyByCohort, holidays, courseRules), campus, holidays };
 }
 
 /** The demand the levers leave: chosen offerings (none chosen = all) inside the window. */
@@ -76,7 +78,7 @@ export function planFor(demand: DemandUnit[], supply: SchedulerSupply, policy: P
 
 /** The whole path in one call, for the server: offerings + supply + levers → the plan. */
 export function buildSchedulerPlan(cohorts: CapacityCohort[], supply: SchedulerSupply, levers: SchedulerLevers): Plan {
-  const { demand, campus, holidays } = schedulerModel(cohorts, supply.rotations);
+  const { demand, campus, holidays } = schedulerModel(cohorts, supply.rotations, supply.courseRules ?? {});
   return planFor(filterDemand(demand, levers), supply, levers.policy, campus, holidays);
 }
 

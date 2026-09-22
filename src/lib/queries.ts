@@ -341,7 +341,9 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   const bookings = bookingsRaw.map((b) => ({ id: b.id, assetId: b.assetId, cohortId: b.cohortId, sessionId: b.sessionId, sectionIndex: b.sectionIndex, meetingId: b.meetingId, date: b.date.toISOString().slice(0, 10), block: b.block, students: b.students, note: b.note, cohort: b.cohort.name, program: b.cohort.program.name }));
   const { ruleFromLegacy: ruleOf, KNOWN_SETTINGS } = await import("./settingrule");
   const known = new Set([...KNOWN_SETTINGS, ...assets.map((a) => a.settingCode)]);
-  return { assets, overrides, bookings, rotations: rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: r.unitCategory, rule: ruleOf(r, known), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus, revision: r.revision, reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt?.toISOString() ?? null })) };
+  // Course rotation pools for every program of the college — the rule generically tagged sessions read (lib/requirementcoverage).
+  const courseRules = await (await import("./requirementstore")).coursePoolRules((await prisma.program.findMany({ where: { institutionId }, select: { id: true } })).map((p) => p.id));
+  return { assets, overrides, bookings, courseRules, rotations: rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: r.unitCategory, rule: ruleOf(r, known), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus, revision: r.revision, reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt?.toISOString() ?? null })) };
 }
 
 /** Every program family with its clinical model and the sites / assets that serve it — the "clinical sites by program" index. */
@@ -3263,8 +3265,9 @@ export async function getCapacityBridge(institutionId: string, from: string, to:
   const rotations = await prisma.rotationSetting.findMany({ where: institutionId === ALL_INSTITUTIONS ? {} : { institutionId: data.institution.id }, select: { rotationType: true, settingCode: true, rule: true, sourceText: true, interpretationStatus: true } });
   const { ruleFromLegacy } = await import("./settingrule");
   const rotationRows = rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: "", rule: ruleFromLegacy(r), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus }));
-  const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotationRows), from, to));
-  const { demand } = schedulerModel(data.cohorts, rotationRows);
+  const courseRules = await (await import("./requirementstore")).coursePoolRules(data.cohorts.map((c) => c.programId));
+  const capacityDemand = learnerShifts(inWindow(clinicalDemandRows(rows, rotationRows, courseRules), from, to));
+  const { demand } = schedulerModel(data.cohorts, rotationRows, courseRules);
   const schedulerDemand = filterDemand(demand, { from, to, cohortIds: [] }).reduce((n, u) => n + u.seats, 0);
   const load = await getSiteLoad(institutionId === ALL_INSTITUTIONS ? ALL_INSTITUTIONS : data.institution.id);
   const loadRows = (load?.rows ?? []).filter((r) => r.date != null && r.date >= from && r.date <= to);

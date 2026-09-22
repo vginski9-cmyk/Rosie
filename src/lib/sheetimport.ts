@@ -19,6 +19,7 @@ export interface ImportedSession {
   week: number | null; dayOfWeek: string | null; startTime: string | null; notes: string | null;
   preceptorsNeeded: number | null; preceptorContactPolicy: number | null;
   rotationType: string | null; clinicalMode: string | null;
+  experiences: string | null; progression: string | null;
   /** 1-based row in the sheet it came from. */
   sourceRow: number;
 }
@@ -32,6 +33,7 @@ export const IMPORT_FIELD_LABEL: Record<ImportField, string> = {
   week: "This session occurs during Week __ of term", dayOfWeek: "This session occurs on ____", startTime: "Start time", notes: "Notes",
   preceptorsNeeded: "Number of preceptors required to teach full clinical session", preceptorContactPolicy: "Contact hour policy for preceptors during session",
   rotationType: "Clinical Rotation Type", clinicalMode: "Clinical Mode",
+  experiences: "Clinical experiences", progression: "Progression stage",
 };
 export const IMPORT_FIELDS = Object.keys(IMPORT_FIELD_LABEL) as ImportField[];
 
@@ -60,6 +62,8 @@ const SYNONYMS: Record<ImportField, string[]> = {
   preceptorContactPolicy: ["contact hour policy for preceptors during session", "contact hour policy for preceptors", "preceptor contact hour policy", "preceptor contact policy", "preceptor policy"],
   rotationType: ["clinical rotation type", "rotation type", "rotation", "clinical setting", "setting", "unit type", "unit"],
   clinicalMode: ["clinical mode", "mode of clinical", "clinical supervision", "supervision mode", "supervision"],
+  experiences: ["clinical experiences", "experiences", "experience", "populations procedures or modalities", "procedures", "populations", "modalities", "competencies", "skills"],
+  progression: ["progression stage", "progression", "stage", "level", "learner level", "role", "scrub role"],
 };
 
 export const normalizeHeader = (h: unknown): string =>
@@ -190,6 +194,7 @@ export function rowsToSessions(rows: unknown[][], det: HeaderDetection): ImportR
       week: num(get(row, "week")), dayOfWeek, startTime: parseTime(get(row, "startTime")), notes: text(get(row, "notes")),
       preceptorsNeeded: num(get(row, "preceptorsNeeded")), preceptorContactPolicy: num(get(row, "preceptorContactPolicy")),
       rotationType: text(get(row, "rotationType")), clinicalMode: text(get(row, "clinicalMode")),
+      experiences: text(get(row, "experiences")), progression: text(get(row, "progression")),
       sourceRow: r + 1,
     });
   }

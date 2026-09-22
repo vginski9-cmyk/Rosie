@@ -12,7 +12,11 @@ import { describeRule, proposeRuleFromText, openQuestions, eligibleSettings, typ
 import { saveRotationRule, type ActionResult } from "@/lib/requirementactions";
 import { settingName } from "@/lib/settingPresets";
 
-export interface RuleRowView { rotationType: string; unitCategory: string; rule: SettingRuleSpec | null; revision: number; reviewedBy: string | null; reviewedAt: string | null; sourceText: string | null }
+export interface RuleRowView {
+  rotationType: string; unitCategory: string; rule: SettingRuleSpec | null; revision: number; reviewedBy: string | null; reviewedAt: string | null; sourceText: string | null;
+  /** The rule was tagged automatically from the wording against the setting taxonomy and is not yet saved — one save keeps it (as proposed) for review. */
+  auto?: boolean;
+}
 
 const STATUS_STYLE: Record<string, string> = { reviewed: "bg-emerald-100 text-emerald-800", "needs-review": "bg-amber-100 text-amber-800", proposed: "bg-sky-100 text-sky-800" };
 const STATUS_TEXT: Record<string, string> = { reviewed: "reviewed", "needs-review": "needs interpretation review", proposed: "proposed — not reviewed" };
@@ -120,6 +124,7 @@ export function SettingRuleEditor({ institutionId, row, settings, extra }: { ins
         {extra}
         <button type="button" onClick={() => setOpen((v) => !v)} className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50" aria-expanded={open}>{open ? "close" : row.rule ? "edit rule" : "map it"}</button>
       </div>
+      {row.auto && row.rule && <div className="mt-0.5 text-[11px] text-sky-800">tagged automatically from the wording against the setting taxonomy — not saved yet; open it to keep it (as proposed) or correct it, then mark it reviewed</div>}
       {row.rule?.sourceText && row.rule.sourceText !== row.rotationType && <div className="mt-0.5 text-[11px] text-slate-500">wording: &ldquo;{row.rule.sourceText}&rdquo;</div>}
       {row.reviewedBy && row.rule?.status === "reviewed" && <div className="text-[11px] text-emerald-700">reviewed by {row.reviewedBy}{row.reviewedAt ? ` on ${row.reviewedAt.slice(0, 10)}` : ""}</div>}
       {questions.length > 0 && row.rule?.status !== "reviewed" && <ul className="mt-1 list-disc pl-5 text-[11px] text-amber-800">{questions.map((q) => <li key={q}>{q}</li>)}</ul>}

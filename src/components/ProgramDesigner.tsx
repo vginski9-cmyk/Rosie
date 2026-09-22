@@ -6,7 +6,9 @@ import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { SessionSheet } from "@/components/SessionSheet";
 import { SheetImport } from "@/components/SheetImport";
-import { RequirementsLedger, type LedgerSession } from "@/components/RequirementsLedger";
+import { RequirementsSummary, CourseRequirements } from "@/components/RequirementsLedger";
+import type { RuleRowView } from "@/components/SettingRuleEditor";
+import type { SiteSupply } from "@/components/SessionSheet";
 import { ClinicalAnalytics } from "@/components/ClinicalAnalytics";
 import { type AnalyticsCourse, shiftOf } from "@/lib/clinicalanalytics";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
@@ -23,6 +25,7 @@ export interface DSession {
   lengthHours: number; maxStudents: number; facultyNeeded: number; preceptorsNeeded: number; supportStaffNeeded: number;
   week: number | null; dayOfWeek: string | null; startTime: string | null; location: string | null;
   homework: string | null; rotationType: string | null; clinicalMode: string | null;
+  experiences: string | null; progression: string | null;
   deliveryMode: string | null; notes: string | null;
   facultyContactPolicy: number | null; supportContactPolicy: number | null; preceptorContactPolicy: number | null;
   supervision?: import("@/components/SupervisionEditor").SupervisionView;
@@ -39,7 +42,7 @@ const n0 = (n: number) => dec(n);
 const n1 = (n: number) => dec(n);
 const n2 = (n: number) => dec(n);
 
-export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [], extraction = null }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[]; /** The "describe or upload" panel (a server-rendered child). */ extraction?: React.ReactNode }) {
+export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [], extraction = null, institutionId = null, ruleRows = {}, supplyBySetting = {}, courseRules = {} }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[]; /** The "describe or upload" panel (a server-rendered child). */ extraction?: React.ReactNode; institutionId?: string | null; /** The setting rule each rotation type means (lower-cased key) — shown and edited on the session rows. */ ruleRows?: Record<string, RuleRowView>; /** The college's sites per setting code — which sites a session is eligible for. */ supplyBySetting?: Record<string, SiteSupply[]>; /** Course rotation pools — the rule a course's generically tagged sessions read. */ courseRules?: Record<string, import("@/lib/settingrule").SettingRuleSpec> }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
   // Courses are closed by default: one row each; open one to edit its catalog fields and sessions.
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -244,7 +247,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
         </form>
       </details>
 
-      <RequirementsLedger programId={pid} familyId={familyId} requirements={requirements} settings={settings} sessions={terms.flatMap((t): LedgerSession[] => t.courses.flatMap((c) => c.sessions.filter((s) => s.kind === "CLINICAL").map((s) => ({ id: s.id, courseId: c.id, hours: s.lengthHours, label: `${c.code ?? c.name} clinical ${s.number}${s.title ? ` · ${s.title}` : ""}` }))))} />
+      <RequirementsSummary programId={pid} familyId={familyId} requirements={requirements} settings={settings} />
 
       {extraction}
 
@@ -314,6 +317,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                         {n.CLINICAL > 0 && <span className="rounded bg-rose-100 px-1 text-rose-700">{n.CLINICAL} clinical</span>}
                         {n.CLASS + n.LAB + n.CLINICAL === 0 && <span className="rounded bg-amber-50 px-1 text-amber-700">no sessions yet</span>}
                       </span>
+                      {(() => { const rs = requirements.filter((r) => r.scope === "course" && r.courseId === course.id); if (!rs.length) return null; const short = rs.reduce((n, r) => n + r.unresolved, 0); const unstated = rs.reduce((n, r) => n + r.unstated, 0); const unreviewed = rs.filter((r) => !r.version || r.version.interpretationStatus !== "reviewed").length; return <span className={`rounded border px-1 text-[10px] ${short > 0 ? "border-amber-300 bg-amber-50 text-amber-800" : unstated || unreviewed ? "border-slate-300 bg-slate-50 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} title="the course's clinical requirements against its sessions">{rs.length} req · {short > 0 ? `${n1(short)} h short` : unstated ? `${unstated} share${unstated === 1 ? "" : "s"} to state` : unreviewed ? `${unreviewed} to review` : "met"}</span>; })()}
                       {cc.n > 0 && <span className="flex flex-wrap gap-1 text-[10px]">{cc.settings.map(([k, h]) => <span key={k} className={`rounded border px-1 ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{k} {n1(h)}h</span>)}</span>}
                       <span className="ml-auto text-[11px] tabular-nums text-slate-500">{n1(ch.CLASS + ch.LAB + ch.CLINICAL)} h / student · {n0(fp.sec.CLASS + fp.sec.LAB + fp.sec.CLINICAL)} shifts at {n0(enrollment)} · fac <strong className="text-rose-700">{n2(fp.facFte)}</strong>{fp.precFte > 0 ? <> · prec <strong className="text-rose-700">{n2(fp.precFte)}</strong></> : null} FTE</span>
                       <Link href={`/courses/${course.id}`} className="text-[11px] text-rose-600 hover:underline">open ↦</Link>
@@ -345,8 +349,14 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                             <span className="ml-1 text-slate-500">days:</span>{cc.days.map(([k, h]) => <span key={k} className={`rounded border px-1 py-px text-[10px] ${k === "(not set)" ? "border-amber-300 bg-amber-50 italic text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>{k} {n1(h)}h</span>)}
                           </div>
                         )}
+                        <CourseRequirements programId={pid} courseId={course.id} requirements={requirements.filter((r) => r.scope === "course" && r.courseId === course.id)} settings={settings} />
                         <SessionSheet
                           programId={pid}
+                          institutionId={institutionId}
+                          settings={settings}
+                          ruleRows={ruleRows}
+                          supplyBySetting={supplyBySetting}
+                          courseRule={courseRules[course.id] ?? null}
                           courseId={course.id}
                           courseCode={course.code}
                           courseTitle={course.name}
@@ -360,7 +370,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                             supportStaffNeeded: s.supportStaffNeeded, supportContactPolicy: s.supportContactPolicy,
                             week: s.week, dayOfWeek: s.dayOfWeek, notes: s.notes,
                             preceptorsNeeded: s.preceptorsNeeded, preceptorContactPolicy: s.preceptorContactPolicy,
-                            rotationType: s.rotationType, clinicalMode: s.clinicalMode,
+                            rotationType: s.rotationType, clinicalMode: s.clinicalMode, experiences: s.experiences, progression: s.progression,
                             startTime: s.startTime,
                           }))}
                           enrollment={enrollment}

@@ -271,6 +271,19 @@ A conflict is demonstrated (a seat over its limit, a role unassigned). An eviden
 
 - **Where:** The scheduler's evaluation panel
 
+### Experiences and progression stage (session columns)
+
+Two template columns on a clinical session beside its rotation type: the experiences it must include (populations, procedures or modalities — what, where the setting rule says where) and its progression stage (orientation, observation, assist, perform, independent with supervision, capstone — when). They import, export and extract like every other workbook column.
+
+- **Where:** Design & sequence session rows, the Raw Data export, Describe or upload
+
+### Eligible settings and sites (tagged from the taxonomy)
+
+For a clinical session, the setting codes its rotation rule allows and the college's sites that carry each of them (assets, seats per shift, the family's agreement). A rotation wording nobody has mapped is tagged automatically from the setting taxonomy as a proposed rule, so demand reaches every eligible setting at once — conditionally, until a person reviews it.
+
+- **Not the same as:** Eligible is not approved: under an unreviewed rule the sites are where shifts would go conditionally.
+- **Where:** Design & sequence session rows, the scheduler's candidate pool, the capacity view
+
 ### Extraction proposal (parsed · needs interpretation review · ready for planning)
 
 What "Describe or upload" produces from a workbook, a document or plain words: candidate sessions, rules, requirements, supervision models and site capabilities, each anchored to the source fragment it came from, with the questions a person must answer. Parsed means transcribed and validated; needs interpretation review means a human decision is missing; ready for planning is only ever earned after review. Applying writes drafts and needs-review records, never active facts.

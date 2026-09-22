@@ -136,7 +136,7 @@ export function HiddenSessionFields({ row }: { row: FieldRow }) {
 /** Drop-down choices harvested from what the program already uses. */
 export function harvestOptions(rows: Partial<FieldRow>[]): Partial<Record<EditableField, string[]>> {
   const out: Partial<Record<EditableField, string[]>> = {};
-  for (const f of ["deliveryMode", "location", "rotationType", "clinicalMode"] as EditableField[]) {
+  for (const f of ["deliveryMode", "location", "rotationType", "clinicalMode", "progression"] as EditableField[]) {
     const s = new Set<string>();
     for (const r of rows) { const v = r[f]; if (typeof v === "string" && v.trim()) s.add(v.trim()); }
     out[f] = [...s].sort();

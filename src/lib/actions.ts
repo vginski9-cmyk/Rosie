@@ -1236,7 +1236,7 @@ export async function duplicateProgram(programId: string) {
             create: c.sessions.map((s) => ({
               kind: s.kind, number: s.number, title: s.title, lengthHours: s.lengthHours, deliveryMode: s.deliveryMode,
               location: s.location, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, supportStaffNeeded: s.supportStaffNeeded,
-              preceptorsNeeded: s.preceptorsNeeded, week: s.week, dayOfWeek: s.dayOfWeek, rotationType: s.rotationType, clinicalMode: s.clinicalMode, notes: s.notes,
+              preceptorsNeeded: s.preceptorsNeeded, week: s.week, dayOfWeek: s.dayOfWeek, rotationType: s.rotationType, clinicalMode: s.clinicalMode, experiences: s.experiences, progression: s.progression, notes: s.notes,
             })),
           },
           courseSkills: { create: c.courseSkills.map((cs) => ({ skillId: cs.skillId, targetLevel: cs.targetLevel, role: cs.role })) },
@@ -1656,6 +1656,8 @@ export async function addSession(courseId: string, programId: string, formData: 
       homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
+      experiences: str(formData.get("experiences")) || null,
+      progression: str(formData.get("progression")) || null,
       deliveryMode: str(formData.get("deliveryMode")) || null,
       notes: str(formData.get("notes")) || null,
       facultyContactPolicy: optNum(formData.get("facultyContactPolicy")),
@@ -1683,6 +1685,8 @@ export async function updateSession(sessionId: string, programId: string, formDa
       homework: str(formData.get("homework")) || null,
       rotationType: str(formData.get("rotationType")) || null,
       clinicalMode: str(formData.get("clinicalMode")) || null,
+      experiences: str(formData.get("experiences")) || null,
+      progression: str(formData.get("progression")) || null,
       deliveryMode: str(formData.get("deliveryMode")) || null,
       notes: str(formData.get("notes")) || null,
       facultyContactPolicy: optNum(formData.get("facultyContactPolicy")),
@@ -1711,7 +1715,7 @@ const sessionDataFrom = (r: ImportedSession) => ({
   facultyNeeded: r.facultyNeeded ?? (r.kind === "CLINICAL" ? 0 : 1), supportStaffNeeded: r.supportStaffNeeded ?? 0,
   preceptorsNeeded: r.preceptorsNeeded ?? (r.kind === "CLINICAL" ? 1 : 0),
   week: r.week != null ? Math.round(r.week) : null, dayOfWeek: r.dayOfWeek, startTime: r.startTime, location: r.location,
-  rotationType: r.rotationType, clinicalMode: r.clinicalMode, deliveryMode: r.deliveryMode, notes: r.notes,
+  rotationType: r.rotationType, clinicalMode: r.clinicalMode, experiences: r.experiences, progression: r.progression, deliveryMode: r.deliveryMode, notes: r.notes,
   facultyContactPolicy: r.facultyContactPolicy, supportContactPolicy: r.supportContactPolicy, preceptorContactPolicy: r.preceptorContactPolicy,
 });
 
@@ -1739,7 +1743,7 @@ export async function previewProgramSheetImport(programId: string, sessions: Imp
   const termByIndex = new Map(program.terms.map((t) => [t.index, t]));
   const groups = new Map<string, { termNumber: number; code: string | null; title: string | null; rows: ImportedSession[] }>();
   for (const s of sessions) { const tn = Math.max(1, Math.round(s.termNumber ?? 1)); const key = `${tn}|${(s.courseCode ?? s.courseTitle ?? "").toLowerCase()}`; const g = groups.get(key) ?? { termNumber: tn, code: s.courseCode, title: s.courseTitle, rows: [] }; g.rows.push(s); groups.set(key, g); }
-  const compare: (keyof ImportedSession)[] = ["title", "lengthHours", "maxStudents", "facultyNeeded", "preceptorsNeeded", "week", "dayOfWeek", "startTime", "location", "deliveryMode", "rotationType", "clinicalMode", "notes"];
+  const compare: (keyof ImportedSession)[] = ["title", "lengthHours", "maxStudents", "facultyNeeded", "preceptorsNeeded", "week", "dayOfWeek", "startTime", "location", "deliveryMode", "rotationType", "clinicalMode", "experiences", "progression", "notes"];
   const touched = new Set<string>();
   for (const g of groups.values()) {
     const term = termByIndex.get(g.termNumber);
