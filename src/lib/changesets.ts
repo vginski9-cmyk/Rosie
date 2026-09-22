@@ -10,7 +10,9 @@ import { prisma } from "./db";
 import { AUTO_PLAN_NOTE, type Blocker, type BlockerKind } from "./scheduler";
 
 export const PLAN_PIN_NOTE = "auto-plan:pinned";
-export type ChangeKind = "scheduler-apply" | "auto-assign" | "realign";
+export type ChangeKind = "scheduler-apply" | "auto-assign" | "realign" | "rule-review" | "requirement-publish" | "supervision-rule" | "import-apply" | "extraction-apply";
+/** Audit-only kinds: recorded, listed, never undone from the history (their objects carry their own versions). */
+export const AUDIT_KINDS: ChangeKind[] = ["rule-review", "requirement-publish", "supervision-rule", "import-apply", "extraction-apply"];
 
 /** What a change did, in rows, by table — the numbers the confirm step shows and the record keeps. */
 export interface ChangeSummary {
@@ -178,10 +180,17 @@ export async function recordChange(o: { kind: ChangeKind; label: string; institu
   return r.id;
 }
 
+/** An audit record for a reviewed interpretation, a published version or an applied import — no snapshot, never undone from here. */
+export async function auditChange(o: { kind: ChangeKind; label: string; institutionId: string | null; summary: ChangeSummary; cohortIds?: string[] }): Promise<string> {
+  const r = await prisma.changeSet.create({ data: { kind: o.kind, label: o.label, institutionId: o.institutionId, cohortIds: JSON.stringify(o.cohortIds ?? []), summary: JSON.stringify(o.summary), undo: "{}" } });
+  return r.id;
+}
+
 /** Undo one change: restore its snapshot and mark it undone. Returns the record, or null when it is unknown or already undone. */
 export async function undoChange(id: string): Promise<ChangeSetRow | null> {
   const r = await prisma.changeSet.findUnique({ where: { id } });
   if (!r || r.undoneAt) return null;
+  if (AUDIT_KINDS.includes(r.kind as ChangeKind)) return null;
   const kind = r.kind as ChangeKind;
   if (kind === "scheduler-apply") await restorePlan(parse<PlanSnapshot>(r.undo, { cohortIds: [], bookings: [], placements: [], moves: [], staff: [], meetings: [], shifts: [] }));
   else if (kind === "auto-assign") { const s = parse<AutoAssignSnapshot | null>(r.undo, null); if (s) await restoreAutoAssign(s); }

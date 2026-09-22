@@ -322,7 +322,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
         dayOverrides: { where: { date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } }, select: { date: true, shiftBlocks: true, note: true } },
       },
     }),
-    prisma.rotationSetting.findMany({ where: { institutionId }, orderBy: { rotationType: "asc" }, select: { rotationType: true, settingCode: true, unitCategory: true, rule: true, sourceText: true, interpretationStatus: true } }),
+    prisma.rotationSetting.findMany({ where: { institutionId }, orderBy: { rotationType: "asc" }, select: { rotationType: true, settingCode: true, unitCategory: true, rule: true, sourceText: true, interpretationStatus: true, revision: true, reviewedBy: true, reviewedAt: true } }),
     prisma.assetBooking.findMany({
       where: { asset: { employer: { institutionId } }, date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(to + "T00:00:00Z") } },
       include: { cohort: { select: { name: true, program: { select: { name: true } } } } },
@@ -341,7 +341,7 @@ export async function getAssetMap(institutionId: string, from: string, to: strin
   const bookings = bookingsRaw.map((b) => ({ id: b.id, assetId: b.assetId, cohortId: b.cohortId, sessionId: b.sessionId, sectionIndex: b.sectionIndex, meetingId: b.meetingId, date: b.date.toISOString().slice(0, 10), block: b.block, students: b.students, note: b.note, cohort: b.cohort.name, program: b.cohort.program.name }));
   const { ruleFromLegacy: ruleOf, KNOWN_SETTINGS } = await import("./settingrule");
   const known = new Set([...KNOWN_SETTINGS, ...assets.map((a) => a.settingCode)]);
-  return { assets, overrides, bookings, rotations: rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: r.unitCategory, rule: ruleOf(r, known), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus })) };
+  return { assets, overrides, bookings, rotations: rotations.map((r) => ({ rotationType: r.rotationType, settingCode: r.settingCode, unitCategory: r.unitCategory, rule: ruleOf(r, known), sourceText: r.sourceText, interpretationStatus: r.interpretationStatus, revision: r.revision, reviewedBy: r.reviewedBy, reviewedAt: r.reviewedAt?.toISOString() ?? null })) };
 }
 
 /** Every program family with its clinical model and the sites / assets that serve it — the "clinical sites by program" index. */
@@ -685,7 +685,7 @@ export async function getFamilySiteSetup(familyId: string, employerId: string) {
   const { disciplineOf } = await import("./discipline");
   const fam = await prisma.programFamily.findUnique({ where: { id: familyId }, select: { id: true, name: true, institutionId: true, capacityBasis: true, accreditor: true, studentsPerStaff: true, casesPerStudentDay: true, caseDaysPerYear: true, institution: { select: { name: true, ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true, campuses: { orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], take: 1, select: { name: true, city: true, lat: true } } } }, serviceAreas: { orderBy: { sortOrder: "asc" }, select: { code: true, name: true, settingCodes: true } }, programs: { select: { id: true, name: true } }, familySites: { where: { employerId } } } });
   if (!fam) return null;
-  const e = await prisma.employer.findUnique({ where: { id: employerId }, include: { assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } }, people: { where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, title: true, employmentType: true, email: true, asset: { select: { setting: true, settingCode: true, assetNumber: true } } } }, meetings: { where: { kind: "CLINICAL", cohort: { programId: { in: fam.programs.map((p) => p.id) } } }, orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }], include: { cohort: { select: { id: true, name: true, programId: true } }, course: { select: { code: true, name: true } }, staff: { select: { name: true } } } } } });
+  const e = await prisma.employer.findUnique({ where: { id: employerId }, include: { siteCapabilities: { orderBy: [{ kind: "asc" }, { label: "asc" }] }, assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } }, people: { where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, title: true, employmentType: true, email: true, asset: { select: { setting: true, settingCode: true, assetNumber: true } } } }, meetings: { where: { kind: "CLINICAL", cohort: { programId: { in: fam.programs.map((p) => p.id) } } }, orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }], include: { cohort: { select: { id: true, name: true, programId: true } }, course: { select: { code: true, name: true } }, staff: { select: { name: true } } } } } });
   if (!e || e.institutionId !== fam.institutionId) return null;
   const fs = fam.familySites[0] ?? null;
   const disc = disciplineOf(fam.name);
@@ -706,6 +706,7 @@ export async function getFamilySiteSetup(familyId: string, employerId: string) {
     family: { id: fam.id, name: fam.name, institution: fam.institution.name, capacityBasis: fam.capacityBasis, accreditor: fam.accreditor, studentsPerStaff: fam.studentsPerStaff, casesPerStudentDay: fam.casesPerStudentDay, caseDaysPerYear: fam.caseDaysPerYear, programs: fam.programs },
     bands: { core: fam.institution.ringCoreMinutes, one: fam.institution.ringOneMinutes, two: fam.institution.ringTwoMinutes }, campus: fam.institution.campuses[0] ?? null,
     settings: [...settingSet], areas: fam.serviceAreas, discipline: { label: disc.label, credential: disc.credential },
+    capabilityRaw: { siteCapabilities: e.siteCapabilities, assets: e.assets },
     site: { id: e.id, name: e.name, externalId: e.externalId, organization: e.organization, facilityType: e.facilityType, status: e.status, address: e.address, city: e.city, state: e.state, zip: e.zip, county: e.county, ring: e.ring, ringSource: e.ringSource, driveMinutes: e.driveMinutes, distanceMiles: e.distanceMiles, lat: e.lat, lng: e.lng, geoSource: e.geoSource, contactName: e.contactName, contactEmail: e.contactEmail, contactPhone: e.contactPhone, licensedBeds: e.licensedBeds, operatingRooms: e.operatingRooms, annualSurgicalCases: e.annualSurgicalCases, inpatientSurgicalCases: e.inpatientSurgicalCases, ambulatorySurgicalCases: e.ambulatorySurgicalCases, operatingDaysPerYear: e.operatingDaysPerYear, surgicalCaseSource: e.surgicalCaseSource, agreementStatus: e.agreementStatus },
     familySite: fs, inFamily: !!fs,
     assets: e.assets.map((a) => ({ id: a.id, externalId: a.externalId, employerId: a.employerId, facilityName: e.name, facilityExternalId: e.externalId, county: e.county, ring: e.ring, facilityType: e.facilityType, agreementStatus: fs?.agreementStatus ?? "none", facilityStatus: e.status, settingCode: a.settingCode, setting: a.setting, assetType: a.assetType, assetNumber: a.assetNumber, operatingRule: a.operatingRule, days: a.days, shiftBlocks: a.shiftBlocks, hoursPerShift: a.hoursPerShift, dayStart: a.dayStart, dayHours: a.dayHours, eveningStart: a.eveningStart, eveningHours: a.eveningHours, nightStart: a.nightStart, nightHours: a.nightHours, serves: a.serves, learnersPerShift: a.learnersPerShift, preceptorsPerShift: a.preceptorsPerShift, dataSource: a.dataSource, accreditorClass: a.accreditorClass, status: a.status, notes: a.notes, exceptions: a._count.dayOverrides, inFamily: settingSet.size === 0 || settingSet.has(a.settingCode) })),
@@ -1261,6 +1262,7 @@ export async function getEmployer(id: string) {
       units: { orderBy: [{ unitCategory: "asc" }, { unitType: "asc" }] },
       people: { where: { active: true }, select: { id: true } },
       assets: { orderBy: [{ settingCode: "asc" }, { assetNumber: "asc" }], include: { _count: { select: { bookings: true, dayOverrides: true } }, dayOverrides: { select: { date: true, shiftBlocks: true, note: true } } } },
+      siteCapabilities: { orderBy: [{ kind: "asc" }, { label: "asc" }] },
       meetings: {
         orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
         include: { cohort: { select: { id: true, name: true, programId: true, program: { select: { name: true } } } }, course: { select: { code: true, name: true } }, unit: { select: { id: true, unitType: true } }, staff: { select: { name: true } } },

@@ -6,6 +6,7 @@ import { updateEmployer, updatePlacementStatus, deletePlacement, createClinicalU
 import { dec, fmt } from "@/lib/format";
 import { AssetRoster } from "@/components/AssetRoster";
 import { AssetBuilder } from "@/components/AssetBuilder";
+import { SiteCapabilityPanel } from "@/components/SiteCapabilityPanel";
 import { Collapse } from "@/components/Collapse";
 import { UnverifiedStandard } from "@/components/Evidence";
 import { SETTING_PRESETS } from "@/lib/settingPresets";
@@ -100,6 +101,7 @@ export default async function EmployerPage({ params }: { params: { id: string } 
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <AssetRoster employerId={e.id} siteName={e.name} siteExternalId={e.externalId} assets={rosterAssets} settings={settings} programName="" organizationHref="#exceptions" />
         </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3"><SiteCapabilityPanel employerId={e.id} {...(() => { const r = capabilityRows(e); return { capabilities: r.capabilities, assets: r.assetLimits }; })()} /></div>
         <div id="exceptions" className="scroll-mt-16">
           <Collapse title="Closures & per-asset detail" sub="Closed dates, accreditor class and the year's shift totals" summary={<>{e.assetOverrides.length} exception day{e.assetOverrides.length === 1 ? "" : "s"} · <a href={`/api/asset-map?institutionId=${e.institutionId}&employerId=${e.id}&year=${year}`} className="text-rose-600 hover:underline">workbook ↓</a></>}>
             <AssetBuilder employerId={e.id} siteName={e.name} siteExternalId={e.externalId} year={year} assets={rosterAssets} overrides={e.assetOverrides} settings={settings} />
@@ -256,4 +258,13 @@ function Field({ name, label, defaultValue, type = "text", required }: { name: s
       <input name={name} type={type} required={required} defaultValue={defaultValue ?? ""} className={inp} />
     </label>
   );
+}
+
+/** Rows for the capability panel: capabilities as recorded, and each asset's limit / availability meaning. */
+function capabilityRows(e: { siteCapabilities: { id: string; assetId: string | null; settingCode: string | null; kind: string; code: string; label: string; status: string; capacityValue: number | null; capacityUnit: string | null; learnerTypes: string | null; restrictions: string | null; supervisionNote: string | null; validFrom: Date | null; validTo: Date | null; evidenceSource: string | null; evidenceOwner: string | null; verifiedAt: Date | null; reviewBy: Date | null; notes: string | null }[]; assets: { id: string; externalId: string | null; assetType: string; assetNumber: number; settingCode: string; learnersPerShift: number; limitMode: string; availabilityMode: string; dataSource: string; learnerTypes: string | null; restrictions: string | null; capabilities: string; evidenceSource: string | null; evidenceOwner: string | null; verifiedAt: Date | null; reviewBy: Date | null; days: string; shiftBlocks: string; status: string }[] }) {
+  const iso = (d: Date | null) => (d ? d.toISOString() : null);
+  return {
+    capabilities: e.siteCapabilities.map((c) => ({ ...c, validFrom: iso(c.validFrom), validTo: iso(c.validTo), verifiedAt: iso(c.verifiedAt), reviewBy: iso(c.reviewBy) })),
+    assetLimits: e.assets.filter((a) => a.status !== "archived").map((a) => ({ id: a.id, label: a.externalId ?? `${a.assetType} #${a.assetNumber}`, settingCode: a.settingCode, learnersPerShift: a.learnersPerShift, limitMode: a.limitMode, availabilityMode: a.availabilityMode, dataSource: a.dataSource, learnerTypes: a.learnerTypes, restrictions: a.restrictions, capabilities: a.capabilities, evidenceSource: a.evidenceSource, evidenceOwner: a.evidenceOwner, verifiedAt: iso(a.verifiedAt), reviewBy: iso(a.reviewBy), scheduleLabel: `${a.days.split(",").length === 7 ? "every day" : a.days} · ${a.shiftBlocks || "closed"}` })),
+  };
 }

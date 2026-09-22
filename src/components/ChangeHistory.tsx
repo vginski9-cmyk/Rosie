@@ -7,7 +7,7 @@ import { useState } from "react";
 import type { ChangeSetRow } from "@/lib/changesets";
 import { fmt } from "@/lib/format";
 
-const KIND_LABEL: Record<ChangeSetRow["kind"], string> = { "scheduler-apply": "Scheduler plan", "auto-assign": "Auto-assign", realign: "Re-align" };
+const KIND_LABEL: Record<ChangeSetRow["kind"], string> = { "scheduler-apply": "Scheduler plan", "auto-assign": "Auto-assign", realign: "Re-align", "rule-review": "Setting rule", "requirement-publish": "Requirement", "supervision-rule": "Supervision", "import-apply": "Import", "extraction-apply": "Extraction" };
 const counts = (o: Record<string, number>) => Object.entries(o).filter(([, v]) => v > 0).map(([k, v]) => `${fmt.num(v)} ${k}`).join(" · ");
 
 export function ChangeHistory({ changes, onUndo, pending, title = "Recent changes" }: { changes: ChangeSetRow[]; /** Absent in the strategic product: the history is shown, nothing can be undone from it. */ onUndo?: (id: string) => void; pending?: boolean; title?: string }) {

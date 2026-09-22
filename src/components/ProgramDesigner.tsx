@@ -6,6 +6,7 @@ import { sessionService, DEFAULT_SERVICE } from "@/lib/service";
 import { CourseSequencer, type SeqCourse, type SeqTerm } from "@/components/CourseSequencer";
 import { SessionSheet } from "@/components/SessionSheet";
 import { SheetImport } from "@/components/SheetImport";
+import { RequirementsLedger, type LedgerSession } from "@/components/RequirementsLedger";
 import { ClinicalAnalytics } from "@/components/ClinicalAnalytics";
 import { type AnalyticsCourse, shiftOf } from "@/lib/clinicalanalytics";
 import { deriveAssumptions, type WorkloadAssumptions } from "@/lib/capacitymodel";
@@ -24,6 +25,7 @@ export interface DSession {
   homework: string | null; rotationType: string | null; clinicalMode: string | null;
   deliveryMode: string | null; notes: string | null;
   facultyContactPolicy: number | null; supportContactPolicy: number | null; preceptorContactPolicy: number | null;
+  supervision?: import("@/components/SupervisionEditor").SupervisionView;
 }
 export interface DCourse {
   id: string; code: string | null; name: string; creditHours: number | null;
@@ -37,7 +39,7 @@ const n0 = (n: number) => dec(n);
 const n1 = (n: number) => dec(n);
 const n2 = (n: number) => dec(n);
 
-export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions }) {
+export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [] }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[] }) {
   const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
   // Courses are closed by default: one row each; open one to edit its catalog fields and sessions.
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -241,6 +243,8 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
           <div className="lg:col-span-2"><button className="btn-primary py-1 text-xs">Save assumptions</button></div>
         </form>
       </details>
+
+      <RequirementsLedger programId={pid} familyId={familyId} requirements={requirements} settings={settings} sessions={terms.flatMap((t): LedgerSession[] => t.courses.flatMap((c) => c.sessions.filter((s) => s.kind === "CLINICAL").map((s) => ({ id: s.id, courseId: c.id, hours: s.lengthHours, label: `${c.code ?? c.name} clinical ${s.number}${s.title ? ` · ${s.title}` : ""}` }))))} />
 
       <details className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Import from a spreadsheet <span className="font-normal text-slate-400">— Excel, CSV or pasted cells; you check the mapping, then import</span></summary>

@@ -892,7 +892,15 @@ export async function updateSiteAvailability(familyId: string, employerId: strin
   const num = (k: string) => { const v = str(formData.get(k)); return v === "" ? null : numOr(v, 0); };
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].filter((d) => formData.get(`day_${d}`) != null);
   const blocks = ["Day", "Evening", "Night"].filter((b) => formData.get(`block_${b}`) != null);
-  const data = { studentsAtOnce: num("studentsAtOnce") == null ? null : Math.round(num("studentsAtOnce")!), casesPerDay: num("casesPerDay"), daysAllowed: days.length ? days.join(",") : null, blocksAllowed: blocks.length ? blocks.join(",") : null, availabilityNotes: str(formData.get("availabilityNotes")) || null, ...(formData.has("qualifiedStaffOnShift") ? { qualifiedStaffOnShift: num("qualifiedStaffOnShift") == null ? null : Math.max(0, Math.round(num("qualifiedStaffOnShift")!)), staffCountSource: str(formData.get("staffCountSource")) === "VERIFIED" ? "VERIFIED" : "ESTIMATE" } : {}) };
+  // What a blank means is said explicitly (recommendation 3): a limit is known, explicitly unrestricted, or unknown; availability
+  // is inherited from the assets' schedules, specific, unavailable, or unknown. A blank never becomes unlimited or zero.
+  const studentsAtOnce = num("studentsAtOnce") == null ? null : Math.round(num("studentsAtOnce")!);
+  const limitModeRaw = str(formData.get("studentsAtOnceMode"));
+  const studentsAtOnceMode = studentsAtOnce != null ? "known" : limitModeRaw === "unrestricted" ? "unrestricted" : "unknown";
+  const availabilityModeRaw = str(formData.get("availabilityMode"));
+  const availabilityMode = ["inherit", "specific", "unavailable", "unknown"].includes(availabilityModeRaw) ? availabilityModeRaw : days.length || blocks.length ? "specific" : "inherit";
+  const availabilityJson = (() => { const v = str(formData.get("availability")); if (!v) return null; try { JSON.parse(v); return v; } catch { return null; } })();
+  const data = { studentsAtOnce, studentsAtOnceMode, casesPerDay: num("casesPerDay"), daysAllowed: availabilityMode === "specific" && days.length ? days.join(",") : null, blocksAllowed: availabilityMode === "specific" && blocks.length ? blocks.join(",") : null, availabilityMode, availability: availabilityJson, availabilityNotes: str(formData.get("availabilityNotes")) || null, ...(formData.has("qualifiedStaffOnShift") ? { qualifiedStaffOnShift: num("qualifiedStaffOnShift") == null ? null : Math.max(0, Math.round(num("qualifiedStaffOnShift")!)), staffCountSource: str(formData.get("staffCountSource")) === "VERIFIED" ? "VERIFIED" : "ESTIMATE" } : {}) };
   await prisma.familySite.upsert({ where: { familyId_employerId: { familyId, employerId } }, update: data, create: { familyId, employerId, ...data } });
   revalidateFamilySite(familyId, employerId);
 }

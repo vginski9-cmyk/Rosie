@@ -7,6 +7,7 @@ import { SessionFieldGrid, HiddenSessionFields, harvestOptions, type FieldRow } 
 import { updateSession, deleteSession, addSession, setSessionTiming } from "@/lib/actions";
 import { dec } from "@/lib/format";
 import { explainSession, hm } from "@/lib/explain";
+import { SupervisionEditor } from "@/components/SupervisionEditor";
 
 // The Raw Data & Calculations session table, one course at a time — every
 // workbook column (A–AE) with its full header, one session per row. Click a
@@ -14,6 +15,8 @@ import { explainSession, hm } from "@/lib/explain";
 // commits to the template and every offering, calendar and insight reads it.
 
 export interface SheetSession extends SessionInput {
+  /** The explicit supervision rule that applies (from the requirement store), when the page loaded it. */
+  supervision?: import("@/components/SupervisionEditor").SupervisionView;
   startTime: string | null;
 }
 
@@ -84,6 +87,7 @@ export function SessionSheet({
               {isOpen && (
                 <div className="border-t border-slate-100 px-3 py-3">
                   <Meaning row={r} enrollment={enrollment} assumptions={assumptions} rows={rows} />
+                  {r.kind === "CLINICAL" && r.supervision && <div className="mb-2"><SupervisionEditor target={{ scope: "session", sessionId: r.id }} view={r.supervision} learners={Math.max(1, r.maxStudents)} hours={r.lengthHours} groups={Math.max(1, comp.Y ?? 1)} /></div>}
                   <SessionFieldGrid
                     row={r as unknown as FieldRow} seq={{ ...seq, G: String(r.number) }} enrollment={enrollment} assumptions={assumptions}
                     onChange={(f, v) => setField(r.id, f, v)} dataOptions={dataOptions}

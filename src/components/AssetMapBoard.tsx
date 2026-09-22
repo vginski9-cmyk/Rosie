@@ -18,13 +18,15 @@ import { weekdayOfIso, type ShiftBlock } from "@/lib/clinicalsupply";
 import { bookAsset, unbookAsset, setAssetDay, importAssetMap, upsertRotationSetting } from "@/lib/actions";
 import type { CapacityCohort } from "@/components/CapacityBoard";
 import { dec } from "@/lib/format";
+import { SettingRuleEditor } from "@/components/SettingRuleEditor";
+import { KNOWN_SETTINGS } from "@/lib/settingrule";
 
 const n0 = (v: number) => dec(v);
 const fmtD = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const AGREEMENT: Record<string, string> = { none: "bg-slate-100 text-slate-500", prospect: "bg-sky-100 text-sky-700", asked: "bg-amber-100 text-amber-700", secured: "bg-emerald-100 text-emerald-700", declined: "bg-rose-100 text-rose-700" };
 type Tab = "verdict" | "dates" | "book" | "assets" | "rotations" | "io";
 
-export interface RotationCodeRow { rotationType: string; settingCode: string | null; unitCategory: string }
+export interface RotationCodeRow { rotationType: string; settingCode: string | null; unitCategory: string; rule?: import("@/lib/settingrule").SettingRuleSpec | null; sourceText?: string | null; interpretationStatus?: string | null; revision?: number; reviewedBy?: string | null; reviewedAt?: string | null }
 
 export function AssetMapBoard({ institutionId, assets, overrides, bookings, rotations, cohorts, from, to, year }: {
   institutionId: string; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: AssetBookingLite[]; rotations: RotationCodeRow[];
@@ -143,25 +145,15 @@ export function AssetMapBoard({ institutionId, assets, overrides, bookings, rota
 
       {tab === "rotations" && (
         <div className="space-y-2">
-          <p className="text-sm text-slate-600">Which physical setting serves each clinical rotation type — the join between what the template asks for and what partners report.</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {rotations.map((r) => (
-              <form key={r.rotationType} action={async (fd) => { await upsertRotationSetting(institutionId, fd); refresh(); }} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <input type="hidden" name="rotationType" value={r.rotationType} /><input type="hidden" name="unitCategory" value={r.unitCategory} />
-                <span className="min-w-0 flex-1 truncate font-medium text-slate-800">{r.rotationType}</span>
-                <select name="settingCode" defaultValue={r.settingCode ?? ""} className="rounded border border-slate-300 px-1.5 py-1 text-xs">
-                  <option value="">— no asset setting —</option>{settingCodes.map((c) => <option key={c} value={c}>{c} · {settingName(c)}</option>)}
-                </select>
-                <button className="rounded bg-slate-800 px-2 py-1 text-xs font-medium text-white">Save</button>
-              </form>
-            ))}
+          <p className="text-sm text-slate-600">The setting RULE each clinical rotation type means — alternatives, both-required, minimums inside a total, any-N-of — with the program&apos;s own wording and whether a person has reviewed the interpretation. The scheduler, the capacity view and coverage all read these rules; an unreviewed rule places shifts conditionally, never as ready.</p>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {rotations.map((r) => <SettingRuleEditor key={r.rotationType} institutionId={institutionId} settings={settingCodes.length ? [...new Set([...settingCodes, ...KNOWN_SETTINGS])].sort() : [...KNOWN_SETTINGS].sort()} row={{ rotationType: r.rotationType, unitCategory: r.unitCategory, rule: r.rule ?? null, revision: r.revision ?? 1, reviewedBy: r.reviewedBy ?? null, reviewedAt: r.reviewedAt ?? null, sourceText: r.sourceText ?? null }} />)}
           </div>
-          {unmapped.length > 0 && <p className="text-xs text-amber-700">Rotation types in your templates with no row yet: {unmapped.join(", ")}. Add them with the form below.</p>}
+          {unmapped.length > 0 && <p className="text-xs text-amber-700">Rotation types in your templates with no rule yet: {unmapped.join(", ")}. Add them with the form below.</p>}
           <form action={async (fd) => { await upsertRotationSetting(institutionId, fd); refresh(); }} className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3 text-sm">
             <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-500">Rotation type</span><input name="rotationType" required className="rounded border border-slate-300 px-2 py-1" /></label>
             <input type="hidden" name="unitCategory" value="Imaging" />
-            <label className="block"><span className="block text-[10px] uppercase tracking-wide text-slate-500">Setting</span><select name="settingCode" className="rounded border border-slate-300 px-2 py-1">{settingCodes.map((c) => <option key={c} value={c}>{c} · {settingName(c)}</option>)}</select></label>
-            <button className="rounded bg-rose-600 px-3 py-1.5 font-medium text-white">+ Add</button>
+            <button className="rounded bg-rose-600 px-3 py-1.5 font-medium text-white">+ Add (then map its rule)</button>
           </form>
         </div>
       )}

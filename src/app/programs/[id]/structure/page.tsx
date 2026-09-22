@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getProgramFull } from "@/lib/queries";
 import { ProgramDesigner, type DTerm } from "@/components/ProgramDesigner";
 import { setProgramCalendarMode } from "@/lib/actions";
+import { requirementLedger, supervisionBook, ruleBook } from "@/lib/requirementstore";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,9 @@ export default async function StructureEditor({ params }: { params: { id: string
   const program = await getProgramFull(params.id);
   if (!program) notFound();
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
+  // Structured requirements beside the structure (recommendation 1), the supervision rule each clinical session resolves to (5), and the settings the college knows (2).
+  const [ledger, supervision, rules] = await Promise.all([requirementLedger(program.id), supervisionBook([program.id]), ruleBook(program.institutionId)]);
+  const revisions = new Map((await (await import("@/lib/db")).prisma.supervisionRule.findMany({ where: { scope: "session", sessionId: { in: program.terms.flatMap((t) => t.courses.flatMap((c) => c.sessions.map((s) => s.id))) } }, select: { sessionId: true, revision: true } })).map((r) => [r.sessionId!, r.revision]));
 
   const terms: DTerm[] = program.terms.map((t) => ({
     id: t.id, name: t.name, index: t.index, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek,
@@ -27,6 +31,7 @@ export default async function StructureEditor({ params }: { params: { id: string
         homework: s.homework, rotationType: s.rotationType, clinicalMode: s.clinicalMode,
         deliveryMode: s.deliveryMode, notes: s.notes,
         facultyContactPolicy: s.facultyContactPolicy, supportContactPolicy: s.supportContactPolicy, preceptorContactPolicy: s.preceptorContactPolicy,
+        supervision: s.kind === "CLINICAL" && supervision.get(s.id) ? { ...supervision.get(s.id)!, revision: revisions.get(s.id) ?? 0, scope: "session" as const } : undefined,
       })),
     })),
   }));
@@ -48,6 +53,9 @@ export default async function StructureEditor({ params }: { params: { id: string
         programName={program.name}
         terms={terms}
         defaultEnrollment={defaultEnrollment}
+        requirements={ledger.requirements}
+        familyId={ledger.familyId}
+        settings={[...rules.known].sort()}
         assumptions={{
           facContactHours: program.facContactHours, facWorkWeekHours: program.facWorkWeekHours, facTermWeeks: program.facTermWeeks,
           preContactHours: program.preContactHours, preWorkWeekHours: program.preWorkWeekHours, preTermWeeks: program.preTermWeeks,
