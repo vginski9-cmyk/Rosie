@@ -13,6 +13,7 @@ import { STAGES } from "../src/lib/funnel";
 import { planMeetings } from "../src/lib/calendarize";
 import { parseHoursText } from "../src/lib/rooms";
 import { sessionDate } from "../src/lib/term";
+import { isOnlineSession } from "../src/lib/capacitymodel";
 import { holidayMap } from "../src/lib/academiccalendar";
 import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
 import { pickGrade, gpaOf } from "../src/lib/cohorthistory";
@@ -235,7 +236,7 @@ export async function seedInstructors(prisma: PrismaClient, institutionId: strin
   // terms overlap need distinct instructors.
   const offerings = await prisma.cohort.findMany({
     where: { program: { institutionId }, ...NOT_ARCHIVED, startDate: { lte: new Date() } },
-    select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, students: { select: { sections: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true } } } }, program: { select: { familyId: true, terms: { select: { id: true, courses: { select: { id: true, sessions: { where: { kind: "CLINICAL", facultyNeeded: { gte: 1 } }, select: { dayOfWeek: true, startTime: true } } } } } } } } },
+    select: { cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, students: { select: { sections: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true } } } }, program: { select: { familyId: true, terms: { select: { id: true, courses: { select: { id: true, sessions: { where: { kind: "CLINICAL", facultyNeeded: { gte: 1 } }, select: { dayOfWeek: true, startTime: true, deliveryMode: true, location: true } } } } } } } } },
   });
   const peakOf = new Map<string, number>();
   const bySlot = new Map<string, { start: number; end: number }[]>();
@@ -247,7 +248,7 @@ export async function seedInstructors(prisma: PrismaClient, institutionId: strin
       for (const c of t.courses) {
         const sections = Math.max(1, new Set(co.students.flatMap((s) => s.sections.filter((x) => x.courseId === c.id).map((x) => x.sectionIndex))).size);
         // A course's weekly sessions on the same weekday and start time fall on different dates: one slot per course, not one per week.
-        for (const slot of new Set(c.sessions.filter((s) => s.dayOfWeek).map((s) => `${s.dayOfWeek}|${s.startTime ?? ""}`))) {
+        for (const slot of new Set(c.sessions.filter((s) => s.dayOfWeek && !isOnlineSession(s.deliveryMode, s.location)).map((s) => `${s.dayOfWeek}|${s.startTime ?? ""}`))) {
           const k = `${fam}|${slot}`;
           const l = bySlot.get(k) ?? []; for (let i = 0; i < sections; i++) l.push({ start: ct.startDate.getTime(), end: ct.endDate.getTime() }); bySlot.set(k, l);
         }
@@ -479,7 +480,7 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
       const ct = ctByTerm.get(t.id); if (!ct?.startDate) continue;
       const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
       for (const c of t.courses) for (const s of c.sessions) {
-        if (s.kind !== "CLINICAL" || !(s.facultyNeeded > 0) || !s.dayOfWeek) continue;
+        if (s.kind !== "CLINICAL" || !(s.facultyNeeded > 0) || !s.dayOfWeek || isOnlineSession(s.deliveryMode, s.location)) continue;
         const d = sessionDate({ termStart: ct.startDate, termEnd: ct.endDate, templateWeeks: tplWeeks, courseStart: courseStart.get(c.id) ?? null }, s.week, s.dayOfWeek);
         if (!d) continue;
         // A session whose pattern date is a coded holiday still runs (the calendar moves it off the holiday); its section still needs its instructor.
@@ -548,7 +549,7 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
         const tplWeeks = t.startWeek != null && t.endWeek != null && t.endWeek >= t.startWeek ? t.endWeek - t.startWeek + 1 : null;
         for (const c of t.courses) {
           for (const [k, s] of c.sessions.entries()) {
-            const online = s.deliveryMode === "Online" || s.location === "Internet";
+            const online = isOnlineSession(s.deliveryMode, s.location);
             if (online || !s.dayOfWeek) continue; // no fixed day → nothing to attend on a date
             const sec = st.sections.find((x) => x.courseId === c.id && x.kind === s.kind)?.sectionIndex ?? null;
             if (sec == null) continue; // not in a section of this kind

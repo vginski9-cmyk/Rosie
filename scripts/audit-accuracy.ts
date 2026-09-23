@@ -203,7 +203,9 @@ async function auditInstitution(inst: { id: string; name: string }) {
   if (cellSeats !== physAll) err(tag("E2 asset-map supply"), `asset-map supply ${cellSeats} learner seats ≠ independent ${physAll}`);
   const cells = assetMatch(ad, sup, supply.bookings, assetById);
   const cellDemand = sum(cells.map((c) => c.demand));
-  if (cellDemand !== demandSeats) err(tag("E3 asset-map cells"), `match cells demand ${cellDemand} ≠ ${demandSeats}`);
+  // The asset map cells hold the demand that has a setting; demand under an unmapped rotation type (A3) reaches no cell.
+  const mappedSeats = sum(inWindow.filter((u) => u.settingCode).map((u) => u.seats));
+  if (cellDemand !== mappedSeats) err(tag("E3 asset-map cells"), `match cells demand ${cellDemand} ≠ ${mappedSeats} (demand with a setting; ${demandSeats - mappedSeats} unmapped)`);
   const shortPhys = sum(cells.map((c) => c.shortPhysical));
   info(tag("E capacity"), `asset map: ${cells.length} cells · demand ${cellDemand} · physically short ${shortPhys} learner-shifts (scheduler unmet ${unmetSeats}, of which not-a-supply-shortage reasons ${sum(plan.unmet.filter((u) => !["full", "closed-that-day", "no-asset-for-setting", "too-big"].includes(u.reason)).map((u) => u.unit.seats))})`);
 

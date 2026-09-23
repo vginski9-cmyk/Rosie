@@ -35,6 +35,20 @@ describe("demandUnits", () => {
   });
 });
 
+describe("demandUnits and online sessions", () => {
+  it("an online row typed Clinical seats nobody: no demand unit, whatever weekday and time the sheet gives it", () => {
+    const mk = (id: string, deliveryMode: string | null, location: string | null) => ({
+      session: { id, kind: "CLINICAL", title: "Wk 1", lengthHours: 1, maxStudents: 20, rotationType: "OR", startTime: "06:30", dayOfWeek: "Wed", preceptorsNeeded: 0, facultyNeeded: 1.5, clinicalMode: null, deliveryMode, location },
+      computed: { C: 7, Y: 1 }, cohortId: "co1", cohort: "Class of 2026", programId: "p1", program: "Surg", courseCode: "SUR 210", courseTitle: "Capstone", courseId: "c1",
+      termIndex: 4, termName: "Term 4", semester: "Fall", weekOfTerm: 1, monday: null, mondayIso: "2025-08-18", date: null, dateIso: "2025-08-20", month: "2025-08", holiday: null,
+    }) as unknown as DatedInstance;
+    const rot = [{ rotationType: "or", settingCode: "OR" }];
+    expect(demandUnits([mk("online", "Online", "Internet")], rot)).toHaveLength(0);
+    expect(demandUnits([mk("internet", "In-person", "Internet")], rot)).toHaveLength(0);
+    expect(demandUnits([mk("site", "In-person", "Operating Room")], rot)).toHaveLength(1);
+  });
+});
+
 describe("recommendPlan", () => {
   const A = asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional" });
 

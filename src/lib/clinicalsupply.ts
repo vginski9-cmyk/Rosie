@@ -5,7 +5,7 @@
 // weekday it is open. Demand is every dated clinical section from the capacity
 // model, mapped from its rotation type to a unit category.
 
-import type { DatedInstance } from "./capacitymodel";
+import { isOnlineSession, type DatedInstance } from "./capacitymodel";
 
 export type ShiftBlock = "Day" | "Evening" | "Night";
 export const SHIFT_BLOCKS: ShiftBlock[] = ["Day", "Evening", "Night"];
@@ -77,7 +77,7 @@ export function clinicalDemand(rows: DatedInstance[], rotations: RotationMap[]):
   const map = new Map(rotations.map((r) => [r.rotationType.toLowerCase(), r]));
   const out: DemandPoint[] = [];
   for (const r of rows) {
-    if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
+    if (r.session.kind !== "CLINICAL" || !r.dateIso || isOnlineSession(r.session.deliveryMode, r.session.location)) continue;
     const rt = r.session.rotationType ?? "(unspecified)";
     const m = map.get(rt.toLowerCase()) ?? null;
     const Y = r.computed.Y ?? 0;

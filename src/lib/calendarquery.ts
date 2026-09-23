@@ -5,7 +5,7 @@
 // instructor, preceptor, site, room, offering, program or course when the page asks.
 
 import { prisma } from "./db";
-import { buildInstances, resolveSessionDay, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
+import { buildInstances, resolveSessionDay, isOnlineSession, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
 import { holidayMap } from "./academiccalendar";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, type HolidayRule } from "./holidayrule";
 import { closedWeek, mondayOfDate, type SemesterAnchors } from "./term";
@@ -16,7 +16,6 @@ import {
 } from "./calendarview";
 import { detectDatedConflicts, conflictGroups, seatStartsByGroup, toMin, toHHMM, type DatedBooking, type Weekday } from "./space";
 
-const isOnline = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 
 export interface CalendarParams { institutionId?: string | null; view: CalView; dateIso: string; who?: string | null; kind?: EventKind | null; programId?: string | null }
@@ -122,7 +121,7 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
           startDate: cd.get(c.id)?.startDate ?? null, endDate: cd.get(c.id)?.endDate ?? null,
           sessions: c.sessions.map((s) => {
             const o = ov.get(s.id);
-            const online = isOnline(o?.deliveryMode ?? s.deliveryMode, o?.location ?? s.location);
+            const online = isOnlineSession(o?.deliveryMode ?? s.deliveryMode, o?.location ?? s.location);
             const bk = patterns.get(`${c.id}|${s.kind}`) ?? [];
             return {
               id: s.id, kind: s.kind as EventKind, number: s.number, title: o?.title ?? s.title, deliveryMode: o?.deliveryMode ?? s.deliveryMode, location: o?.location ?? s.location,
@@ -177,7 +176,7 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
     return {
       id: `${x.cohort.id}|${s.id}|${date}`, date, dayOfWeek: dowShort(date),
       startTime: start, endTime: start ? toHHMM(Math.round(toMin(start) + hours * 60)) : null, hours,
-      kind: s.kind, online: isOnline(s.deliveryMode, s.location), title: s.title,
+      kind: s.kind, online: isOnlineSession(s.deliveryMode, s.location), title: s.title,
       courseId: x.inst.courseId ?? "", courseCode: x.inst.courseCode, courseName: x.inst.courseTitle,
       cohortId: x.cohort.id, cohortName: x.cohort.name, cohortStatus: x.cohort.status, programId: x.cohort.programId, programName: x.cohort.programName,
       termName: x.inst.termName, weekOfTerm: x.inst.weekOfTerm,

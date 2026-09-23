@@ -8,13 +8,11 @@ import * as React from "react";
 const cache = ((React as unknown as { cache?: <F>(fn: F) => F }).cache ?? ((fn) => fn)) as <F>(fn: F) => F;
 /** The template week a course begins in (its earliest session week) — the anchor of its own date window. */
 const firstWeekOf = (sessions: { week: number | null }[]) => (sessions.length ? Math.min(...sessions.map((x) => x.week ?? 1)) : null);
-/** One definition of an online session, shared with the calendarizer: the delivery mode says online, or the location is the internet. */
-const isOnlineSession = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
 const mondayMs = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
 const DAY_MS_SEM = 86400000;
 import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, semesterAt, nextSemesterStart, SEASON_ORDER as SEASON_RANK } from "./term";
 import type { TermArchetype } from "./capacity";
-import { resolveSessionDay } from "./capacitymodel";
+import { isOnlineSession, resolveSessionDay } from "./capacitymodel";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, resolveHolidays, holidayOn, type HolidayRule } from "./holidayrule";
 
 /** Load a program's full archetype mapped to the capacity-engine shape. */

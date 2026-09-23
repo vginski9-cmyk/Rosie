@@ -14,6 +14,7 @@
  * experience) so the capacity engine produces meaningful section/FTE/WBL output.
  */
 import { PrismaClient } from "@prisma/client";
+import { isOnlineSession } from "../src/lib/capacitymodel";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
@@ -459,7 +460,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
   const usedNames = new Set<string>();
   const uniqueName = (a: number, b: number) => { for (let k = 0; k < FIRST.length * LAST.length; k++) { const n = `${FIRST[(a + k) % FIRST.length]} ${LAST[(b + k * 7) % LAST.length]}`; if (!usedNames.has(n)) { usedNames.add(n); return n; } } const n = `${FIRST[a % FIRST.length]} ${LAST[b % LAST.length]} ${usedNames.size}`; usedNames.add(n); return n; };
   let made = 0, sections = 0, shifts = 0;
-  const cohorts = await prisma.cohort.findMany({ where: NOT_ARCHIVED, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
+  const cohorts = await prisma.cohort.findMany({ where: NOT_ARCHIVED, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true, deliveryMode: true, location: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
   const pinned = new Set<number>();
@@ -555,15 +556,16 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     const secRows: { studentId: string; cohortId: string; courseId: string; kind: string; sectionIndex: number }[] = [];
     const shiftRows: { studentId: string; cohortId: string; sessionId: string; sectionIndex: number }[] = [];
     for (const t of co.program.terms) for (const c of t.courses) {
-      const kinds = new Map<string, { max: number; sessions: string[] }>();
-      for (const s of c.sessions) { const k = kinds.get(s.kind) ?? { max: 0, sessions: [] }; k.max = Math.max(k.max, s.maxStudents ?? 0); k.sessions.push(s.id); kinds.set(s.kind, k); }
+      // An online session is nothing to attend on a date (lib/capacitymodel isOnlineSession): no shift for it, whatever kind the sheet gives it.
+      const kinds = new Map<string, { max: number; sessions: string[]; online: Set<string> }>();
+      for (const s of c.sessions) { const k = kinds.get(s.kind) ?? { max: 0, sessions: [], online: new Set<string>() }; k.max = Math.max(k.max, s.maxStudents ?? 0); k.sessions.push(s.id); if (isOnlineSession(s.deliveryMode, s.location)) k.online.add(s.id); kinds.set(s.kind, k); }
       for (const [kind, k] of kinds) {
         const nSec = Math.max(1, k.max > 0 ? Math.ceil(seats / k.max) : 1);
         for (const st of students) {
           if (st.status === "withdrawn") continue;
           const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
           secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
-          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid) && !k.online.has(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
         }
       }
     }
@@ -1011,15 +1013,14 @@ async function main() {
   // columns). defaultCohortSeats is the template's max cohort enrollment
   // capacity — the gating number when a goal is split across instantiations.
   //
-  // Radiography and Surgical Technology come straight from the Sandhills
-  // cleaned program-data workbook (prisma/templates/rad.json, surgtech.json):
+  // Radiography comes straight from the Sandhills cleaned program-data workbook (prisma/templates/rad.json):
   // every session row, term by term, with the workbook's workload assumptions.
   const rad = await createPackProgram(loadPack("rad.json"), { institutionId: sandhills.id, occupationId: radOcc.id, familyId: radFamily.id, launchCadence: "MULTI_PER_YEAR", launchTerms: "FALL,SPRING", monthsToFullProductivity: 6 });
 
+  // Surgical Technology comes from the owner's corrected Raw Data & Calculations sheet (prisma/templates/source/
+  // surgtech-raw-data.tsv → scripts/import-surgtech-pack.mjs → surgtech.json): the sheet is the program's source.
   const surg = await createPackProgram(loadPack("surgtech.json"), { institutionId: sandhills.id, occupationId: surgOcc.id, familyId: surgFamily.id, launchCadence: "ANNUAL", launchTerms: "FALL", monthsToFullProductivity: 6 });
-  // A second Surgical Technology template: the same workbook program with the meeting pattern the program
-  // stated on 2026-09-22 (Thursday blocks in person, 6:30 clinical starts, SUR 210 in Term 4) — no offerings.
-  { const { seedSurgTechRevised } = await import("./seed-surgtech-revised"); const r = await seedSurgTechRevised(prisma, surg.id); console.log("Surgical Technology (revised):", r.notes.join(" · ")); }
+  void surg;
 
   // ----- CNA template packs — the colleges' program-structure workbooks ------
   // Each an exact copy of a workbook's Raw Data & Calculations session table,

@@ -602,6 +602,11 @@ export function weeklyNeedByKind(rows: DatedInstance[]): WeeklyKindRow[] {
   });
 }
 
+/** One definition of an online session, read everywhere a session is dated, booked or attended: the delivery mode says
+ *  online, or the location is the internet. An online CLINICAL session is nobody at a site — it is never clinical demand,
+ *  never a seat, never a site-load row — whatever weekday the sheet gives it. */
+export const isOnlineSession = (deliveryMode: string | null | undefined, location: string | null | undefined) => /online|internet/i.test(deliveryMode ?? "") || /^internet$/i.test(location ?? "");
+
 /** The weekday a template session lands on for one offering. The session's own day wins while a
  *  weekly booking still sits on that day; when the calendar has moved the booking to another
  *  weekday (no booking left on the session's day, and a booking on a day no session of this

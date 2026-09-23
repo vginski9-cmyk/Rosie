@@ -8,6 +8,7 @@ import { autoSchedule, toHHMM, type PlaceReq, type RoomLite, type Weekday } from
 import { sectionSlot, toMinutes } from "./sessiontimes";
 import { hostSlots, type HostLite } from "./hosts";
 import type { RotationCode } from "./assetmap";
+import { isOnlineSession } from "./capacitymodel";
 
 const WK_MS = 7 * 24 * 3600 * 1000;
 
@@ -61,7 +62,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
       // pattern at all); a session the sheet gives a weekday and time is booked whatever its
       // delivery code says — the contradiction is flagged in its notes, not hidden.
       const kinds = new Map<string, { kind: string; day: string | null; maxStudents: number; lengthHours: number; sample: (typeof c.sessions)[number] }>();
-      const online = (s: (typeof c.sessions)[number]) => /online|internet/i.test(s.deliveryMode ?? "") || /^internet$/i.test(s.location ?? "");
+      const online = (s: (typeof c.sessions)[number]) => isOnlineSession(s.deliveryMode, s.location);
       const inPerson = c.sessions.filter((s) => !(online(s) && !s.dayOfWeek));
       for (const s of inPerson) {
         const key = `${s.kind}|${s.dayOfWeek ?? ""}`;

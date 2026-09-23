@@ -7,6 +7,18 @@ import { prisma } from "./db";
 import { AUTO_PLAN_NOTE } from "./scheduler";
 export { AUTO_PLAN_NOTE };
 
+/** The room that seats one student of an assignment. A section spread across several rooms at one site (parts) books
+ *  each room for its share of seats, and its students are dealt to the rooms in seat order — so a student's pin, the
+ *  booking it sits in and the site load all name the same room, and no room reads more students than it has seats. */
+export function roomForSeat(a: Pick<PlanAssignmentInput, "assetId" | "parts" | "seatsPerSection" | "sectionIndex" | "seatStart" | "seatOffset">, studentSectionIndex: number): string {
+  if (!a.parts?.length) return a.assetId;
+  const per = Math.max(1, a.seatsPerSection);
+  const ord = a.seatStart != null ? studentSectionIndex - a.seatStart + 1 : studentSectionIndex - (a.sectionIndex - 1) * per;
+  let pos = ord - (a.seatOffset ?? 0); // 1-based position within this piece
+  for (const pt of a.parts) { if (pos <= pt.seats) return pt.assetId; pos -= pt.seats; }
+  return a.parts[a.parts.length - 1].assetId;
+}
+
 export interface PlanAssignmentInput {
   assetId: string; employerId: string; cohortId: string; sessionId: string; sectionIndex: number; courseId: string | null;
   date: string; block: string; seats: number; seatsPerSection: number; preceptorIds: string[]; instructorId: string | null;
@@ -136,10 +148,11 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
       const ord = a.seatStart != null ? st.sectionIndex - a.seatStart + 1 : st.sectionIndex - (a.sectionIndex - 1) * per;
       return ord > (a.seatOffset ?? 0) && ord <= (a.seatOffset ?? 0) + a.seats;
     });
+
     const bySite = new Map<string, { from: string; to: string }>();
     for (const a of mine) {
       const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w);
-      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: a.assetId, preceptorId: leadPreceptor(a), instructorId: a.instructorId ?? null });
+      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: roomForSeat(a, st.sectionIndex), preceptorId: leadPreceptor(a), instructorId: a.instructorId ?? null });
     }
     // A rotation's placement reads by its dates: over (completed), under way (active) or ahead (planned) — a graduated class's are history.
     for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: w.to < todayIsoPw ? "completed" : w.from <= todayIsoPw ? "active" : "planned", notes: AUTO_PLAN_NOTE });
