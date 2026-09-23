@@ -82,9 +82,15 @@ assign staff, etc. Backed by a free hosted Postgres database.
 ### What the build does (already configured)
 `vercel.json` points the build at `npm run vercel-build`, which:
 - derives a PostgreSQL Prisma schema from the single source schema,
-- creates the tables (`prisma db push`),
-- seeds the real Sandhills / Cape Fear data,
-- builds the Next.js app.
+- builds the Next.js app (so a code error can never touch the live database),
+- resets and creates the tables (`prisma db push --force-reset`),
+- seeds the real Sandhills / Cape Fear data (batched writes; the build log prints ⏱ laps per phase).
+
+If the seed fails or the build hits Vercel's 45-minute limit, the deployment fails and the previous one
+stays live — against a database that has just been reset. Every page then shows its empty state until the
+next successful deploy. Check **Deployments → the failed build → Build Logs** for the last ⏱ lap and the
+error. The database client waits up to 30 s for the hosted database to wake from idle (Neon scales to zero),
+so the first request after a quiet spell is slow, not an error.
 
 Every redeploy re-seeds the demo data (fine for a showcase; we'll switch to
 migrations + persistent data when you're ready for real users).

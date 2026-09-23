@@ -912,6 +912,7 @@ export async function createCnaProgram(institutionId: string, occupationId: stri
 }
 
 async function main() {
+  const t0 = Date.now(); const lap = (label: string) => console.log(`⏱ ${label} · ${((Date.now() - t0) / 1000).toFixed(0)}s elapsed`);
   console.log("Resetting to basics: templates only…");
   // Order matters for FK cleanup on SQLite.
   await prisma.alignmentTag.deleteMany();
@@ -1065,6 +1066,7 @@ async function main() {
   console.log("academic calendars:", await seedAcademicCalendars(prisma, join(__dirname, "seed-data", "calendars")));
   console.log("requirement sets:", await seedRequirementSets(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
+  lap("roster");
   console.log("roster:", roster);
   // Carteret runs Nurse Aide Level I in six delivery models (prisma/templates/cna.json, imported from
   // the college's program-structure workbook): one planned offering per model, each capped at the
@@ -1118,6 +1120,7 @@ async function main() {
     console.log(`offering meetings — ${inst.name}:`, await seedOfferingMeetings(prisma, inst.id));
   }
   console.log("workload policies:", await seedWorkloadPolicies(prisma));
+  lap("shift assignments");
   console.log("shift assignments:", await seedShiftAssignments(prisma, sandhills.id));
   // Sandhills' small Surgical Technology classes read exactly as the partner stated them: 8 enrolled, 6 completing.
   console.log("offering students:", await seedOfferingStudents([
@@ -1136,6 +1139,7 @@ async function main() {
   // THE ROSTER IS PLACED BY THE SCHEDULER: every college's clinical shifts go where the engine puts
   // them under the roster levers, written through the apply path — one set of placements for the
   // scheduler, the site capacity view and the site load page, never a site over its seats.
+  lap("requirements backfilled");
   { const { seedRosterPlacements } = await import("./seed-plan"); for (const inst of await prisma.institution.findMany({ select: { id: true }, orderBy: { name: "asc" } })) { const r = await seedRosterPlacements(prisma, inst.id); if (r) console.log("roster placed by the scheduler:", r); } }
   // Every college's learner history — grades, attendance, shift logs, requirement entries — for every offering that has
   // started, graduated classes included (a college without requirement sets or sites simply logs less).
@@ -1146,6 +1150,7 @@ async function main() {
   // Stage actuals read from the records above.
   { const { syncCohortActuals } = await import("../src/lib/pipelineactuals"); for (const co of await prisma.cohort.findMany({ select: { id: true } })) await syncCohortActuals(co.id); }
   // Every college's partner record points at the shared site registry (one record per site in the world).
+  lap("learner records");
   { const { linkSiteRegistry } = await import("../src/lib/siteregistry"); console.log("site registry:", await linkSiteRegistry(prisma)); }
 
   const counts = {
@@ -1162,6 +1167,7 @@ async function main() {
     facilities: await prisma.facility.count(),
   };
   console.log("Seeded (back to basics):", counts);
+  lap("done")
 }
 
 main()

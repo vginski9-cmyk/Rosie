@@ -4,7 +4,7 @@
 // calendarized offerings whose sections are waiting for people, rooms and sites.
 // Every name here is invented.
 
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, Prisma } from "@prisma/client";
 import { alignOffering } from "../src/lib/termalign";
 import { DEFAULT_POLICIES } from "../src/lib/workload";
 import { deriveCohortTargets } from "../src/lib/pipeline";
@@ -300,8 +300,8 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: o.goal, rates, termOverrides: [] }), campusId: campus?.id ?? null, locationNote: o.locationNote ?? null, code: o.code ?? null } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
-    for (const t of aligned.terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] } });
-    for (const c of aligned.courses) await prisma.cohortCourseDates.create({ data: { cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true } });
+    await prisma.cohortTerm.createMany({ data: aligned.terms.map((t) => ({ cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] })) });
+    await prisma.cohortCourseDates.createMany({ data: aligned.courses.map((c) => ({ cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true })) });
     program.cohorts.push({ name });
     made++;
   }
@@ -402,6 +402,7 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
     }
   }
   let made = 0;
+  const staffRows: { cohortId: string; sessionId: string; personId: string; sectionIndex: number; role: string; contactHours: number; startOffsetMin: number; segment: string | null }[] = [];
   for (const co of cohorts) {
     const key = /Radiograph/i.test(co.program.name) ? /Radiograph/i : /Surgical/i.test(co.program.name) ? /Surgical/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide/i : /./;
     const instructors = people.filter((p) => p.role === "instructor" && key.test(p.title ?? ""));
@@ -425,13 +426,14 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
           const leadKey = `${c.id}|${s.kind}|${sec}`;
           let who = leadOf.get(leadKey);
           if (!who) { who = instructors[rr++ % instructors.length]; leadOf.set(leadKey, who); }
-          await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: who.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0 } });
+          staffRows.push({ cohortId: co.id, sessionId: s.id, personId: who.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: null });
           made++;
-          if (s.facultyNeeded >= 2) { const second = instructors[(instructors.indexOf(who) + 1) % instructors.length]; if (second.id !== who.id) { await prisma.sessionInstructor.create({ data: { cohortId: co.id, sessionId: s.id, personId: second.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: "co-teaching" } }); made++; } }
+          if (s.facultyNeeded >= 2) { const second = instructors[(instructors.indexOf(who) + 1) % instructors.length]; if (second.id !== who.id) { staffRows.push({ cohortId: co.id, sessionId: s.id, personId: second.id, sectionIndex: sec, role: "instructor", contactHours: s.lengthHours, startOffsetMin: 0, segment: "co-teaching" }); made++; } }
         }
       }
     }
   }
+  for (let i = 0; i < staffRows.length; i += 500) await prisma.sessionInstructor.createMany({ data: staffRows.slice(i, i + 500) });
   return made;
 }
 
@@ -523,6 +525,8 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
     const current = ended ? null : started.find((t) => { const ct = ctByTerm.get(t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
     const h = [...co.id].reduce((a, ch) => a + ch.charCodeAt(0), 0);
     const mix = (a: number, b: number) => { let t = (h * 2654435761 + a * 40503 + b * 97) >>> 0; t ^= t >>> 16; t = Math.imul(t, 0x45d9f3b) >>> 0; t ^= t >>> 16; return (t >>> 0) % 1000; };
+    const logGroups = new Map<string, { ids: string[]; data: { status: string; hoursLogged: number | null; preceptorId: string | null; instructorId: string | null; settingCode: string | null; loggedAt: Date } }>();
+    const studentCounts: { id: string; attendedCount: number; missedCount: number; gpa: number | null }[] = [];
     for (const [si, st] of co.students.entries()) {
       // Course records for every term that has started: a finished term carries a letter grade and its points (the demo grade
       // bank, deterministic per learner and course), the current term is in progress, a withdrawn learner's are withdrawn.
@@ -563,20 +567,27 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
           }
         }
       }
-      await prisma.student.update({ where: { id: st.id }, data: { attendedCount: att, missedCount: miss, gpa: gpaOf(points) } });
+      studentCounts.push({ id: st.id, attendedCount: att, missedCount: miss, gpa: gpaOf(points) });
       if (absences.length) await prisma.studentAbsence.createMany({ data: absences });
-      for (const u of shiftUpdates) await prisma.studentShift.update({ where: { id: u.id }, data: { status: u.status, hoursLogged: u.hoursLogged, preceptorId: u.preceptorId, instructorId: u.instructorId, settingCode: u.settingCode, loggedAt: u.date } });
+      // A logged shift's row: every learner on the same section on the same date logs the same values, so the writes are grouped by value.
+      for (const u of shiftUpdates) { const k = `${u.status}|${u.hoursLogged}|${u.preceptorId ?? ""}|${u.instructorId ?? ""}|${u.settingCode ?? ""}|${u.date.toISOString()}`; const g = logGroups.get(k) ?? { ids: [], data: { status: u.status, hoursLogged: u.hoursLogged, preceptorId: u.preceptorId, instructorId: u.instructorId, settingCode: u.settingCode, loggedAt: u.date } }; g.ids.push(u.id); logGroups.set(k, g); }
       attended += att; missed += miss; logged += shiftUpdates.length;
     }
+    // The writes, batched: one updateMany per distinct logged value set, the learners' counters in transactions of a hundred.
+    for (const g of logGroups.values()) for (let i = 0; i < g.ids.length; i += 500) await prisma.studentShift.updateMany({ where: { id: { in: g.ids.slice(i, i + 500) } }, data: g.data });
+    for (let i = 0; i < studentCounts.length; i += 100) await prisma.$transaction(studentCounts.slice(i, i + 100).map((c) => prisma.student.update({ where: { id: c.id }, data: { attendedCount: c.attendedCount, missedCount: c.missedCount, gpa: c.gpa } })));
     // Every scheduled (future) clinical shift carries the setting its hours will count toward and its section's preceptor and instructor, so the ledger can be checked before the shift happens.
     const sessById = new Map(co.program.terms.flatMap((t) => t.courses.flatMap((c) => c.sessions.map((s) => [s.id, s] as const))));
+    const pinGroups = new Map<string, { ids: string[]; data: { settingCode: string | null; preceptorId: string | null; instructorId: string | null } }>();
     for (const sh of co.studentShifts) {
       const s = sessById.get(sh.sessionId); if (!s) continue;
       const settingCode = sh.asset?.settingCode ?? rotations.get((s.rotationType ?? "").trim().toLowerCase()) ?? null;
       const preceptorId = preceptorOf.get(`${sh.sessionId}#${sh.sectionIndex}`) ?? null;
       const instructorId = instructorOf.get(`${sh.sessionId}#${sh.sectionIndex}`) ?? null;
-      await prisma.studentShift.updateMany({ where: { id: sh.id, status: "scheduled" }, data: { settingCode, preceptorId, instructorId } });
+      const k = `${settingCode ?? ""}|${preceptorId ?? ""}|${instructorId ?? ""}`;
+      const g = pinGroups.get(k) ?? { ids: [], data: { settingCode, preceptorId, instructorId } }; g.ids.push(sh.id); pinGroups.set(k, g);
     }
+    for (const g of pinGroups.values()) for (let i = 0; i < g.ids.length; i += 500) await prisma.studentShift.updateMany({ where: { id: { in: g.ids.slice(i, i + 500) }, status: "scheduled" }, data: g.data });
   }
   return { offerings: cohorts.length, courseRecords: records, attended, missed, shiftsLogged: logged, instructorsFilled };
 }
@@ -590,6 +601,7 @@ export async function seedRequirementLogs(prisma: PrismaClient, institutionId: s
   const r = rng(20260910);
   const fams = await prisma.programFamily.findMany({ where: { institutionId, requirementSets: { some: {} } }, select: { id: true, requirementSets: { select: { kind: true, items: { select: { id: true, category: true, mandatory: true, settingCodes: true, role: true } } } } } });
   let entries = 0;
+  const logRows: Prisma.StudentRequirementLogCreateManyInput[] = [];
   for (const f of fams) {
     const set = f.requirementSets[0]; if (!set) continue;
     const items = set.items.map((i) => ({ ...i, settings: i.settingCodes.split(",").map((x) => x.trim()).filter(Boolean) }));
@@ -609,12 +621,13 @@ export async function seedRequirementLogs(prisma: PrismaClient, institutionId: s
           const pick = ranked[Math.floor(r() * Math.min(3, ranked.length))]; if (!pick) break;
           const cases = set.kind === "cases";
           const role = cases ? (r() < 0.7 ? "first scrub" : r() < 0.85 ? "second scrub" : "observation") : null;
-          await prisma.studentRequirementLog.create({ data: { studentId: st.id, itemId: pick.id, shiftId: sh.id, employerId: sh.asset?.employerId ?? siteOf(st.cohortId!, sh.session.courseId, sh.sectionIndex), preceptorId: sh.preceptorId, date: sh.loggedAt, outcome: !cases && r() < 0.1 ? "attempted" : "competent", role, simulated: !cases && r() < 0.05 && !/pediatric/i.test(pick.category), count: cases ? 1 + Math.floor(r() * 2) : 1, flags: /geriatric/i.test(pick.category) ? "geriatric" : /pediatric/i.test(pick.category) ? "pediatric" : /trauma/i.test(pick.category) ? "trauma" : "", verifiedById: r() < 0.8 ? sh.preceptorId : null, verifiedAt: r() < 0.8 ? sh.loggedAt : null, notes: "demo entry derived from a completed shift" } });
+          logRows.push({ studentId: st.id, itemId: pick.id, shiftId: sh.id, employerId: sh.asset?.employerId ?? siteOf(st.cohortId!, sh.session.courseId, sh.sectionIndex), preceptorId: sh.preceptorId, date: sh.loggedAt, outcome: !cases && r() < 0.1 ? "attempted" : "competent", role, simulated: !cases && r() < 0.05 && !/pediatric/i.test(pick.category), count: cases ? 1 + Math.floor(r() * 2) : 1, flags: /geriatric/i.test(pick.category) ? "geriatric" : /pediatric/i.test(pick.category) ? "pediatric" : /trauma/i.test(pick.category) ? "trauma" : "", verifiedById: r() < 0.8 ? sh.preceptorId : null, verifiedAt: r() < 0.8 ? sh.loggedAt : null, notes: "demo entry derived from a completed shift" });
           if (!cases) done.add(pick.id);
           entries++;
         }
       }
     }
   }
+  for (let i = 0; i < logRows.length; i += 500) await prisma.studentRequirementLog.createMany({ data: logRows.slice(i, i + 500) });
   return { entries };
 }
