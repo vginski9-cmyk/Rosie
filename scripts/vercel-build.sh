@@ -15,11 +15,16 @@ if [ "$ROSIE_DB" = "postgres" ]; then
   prisma db push --schema=prisma/schema.postgres.prisma --skip-generate --force-reset --accept-data-loss
   tsx prisma/seed.ts
 else
+  # One file for every step of the build: the Prisma CLI and the seed's own client read DATABASE_URL; the app's
+  # client (src/lib/db.ts), which the seed also reaches through the scheduler and the plan writer, reads
+  # ROSIE_DB_FILE — never the /tmp copy the runtime uses, since Vercel sets VERCEL=1 during the build too.
   export DATABASE_URL="file:$PWD/prisma/rosie.db"
+  export ROSIE_DB_FILE="$PWD/prisma/rosie.db"
   rm -f prisma/rosie.db prisma/rosie.db-journal
   prisma generate
   prisma db push --skip-generate --force-reset --accept-data-loss
   tsx prisma/seed.ts
   ls -la prisma/rosie.db
+  unset ROSIE_DB_FILE
   next build
 fi

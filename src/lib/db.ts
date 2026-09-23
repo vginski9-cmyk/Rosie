@@ -19,7 +19,7 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 export const BUNDLED_DB = "prisma/rosie.db";
 export const RUNTIME_DB = "/tmp/rosie.db";
 
-export type DbEnv = Partial<Record<"ROSIE_DB" | "POSTGRES_URL_NON_POOLING" | "DATABASE_URL_UNPOOLED" | "DATABASE_URL" | "VERCEL" | "NODE_ENV", string>>;
+export type DbEnv = Partial<Record<"ROSIE_DB" | "ROSIE_DB_FILE" | "POSTGRES_URL_NON_POOLING" | "DATABASE_URL_UNPOOLED" | "DATABASE_URL" | "VERCEL" | "NODE_ENV", string>>;
 export function datasourceUrl(env: DbEnv = process.env, cwd: string = process.cwd(), fs: { existsSync: typeof existsSync; copyFileSync: typeof copyFileSync } = { existsSync, copyFileSync }): string | undefined {
   if (env.ROSIE_DB === "postgres") {
     const raw = env.POSTGRES_URL_NON_POOLING || env.DATABASE_URL_UNPOOLED || env.DATABASE_URL;
@@ -31,6 +31,11 @@ export function datasourceUrl(env: DbEnv = process.env, cwd: string = process.cw
     if (!params.has("pool_timeout")) params.set("pool_timeout", "30");
     return `${base}?${params.toString()}`;
   }
+  // The hosted BUILD seeds the bundled file in place: scripts/vercel-build.sh names it in ROSIE_DB_FILE so every
+  // step — the seed's own client and the app's (the scheduler placement, the plan writer, the site registry) —
+  // writes to that one file. Without this, VERCEL=1 during the build would send the app's client to a /tmp copy
+  // taken mid-seed, and the deployment would ship a file missing everything written after that point.
+  if (env.ROSIE_DB_FILE) return `file:${env.ROSIE_DB_FILE}`;
   const bundled = join(cwd, BUNDLED_DB);
   if (env.VERCEL && fs.existsSync(bundled)) {
     if (!fs.existsSync(RUNTIME_DB)) fs.copyFileSync(bundled, RUNTIME_DB);

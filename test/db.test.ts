@@ -12,6 +12,11 @@ describe("where the database is", () => {
     expect(datasourceUrl({ VERCEL: "1", NODE_ENV: "production" }, "/var/task", fs)).toBe(`file:${RUNTIME_DB}`);
     expect(copies).toHaveLength(1); // already there
   });
+  it("during the hosted build every step writes the bundled file in place, never a /tmp copy", () => {
+    const copies: string[][] = []; const fs = fsOf([`/vercel/path0/${BUNDLED_DB}`], copies);
+    expect(datasourceUrl({ VERCEL: "1", ROSIE_DB_FILE: "/vercel/path0/prisma/rosie.db", DATABASE_URL: "file:/vercel/path0/prisma/rosie.db" }, "/vercel/path0", fs)).toBe("file:/vercel/path0/prisma/rosie.db");
+    expect(copies).toEqual([]);
+  });
   it("Postgres is an opt-in, with a 30-second connect and pool timeout unless the URL sets its own", () => {
     expect(datasourceUrl({ ROSIE_DB: "postgres", POSTGRES_URL_NON_POOLING: "postgresql://u:p@h/db?sslmode=require" })).toBe("postgresql://u:p@h/db?sslmode=require&connect_timeout=30&pool_timeout=30");
     expect(datasourceUrl({ ROSIE_DB: "postgres", DATABASE_URL_UNPOOLED: "postgres://h/db?connect_timeout=5" })).toBe("postgres://h/db?connect_timeout=5&pool_timeout=30");
