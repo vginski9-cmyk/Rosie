@@ -5,7 +5,9 @@
 // and the DATABASE_URL to deploy.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // The hosted deployment ships this SQLite database inside its functions (Amazon Linux / RHEL, OpenSSL 3).
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

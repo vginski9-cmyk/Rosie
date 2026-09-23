@@ -51,31 +51,38 @@ manually via **Run workflow**).
 Everything works and persists: create/edit/duplicate programs, edit cadence,
 assign staff, etc. Backed by a free hosted Postgres database.
 
-### One-time setup (all in the browser, ~5 clicks)
+### One-time setup (all in the browser, ~3 clicks)
 
 1. Go to **vercel.com** → sign in with GitHub → **Add New… → Project**.
 2. **Import** the `vginski9-cmyk/rosie` repository.
-3. Before deploying, add a database: in the project, open the **Storage** tab →
-   **Create Database → Postgres** (Vercel's Neon integration). Accept the
-   defaults. This automatically sets the `DATABASE_URL` environment variable.
-   - The build and the app take the database from the first of these that is set:
-     `POSTGRES_URL_NON_POOLING` (the older Vercel Postgres store), `DATABASE_URL_UNPOOLED`
-     (the current Neon integration), `DATABASE_URL`. A database created elsewhere (neon.tech,
-     Supabase, any Postgres) works by pasting its direct, non-pooled connection string into
-     Vercel → Settings → Environment Variables under any of those names.
-   - The database is disposable: every deploy rebuilds it from the seed. If the store ever breaks
-     (the Storage tab says it cannot load the database, the build says `P1001: Can't reach database
-     server`), remove it, create a new one, connect it to the project and redeploy — nothing is lost.
-     When replacing a store, delete every `POSTGRES_*` and `PG*` variable the old one left behind:
-     a stale `POSTGRES_URL_NON_POOLING` would still win over the new store's `DATABASE_URL`.
-4. Add the site password: **Settings → Environment Variables → `SITE_PASSWORD`**
+3. Add the site password: **Settings → Environment Variables → `SITE_PASSWORD`**
    (any value; it is the one password everyone types on the door). Without it a
    production deployment **fails closed** — every page shows "not configured"
    and nobody gets in. Optional: `SITE_SECRET` (a long random string) signs the
    session cookie separately from the password, so changing one does not
    require changing the other.
-5. Go to **Deployments → Redeploy** (so the build picks up `DATABASE_URL` and the password).
-6. Open the deployment URL — Rosie asks for the password, then shows the strategic product.
+4. **Deploy.** There is no database to set up: the deployment carries its own.
+
+### The database travels with the deployment
+Every build seeds the whole Sandhills / Cape Fear dataset into a SQLite file
+(`prisma/rosie.db`, about 60 MB) and ships it inside every server function. So:
+- nothing to provision, connect, wake up or pay for — no storage service can expire or die under the site;
+- a build that fails (a seed error, a code error) never touches the live site: the previous
+  deployment keeps serving its own bundled database;
+- edits made on the hosted site (program design, goals) persist within a running instance only
+  (the read-only file is copied to `/tmp` on first use) and are rebuilt from the seed on the next
+  deploy. That fits the strategic product, whose operational module is off in production.
+
+Persistent editing on the hosted site is an opt-in: set `ROSIE_DB=postgres` and a Postgres
+connection string (`POSTGRES_URL_NON_POOLING`, `DATABASE_URL_UNPOOLED` or `DATABASE_URL` —
+the first one set wins; a Vercel Marketplace store such as Neon or Supabase writes one of these
+when connected to the project) and redeploy. The build then proves itself first (`next build`)
+and touches the database last (`prisma db push --force-reset` + seed); the client waits up to
+30 s for a serverless database to wake. If that build fails, the previous deployment stays live
+against a database that has just been reset, so a broken store shows every page empty until the
+next successful deploy — replace the store (they are disposable: every deploy reseeds) and
+redeploy. Delete the old store's `POSTGRES_*` / `PG*` variables when replacing it, or the stale
+host wins.
 
 ### Access control (how the door works)
 - The password is checked on the server for every page and API route (`src/middleware.ts`).
@@ -88,20 +95,13 @@ assign staff, etc. Backed by a free hosted Postgres database.
   the writes.
 
 ### What the build does (already configured)
-`vercel.json` points the build at `npm run vercel-build`, which:
-- derives a PostgreSQL Prisma schema from the single source schema,
-- builds the Next.js app (so a code error can never touch the live database),
-- resets and creates the tables (`prisma db push --force-reset`),
-- seeds the real Sandhills / Cape Fear data (batched writes; the build log prints ⏱ laps per phase).
+`vercel.json` points the build at `npm run vercel-build` → `scripts/vercel-build.sh`, which:
+- generates the Prisma client (with the Vercel runtime's engine),
+- seeds `prisma/rosie.db` (`prisma db push --force-reset` + `tsx prisma/seed.ts`; the log prints ⏱ laps per phase),
+- builds the Next.js app, tracing the database file and the engine into every function.
 
-If the seed fails or the build hits Vercel's 45-minute limit, the deployment fails and the previous one
-stays live — against a database that has just been reset. Every page then shows its empty state until the
-next successful deploy. Check **Deployments → the failed build → Build Logs** for the last ⏱ lap and the
-error. The database client waits up to 30 s for the hosted database to wake from idle (Neon scales to zero),
-so the first request after a quiet spell is slow, not an error.
-
-Every redeploy re-seeds the demo data (fine for a showcase; we'll switch to
-migrations + persistent data when you're ready for real users).
+With `ROSIE_DB=postgres` it derives the Postgres schema, builds, then pushes and seeds the hosted database.
+Check **Deployments → the failed build → Build Logs** for the last ⏱ lap and the error when a build fails.
 
 ---
 
