@@ -58,12 +58,16 @@ assign staff, etc. Backed by a free hosted Postgres database.
 3. Before deploying, add a database: in the project, open the **Storage** tab →
    **Create Database → Postgres** (Vercel's Neon integration). Accept the
    defaults. This automatically sets the `DATABASE_URL` environment variable.
-   - *(Alternatively: create a free DB at neon.tech, Supabase or any Postgres and paste its
-     direct (non-pooled) connection string into Vercel → Settings → Environment Variables as
-     `POSTGRES_URL_NON_POOLING` — or as `DATABASE_URL`; the build uses whichever is set.)*
+   - The build and the app take the database from the first of these that is set:
+     `POSTGRES_URL_NON_POOLING` (the older Vercel Postgres store), `DATABASE_URL_UNPOOLED`
+     (the current Neon integration), `DATABASE_URL`. A database created elsewhere (neon.tech,
+     Supabase, any Postgres) works by pasting its direct, non-pooled connection string into
+     Vercel → Settings → Environment Variables under any of those names.
    - The database is disposable: every deploy rebuilds it from the seed. If the store ever breaks
-     (the Storage tab cannot load it, the build says `P1001: Can't reach database server`), remove
-     it, create a new one, connect it to the project and redeploy — nothing is lost.
+     (the Storage tab says it cannot load the database, the build says `P1001: Can't reach database
+     server`), remove it, create a new one, connect it to the project and redeploy — nothing is lost.
+     When replacing a store, delete every `POSTGRES_*` and `PG*` variable the old one left behind:
+     a stale `POSTGRES_URL_NON_POOLING` would still win over the new store's `DATABASE_URL`.
 4. Add the site password: **Settings → Environment Variables → `SITE_PASSWORD`**
    (any value; it is the one password everyone types on the door). Without it a
    production deployment **fails closed** — every page shows "not configured"

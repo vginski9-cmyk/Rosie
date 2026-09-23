@@ -3,7 +3,9 @@ import { PrismaClient } from "@prisma/client";
 // One client for the process. Reused across hot reloads in dev.
 //
 // The connection string comes from the environment the build chose: the hosted (Postgres) build's
-// schema reads POSTGRES_URL_NON_POOLING, local dev's reads DATABASE_URL. A hosted serverless Postgres
+// schema reads POSTGRES_URL_NON_POOLING (the older Vercel Postgres store's name), the newer Neon
+// integration provides DATABASE_URL_UNPOOLED and DATABASE_URL, local dev's reads DATABASE_URL — the
+// first one set wins, in that order, the same order the build script uses. A hosted serverless Postgres
 // (Neon behind Vercel) scales to zero when idle and takes longer than Prisma's default 5-second
 // connect timeout to wake, which would throw inside every page's render until it is warm; the URL
 // therefore carries a 30-second connect and pool timeout unless it sets its own. A production
@@ -12,9 +14,9 @@ import { PrismaClient } from "@prisma/client";
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export function datasourceUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const raw = env.POSTGRES_URL_NON_POOLING || env.DATABASE_URL;
+  const raw = env.POSTGRES_URL_NON_POOLING || env.DATABASE_URL_UNPOOLED || env.DATABASE_URL;
   if (!raw) {
-    if (env.NODE_ENV === "production") throw new Error("Rosie has no database connection string: set POSTGRES_URL_NON_POOLING (hosted Postgres) or DATABASE_URL.");
+    if (env.NODE_ENV === "production") throw new Error("Rosie has no database connection string: set POSTGRES_URL_NON_POOLING, DATABASE_URL_UNPOOLED or DATABASE_URL.");
     return undefined;
   }
   if (!/^postgres(ql)?:\/\//i.test(raw)) return raw; // SQLite and anything else: as given
