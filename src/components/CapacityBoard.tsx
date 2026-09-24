@@ -553,7 +553,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
           <h2 className="text-sm font-semibold text-slate-700">Faculty &amp; preceptor FTEs per week of term</h2>
           <p className="text-[11px] text-slate-400">The scheduling view: weekly FTE by week of term within each semester — the shape of the load. Where orange overtakes blue, clinicals start and preceptors become the constraint.</p>
         </div>
-        <ColumnChart bands={weekBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={34} onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
+        <ColumnChart bands={weekBands} series={[{ name: "Faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={48} onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
         <p className="mt-1 text-[11px] text-slate-400">Click a week to see who fills it.</p>
         {drillPanel("week")}
       </section>
@@ -565,7 +565,7 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
             <h2 className="text-sm font-semibold text-slate-700">Clinical staffing by rotation type — real weeks, days &amp; times</h2>
             <p className="text-[11px] text-slate-400">The clinical-coordinator view: which rotation settings need clinical faculty and preceptors in each real calendar week — each column names the setting and the days &amp; times its shifts run, grouped by week, semester and year. Take a column to that setting&apos;s partner sites.</p>
           </div>
-          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={40} vertLeafLabels onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
+          <ColumnChart bands={rotBands} series={[{ name: "Clinical faculty FTEs", color: FAC_COLOR }, { name: "Preceptor FTEs", color: PRE_COLOR }]} unit="weekly" leafMinWidth={50} vertLeafLabels onLeafClick={onLeaf("weekly")} activeKey={drill?.key} />
           {drillPanel("rot")}
         </section>
       )}
