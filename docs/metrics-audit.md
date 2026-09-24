@@ -945,3 +945,9 @@ Two rules the sheet's slip exposed, fixed across the engine rather than around t
 
 **Tests.** `test/academiccalendar.test.ts` (range lines, merge and tie-break rules, the typo guard, the whole seed file), `test/termalign.test.ts` (a class ending with its session), `test/goaldates.test.ts` (past starts, per-season coverage, the Monday rule, calendar starts and the fitting-session suggestion).
 
+### Radiography clinicals: a quarter of a faculty member on every clinical session; RAD 112's lab moved off its class (2026-09-24)
+
+**What was wrong.** Every clinical session of RAD 151, 161, 171, 251 and 261 in the Radiography pack (`prisma/templates/rad.json`, the program's source) carried `facultyNeeded 0.041675`, so the instructor of record's time per student per shift was tiny — RAD 171's 9-hour shift × 0.041675 = 0.375 h, about 22 minutes, which is what the site load export showed. RAD 112's class met Wednesday 11:10a–1:50p while its lab's second section met 1:40p–4:30p: a ten-minute overlap.
+
+**What changed.** All 146 clinical sessions of those five courses read `facultyNeeded 0.25` (the owner's rule): an 8-hour shift gives each 1:1 student 2 hours of instructor time, RAD 171's 9-hour shift 2.25 h, RAD 151's 7-hour 1.75 h — the instructor of record is still fractional oversight (not tied up by the shift), so the scheduler, the site load and the staffing need read it as before at the new figure. The seed's fallback clinical profile for a generated program follows the same rule. RAD 112's lab section 2 is Wednesday 2:00p–4:50p (the same 2 h 50 m block as section 1, ten minutes after the class ends); the class and section 1 are unchanged. `test/packs.test.ts` pins both.
+

@@ -198,7 +198,8 @@ function genSessions(c: CourseSeed, weeks: number) {
     }
   }
   if (c.weeklyClinicalHours > 0) {
-    const p = c.clinical ?? CLINICAL_PROFILE[c.code] ?? { mode: "Preceptor-led", maxStudents: 1, faculty: 0.1 / 3, preceptors: 1 };
+    // A quarter of a faculty member oversees every precepted clinical session — the owner's rule for the Radiography clinicals (2026-09-24).
+    const p = c.clinical ?? CLINICAL_PROFILE[c.code] ?? { mode: "Preceptor-led", maxStudents: 1, faculty: 0.25, preceptors: 1 };
     const rotations = c.rotations ?? CLINICAL_ROTATIONS;
     const clinWeeks = Math.min(weeks, 15);
     const shiftLen = c.weeklyClinicalHours >= 18 ? 12 : 8; // heavier clinical terms run 12-hr shifts
