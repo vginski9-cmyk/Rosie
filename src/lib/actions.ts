@@ -2,7 +2,8 @@
 
 import { prisma } from "./db";
 import { STATUS_STAGE } from "./pipelineactuals";
-import { NOT_ARCHIVED } from "./cohortscope";
+import { NOT_ARCHIVED, cohortStatusOn } from "./cohortscope";
+import { eventSpan } from "./academiccalendar";
 import { ROSTER_STATUSES } from "./learners";
 import { requireOperational } from "./mode";
 import { isHolidayRule } from "./holidayrule";
@@ -131,12 +132,12 @@ export async function importAcademicCalendar(institutionId: string, familyId: st
 }): Promise<{ saved: number; aligned: AlignSummary }> {
   const KINDS = new Set(["term_start", "term_end", "session_start", "holiday", "other"]);
   const events = payload.events.filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.iso) && KINDS.has(e.kind) && e.kind !== "other" && e.label.trim());
-  const years = [...new Set(events.map((e) => Number(e.iso.slice(0, 4))))];
+  // The paste replaces the calendar over ITS OWN span (its first to its last coded day) and nothing outside it:
+  // a 2025–26 calendar pasted beside a 2026–27 one leaves Fall 2026 alone; pasting a year again replaces that year.
+  const span = eventSpan(events);
   const mmdd = (x: string, d: string) => (/^\d{2}-\d{2}$/.test(x) ? x : d);
   await prisma.$transaction(async (tx) => {
-    for (const y of years) {
-      await tx.academicEvent.deleteMany({ where: { institutionId, date: { gte: new Date(`${y}-01-01T00:00:00Z`), lt: new Date(`${y + 1}-01-01T00:00:00Z`) } } });
-    }
+    if (span) await tx.academicEvent.deleteMany({ where: { institutionId, date: { gte: new Date(`${span.from}T00:00:00Z`), lte: new Date(`${span.to}T00:00:00Z`) } } });
     if (events.length) {
       await tx.academicEvent.createMany({
         data: events.map((e) => ({
@@ -240,6 +241,11 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   // The offering's own first day follows term 1 when it snapped onto the coded semester start.
   const first = a.terms[0];
   if (first?.movedFrom && !opts.dryRun) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
+  // Its status follows its dates (lib/cohortscope, the rule the seed applies): a start already behind us is
+  // active, a last day already behind us is completed — a recorded offering never reads "planned".
+  const lastEnd = a.terms.map((t) => t.endIso).sort().at(-1) ?? null;
+  const lifecycle = first ? cohortStatusOn(first.startIso, lastEnd, new Date().toISOString().slice(0, 10)) : null;
+  if (lifecycle && cohort.status !== "archived" && cohort.status !== lifecycle && !opts.dryRun) await prisma.cohort.update({ where: { id: cohortId }, data: { status: lifecycle } });
   // "Class of YYYY" tracks the year the last term actually ends.
   let renamed: string | null = null;
   const endYear = endYearOf(a.terms);
@@ -1455,12 +1461,12 @@ export async function updateOfferingLocation(cohortId: string, programId: string
   revalidatePath(`/programs/${programId}`);
 }
 
-/** How a program's terms sit on the calendar: with the semester, or straight through from the chosen day (a continuing-education class). Re-aligns every planned offering. */
+/** How a program's terms sit on the calendar: with the semester, or straight through from the chosen day (a continuing-education class). Re-aligns every dated offering. */
 export async function setProgramCalendarMode(programId: string, formData: FormData) {
   const mode = str(formData.get("calendarMode")) === "continuous" ? "continuous" : "semester";
   await prisma.program.update({ where: { id: programId }, data: { calendarMode: mode } });
-  const planned = await prisma.cohort.findMany({ where: { programId, status: "planned", startDate: { not: null } }, select: { id: true } });
-  for (const c of planned) await alignOfferingToCalendar(c.id);
+  const dated = await prisma.cohort.findMany({ where: { programId, ...NOT_ARCHIVED, startDate: { not: null } }, select: { id: true } });
+  for (const c of dated) await alignOfferingToCalendar(c.id);
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/programs/${programId}/structure`);
 }

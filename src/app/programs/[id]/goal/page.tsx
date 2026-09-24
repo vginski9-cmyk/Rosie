@@ -93,6 +93,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
           running: p.cohorts.filter((c) => c.status === "active" || c.status === "planned").length,
           calendarMode: p.calendarMode === "continuous" ? "continuous" as const : "semester" as const,
           termList: [...p.terms].sort((a, b) => a.index - b.index).map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek, semester: t.semester })),
+          launchTerms: (p.launchTerms ?? "").split(",").map((x) => x.trim()).filter(Boolean),
           sessionMax: (() => { const mx: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>> = {}; for (const t of p.terms) for (const c of t.courses) for (const x of c.sessions) { const k = x.kind as "CLASS" | "LAB" | "CLINICAL"; if (x.maxStudents > 0) mx[k] = Math.min(mx[k] ?? Infinity, x.maxStudents); } return mx; })(),
         }))}
         campuses={campuses.map((c) => ({ id: c.id, name: c.name, city: c.city }))}

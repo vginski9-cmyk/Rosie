@@ -14,7 +14,7 @@ import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/comp
 import { yearAllocations, spreadGoal, offeringsNeeded, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 import { goalTiming } from "@/lib/goaltiming";
-import { candidateStarts, offeringEnd, suggestedStarts, type PlannerCalendar, type PlannerModel } from "@/lib/goaldates";
+import { candidateStarts, offeringEnd, suggestedStarts, term1Weeks, type PlannerCalendar, type PlannerModel, type StartOption } from "@/lib/goaldates";
 import type { TermLite } from "@/lib/termalign";
 
 // The North-Star goal surface. Set a multi-year goal — one clean number per year,
@@ -93,6 +93,8 @@ export interface ProgramOption {
   /** How this program sits on the calendar (semester | continuous) and its terms — what dates a start implies. */
   calendarMode?: "semester" | "continuous";
   termList?: TermLite[];
+  /** The seasons the program launches in (FALL, SPRING, SUMMER) — the starts offered when term 1 codes no season. */
+  launchTerms?: string[];
 }
 
 interface Persisted {
@@ -310,16 +312,36 @@ export function GoalPlanner({
 
   const todayIso = new Date().toISOString().slice(0, 10);
   /** The program on the college's calendar, when the page gave us both — else dates fall back to a rough count of weeks. */
-  const plannerModel = (m: ProgramOption): PlannerModel | null => (calendar && m.termList?.length ? { calendarMode: m.calendarMode ?? "semester", terms: m.termList } : null);
-  /** Starts for n offerings that graduate in the selected year, spaced through it. Without a calendar: the
-   *  latest start that still has graduates productive in the year (Phase 6), for every slot. */
+  const plannerModel = (m: ProgramOption): PlannerModel | null => (calendar && m.termList?.length ? { calendarMode: m.calendarMode ?? "semester", terms: m.termList, launchTerms: m.launchTerms ?? null } : null);
+  /** Starts for n offerings that graduate in the selected year, spaced through it — the college's own starts that
+   *  fit the program's length first, still ahead when any are (lib/goaldates). Without a calendar: the latest start
+   *  that still has graduates productive in the year (Phase 6), for every slot. */
   const startsFor = (m: ProgramOption, n: number): string[] => {
     const pm = plannerModel(m);
-    if (pm && calendar) return suggestedStarts(s.selectedYear, n, pm, calendar, todayIso);
+    if (pm && calendar) return suggestedStarts(s.selectedYear, n, pm, calendar, todayIso).map((o) => o.iso);
     return Array.from({ length: n }, () => goalTiming(s.selectedYear, m, todayIso).startBy);
   };
-  /** Every start that would graduate in the selected year — the choices a slot's start offers. */
-  const startChoices = (m: ProgramOption): string[] => { const pm = plannerModel(m); return pm && calendar ? candidateStarts(s.selectedYear, pm, calendar, todayIso) : []; };
+  /** Every start that would graduate in the selected year — the choices a slot's start offers: the college's coded
+   *  starts, any Monday (or the semester pattern), those already begun included and said so. */
+  const startChoices = (m: ProgramOption): StartOption[] => { const pm = plannerModel(m); return pm && calendar ? candidateStarts(s.selectedYear, pm, calendar, todayIso) : []; };
+  /** How a start reads in the list: the day, the college's own name for it, its length, whether it fits, and where it sits against today. */
+  const startText = (o: StartOption, m: ProgramOption): string => {
+    const pm = plannerModel(m);
+    const bits = [fmtD(o.iso)];
+    if (o.label) bits.push(o.label);
+    if (o.sessionWeeks != null) bits.push(`${fmt.num(o.sessionWeeks)} wk${pm && o.fits ? ` — fits the ${fmt.num(term1Weeks(pm))}-week model` : ""}`);
+    else if (o.source === "calendar") bits.push("length not coded");
+    if (o.timing === "started") bits.push("already started"); else if (o.timing === "finished") bits.push("already finished");
+    return bits.join(" · ");
+  };
+  /** Where a typed start actually lands (a semester program's date snaps to the coded semester start it means). */
+  const snappedStart = (startIso: string | null | undefined, m: ProgramOption): string | null => {
+    if (!startIso) return null;
+    const pm = plannerModel(m);
+    if (!pm || !calendar || isNaN(new Date(startIso + "T00:00:00Z").getTime())) return null;
+    const a = offeringEnd(startIso, pm, calendar).alignedStartIso;
+    return a !== startIso ? a : null;
+  };
   /** The offering's last day, aligned to the college's calendar exactly as its own page aligns it. */
   const stopDateOf = (startIso: string | null | undefined, m: ProgramOption): string | null => {
     if (!startIso) return null;
@@ -592,7 +614,8 @@ export function GoalPlanner({
                         {slots.length !== nSuggested && <span className="text-slate-400">the class size says {nSuggested} — your call</span>}
                         {slots.filter((o) => !o.locked).length > 1 && <button onClick={() => withSlots(respread(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title="give the unlocked offerings equal shares of their goal">spread evenly</button>}
                         {slots.some((o) => !o.locked) && choices.length > 0 && <button onClick={() => withSlots(respace(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title={`space the unlocked offerings' starts through ${s.selectedYear} so each finishes inside it`}>space the starts across {s.selectedYear}</button>}
-                        {choices.length === 0 && plannerModel(m) && <span className="text-amber-700">no start left can finish in {s.selectedYear} — pick a later year</span>}
+                        {choices.length === 0 && plannerModel(m) && <span className="text-amber-700">no start can finish in {s.selectedYear} — pick another year</span>}
+                        {choices.length > 0 && !choices.some((c) => c.timing === "ahead") && <span className="text-amber-700">every start that finishes in {s.selectedYear} has already begun — pick one to record an offering that ran, or a later year</span>}
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500">One offering is one class of up to <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong> students{m.sessionMax && Object.keys(m.sessionMax).length ? <>, run as sections where a session holds fewer ({(["CLASS", "LAB", "CLINICAL"] as const).filter((k) => m.sessionMax?.[k]).map((k) => `${k.toLowerCase()} ${fmt.num(m.sessionMax![k]!)}`).join(" · ")})</> : null}. A bigger goal takes more offerings, not a bigger class.</p>
 
@@ -619,16 +642,25 @@ export function GoalPlanner({
                                   <>
                                     <label className="flex items-center gap-1.5">
                                       <span className="text-slate-500">starts</span>
-                                      {choices.length > 0 ? (
-                                        <select value={o.startDate && choices.includes(o.startDate) ? o.startDate : o.startDate ? "__custom" : ""} onChange={(e) => { if (e.target.value === "__custom") return; setSlot(oi, { startDate: e.target.value || null }); }} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" title={`every start that finishes inside ${s.selectedYear}`}>
-                                          <option value="">— pick a start —</option>
-                                          {o.startDate && !choices.includes(o.startDate) && <option value="__custom">{fmtD(o.startDate)} (your own date)</option>}
-                                          {choices.map((c) => <option key={c} value={c}>{fmtD(c)}</option>)}
-                                        </select>
-                                      ) : null}
-                                      <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className={`rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none ${choices.length > 0 ? "w-[7.5rem] text-[11px] text-slate-500" : ""}`} title="or type any date" />
+                                      {choices.length > 0 ? (() => {
+                                        const inList = !!o.startDate && choices.some((c) => c.iso === o.startDate);
+                                        const groups: { key: string; title: string; items: StartOption[] }[] = [
+                                          { key: "calendar", title: "College calendar starts", items: choices.filter((c) => c.source === "calendar") },
+                                          { key: "monday", title: "Any Monday", items: choices.filter((c) => c.source === "monday") },
+                                          { key: "pattern", title: "Semester pattern (no coded date)", items: choices.filter((c) => c.source === "pattern") },
+                                        ].filter((g) => g.items.length);
+                                        return (
+                                          <select value={inList ? o.startDate! : o.startDate ? "__custom" : ""} onChange={(e) => { if (e.target.value === "__custom") return; setSlot(oi, { startDate: e.target.value || null }); }} className="max-w-[24rem] rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" title={`every start that finishes inside ${s.selectedYear} — the college's own starts first, then any Monday`}>
+                                            <option value="">— pick a start —</option>
+                                            {o.startDate && !inList && <option value="__custom">{fmtD(o.startDate)} (your own date)</option>}
+                                            {groups.map((g) => <optgroup key={g.key} label={g.title}>{g.items.map((c) => <option key={c.iso} value={c.iso}>{startText(c, m)}</option>)}</optgroup>)}
+                                          </select>
+                                        );
+                                      })() : null}
+                                      <span className="text-slate-400">{choices.length > 0 ? "or any date" : ""}</span>
+                                      <input type="date" value={o.startDate ?? ""} onChange={(e) => setSlot(oi, { startDate: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none" title="type any date — the end beside it follows the college's calendar" />
                                     </label>
-                                    {(() => { const end = stopDateOf(o.startDate, m); const endYear = end ? Number(end.slice(0, 4)) : null; const off = endYear != null && plannerModel(m) && endYear !== s.selectedYear; return <span className={`tabular-nums ${off ? "font-medium text-amber-700" : "text-slate-500"}`}>ends {fmtD(end)}{off ? ` — that graduates in ${endYear}, not ${s.selectedYear}` : ""}</span>; })()}
+                                    {(() => { const end = stopDateOf(o.startDate, m); const endYear = end ? Number(end.slice(0, 4)) : null; const off = endYear != null && plannerModel(m) && endYear !== s.selectedYear; const snap = snappedStart(o.startDate, m); return <span className={`tabular-nums ${off ? "font-medium text-amber-700" : "text-slate-500"}`}>{snap ? <span className="text-amber-700">lands on {fmtD(snap)} (the coded semester start) · </span> : null}ends {fmtD(end)}{off ? ` — that graduates in ${endYear}, not ${s.selectedYear}` : ""}</span>; })()}
                                     <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}{(() => { const secs = sectionsFor(seats, m.sessionMax).filter((x) => x.sections > 1); return secs.length ? ` · runs as ${secs.map((x) => `${fmt.num(x.sections)} ${x.kind.toLowerCase()} sections`).join(", ")}` : ""; })()}</span>
                                     {campuses.length > 0 && <label className="flex items-center gap-1.5"><span className="text-slate-500">at</span><select value={o.campusId ?? ""} onChange={(e) => setSlot(oi, { campusId: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none"><option value="">— where? —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
                                     {(!o.startDate || tv.goal <= 0) && <span className="ml-auto text-[11px] text-amber-700">{!o.startDate ? "set a start date to lock in" : "enter how many productive workers this offering covers to lock in"}</span>}

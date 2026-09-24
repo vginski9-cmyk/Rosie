@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseAcademicCalendar, anchorsFromEvents, holidayMap, classify, knownStartsOf } from "../src/lib/academiccalendar";
+import { parseAcademicCalendar, anchorsFromEvents, holidayMap, classify, knownStartsOf, weeksNamed, sessionWeeksOf, eventSpan } from "../src/lib/academiccalendar";
+import { readFileSync } from "node:fs";
 import { deriveTermStarts, nextSemesterStart, DEFAULT_ANCHORS } from "../src/lib/term";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -150,5 +151,76 @@ describe("parseAcademicCalendar on the colleges' own calendars", () => {
     const { events } = parseAcademicCalendar("Fall Semester 2026\nAugust 17 (Monday)\tFirst Day of Classes - Traditional & First 8 weeks\nOctober 14 (Wednesday)\tBeginning of Second 8 weeks\n");
     expect(events[0]).toMatchObject({ iso: "2026-08-17", kind: "term_start", label: "First Day of Classes Traditional & First 8 weeks" });
     expect(events[1]).toMatchObject({ iso: "2026-10-14", kind: "session_start", label: "Beginning of Second 8 weeks" });
+  });
+});
+
+// The calendar's summary lines give each session its END ("First 8 week classes | Aug 13 – Oct 8"): a start
+// with its length, so a class of that length can start with the session and end with it.
+describe("sessions with their ends (Carteret's range lines)", () => {
+  const fall = `2025-2026 Academic Calendar
+2025 Fall Semester | August 13 - December 12, 2025
+16 week classes | August 13, 2025 – December 12, 2025
+14 week classes | August 27, 2025 – December 12, 2025
+First 10 week classes | August 13, 2025 - October 24, 2025
+Late Start 10 week classes | September 25, 2025 – December 12, 2025
+First 8 week classes | August 13, 2025 – October 8, 2025
+Second 8 week classes | October 14, 2025 – December 12, 2025
+Winter term classes | November 18, 2025 - December 29, 2026
+Fall Early Registration | March 12, 2025 – July 16, 2025
+Event	Date(s)
+Classes Begin | 16-week, 1st 10-week, & 1st 8-week courses	August 13
+Last Day for Schedule Changes | 16-week, 1st 10-week, & 1st 8-week courses	August 13-18
+14-week Classes Begin	August 27
+Last Day for Schedule Changes | 14-week courses	August 27- September 2
+1st 8-week Session End	October 8
+Mid-Semester Break | No Classes	October 9-13
+2nd 8-week Classes Begin	October 14
+Semester Ends | Fall 2025	December 12
+`;
+  it("codes each range line as a start with its end; the date-only 'begins' beside it adds nothing", () => {
+    const { events, warnings } = parseAcademicCalendar(fall, { today: new Date("2026-09-24T00:00:00Z") });
+    const starts = events.filter((e) => e.kind === "term_start" || e.kind === "session_start").map((e) => [e.kind, e.iso, e.endIso, sessionWeeksOf(e), e.label]);
+    expect(starts).toEqual([
+      ["term_start", "2025-08-13", "2025-12-12", 16, "16 week classes"],
+      ["session_start", "2025-08-13", "2025-10-24", 10, "First 10 week classes"],
+      ["session_start", "2025-08-13", "2025-10-08", 8, "First 8 week classes"],
+      ["session_start", "2025-08-27", "2025-12-12", 14, "14 week classes"],
+      ["session_start", "2025-09-25", "2025-12-12", 10, "Late Start 10 week classes"],
+      ["session_start", "2025-10-14", "2025-12-12", 8, "Second 8 week classes"],
+    ]);
+    // the registration window, the schedule-change windows and the session-end line are not starts
+    expect(events.filter((e) => e.kind === "other").map((e) => e.label)).toEqual(expect.arrayContaining([expect.stringContaining("Registration"), expect.stringContaining("Schedule Changes"), expect.stringContaining("Session End")]));
+    expect(events.filter((e) => e.kind === "term_end").map((e) => e.iso)).toEqual(["2025-12-12"]);
+    expect(events.filter((e) => e.kind === "holiday").map((e) => [e.iso, e.endIso])).toEqual([["2025-10-09", "2025-10-13"]]);
+    // a 58-week "session" is the college's typo, not a term
+    expect(warnings).toEqual([expect.stringContaining("58 weeks")]);
+    expect(events.some((e) => e.iso === "2025-11-18" && e.kind !== "other")).toBe(false);
+  });
+  it("a summer block: the semester line, its '8 weeks' line and 'Classes Begin' are one term start", () => {
+    const { events } = parseAcademicCalendar("2025-2026 Academic Calendar\n2026 Summer Semester | June 1 - July 27, 2026\n8 weeks | June 1, 2026 – July 27, 2026\nEvent\tDate(s)\nClasses Begin | Summer 8-week courses\tJune 1\nSemester Ends | Summer 2026\tJuly 27\n");
+    expect(events.filter((e) => e.kind !== "other").map((e) => [e.kind, e.iso, e.endIso, e.season])).toEqual([["term_start", "2026-06-01", "2026-07-27", "Summer"], ["term_end", "2026-07-27", null, "Summer"]]);
+    expect(sessionWeeksOf(events[0])).toBe(8);
+  });
+  it("a session's length is the count its label names, else its dates, else nothing", () => {
+    expect(weeksNamed("Second 8 week classes")).toBe(8); expect(weeksNamed("16-Week")).toBe(16); expect(weeksNamed("Late Start 10 weeks")).toBe(10); expect(weeksNamed("Classes begin")).toBeNull();
+    expect(sessionWeeksOf({ iso: "2026-08-17", endIso: "2026-12-15", label: "16 week classes" })).toBe(16); // 17.1 calendar weeks — the college's word wins
+    expect(sessionWeeksOf({ iso: "2026-11-18", endIso: "2026-12-29", label: "Winter term classes" })).toBe(6);
+    expect(sessionWeeksOf({ iso: "2026-08-17", endIso: null, label: "Classes begin" })).toBeNull();
+  });
+  it("a paste owns the span from its first to its last coded day", () => {
+    expect(eventSpan([{ iso: "2025-08-13", endIso: "2025-12-12" }, { iso: "2026-06-01", endIso: "2026-07-27" }, { iso: "2026-07-27", endIso: null }])).toEqual({ from: "2025-08-13", to: "2026-07-27" });
+    expect(eventSpan([])).toBeNull();
+  });
+  it("the seed file carries both Carteret years, every term start with its end and every session with its length", () => {
+    const { events, warnings } = parseAcademicCalendar(readFileSync("prisma/seed-data/calendars/carteret.txt", "utf8"), { today: new Date("2026-09-24T00:00:00Z") });
+    expect(events.filter((e) => e.kind === "term_start").map((e) => [e.iso, e.endIso])).toEqual([["2025-08-13", "2025-12-12"], ["2026-01-07", "2026-05-08"], ["2026-06-01", "2026-07-27"], ["2026-08-17", "2026-12-15"], ["2027-01-06", "2027-05-10"], ["2027-06-01", "2027-07-27"]]);
+    expect(events.filter((e) => e.kind === "term_end").map((e) => e.iso)).toEqual(["2025-12-12", "2026-05-08", "2026-07-27", "2026-12-15", "2027-05-10", "2027-07-27"]);
+    const sessions = events.filter((e) => e.kind === "session_start");
+    expect(sessions.length).toBeGreaterThanOrEqual(22);
+    expect(sessions.every((e) => e.endIso && sessionWeeksOf(e) != null)).toBe(true);
+    expect(sessions.filter((e) => sessionWeeksOf(e) === 8).map((e) => e.iso)).toEqual(["2025-08-13", "2025-10-14", "2026-01-07", "2026-03-09", "2026-08-17", "2026-10-15", "2027-01-06", "2027-03-08"]);
+    const holidays = events.filter((e) => e.kind === "holiday").map((e) => [e.iso, e.endIso]);
+    expect(holidays).toEqual(expect.arrayContaining([["2025-10-09", "2025-10-13"], ["2025-11-27", "2025-11-28"], ["2025-12-23", "2025-12-26"], ["2026-04-06", null], ["2026-04-07", "2026-04-10"], ["2026-11-26", "2026-11-27"]]));
+    expect(warnings).toEqual([expect.stringContaining("Winter term classes")]);
   });
 });

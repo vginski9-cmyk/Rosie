@@ -26,7 +26,7 @@ export interface CalendarEvent {
 export const KIND_LABEL: Record<EventKind, string> = {
   term_start: "Semester starts",
   term_end: "Semester ends",
-  session_start: "Later session starts",
+  session_start: "Later session starts (with the session's end when the calendar gives it)",
   holiday: "Holiday / break — no classes",
   other: "Ignore (deadline, registration, etc.)",
 };
@@ -122,6 +122,31 @@ const OTHER_WORDS = /\b(registration|register|drop|withdraw\w*|tuition|payment|d
 const HOLIDAY_SESSION = /\bholiday (classes|session|term)\b/i;
 const isSession = (l: string) => SESSION_WORDS.test(l) && !FULL_TERM.test(l);
 
+/** The week count a calendar label names ("First 8 week classes" → 8, "16-Week" → 16, "8 weeks" → 8), else null. */
+export const weeksNamed = (label: string): number | null => { const m = /\b(\d{1,2})[- ]?weeks?\b/i.exec(label); return m ? Number(m[1]) : null; };
+/** A coded start's length in weeks: the count its label names (the college's own word — "Second 8 week
+ *  classes" is an 8-week session however many days sit between its dates), else its dates rounded to
+ *  weeks when an end is coded, else null: a start with no end coded has no length (missing ≠ zero). */
+export function sessionWeeksOf(e: { iso: string; endIso: string | null; label: string }): number | null {
+  const named = weeksNamed(e.label);
+  if (named != null) return named;
+  if (!e.endIso) return null;
+  const days = (new Date(e.endIso + "T00:00:00Z").getTime() - new Date(e.iso + "T00:00:00Z").getTime()) / 86400000;
+  return days >= 0 ? Math.max(1, Math.round((days + 1) / 7)) : null;
+}
+/** A range that no session runs for: a college calendar's typo, not a term. */
+const MAX_SESSION_WEEKS = 26;
+/** A DATED RANGE whose label only names a session or the semester — "16 week classes | Aug 17 – Dec 15",
+ *  "First 8 week classes | …", "2025 Fall Semester | Aug 13 – Dec 12", "8 weeks | June 1 – July 27" —
+ *  is that session's (or the semester's) start WITH its end. Only a label with no start / end / holiday /
+ *  deadline word qualifies: "Last Day for Schedule Changes | 15-week courses  Aug 24 – 27" is a deadline. */
+function classifyRange(label: string): EventKind | null {
+  const l = label.toLowerCase();
+  if (HOLIDAY_WORDS.test(l) || OTHER_WORDS.test(l) || START_WORDS.test(l) || END_WORDS.test(l)) return null;
+  if (weeksNamed(l) == null && !SESSION_WORDS.test(l) && !FULL_TERM.test(l) && !/\b(semester|term|classes)\b/.test(l)) return null;
+  return isSession(l) ? "session_start" : "term_start";
+}
+
 /** Code a label into an event kind. Holidays win (a "Fall Break — no classes" is a
  *  break), then plain deadlines are ignored, then semester start / end. A start or
  *  end that names a later session (12-week, 2nd 8-week …) is a session, not the semester. */
@@ -171,7 +196,15 @@ export function parseAcademicCalendar(text: string, opts: { today?: Date } = {})
     if (!labels.length && pendingLabel) labels = [pendingLabel];
     if (!labels.length) { warnings.push(`No event name found for ${found.iso}: "${raw}"`); continue; }
     for (const label of labels) {
-      const kind = classify(label);
+      let kind = classify(label);
+      if (kind === "other" && found.endIso && found.endIso > found.iso) {
+        const ranged = classifyRange(label);
+        if (ranged) {
+          const weeks = sessionWeeksOf({ iso: found.iso, endIso: found.endIso, label }) ?? 0;
+          if (weeks > MAX_SESSION_WEEKS) warnings.push(`Not a session — ${weeks} weeks from ${found.iso} to ${found.endIso}: "${raw}"`);
+          else kind = ranged;
+        }
+      }
       const sw = SEASON_RE.exec(label);
       const season: Season = sw && (kind === "term_start" || kind === "term_end" || kind === "session_start") ? seasonWord(sw[1]) : ctx.season ?? seasonOfIso(found.iso);
       events.push({ iso: found.iso, endIso: found.endIso && found.endIso > found.iso ? found.endIso : null, label, kind, season, source: raw });
@@ -179,11 +212,34 @@ export function parseAcademicCalendar(text: string, opts: { today?: Date } = {})
     pendingLabel = null;
   }
 
-  // Within one season-year, the EARLIEST "begins" of any kind is the semester start; every
-  // other start is a later session (15-week, 12-week, late-start, 2nd 8-week …).
+  // Starts, three rules in order. (1) A date-only "begins" on a day that already has a start with its end
+  // coded ("Classes Begin | 16-week, 1st 10-week & 1st 8-week courses — Aug 17" beside "16 week classes |
+  // Aug 17 – Dec 15") says nothing more: dropped. (2) Two starts with the same first AND last day are one
+  // event (the semester line and its 16-week line) — the label naming the week count is kept. Starts on the
+  // same day with different ends (the 16-week, first 10-week and first 8-week sessions) stay distinct.
+  // (3) Within one season-year, the EARLIEST start is the semester start — on a tie the one named as the
+  // full term, else the longest — and every other start is a later session (15-week, late-start, 2nd 8-week …).
+  const isStart = (e: CalendarEvent) => e.kind === "term_start" || e.kind === "session_start";
+  const withEnd = new Set(events.filter((e) => isStart(e) && e.endIso).map((e) => `${e.season}|${e.iso}`));
+  const keyOf = (e: CalendarEvent) => `${e.season}|${e.iso}|${e.endIso ?? ""}`;
+  const merged = new Map<string, CalendarEvent>();
+  const kept: CalendarEvent[] = [];
+  for (const e of events) {
+    if (!isStart(e)) { kept.push(e); continue; }
+    if (!e.endIso && withEnd.has(`${e.season}|${e.iso}`)) continue;
+    const prev = merged.get(keyOf(e));
+    if (prev) {
+      if (weeksNamed(prev.label) == null && weeksNamed(e.label) != null) { prev.label = e.label; prev.source = e.source; }
+      if (e.kind === "term_start") prev.kind = "term_start";
+      continue;
+    }
+    merged.set(keyOf(e), e); kept.push(e);
+  }
+  events.length = 0; events.push(...kept);
+  const starts = events.filter(isStart);
+  const rank = (e: CalendarEvent) => [e.iso, FULL_TERM.test(e.label) ? "0" : "1", e.endIso ? String(99999999 - Number(e.endIso.replace(/-/g, ""))).padStart(8, "0") : "99999999"].join("|");
   const firstStart = new Map<string, CalendarEvent>();
-  const starts = events.filter((e) => e.kind === "term_start" || e.kind === "session_start");
-  for (const e of starts) { const k = `${e.season}|${e.iso.slice(0, 4)}`; if (!firstStart.has(k) || e.iso < firstStart.get(k)!.iso) firstStart.set(k, e); }
+  for (const e of starts) { const k = `${e.season}|${e.iso.slice(0, 4)}`; const cur = firstStart.get(k); if (!cur || rank(e) < rank(cur)) firstStart.set(k, e); }
   for (const e of starts) e.kind = firstStart.get(`${e.season}|${e.iso.slice(0, 4)}`) === e ? "term_start" : "session_start";
   const lastEnd = new Map<string, CalendarEvent>();
   for (const e of events) if (e.kind === "term_end") { const k = `${e.season}|${e.iso.slice(0, 4)}`; if (!lastEnd.has(k) || e.iso > lastEnd.get(k)!.iso) lastEnd.set(k, e); }
@@ -241,6 +297,15 @@ export function holidayMap(events: { iso: string; endIso: string | null; label: 
     for (let d = start, n = 0; d <= end && n < 60; d = new Date(d.getTime() + 86400000), n++) out[d.toISOString().slice(0, 10)] = e.label;
   }
   return out;
+}
+
+/** The first and last coded day of a pasted calendar (a range's last day counts) — the span the paste owns
+ *  when it is imported: everything inside it is replaced, nothing outside it is touched. */
+export function eventSpan(events: { iso: string; endIso?: string | null }[]): { from: string; to: string } | null {
+  if (!events.length) return null;
+  const from = events.map((e) => e.iso).sort()[0];
+  const to = events.map((e) => (e.endIso && e.endIso > e.iso ? e.endIso : e.iso)).sort().at(-1)!;
+  return { from, to };
 }
 
 /** Known semester-start dates (ISO) — the engine uses these exact dates for the years they cover. */

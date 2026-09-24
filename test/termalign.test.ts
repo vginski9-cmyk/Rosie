@@ -149,6 +149,18 @@ describe("continuous calendar mode", () => {
     // The same start under the semester mode is cut at the coded semester end.
     expect(alignOffering({ startIso: "2026-11-16", terms, courses: [], anchors, events }).terms[0].endIso).toBe("2026-12-11");
   });
+  it("a class that starts with a coded session of its own length ends with that session; a shorter class ends after its own weeks", () => {
+    const withSessions = [...events, { iso: "2026-10-15", endIso: "2026-12-15", label: "Second 8 week classes", kind: "session_start", season: "Fall" }];
+    const eight = [{ id: "t1", index: 1, name: "Term 1", startWeek: 1, endWeek: 8 }];
+    const a = alignOffering({ startIso: "2026-10-15", terms: eight, courses: [], anchors, events: withSessions, calendarMode: "continuous" });
+    expect(a.terms[0]).toMatchObject({ startIso: "2026-10-15", startSource: "calendar", startLabel: "Second 8 week classes", endIso: "2026-12-15", endSource: "calendar", endLabel: "Second 8 week classes" });
+    const six = [{ id: "t1", index: 1, name: "Term 1", startWeek: 1, endWeek: 6 }];
+    const b = alignOffering({ startIso: "2026-10-15", terms: six, courses: [], anchors, events: withSessions, calendarMode: "continuous" });
+    expect(b.terms[0]).toMatchObject({ startIso: "2026-10-15", startSource: "calendar", endIso: "2026-11-20", endSource: "template" });
+    // a plain Monday is the chosen day, ending after the template's weeks, as before
+    const c = alignOffering({ startIso: "2026-10-19", terms: six, courses: [], anchors, events: withSessions, calendarMode: "continuous" });
+    expect(c.terms[0]).toMatchObject({ startSource: "chosen", endSource: "template" });
+  });
   it("a two-term class: term 2 starts the Monday after term 1 ends", () => {
     const two = [{ id: "t1", index: 1, name: "Part 1", startWeek: 1, endWeek: 6 }, { id: "t2", index: 2, name: "Part 2", startWeek: 7, endWeek: 12 }];
     const a = alignOffering({ startIso: "2026-10-07", terms: two, courses: [], anchors, events, calendarMode: "continuous" });

@@ -10,7 +10,7 @@
 // "re-align" buttons all call the same thing, so nothing needs typing twice.
 
 import { nextSemesterStart, patternSemesterEnd, calendarWeeksBetween, openWeeksBetween, weekMonday, closedWeek, fitWeek, seasonOfTerm, type SemesterAnchors } from "./term";
-import { holidayMap } from "./academiccalendar";
+import { sessionWeeksOf, holidayMap } from "./academiccalendar";
 
 export interface CodedEventLite { iso: string; endIso: string | null; label: string; kind: string; season: string | null }
 export interface TermLite { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; /** The season the template codes for this term (Fall | Spring | Summer), when it does. */ semester?: string | null }
@@ -101,7 +101,9 @@ export function alignOffering(input: {
       startIso = manual.startIso; startSource = "manual";
     } else if (continuous) {
       // The chosen day itself, then the Monday after the previous term ends (never inside a closed week).
-      if (i === 0) { startIso = input.startIso; startSource = "chosen"; }
+      // A day the college codes as a start (the semester or a later session) is named as such; a session
+      // whose length equals the term's ends the term on the session's own last day (below).
+      if (i === 0) { const coded = codedStartOn(input.events, input.startIso); startIso = input.startIso; startSource = coded ? "calendar" : "chosen"; startLabel = coded?.label ?? null; }
       else { let next = mondayOnOrAfterIso(cursor); while (closedWeek(dateOf(next), holidays)) next = addDays(next, 7); startIso = next; startSource = "template"; }
     } else if (i === 0) {
       // Term 1: the chosen day, snapped to the coded semester start it clearly means.
@@ -129,7 +131,10 @@ export function alignOffering(input: {
     // a closed week (a whole-week break) inside the span adding a calendar week, not eating one.
     const templateEnd = addDays(iso(weekMonday({ termStart: startIso, templateWeeks, holidays }, templateWeeks) ?? dateOf(addDays(startIso, (templateWeeks - 1) * 7))), 4);
     let endIso = manual?.endIso ?? templateEnd; let endSource: DateSource = manual?.endIso ? "manual" : "template"; let endLabel: string | null = null;
-    if (!manual?.endIso && !continuous) {
+    if (!manual?.endIso && continuous && i === 0) {
+      const coded = codedStartOn(input.events, startIso);
+      if (coded?.endIso && sessionWeeksOf(coded) === templateWeeks) { endIso = coded.endIso; endSource = "calendar"; endLabel = coded.label; }
+    } else if (!manual?.endIso && !continuous) {
       const ends = input.events.filter((e) => e.kind === "term_end" && e.iso > startIso && daysBetween(startIso, e.iso) <= (templateWeeks + 3) * 7).sort((a, b) => a.iso.localeCompare(b.iso));
       const startEvent = starts.find((e) => e.iso === startIso);
       const sameSemester = startEvent ? ends.filter((e) => e.season === startEvent.season && e.iso.slice(0, 4) === startEvent.iso.slice(0, 4)) : [];
@@ -181,6 +186,14 @@ export function alignOffering(input: {
 }
 
 const startEvent = (starts: CodedEventLite[], isoDate: string) => starts.find((e) => e.iso === isoDate) ?? null;
+/** The coded start (semester or session) on a day — of several (the 16-week, first 10-week and first 8-week sessions
+ *  all begin with the semester), the one whose length is coded and matches is preferred by the caller through
+ *  `sessionWeeksOf`; here the semester's own line wins, then the longest coded session. */
+function codedStartOn(events: CodedEventLite[], isoDate: string): CodedEventLite | null {
+  const on = events.filter((e) => (e.kind === "term_start" || e.kind === "session_start") && e.iso === isoDate);
+  if (!on.length) return null;
+  return on.find((e) => e.kind === "term_start") ?? [...on].sort((a, b) => (sessionWeeksOf(b) ?? 0) - (sessionWeeksOf(a) ?? 0))[0];
+}
 
 /** The year an offering finishes, from its aligned terms. */
 export const endYearOf = (terms: { endIso: string }[]) => Number(terms.map((t) => t.endIso).sort().at(-1)?.slice(0, 4) ?? NaN);

@@ -16,7 +16,7 @@ import { assetDemand, assetSupply, assetMatch, blocksOn, overrideIndex, override
 import { eligibleSettings } from "../src/lib/settingrule";
 import { SETTING_PRESETS } from "../src/lib/settingPresets";
 import { coursePoolRules } from "../src/lib/requirementstore";
-import { NOT_ARCHIVED } from "../src/lib/cohortscope";
+import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
 
 type Finding = { check: string; severity: "error" | "warn" | "info"; detail: string; n?: number };
 const F: Finding[] = [];
@@ -248,6 +248,11 @@ async function auditInstitution(inst: { id: string; name: string }) {
   // every completed clinical shift on a booked seat, and its rotations marked completed.
   const graduated = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, select: { id: true, name: true, status: true, startDate: true, cohortTerms: { select: { endDate: true } }, stages: { orderBy: { sortOrder: "asc" }, select: { stageKey: true, actualNumber: true } }, students: { select: { id: true, status: true, completionDate: true, gpa: true, shifts: { select: { status: true, assetId: true, sessionId: true, sectionIndex: true } } } }, placements: { select: { status: true, endDate: true } } } })
     .then((rows) => rows.map((c) => ({ ...c, lastEnd: c.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0]?.toISOString().slice(0, 10) ?? null })).filter((c) => c.status === "completed" || (c.lastEnd != null && c.lastEnd < todayIso)));
+  // Every dated offering's stored status is what its dates say (lib/cohortscope cohortStatusOn) — the rule the seed and the
+  // alignment action both apply, so an offering recorded after it started never reads "planned".
+  const datedCohorts = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, ...NOT_ARCHIVED, startDate: { not: null } }, select: { name: true, status: true, startDate: true, cohortTerms: { select: { startDate: true, endDate: true } } } });
+  const offStatus = datedCohorts.filter((c) => { const starts = c.cohortTerms.map((t) => t.startDate?.toISOString().slice(0, 10)).filter((d): d is string => !!d).sort(); const ends = c.cohortTerms.map((t) => t.endDate?.toISOString().slice(0, 10)).filter((d): d is string => !!d).sort(); const want = cohortStatusOn(starts[0] ?? c.startDate!.toISOString().slice(0, 10), ends.at(-1) ?? null, todayIso); return want !== c.status; });
+  if (offStatus.length) warn(tag("H0 lifecycle"), `${offStatus.length} dated offerings read a status their dates contradict: ${offStatus.slice(0, 3).map((c) => `${c.name} (${c.status})`).join(", ")}`, offStatus.length);
   const TERMINAL = new Set(["withdrawn", "completed", "licensed", "placed", "productive"]);
   const hasSites = (await prisma.employer.count({ where: { institutionId: inst.id } })) > 0;
   for (const c of graduated) {
