@@ -182,7 +182,7 @@ An asset is a room, unit or machine at a site with a setting code (GEN, ORS, ED 
 
 ### Supply ceiling, hostable, placed
 
-The scheduler's supply ceilings are the three lined-up bars (see "Seats that line up with the demand"): seats matched to the demand shift by shift at the sites that count, of which a preceptor could cover, and if every site counted. The raw window total — every asset-shift × learners per shift, whether or not a section falls on it — is a theoretical maximum, not usable capacity; it appears only as the per-setting table's allowed seats. Hostable by secured sites is the part of demand that fits at sites with a secured agreement. Placed is what the scheduler actually put on an asset under its levers; seats-only placement is exploratory (nobody may be free to precept).
+The scheduler's supply ceilings are the three lined-up bars (see "Seats that line up with the demand"): seats matched to the demand shift by shift at the sites that count, of which a preceptor could cover, and if every site counted. The raw totals — every seat at the sites that count on the days and shifts the demand uses, and every seat in the whole window — are shown beside the ceilings as "Total supply against demand", with the ratio to demand: above 1× is headroom, below 1× a shortfall no lever inside the window can close. They count seats whether or not a section could sit on them, so they are what exists, not what is usable. Hostable by secured sites is the part of demand that fits at sites with a secured agreement. Placed is what the scheduler actually put on an asset under its levers; seats-only placement is exploratory (nobody may be free to precept).
 
 - **Where:** The scheduler's supply bars and per-setting table, clinical site capacity, site load
 
