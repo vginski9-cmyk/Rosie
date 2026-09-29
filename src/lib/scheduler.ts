@@ -233,6 +233,10 @@ export interface CapacityHeadroom {
   /** supplySeatsLinedUp counted at EVERY live site, whatever its agreement or drive band (each site still at its students-at-once where known)
    *  — what loosening the Sites-that-count and Drive-time levers all the way could unlock. Never below supplySeatsLinedUp. */
   supplySeatsLinedUpEverySite: number;
+  /** The day (date × shift block — a week × any block when the Day / Shift levers let shifts move) that needs the most seats, against the seats that exist then: at the sites the levers allow and at every site, each site at its students-at-once. Null with no demand. */
+  peakDay: { date: string; block: string; demand: number; seatsAllowed: number; seatsEverySite: number } | null;
+  /** How many distinct days (date × block groups) carry demand. */
+  days: number;
   /** supplySeats − demandSeats. */
   headroom: number;
   /** supplySeatsOnDemandDays − supplySeatsBooked − demandSeats. */
@@ -967,6 +971,10 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const supplySeatsLinedUp = linedUpTotal(allowedMap, underSiteCap);
   const supplySeatsLinedUpStaffable = linedUpTotal(allowedMap, underPreceptors);
   const supplySeatsLinedUpEverySite = linedUpTotal(everyMap, underSiteCap);
+  // The busiest day: where the mismatch between seats and students is felt — totals over the window hide it.
+  const seatsIn = (byGroup: ByGroup, g: string) => { let n = 0; for (const [k, ss] of byGroup.get(g) ?? []) n += underSiteCap(k.split("|")[0], ss); return n; };
+  let peakDay: CapacityHeadroom["peakDay"] = null;
+  for (const [g, dg] of demandByGroup) if (!peakDay || dg.seats > peakDay.demand) { const [date, block] = g.split("|"); peakDay = { date, block, demand: dg.seats, seatsAllowed: seatsIn(allowedMap, g), seatsEverySite: seatsIn(everyMap, g) }; }
   const confirmed = new Set((input.confirmedSettings ?? []).map((c) => `${c.employerId}|${c.settingCode}`));
   const confirmedKnown = input.confirmedSettings != null;
   const atOnce = new Map<string, number>(); // employerId|family|date|block → this family's seats placed (the limit is the family's agreement with the site)
@@ -1039,7 +1047,7 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const supplySeatsBooked = balance.reduce((n, b) => n + b.seatsBooked, 0);
   const supplySeatsPhysicalOnDemandDays = [...supplyBySetting.values()].reduce((n, s) => n + s.seatsPhysicalOnDemandDays, 0);
   const capacity: CapacityHeadroom = {
-    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays, supplySeatsLinedUp, supplySeatsLinedUpStaffable, supplySeatsLinedUpEverySite,
+    demandSeats, supplySeats: supplySeatsAllowed, supplySeatsPhysical, supplySeatsOnDemandDays, supplySeatsBooked, supplySeatsPhysicalOnDemandDays, supplySeatsStaffableOnDemandDays, supplySeatsLinedUp, supplySeatsLinedUpStaffable, supplySeatsLinedUpEverySite, peakDay, days: demandByGroup.size,
     headroom: supplySeatsAllowed - demandSeats, headroomOnDemandDays: supplySeatsOnDemandDays - supplySeatsBooked - demandSeats,
     ratio: demandSeats > 0 ? supplySeatsAllowed / demandSeats : null, ratioOnDemandDays: demandSeats > 0 ? supplySeatsOnDemandDays / demandSeats : null,
     settingsWithoutSupply: balance.filter((b) => b.demandShifts > 0 && b.seatsAllowed === 0).map((b) => b.settingCode),

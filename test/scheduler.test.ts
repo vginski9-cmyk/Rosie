@@ -49,6 +49,22 @@ describe("demandUnits and online sessions", () => {
   });
 });
 
+describe("usable seats, day by day, and the busiest day", () => {
+  it("a seat on a light day cannot serve a heavy one: usable seats count each day only up to that day's students", () => {
+    // one room of six seats, open both days; day A: one student, day B: twenty
+    const room = asset({ id: "r1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 6 });
+    const dayA = unit({ id: "a", seats: 1, seatsPerSection: 1, date: "2027-09-06" });
+    const dayB = unit({ id: "b", sectionIndex: 2, seats: 20, seatsPerSection: 20, date: "2027-09-07" });
+    const plan = recommendPlan(base({ demand: [dayA, dayB], assets: [room] }, { split: "any" }));
+    const c = plan.summary.capacity;
+    expect(c.supplySeatsOnDemandDays).toBe(12); // six seats on each of the two days exist…
+    expect(c.supplySeatsLinedUp).toBe(7); // …but only 1 + 6 can be used
+    expect(c.days).toBe(2);
+    expect(c.peakDay).toMatchObject({ date: "2027-09-07", demand: 20, seatsAllowed: 6, seatsEverySite: 6 });
+    expect(plan.summary.placedSeats).toBeLessThanOrEqual(c.supplySeatsLinedUp);
+  });
+});
+
 describe("simulation as relief, never a lever", () => {
   it("an unplaced unit whose course allows simulation gets the option in its fixes and the plan totals the relief; a course allowing none gets neither", () => {
     const rooms = [asset({ id: "r1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 1 })];
