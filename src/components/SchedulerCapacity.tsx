@@ -41,14 +41,14 @@ function SupplyChart({ need, rows, caption }: { need: number; rows: { label: str
   const max = Math.max(need, ...rows.map((r) => r.value), 1);
   const w = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <div>
-        <div className="flex items-baseline justify-between text-xs"><span className="font-semibold text-slate-900">Demand — clinical learner-shifts to place</span><span className="tabular-nums font-semibold text-slate-900">{n0(need)}</span></div>
+        <div className="flex items-baseline justify-between text-xs"><span className="font-semibold text-slate-900">Demand — student clinical shifts to place</span><span className="tabular-nums font-semibold text-slate-900">{n0(need)}</span></div>
         <div className="relative mt-1 h-3.5 w-full rounded bg-slate-100"><div className="h-3.5 rounded bg-slate-900" style={{ width: w(need), transition: "width 400ms ease" }} /></div>
       </div>
       {rows.map((r) => (
         <div key={r.label}>
-          <div className="flex items-baseline justify-between text-xs"><span className="font-medium text-slate-700" title={r.note}>{r.label}</span><span className="tabular-nums text-slate-700">{n0(r.value)} <span className="text-slate-500">· {need > 0 ? `${fmt.mult(r.value / need)}×` : "—"}</span></span></div>
+          <div className="flex items-baseline justify-between gap-2 text-xs"><span className="font-medium text-slate-700" title={r.note}>{r.label}</span><span className="shrink-0 tabular-nums text-slate-700">{n0(r.value)} <span className={r.value < need ? "font-semibold text-rose-700" : "text-slate-500"}>· {need > 0 ? `${fmt.mult(r.value / need)}×` : "—"}</span></span></div>
           <div className="relative mt-1 h-3.5 w-full rounded bg-slate-100">
             <div className="h-3.5 rounded" style={{ width: w(r.value), background: r.color, transition: "width 400ms ease" }} />
             <div className="absolute top-[-3px] h-[20px] w-[2px] bg-slate-900" style={{ left: w(need) }} aria-hidden title="demand" />
@@ -59,21 +59,12 @@ function SupplyChart({ need, rows, caption }: { need: number; rows: { label: str
     </div>
   );
 }
-function LinedUpCaption() {
-  return (
-    <>Ceilings, not plans. Every bar counts seats shift by shift, each site at its students-at-once, never beyond that shift&apos;s own demand. The first is the ceiling the placed share on the left is measured against — the gap between them is what could not be placed around (class days, holidays, sections too big for one site); the second holds it to the preceptors on the sites&apos; rosters; the third lets every site count.</>
-  );
-}
 
 const fmtMY = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
 
 export function SchedulerCapacity({ plan, policy, window, computing, mode = "diagnostic", onShowBottlenecks, onOpenLevers }: { plan: Plan; policy: Policy; window: { from: string; to: string }; computing?: boolean; /** diagnostic: a supply estimate, nothing is written; operational: the plan can be applied. */ mode?: "diagnostic" | "operational"; onShowBottlenecks: () => void; onOpenLevers?: () => void }) {
   const s = plan.summary; const c = s.capacity; const rd = s.readiness;
   const need = c.demandSeats;
-  // Three ceilings on one basis: seats matched to the demand shift by shift (lib/scheduler supplySeatsLinedUp*).
-  const linedUp = c.supplySeatsLinedUp;
-  const staffable = c.supplySeatsLinedUpStaffable;
-  const everySite = c.supplySeatsLinedUpEverySite;
   // What kept the plan below the lined-up ceiling: the clashes the engine could not place around.
   const clashSeats = plan.unmet.filter((u) => u.reason === "class-day" || u.reason === "student-busy" || u.reason === "holiday").reduce((n, u) => n + u.unit.seats, 0);
   const tooBigSeats = plan.unmet.filter((u) => u.reason === "too-big").reduce((n, u) => n + u.unit.seats, 0);
@@ -112,41 +103,25 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
             </ul>
           </div>
           <SupplyChart need={need} rows={[
-            { label: "Seats that line up with the demand, day by day", value: linedUp, color: RING.placed, note: "one learner place on one asset on one date and shift block, in a setting the rotation's rule allows, at a site the Sites and Drive-time levers allow, within the site's students-at-once — counted shift by shift and never beyond that shift's own demand. Placed can never exceed this." },
-            { label: "…of which a preceptor on the site's roster could cover", value: staffable, color: RING.staffed, note: `the lined-up seats, each site and shift further capped by the preceptors on its roster × ${policy.studentsPerPreceptor ? `${policy.studentsPerPreceptor} students each` : "each asset's own students-per-preceptor ratio"}` },
-            { label: "…if every site counted", value: everySite, color: "#94a3b8", note: "the same day-by-day count at every live site, whatever its agreement or drive time, each site still at its students-at-once — what loosening the Sites and Drive-time levers all the way could unlock" },
-          ]} caption={<LinedUpCaption />} />
+            { label: "Seats at the sites the levers allow, on the days the demand needs", value: c.supplySeatsOnDemandDays - c.supplySeatsBooked, color: RING.placed, note: "every seat on a date and shift block the demand uses, at a site the Sites-that-count and Drive-time levers allow, each site held to its students-at-once, hand-made bookings taken out" },
+            { label: "Seats if every site counted", value: c.supplySeatsPhysicalOnDemandDays, color: "#94a3b8", note: "the same count at every live site, whatever its agreement or drive time — what loosening the Sites and Drive-time levers all the way would give" },
+          ]} caption={<>A seat is one student place on one asset on one date and shift block. The bars count every seat, so a bar past the demand line is room to spare and a bar short of it is a shortfall. Placed can still fall below a bar that covers the demand when seats are on the wrong days, at sites too small for a whole section, or clash with class days.</>} />
         </div>
-        {/* ── Total supply against demand — the raw count, NOT capped at the demand: how much room there is, or how short. ── */}
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(240px,34%)_1fr] lg:items-start">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Total supply against demand</div>
-              <div className={`mt-1 text-4xl font-bold leading-none tabular-nums ${need === 0 ? "text-slate-400" : (c.ratioOnDemandDays ?? 0) >= 1 ? "text-slate-900" : "text-rose-700"}`}>{need === 0 || c.ratioOnDemandDays == null ? "—" : `${fmt.mult(c.ratioOnDemandDays)}×`}</div>
-              <p className="mt-1 text-sm text-slate-700">{need === 0 ? "No demand in the window." : c.headroomOnDemandDays >= 0 ? <><strong className="tabular-nums">{n0(c.headroomOnDemandDays)}</strong> spare learner-seats on the days and shifts the demand uses, at the sites that count, after hand-made bookings — {n0(c.supplySeatsOnDemandDays)} seats against {n0(need)} learner-shifts.</> : <><strong className="tabular-nums">{n0(-c.headroomOnDemandDays)}</strong> learner-seats short on the days and shifts the demand uses, at the sites that count — {n0(c.supplySeatsOnDemandDays)} seats against {n0(need)} learner-shifts.</>}</p>
-              <p className="mt-1 text-[11px] text-slate-500">Every seat that exists, not only the ones that line up: the same site can hold twenty seats on a day only four students need, and they all count here. The bars on the left are the ceilings the placed share is measured against; these are the totals behind them.</p>
-            </div>
-            <SupplyChart need={need} rows={[
-              { label: "Seats on the days and shifts demand uses, at the sites that count", value: c.supplySeatsOnDemandDays, color: RING.placed, note: "every asset-shift on a date and shift block the demand uses, at a site the Sites and Drive-time levers allow, × learners per shift, each site held to its students-at-once — whether or not the seat lines up with a section" },
-              { label: "…of which a preceptor on the site's roster could cover", value: c.supplySeatsStaffableOnDemandDays, color: RING.staffed, note: "the same seats, each site and shift capped by the preceptors on its roster × students per preceptor" },
-              { label: "…at every site, whatever its agreement or drive time", value: c.supplySeatsPhysicalOnDemandDays, color: "#94a3b8", note: "the same count at every live site — what loosening the Sites and Drive-time levers all the way would count" },
-              { label: "Every seat in the whole window, any day, at the sites that count", value: c.supplySeats, color: "#cbd5e1", note: "every open asset-shift in the window × learners per shift at the sites that count, including days nothing is scheduled — the theoretical maximum" },
-            ]} caption={<>Totals, not ceilings: a seat on a day forty students need twenty-four still counts, so a bar can run well past the demand mark — that excess is the headroom, and a bar short of the mark is the shortfall before any placement is tried.</>} />
-          </div>
-        </div>
+        <p className="mt-3 text-sm text-slate-700">
+          {need === 0 ? "No clinical shifts fall in this window." : (() => { const have = c.supplySeatsOnDemandDays - c.supplySeatsBooked; const every = c.supplySeatsPhysicalOnDemandDays; const r = need ? have / need : 0; const re = need ? every / need : 0;
+            return <>Supply is <strong className={`tabular-nums ${r < 1 ? "text-rose-700" : "text-emerald-700"}`}>{fmt.mult(r)}×</strong> the demand at the sites these levers allow ({r < 1 ? <>{n0(need - have)} student-shifts short</> : <>{n0(have - need)} seats to spare</>}), and <strong className="tabular-nums">{fmt.mult(re)}×</strong> if every site counted.</>; })()}
+        </p>
         {c.settingsWithoutSupply.length > 0 && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">No site that counts offers {c.settingsWithoutSupply.join(", ")} — those shifts cannot be placed whatever the totals say.</p>}
         <details className="mt-3 text-xs text-slate-600">
-          <summary className="cursor-pointer font-medium text-slate-700 hover:text-rose-700">How to read these numbers</summary>
+          <summary className="cursor-pointer font-medium text-slate-700 hover:text-rose-700">What these numbers are</summary>
           <dl className="mt-2 grid gap-x-6 gap-y-1.5 md:grid-cols-2">
-            <div><dt className="font-semibold text-slate-800">Demand · {n0(need)} learner-shifts</dt><dd>One student on one clinical shift. Every dated clinical section of the chosen offerings, × the students in it, over the window. It comes from the program template (sessions, weeks, sections) and the offerings' term dates — not from who is enrolled today.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Can be placed · {pct(s.placedShare)}</dt><dd>The engine tried every shift against every seat under these levers and found a seat for {n0(s.placedSeats)} learner-shifts. A seat is one learner place on one asset (a unit, room or machine) on one date and shift block, in a setting the rotation&apos;s rule allows. This is the answer; the bars are the ceilings it worked inside.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Seats that line up with the demand · {n0(linedUp)}</dt><dd>A seat is one learner place on one asset (a unit, room or machine) on one date and shift block, in a setting the rotation&apos;s rule allows, at a site the Sites and Drive-time levers allow. Seats are matched to the demand shift by shift{policy.flexibleDays || policy.flexibleShift ? " (week by week, and across shift blocks, where the Day and Shift levers let a shift move)" : ""}: each site is held to its approved students-at-once, and no shift&apos;s seats count beyond what that shift needs — a seat on a day nobody needs it, or the twenty-fifth seat on a day forty students need twenty-four, is not lined up. This is the ceiling the placed share is measured against. Between it and placed{clashSeats || tooBigSeats ? ` — ${n0(Math.max(0, linedUp - s.placedSeats))} learner-shifts here —` : ""} sit only the clashes the engine cannot place around: class days, holidays, students due elsewhere{tooBigSeats ? ", sections too big for one site" : ""}.</dd></div>
-            <div><dt className="font-semibold text-slate-800">…that a preceptor could cover · {n0(staffable)}</dt><dd>The lined-up seats, each site and shift further capped by the preceptors on that site&apos;s roster × students per preceptor. Only meaningful for precepted sessions; instructor-led groups need a college instructor instead.</dd></div>
-            <div><dt className="font-semibold text-slate-800">…if every site counted · {n0(everySite)}</dt><dd>The lined-up count at every live site, whatever its agreement or drive time, each site still at its students-at-once — what loosening the Sites and Drive-time levers all the way could unlock. Not a plan either.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Total supply against demand · {c.ratioOnDemandDays == null ? "—" : `${fmt.mult(c.ratioOnDemandDays)}×`}</dt><dd>The raw count: every seat at the sites that count on the days and shift blocks the demand uses, whether or not a section could sit on it, divided by the demand. Above 1× is headroom (seats spare before any placement is tried), below 1× is a shortfall no lever inside the window can close. The lined-up bars above never exceed the demand because they count only the seats a section could take; this figure is what is there in total.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Preceptor available · {pct(s.preceptorShifts ? s.preceptorsAssigned / s.preceptorShifts : null)}</dt><dd>Of the placed shifts that require a preceptor, the share where a free preceptor on that site&apos;s roster was put on the shift by name. &ldquo;Seats only&rdquo; (the default lever) places first and staffs afterwards; &ldquo;require a free preceptor&rdquo; refuses a seat with nobody to precept.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Ready to run · {pct(rd.readyShare)}</dt><dd>Placed shifts that also pass every check: secured agreement, the required role named, the site&apos;s experience confirmed, the setting rule reviewed and satisfied, no conflicts. Anything unknown or unreviewed keeps a shift out of this number — it is the strictest figure on purpose.</dd></div>
-            <div><dt className="font-semibold text-slate-800">What none of this says</dt><dd>Nothing here is written to the calendar, and none of it is a regulatory judgement. A placed shift is a seat that fits; a ready shift is one every record supports. The roster on the calendar is a separate, earlier run of the same engine — the line above the levers says how it compares.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Demand · {n0(need)}</dt><dd>One student on one clinical shift, for every dated clinical section of the chosen offerings in the window, from the program template and the offerings&apos; term dates.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Can be placed · {pct(s.placedShare)}</dt><dd>The engine tried every shift against every seat under these levers and found a seat for {n0(s.placedSeats)} of them. The big number.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Seats at the sites the levers allow · {n0(c.supplySeatsOnDemandDays - c.supplySeatsBooked)}</dt><dd>Every seat on the dates and shift blocks the demand uses, at the sites the Sites-that-count and Drive-time levers allow, each site held to its students-at-once, minus hand-made bookings. Above the demand is room to spare; below it is a shortfall no lever inside the window closes.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Seats if every site counted · {n0(c.supplySeatsPhysicalOnDemandDays)}</dt><dd>The same count at every live site, whatever its agreement or drive time — the most the Sites and Drive-time levers could unlock.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Preceptor available · {pct(s.preceptorShifts ? s.preceptorsAssigned / s.preceptorShifts : null)}</dt><dd>Of the placed shifts that need a preceptor, the share where a free preceptor on that site&apos;s roster was put on the shift by name.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Ready to run · {pct(rd.readyShare)}</dt><dd>Placed shifts that also pass every check: secured agreement, the required role named, the site&apos;s experience confirmed, the setting rule reviewed and met, no conflicts. The strictest figure on purpose.</dd></div>
+            <div className="md:col-span-2"><dt className="font-semibold text-slate-800">What none of this says</dt><dd>Nothing is written to the calendar, and none of it is a regulatory judgement. The roster on the calendar is an earlier run of the same engine; the line above the levers says how it compares.</dd></div>
           </dl>
         </details>
       </div>
