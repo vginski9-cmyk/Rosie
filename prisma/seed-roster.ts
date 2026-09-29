@@ -15,6 +15,7 @@ import { parseHoursText } from "../src/lib/rooms";
 import { sessionDate } from "../src/lib/term";
 import { isOnlineSession } from "../src/lib/capacitymodel";
 import { holidayMap } from "../src/lib/academiccalendar";
+import { resolveHoliday, isHolidayRule, DEFAULT_HOLIDAY_RULE } from "../src/lib/holidayrule";
 import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
 import { pickGrade, gpaOf } from "../src/lib/cohorthistory";
 import { ENROLLED_AND_BEYOND } from "../src/lib/learners";
@@ -448,6 +449,8 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
  *  "scheduled" until someone logs them. Offerings that have started flip to active. */
 export async function seedLearnerRecords(prisma: PrismaClient, institutionId: string, today = new Date()) {
   const todayIso = today.toISOString().slice(0, 10);
+  const instRule = await prisma.institution.findUnique({ where: { id: institutionId }, select: { holidayRule: true } });
+  const holidayRule = (() => { const r = instRule?.holidayRule; return isHolidayRule(r) ? r : DEFAULT_HOLIDAY_RULE; })();
   const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
     .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
   const rotations = new Map((await prisma.rotationSetting.findMany({ where: { institutionId }, select: { rotationType: true, settingCode: true } })).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
@@ -553,10 +556,14 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
             if (online || !s.dayOfWeek) continue; // no fixed day → nothing to attend on a date
             const sec = st.sections.find((x) => x.courseId === c.id && x.kind === s.kind)?.sectionIndex ?? null;
             if (sec == null) continue; // not in a section of this kind
-            const d = sessionDate({ termStart: ct.startDate, termEnd: ct.endDate, templateWeeks: tplWeeks, courseStart: courseStart.get(c.id) ?? null }, s.week, s.dayOfWeek);
-            if (!d) continue;
-            const iso = d.toISOString().slice(0, 10);
-            if (iso > todayIso || holidays[iso]) continue; // future, or a coded holiday — no session that day
+            const d0 = sessionDate({ termStart: ct.startDate, termEnd: ct.endDate, templateWeeks: tplWeeks, courseStart: courseStart.get(c.id) ?? null }, s.week, s.dayOfWeek);
+            if (!d0) continue;
+            // A session on a coded holiday is held on the day the college's holiday rule moves it to (the same rule the
+            // calendar and the roster's shift dates follow); only one the rule cannot move is not held.
+            const moved = resolveHoliday(d0.toISOString().slice(0, 10), holidays, { rule: holidayRule });
+            if (moved.unresolved) continue;
+            const iso = moved.dateIso; const d = new Date(iso + "T00:00:00Z");
+            if (iso > todayIso) continue; // future — nothing to log yet
             // A small, deterministic share of occurrences missed (about one in twenty), a third of them excused.
             const roll = mix(si * 131 + k, s.week ?? 0);
             const absent = roll % 100 < 5;

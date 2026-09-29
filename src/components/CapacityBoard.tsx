@@ -65,7 +65,7 @@ export interface CapacityCohort {
   meetings?: ShiftMeeting[];
   /** Per-occurrence shift moves for this cohort (one chip, one date). */
   moves?: ShiftMoveInfo[];
-  courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; sessions: SessionInput[] }[];
+  courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; simulation?: { max: number; unit: string; note: string | null } | null; sessions: SessionInput[] }[];
   assumptions: WorkloadAssumptions;
 }
 

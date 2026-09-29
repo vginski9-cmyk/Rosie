@@ -67,11 +67,6 @@ export default async function CapacityPage({ searchParams }: { searchParams: { i
         <Area title="Pipeline" sub="From applicant to productive worker"
           headline={<>{fmt.num(students)} students enrolled now</>}
           links={[["Programs", "/programs", "each program's goal and pipeline"], ["Learner analytics", "/students/analytics", "completion and withdrawal by cohort"], ["Semester view", q("/semester"), "what runs when"]]} />
-        <div className="lg:col-span-2">
-          <Area title="How well the inputs are known" sub="Verified, estimated or defaulted"
-            headline={<>{fmt.num(verifiedAssumptions)} of {fmt.num(assumptions)} assumptions verified · {fmt.num(unverifiedStandards)} of {fmt.num(req.length)} requirement sets unverified · {fmt.num(sitesEstimate)} secured sites with an estimated staff figure · {provisional.length ? <span className="text-amber-700">{provisional.map((c) => `${c.name}: ${c.verdict.level === "provisional" ? "term dates provisional" : "some term dates set by hand"}`).join(" · ")}</span> : "term dates from the college calendars"}</>}
-            links={[["Evidence review", "/setup#evidence", "every unverified input"], ["Planning assumptions", "/setup#assumptions", "the registry"], ["Exceptions", "/setup/exceptions", "what the records raise"]]} />
-        </div>
       </div>
     </div>
   );

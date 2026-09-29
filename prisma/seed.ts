@@ -23,6 +23,7 @@ import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, 
 import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
+import { simulationAllowance, type RuleDefLite } from "../src/lib/requirementrules";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { loadPartnerSites } from "./seed-partner-sites";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
@@ -397,6 +398,8 @@ async function loadRadAssetMap(institutionId: string) {
     // The Sandhills program-data workbooks' own rotation labels.
     ["General Rotations", "GEN", "Imaging"], ["Other (imaging rotations)", "GEN", "Imaging"], ["Capstone/Preceptorship", "GEN", "Imaging"],
     ["Other (surgical rotations)", "ORS", "Surgical"], ["Doctor's Office", "AMB", "Ambulatory office"], ["Operating Room or Doctor's Office", "ORS", "Surgical"],
+    // The owner's Surgical Technology sheet (2026-09-23) writes SUR 135's rotation as a bare "Other": the surgical rotation, as the workbook's "Other (surgical rotations)" said.
+    ["Other", "ORS", "Surgical"],
   ];
   for (const [rotationType, settingCode, unitCategory] of ROT) {
     await prisma.rotationSetting.upsert({
@@ -914,6 +917,24 @@ export async function createCnaProgram(institutionId: string, occupationId: stri
   return program;
 }
 
+/** Every clinical course carries the simulation its family's requirement set allows (ARRT: up to 10 procedures; ARC/STSA and
+ *  NC NATCEP allow none, so those courses stay blank and read "not allowed"). The course field is the program's to override. */
+async function seedSimulationAllowances(prisma: PrismaClient): Promise<{ courses: number; families: number }> {
+  const fams = await prisma.programFamily.findMany({ select: { id: true, requirementSets: { select: { authority: true, rules: true } }, programs: { select: { terms: { select: { courses: { select: { id: true, sessions: { where: { kind: "CLINICAL" }, select: { id: true }, take: 1 } } } } } } } } });
+  let courses = 0, families = 0;
+  for (const f of fams) {
+    let allowance: { max: number; unit: string; note: string | null; authority: string } | null = null;
+    for (const set of f.requirementSets) { let rules: RuleDefLite[] = []; try { rules = JSON.parse(set.rules); } catch { rules = []; } const a = simulationAllowance(rules); if (a) { allowance = { ...a, authority: set.authority.split(" · ")[0].split(" (")[0] }; break; } }
+    if (!allowance) continue;
+    families++;
+    const ids = f.programs.flatMap((p) => p.terms.flatMap((t) => t.courses.filter((c) => c.sessions.length).map((c) => c.id)));
+    if (!ids.length) continue;
+    const r = await prisma.course.updateMany({ where: { id: { in: ids } }, data: { simulationMax: allowance.max, simulationUnit: allowance.unit, simulationNote: `${allowance.authority}: ${allowance.note ?? `up to ${allowance.max} ${allowance.unit} may be simulated`}` } });
+    courses += r.count;
+  }
+  return { courses, families };
+}
+
 async function main() {
   const t0 = Date.now(); const lap = (label: string) => console.log(`⏱ ${label} · ${((Date.now() - t0) / 1000).toFixed(0)}s elapsed`);
   console.log("Resetting to basics: templates only…");
@@ -1067,6 +1088,7 @@ async function main() {
   // any offering is dated, so every term lands on the college's own calendar.
   console.log("academic calendars:", await seedAcademicCalendars(prisma, join(__dirname, "seed-data", "calendars")));
   console.log("requirement sets:", await seedRequirementSets(prisma));
+  console.log("simulation allowances:", await seedSimulationAllowances(prisma));
   const roster = await seedRoster(prisma, sandhills.id);
   lap("roster");
   console.log("roster:", roster);

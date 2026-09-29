@@ -226,6 +226,12 @@ The line above every capacity, coverage, staffing and scheduler view saying what
 
 ## Requirements, rules and the evaluation
 
+### Simulation allowance
+
+How much of a course's clinical requirement its accreditor lets a program meet by simulation: a cap and its unit (ARRT: up to 10 procedures, none of them pediatric; ARC/STSA case counts and NC NATCEP clinical hours allow none). Each clinical course carries its family's figure and can override it. The scheduler cites the allowance as an option when shifts cannot be placed and totals the relief it could give; it never pulls it — simulation is the program's decision, not a lever.
+
+- **Where:** Design & sequence › course, the scheduler's bottlenecks and fixes
+
 ### Setting rule
 
 What a clinical rotation type means in settings, as a structured rule rather than one code: only A; A or B (alternatives for the same hours); A and B (both, each with its own quantity); a total with minimums inside it; any N of a list; plus whether hours may be mixed across settings and whether the rotation must stay at one site. The program's own wording is kept beside the rule.

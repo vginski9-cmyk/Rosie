@@ -487,6 +487,11 @@ model Course {
   /// JSON design targets against the family's requirement set by the END of this course, by rule key
   /// (e.g. {"mandatory": 12, "elective": 4} for radiography; {"total": 40, "general-fs": 10} for surgical
   /// technology). Blank = paced evenly across the clinical courses.
+  /// Simulation allowed toward this course's clinical requirement (the family's requirement set's figure unless overridden):
+  /// the cap, its unit (procedures | hours) and the authority's wording. Null = the set's own figure; a set with no allowance reads "not allowed".
+  simulationMax       Float?
+  simulationUnit      String?
+  simulationNote      String?
   requirementPlan     String  @default("{}")
   courseType          String? // CORE | GENED | SUPPORT — for flow-chart coloring
 

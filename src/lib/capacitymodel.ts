@@ -269,6 +269,8 @@ export interface DatedInstance {
   courseTitle: string;
   /** DB course id when known — joins a shift back to its per-section booking. */
   courseId: string | null;
+  /** The course's simulation allowance, when its accreditor grants one. */
+  courseSimulation?: SimulationAllowance | null;
   termIndex: number;      // 1-based
   termName: string;
   semester: string;       // Fall | Spring | Summer (best effort from the term start month)
@@ -320,9 +322,13 @@ export interface CohortCalendarInput {
      *  Accepts a Date or ISO string (props cross the server/client boundary). */
     startDate?: Date | string | null;
     endDate?: Date | string | null;
+    /** Simulation allowed toward this course's clinical requirement (the accreditor's cap), null when none is allowed. */
+    simulation?: SimulationAllowance | null;
     sessions: SessionInput[];
   }[];
 }
+/** The accreditor's simulation cap a clinical course carries (lib/requirementrules). */
+export interface SimulationAllowance { max: number; unit: string; note: string | null }
 
 import { resolveHolidays, usHoliday, type HolidayRule } from "./holidayrule";
 export { usHoliday };
@@ -390,7 +396,7 @@ export function buildInstances(input: CohortCalendarInput, a: WorkloadAssumption
       out.push({
         session: p.s, computed: p.computed,
         cohortId: input.cohortId, cohort: input.cohort, programId: input.programId, program: input.program,
-        courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, termIndex: c.termIndex, termName: c.termName, semester,
+        courseCode: c.code, courseTitle: c.title, courseId: c.courseId ?? null, courseSimulation: c.simulation ?? null, termIndex: c.termIndex, termName: c.termName, semester,
         weekOfTerm: p.week, beyondTerm: p.beyond, beforeTerm: p.before || undefined,
         monday: p.monday, mondayIso: p.monday ? isoOf(p.monday) : null,
         date, dateIso,

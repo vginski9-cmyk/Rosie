@@ -34,6 +34,8 @@ export interface DCourse {
   id: string; code: string | null; name: string; creditHours: number | null;
   weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number;
   semesterOffered: string | null; courseType: string | null; description: string | null; requisites: string | null;
+  /** Simulation allowed toward the course's clinical requirement (the accreditor's cap); null = none allowed. */
+  simulationMax?: number | null; simulationUnit?: string | null; simulationNote?: string | null;
   sessions: DSession[];
 }
 export interface DTerm { id: string; name: string; index: number; semester?: string | null; startWeek: number | null; endWeek: number | null; courses: DCourse[] }
@@ -336,6 +338,9 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
                           <Field label="Clinical h / wk"><input name="weeklyClinicalHours" type="number" step="any" defaultValue={course.weeklyClinicalHours} className="inp w-full" /></Field>
                           <Field label="Prerequisites / co-requisites"><input name="requisites" defaultValue={course.requisites ?? ""} className="inp w-full" /></Field>
                           <Field label="Description"><input name="description" defaultValue={course.description ?? ""} className="inp w-full lg:col-span-3" /></Field>
+                          <Field label="Simulation allowed (max)"><input name="simulationMax" type="number" step="any" min="0" defaultValue={course.simulationMax ?? ""} placeholder="none" className="inp w-full" title="The accreditor's cap on simulated experience toward this course's clinical requirement — blank means none is allowed. The scheduler cites it as an option when shifts cannot be placed; it never pulls it." /></Field>
+                          <Field label="Simulation unit"><select name="simulationUnit" defaultValue={course.simulationUnit ?? "procedures"} className="inp w-full"><option value="procedures">procedures</option><option value="hours">hours</option></select></Field>
+                          <Field label="Simulation note (the authority's wording)"><input name="simulationNote" defaultValue={course.simulationNote ?? ""} placeholder="e.g. ARRT: up to 10 procedures may be simulated; pediatric may not" className="inp w-full lg:col-span-3" /></Field>
                           <div className="flex items-center gap-3 lg:col-span-2">
                             <button className="btn-primary py-1 text-xs">Save course</button>
                             <button formAction={deleteCourse.bind(null, course.id, pid)} className="text-[11px] text-slate-300 hover:text-rose-600">Delete course</button>

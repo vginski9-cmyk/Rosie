@@ -49,6 +49,22 @@ describe("demandUnits and online sessions", () => {
   });
 });
 
+describe("simulation as relief, never a lever", () => {
+  it("an unplaced unit whose course allows simulation gets the option in its fixes and the plan totals the relief; a course allowing none gets neither", () => {
+    const rooms = [asset({ id: "r1", employerId: "e1", facilityName: "Moore Regional", learnersPerShift: 1 })];
+    const sim = { max: 10, unit: "procedures", note: "ARRT: up to 10 procedures may be simulated; pediatric procedures may not be" };
+    const withSim = unit({ id: "u1", seats: 1, seatsPerSection: 1, courseCode: "RAD-151", simulation: sim });
+    const without = unit({ id: "u2", sectionIndex: 2, seats: 1, seatsPerSection: 1, courseCode: "SUR 123", simulation: null });
+    const plan = recommendPlan(base({ demand: [withSim, without], assets: rooms }));
+    expect(plan.assignments).toHaveLength(1); expect(plan.unmet).toHaveLength(1);
+    const left = plan.unmet[0];
+    if (left.unit.id === "u1") { expect(left.fixes.some((f) => f.startsWith("run this experience as simulation — allowed up to 10 procedures per learner"))).toBe(true); expect(plan.summary.reliefBySimulation).toMatchObject({ seats: 1, shifts: 1 }); expect(plan.summary.reliefBySimulation.allowances[0].courses).toEqual(["RAD-151"]); }
+    else { expect(left.fixes.some((f) => /simulation/.test(f))).toBe(false); expect(plan.summary.reliefBySimulation.seats).toBe(0); }
+    // no policy field mentions simulation: it is not a lever
+    expect(Object.keys(DEFAULT_POLICY).some((k) => /simul/i.test(k))).toBe(false);
+  });
+});
+
 describe("recommendPlan", () => {
   const A = asset({ id: "a1", employerId: "e1", facilityName: "Moore Regional" });
 

@@ -105,6 +105,8 @@ export interface DemandUnit {
   holidayMoved: string | null;
   /** The session's explicit supervision model when one is stored or resolved; absent = derived from the staffing columns (never coerced). */
   supervision?: SupervisionSpec | null;
+  /** The course's simulation allowance (the accreditor's cap) — relief the fixes may cite, never a lever the plan pulls. */
+  simulation?: { max: number; unit: string; note: string | null } | null;
 }
 
 export interface Preceptor { id: string; name: string; employerId: string | null; role: string }
@@ -273,7 +275,9 @@ export interface Plan {
   preceptorStats: PreceptorStat[];
   summary: { demandShifts: number; demandSeats: number; demandHours: number; placedShifts: number; placedSeats: number; placedHours: number; unmetShifts: number; placedShare: number; supplySeatsAllowed: number; supplySeatsPhysical: number; capacity: CapacityHeadroom; preceptorShifts: number; preceptorsAssigned: number; instructorShifts: number; instructorsAssigned: number; sitesUsed: number; statement: string;
     /** The readiness funnel in learner-shifts (Phase 5): location assigned → agreement eligible → staffed by name → experience supported → conflict-free → ready. The headline is `ready`. */
-    readiness: { locationAssigned: number; agreementEligible: number; staffedByName: number; experienceSupported: number; conflictFree: number; ready: number; readyShare: number } };
+    readiness: { locationAssigned: number; agreementEligible: number; staffedByName: number; experienceSupported: number; conflictFree: number; ready: number; readyShare: number };
+    /** Unplaced learner-shifts whose course's accreditor allows simulation — relief the program may take, listed per allowance; never applied by the plan. */
+    reliefBySimulation: { seats: number; shifts: number; allowances: { max: number; unit: string; note: string | null; courses: string[]; seats: number }[] } };
   /** What would block applying this plan (Phase 5): placements at unsecured sites, on holidays, over a site's cap, unprecepted. */
   blockers: Blocker[];
   /** The canonical evaluation (lib/evaluate): every placed and unplaced section judged on the same checks, with reason codes, counted by unique placement and by occurrence, plus the contract the numbers were produced under. */
@@ -332,6 +336,7 @@ export function demandUnits(rows: DatedInstance[], rotations: RotationCode[], mo
         seatsPerSection: per, seatStart: span.start, sectionSeats: span.seats,
         // A shift moved by hand or by the plan is checked against the calendar on its NEW date.
         holiday: m ? holidays[date] ?? null : r.holiday, moved: !!m, holidayMoved: r.holidayMoved?.holiday ?? null,
+        simulation: r.courseSimulation ?? null,
       });
     }
   }
@@ -705,8 +710,16 @@ function unmetDetail(u: DemandUnit, reason: UnmetReason, eligible: string[], liv
   }
 }
 
-/** What would place this unit: try each relaxation of the policy in turn. */
+/** What would place this unit: each relaxation of the policy in turn — and, when the course's accreditor allows it, running the
+ *  experience as simulation (an option the program owns; never a lever the plan pulls). */
 function fixesFor(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit, pol: Policy) => { cands: unknown[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null }): string[] {
+  const fixes = baseFixes(u, reason, candidates);
+  if (u.simulation) fixes.push(simulationFix(u.simulation));
+  return fixes;
+}
+/** The simulation option as a sentence: the cap, its unit and the authority's own wording. */
+export const simulationFix = (s: { max: number; unit: string; note: string | null }) => `run this experience as simulation — allowed up to ${s.max} ${s.unit} per learner${s.note ? ` (${s.note})` : ""}`;
+function baseFixes(u: DemandUnit, reason: UnmetReason, candidates: (u: DemandUnit, pol: Policy) => { cands: unknown[]; reason: UnmetReason | null; biggest: { site: string; seats: number } | null }): string[] {
   const fixes: string[] = [];
   if (reason === "mixing-locked") fixes.push(u.rule?.mixing === "unknown" ? `confirm whether hours may be mixed across ${u.eligible.join(" / ")} (the rule for "${u.rotationType}")` : `the rule for "${u.rotationType}" forbids mixing settings — add seats in the setting this rotation started in`);
   if (reason === "site-cap") fixes.push("raise the site's approved students-at-once for this program (Clinical site capacity), or secure another site of this setting");
@@ -1053,7 +1066,11 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
     agreementEnds: (a, familyId) => (familyId ? famEnds.get(`${familyId}|${a.employerId}`) : undefined) ?? null,
     allowedAsset, siteCapFor, confirmed, confirmedKnown, atOnce, overlapsAnother, groupJudgement, preceptorsAtSite,
   });
-  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, evaluation, summary: { capacity, demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
+  // Simulation relief: the unplaced seats whose course allows it, grouped by the allowance they fall under.
+  const relief = new Map<string, { max: number; unit: string; note: string | null; courses: Set<string>; seats: number; shifts: number }>();
+  for (const x of unmet) { const sim = x.unit.simulation; if (!sim) continue; const k = `${sim.max}|${sim.unit}|${sim.note ?? ""}`; const e = relief.get(k) ?? { max: sim.max, unit: sim.unit, note: sim.note, courses: new Set<string>(), seats: 0, shifts: 0 }; e.seats += x.unit.seats; e.shifts++; if (x.unit.courseCode) e.courses.add(x.unit.courseCode); relief.set(k, e); }
+  const reliefBySimulation = { seats: [...relief.values()].reduce((n, e) => n + e.seats, 0), shifts: [...relief.values()].reduce((n, e) => n + e.shifts, 0), allowances: [...relief.values()].map((e) => ({ max: e.max, unit: e.unit, note: e.note, courses: [...e.courses].sort(), seats: e.seats })) };
+  return { policy, assignments, unmet, balance, sites, weeks, bottlenecks, rosters, studentStats, preceptorStats, blockers, evaluation, summary: { reliefBySimulation, capacity, demandShifts, demandSeats, demandHours, placedShifts, placedSeats, placedHours, unmetShifts: unmet.length, placedShare, supplySeatsAllowed, supplySeatsPhysical, preceptorShifts, preceptorsAssigned, instructorShifts, instructorsAssigned, sitesUsed, statement, readiness } };
 }
 
 // ── The evaluation pass ──────────────────────────────────────────────────────────────────────────────

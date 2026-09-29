@@ -21,6 +21,12 @@ export interface BackfillReport {
   requirements: { courseHours: number; created: number; versions: number; fulfillments: number; setStandards: number; discrepancies: { course: string; area: string; required: number; represented: number }[] };
 }
 
+/** Either/or rotation wordings whose reading the program owner has confirmed (the Surgical Technology sheet, 2026-09-23):
+ *  any of the named settings serves the rotation and a learner's hours may be split across them. */
+const REVIEWED_INTERPRETATIONS: Record<string, Partial<import("../src/lib/settingrule").SettingRuleSpec>> = {
+  "Operating Room or Doctor's Office": { rule: { kind: "any-of", settings: ["ORS", "AMB"] }, mixing: "allowed", continuity: "unknown", sourceText: "owner's Surgical Technology sheet, 2026-09-23: \"Operating Room or Doctor's Office\"" },
+};
+
 export async function backfillRequirements(prisma: PrismaClient, opts: { dryRun?: boolean; log?: (s: string) => void } = {}): Promise<BackfillReport> {
   const dry = !!opts.dryRun; const log = opts.log ?? (() => {});
   const report: BackfillReport = {
@@ -37,8 +43,10 @@ export async function backfillRequirements(prisma: PrismaClient, opts: { dryRun?
   for (const r of rows) {
     report.rotations.total++;
     if (r.rule) { report.rotations.alreadyStructured++; continue; }
-    const spec = ruleOfRow({ rotationType: r.rotationType, settingCode: r.settingCode, rule: null, sourceText: r.sourceText ?? r.rotationType, interpretationStatus: r.interpretationStatus }, codes);
+    let spec = ruleOfRow({ rotationType: r.rotationType, settingCode: r.settingCode, rule: null, sourceText: r.sourceText ?? r.rotationType, interpretationStatus: r.interpretationStatus }, codes);
     if (!spec) { report.rotations.unmapped++; continue; }
+    const reviewed = REVIEWED_INTERPRETATIONS[r.rotationType];
+    if (reviewed) spec = { ...spec, ...reviewed, status: "reviewed", questions: [] };
     if (spec.status === "reviewed") report.rotations.reviewedSingle++; else { report.rotations.reviewNeeded++; if (report.rotations.examples.length < 8) report.rotations.examples.push(`${r.rotationType} → ${eligibleSettings(spec.rule).join(" / ")} (${spec.rule.kind}, ${spec.status})`); }
     if (!dry) await prisma.rotationSetting.update({ where: { id: r.id }, data: { rule: ruleSpecJson(spec), sourceText: r.sourceText ?? r.rotationType, interpretationStatus: spec.status, settingCode: r.settingCode ?? eligibleSettings(spec.rule)[0] ?? null } });
   }

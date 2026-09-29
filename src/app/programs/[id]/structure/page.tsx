@@ -45,6 +45,7 @@ export default async function StructureEditor({ params }: { params: { id: string
       id: c.id, code: c.code, name: c.name, creditHours: c.creditHours,
       weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
       semesterOffered: c.semesterOffered, courseType: c.courseType, description: c.description, requisites: c.requisites,
+      simulationMax: c.simulationMax, simulationUnit: c.simulationUnit, simulationNote: c.simulationNote,
       sessions: c.sessions.map((s) => ({
         id: s.id, kind: s.kind as "CLASS" | "LAB" | "CLINICAL", number: s.number, title: s.title,
         lengthHours: s.lengthHours, maxStudents: s.maxStudents, facultyNeeded: s.facultyNeeded, preceptorsNeeded: s.preceptorsNeeded, supportStaffNeeded: s.supportStaffNeeded,

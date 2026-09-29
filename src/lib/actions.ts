@@ -1579,6 +1579,9 @@ export async function updateCourse(courseId: string, programId: string, formData
       semesterOffered: str(formData.get("semesterOffered")) || null,
       courseType: str(formData.get("courseType")) || null,
       description: str(formData.get("description")) || null,
+      simulationMax: optNum(formData.get("simulationMax")),
+      simulationUnit: str(formData.get("simulationUnit")) || null,
+      simulationNote: str(formData.get("simulationNote")) || null,
       requisites: str(formData.get("requisites")) || null,
     },
   });

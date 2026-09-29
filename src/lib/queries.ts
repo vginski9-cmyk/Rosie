@@ -2403,6 +2403,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         })),
         courses: orderedTerms.flatMap((t) => t.courses.map((c) => ({
           code: c.code, title: c.name, courseId: c.id, termIndex: t.index, termName: t.name,
+          simulation: c.simulationMax != null ? { max: c.simulationMax, unit: c.simulationUnit ?? "procedures", note: c.simulationNote ?? null } : null,
           startDate: cdByCourse.get(c.id)?.startDate?.toISOString() ?? null,
           endDate: cdByCourse.get(c.id)?.endDate?.toISOString() ?? null,
           sessions: c.sessions.map((s) => {

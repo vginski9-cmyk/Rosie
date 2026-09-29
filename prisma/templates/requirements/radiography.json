@@ -49,6 +49,8 @@
       "key": "simulation",
       "label": "Simulations",
       "max": 10,
+      "unit": "procedures",
+      "max": 10,
       "scope": "simulated",
       "notes": "up to 10 procedures may be simulated; pediatric procedures may not be"
     },

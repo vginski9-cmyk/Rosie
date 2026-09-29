@@ -69,6 +69,16 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   const [policy, setPolicy] = useState<Policy>(BASE_POLICY);
   const [tab, setTab] = useState<Tab>("bottlenecks");
   const [cohortFilter, setCohortFilter] = useState<Set<string>>(new Set());
+  // The scope the plan is built for: programs first, then their offerings. Nothing is computed until "Build the plan" is
+  // pressed for a scope — the board opens with the levers in view and no plan, and a changed scope waits to be built again.
+  const [programFilter, setProgramFilter] = useState<Set<string>>(new Set());
+  const [built, setBuilt] = useState(false);
+  const programs = useMemo(() => { const m = new Map<string, string>(); for (const c of cohorts) m.set(c.programId, c.program); return [...m.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)); }, [cohorts]);
+  const cohortsInScope = useMemo(() => cohorts.filter((c) => programFilter.has(c.programId)).map((c) => c.cohortId), [cohorts, programFilter]);
+  const scopeCohortIds = useMemo(() => (cohortFilter.size ? [...cohortFilter].filter((id) => cohortsInScope.includes(id)) : cohortsInScope), [cohortFilter, cohortsInScope]);
+  const scopeReady = scopeCohortIds.length > 0;
+  const toggleProgram = (id: string) => { setBuilt(false); setProgramFilter((f) => { const n = new Set(f); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
+  const toggleCohort = (id: string) => { setBuilt(false); setCohortFilter((f) => { const n = new Set(f); n.has(id) ? n.delete(id) : n.add(id); return n; }); };
   const [window, setWindow] = useState<{ from: string; to: string }>({ from, to });
   const [planFilter, setPlanFilter] = useState<{ site: string; setting: string; cohort: string; q: string }>({ site: "", setting: "", cohort: "", q: "" });
   const [applied, setApplied] = useState<{ bookings: number; placements: number; meetings: number; sections: number; moves: number; staffed: number; shifts: number; offSite: number; changeSetId: string | null } | null>(null);
@@ -81,14 +91,15 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   // Phase 8: the plan is built in the browser only. Rendering it on the server spent ~5 s per request
   // before a byte reached the reader; now the page paints at once and says it is building the plan.
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { setHydrated(true); }, []);
+  useEffect(() => { setHydrated(true); try { const saved = JSON.parse(localStorage.getItem(`rosie-scheduler-scope-${institutionId}`) ?? "null") as { programs?: string[]; cohorts?: string[] } | null; if (saved?.programs?.length) { setProgramFilter(new Set(saved.programs)); setCohortFilter(new Set(saved.cohorts ?? [])); } } catch { /* the board opens unscoped */ } }, [institutionId]);
+  useEffect(() => { try { localStorage.setItem(`rosie-scheduler-scope-${institutionId}`, JSON.stringify({ programs: [...programFilter], cohorts: [...cohortFilter] })); } catch { /* per-viewer convenience only */ } }, [institutionId, programFilter, cohortFilter]);
   const [showLevers, setShowLevers] = useState(false); // the six levers that decide what can be placed are always in view; the rest fold
 
   // Demand → plan, by the same steps the apply action runs on the server (lib/schedulerplan),
   // so what is on screen is what gets written.
   const model = useMemo(() => schedulerModel(cohorts, rotations, courseRules), [cohorts, rotations, courseRules]);
   const demandAll = model.demand;
-  const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: [...cohortFilter] }), [policy, window, cohortFilter]);
+  const levers = useMemo(() => ({ policy, from: window.from, to: window.to, cohortIds: scopeCohortIds }), [policy, window, scopeCohortIds]);
   const demand = useMemo(() => filterDemand(demandAll, levers), [demandAll, levers]);
   const supply = useMemo(() => ({ assets, overrides, bookings, rotations, courseRules, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings }), [assets, overrides, bookings, rotations, courseRules, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings]);
   const manualBookings = useMemo(() => bookings.filter((b) => b.note !== AUTO_PLAN_NOTE), [bookings]);
@@ -98,10 +109,10 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
   // under are deferred, so the page can say "recomputing…" (and keep the old numbers visibly
   // stale) while the new plan is built, instead of freezing with the old numbers.
   const builtLevers = useDeferredValue(levers);
-  const builtDemand = useMemo(() => (hydrated ? filterDemand(demandAll, builtLevers) : []), [demandAll, builtLevers, hydrated]);
+  const builtDemand = useMemo(() => (hydrated && built && builtLevers.cohortIds.length ? filterDemand(demandAll, builtLevers) : []), [demandAll, builtLevers, hydrated, built]);
   const plan: Plan = useMemo(() => planFor(builtDemand, supply, builtLevers.policy, model.campus, model.holidays), [builtDemand, supply, builtLevers.policy, model.campus, model.holidays]);
   const recomputing = builtLevers !== levers;
-  const computing = !hydrated || recomputing;
+  const computing = built && (!hydrated || recomputing);
   const s = plan.summary;
   const rd = s.readiness;
   const blocking = plan.blockers.filter((b) => b.blocking);
@@ -238,14 +249,34 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           <label className="block"><span className="block text-[10px] text-slate-400">From</span><input type="date" min={range?.from} max={range?.to} value={window.from} onChange={(e) => setWindow({ ...window, from: e.target.value || from })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
           <label className="block"><span className="block text-[10px] text-slate-400">To</span><input type="date" min={range?.from} max={range?.to} value={window.to} onChange={(e) => setWindow({ ...window, to: e.target.value || to })} className="rounded border border-slate-300 px-1.5 py-1" /></label>
           {range && range.from < window.from && <span className="text-[11px] text-slate-500" title="Graduated classes' shifts are on the calendar as history; widen the window to plan or read them">history on the calendar back to {range.from}</span>}
+        </div>
+        {/* ── Scope: which programs and offerings the plan is built for. Nothing runs until it is built. ── */}
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs">
           <div className="flex flex-wrap items-center gap-1">
-            <span className="text-[10px] text-slate-400">Offerings:</span>
-            <button onClick={() => setCohortFilter(new Set())} className={`rounded-full px-2 py-0.5 ${cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>all {cohortsInDemand.length}</button>
-            {cohortsInDemand.map((c) => <button key={c.id} onClick={() => setCohortFilter((f) => { const n = new Set(f); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; })} className={`rounded-full px-2 py-0.5 ${cohortFilter.has(c.id) ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.label}</button>)}
+            <span className="w-16 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Programs</span>
+            {programs.map((p) => <button key={p.id} type="button" onClick={() => toggleProgram(p.id)} aria-pressed={programFilter.has(p.id)} className={`rounded-full px-2 py-0.5 ${programFilter.has(p.id) ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"}`}>{p.name}</button>)}
+            {programs.length > 1 && <button type="button" onClick={() => { setBuilt(false); setProgramFilter(new Set(programFilter.size === programs.length ? [] : programs.map((p) => p.id))); setCohortFilter(new Set()); }} className="rounded-full px-2 py-0.5 text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50">{programFilter.size === programs.length ? "clear" : "every program"}</button>}
+          </div>
+          {programFilter.size > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+              <span className="w-16 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Offerings</span>
+              <button type="button" onClick={() => { setBuilt(false); setCohortFilter(new Set()); }} aria-pressed={cohortFilter.size === 0} className={`rounded-full px-2 py-0.5 ${cohortFilter.size === 0 ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>all {cohortsInScope.length}</button>
+              {cohortsInDemand.filter((c) => cohortsInScope.includes(c.id)).map((c) => <button key={c.id} type="button" onClick={() => toggleCohort(c.id)} aria-pressed={cohortFilter.has(c.id)} className={`rounded-full px-2 py-0.5 ${cohortFilter.has(c.id) ? "bg-rose-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.label}</button>)}
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={() => setBuilt(true)} disabled={!scopeReady || built} className="rounded-lg bg-rose-600 px-3 py-1.5 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400" title={!scopeReady ? "pick at least one program first" : built ? "the plan below is this scope's; change a lever or the window and it rebuilds" : "place this scope's shifts under the levers above"}>{built ? "Plan built" : "Build the plan"}</button>
+            <span className="text-slate-500">{!scopeReady ? "Pick a program, then its offerings (or all of them), then build. Nothing is placed until you do." : built ? `${n0(scopeCohortIds.length)} offering${scopeCohortIds.length === 1 ? "" : "s"} in the plan — levers and the window rebuild it live.` : `${n0(scopeCohortIds.length)} offering${scopeCohortIds.length === 1 ? "" : "s"} chosen — build to place their shifts.`}</span>
           </div>
         </div>
       </div>
 
+      {!built ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600">
+          <div className="text-base font-semibold text-slate-800">No plan yet</div>
+          <p className="mt-1 max-w-prose">Choose the programs and offerings above and press <strong>Build the plan</strong>. The scheduler then places only those shifts against the college&apos;s sites under the levers, and rebuilds as you change a lever or the window. Nothing is placed until you ask.</p>
+        </div>
+      ) : (<>
       {/* ── The answer: the share placed, the rings, and why not 100% ── */}
       <SchedulerCapacity plan={plan} policy={policy} window={window} computing={computing} mode={canApply ? "operational" : "diagnostic"} onShowBottlenecks={() => setTab("bottlenecks")} onOpenLevers={() => setShowLevers(true)} />
 
@@ -352,6 +383,12 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
 
       {tab === "bottlenecks" && (
         <div className="space-y-3">
+          {s.reliefBySimulation.seats > 0 && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-xs text-sky-900">
+              <span className="font-semibold">Simulation could carry {n0(s.reliefBySimulation.seats)} of the unplaced learner-shifts.</span>{" "}
+              {s.reliefBySimulation.allowances.map((a) => `${a.courses.join(", ")}: up to ${n0(a.max)} ${a.unit} per learner${a.note ? ` (${a.note})` : ""} — ${n0(a.seats)} learner-shifts`).join("; ")}. An option the program takes on the course, never something the plan pulls.
+            </div>
+          )}
           {plan.bottlenecks.length > 0 && (() => {
             const byReason = new Map<string, { reason: string; seats: number; sections: number; weeks: Set<string>; settings: Set<string>; fixes: Map<string, number> }>();
             for (const b of plan.bottlenecks) { const r = byReason.get(b.reason) ?? { reason: b.reason, seats: 0, sections: 0, weeks: new Set(), settings: new Set(), fixes: new Map() }; r.seats += b.seats; r.sections += b.shifts; r.weeks.add(b.weekMonday); r.settings.add(b.settingCode); for (const f of b.fixes) r.fixes.set(f, (r.fixes.get(f) ?? 0) + b.seats); byReason.set(b.reason, r); }
@@ -501,6 +538,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
           )}
         </div>
       )}
+      </>)}
     </section>
   );
 }

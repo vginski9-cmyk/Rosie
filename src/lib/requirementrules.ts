@@ -13,7 +13,16 @@
 
 import type { CategoryCoverage, ReqItemLite, ItemCoverage } from "./requirements";
 
-export interface RuleDefLite { key: string; label: string; min?: number; max?: number; of?: number; scope?: string; notes?: string; categories?: string[] }
+export interface RuleDefLite { key: string; label: string; min?: number; max?: number; of?: number; scope?: string; notes?: string; categories?: string[]; /** The unit a cap counts in (procedures | hours). */ unit?: string }
+
+/** What a requirement set allows to be simulated: a rule scoped "simulated" (or keyed "simulation") with a cap. A set with no
+ *  such rule allows none — the course then reads "not allowed", never a blank. */
+export interface SimulationAllowance { max: number; unit: string; note: string | null }
+export function simulationAllowance(rules: RuleDefLite[]): SimulationAllowance | null {
+  const r = rules.find((x) => x.scope === "simulated" || x.key === "simulation");
+  if (!r || r.max == null) return null;
+  return { max: r.max, unit: r.unit ?? "procedures", note: r.notes ?? null };
+}
 export type LineVerdict = "confirmed" | "possible" | "unknown" | "none";
 export interface RuleLine { key: string; label: string; required: true; verdict: LineVerdict; detail: string }
 

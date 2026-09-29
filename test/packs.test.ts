@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { decodeSectionTimes, toMinutes } from "../src/lib/sessiontimes";
+import { simulationAllowance } from "../src/lib/requirementrules";
 
 // The Radiography pack (prisma/templates/rad.json) is the program's source. Two rules the owner set on it
 // (2026-09-24): a tenth of a faculty member on every clinical shift, every lab in Kennedy Hall 147, and
@@ -37,5 +38,27 @@ describe("the Radiography pack", () => {
       }
     }
     expect(labs[0].sectionTimes).toBe("Wed@08:00-10:50,Wed@14:00-16:50");
+  });
+
+});
+
+// What each accreditor lets a program simulate (prisma/templates/requirements): ARRT up to 10 procedures; the surgical case
+// counts and the nurse-aide clinical hours allow none — so only Radiography's clinical courses carry an allowance.
+describe("simulation allowances in the requirement sets", () => {
+  const rulesOf = (f: string) => (JSON.parse(readFileSync(`prisma/templates/requirements/${f}.json`, "utf8")) as { rules: Parameters<typeof simulationAllowance>[0] }).rules;
+  it("ARRT allows ten simulated procedures, never pediatric; ARC/STSA and NATCEP allow none", () => {
+    expect(simulationAllowance(rulesOf("radiography"))).toEqual({ max: 10, unit: "procedures", note: "up to 10 procedures may be simulated; pediatric procedures may not be" });
+    expect(simulationAllowance(rulesOf("surgical-technology"))).toBeNull();
+    expect(simulationAllowance(rulesOf("nurse-aide"))).toBeNull();
+  });
+
+});
+
+describe("the Surgical Technology sheet's rotation wording", () => {
+  it("the seed maps the sheet's bare \"Other\" (SUR 135) to the operating-room setting and reads the either/or rule as reviewed", () => {
+    const seed = readFileSync("prisma/seed.ts", "utf8");
+    expect(seed).toMatch(/\["Other", "ORS", "Surgical"\]/);
+    const backfill = readFileSync("scripts/backfill-requirements.ts", "utf8");
+    expect(backfill).toMatch(/"Operating Room or Doctor's Office": \{ rule: \{ kind: "any-of", settings: \["ORS", "AMB"\] \}, mixing: "allowed"/);
   });
 });
