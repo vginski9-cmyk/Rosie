@@ -61,6 +61,7 @@ describe("usable seats, day by day, and the busiest day", () => {
     expect(c.supplySeatsLinedUp).toBe(7); // …but only 1 + 6 can be used
     expect(c.days).toBe(2);
     expect(c.peakDay).toMatchObject({ date: "2027-09-07", demand: 20, seatsAllowed: 6, seatsEverySite: 6 });
+    expect(c.byWeek).toEqual([{ weekMonday: "2027-09-06", demand: 21, seats: 12, seatsEverySite: 12 }]);
     expect(plan.summary.placedSeats).toBeLessThanOrEqual(c.supplySeatsLinedUp);
   });
 });

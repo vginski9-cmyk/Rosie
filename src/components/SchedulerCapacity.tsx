@@ -2,6 +2,7 @@
 
 import { REASON_LABEL, type Plan, type Policy } from "@/lib/scheduler";
 import { fmt, dec } from "@/lib/format";
+import { ColumnChart, FAC_COLOR, type ColBand } from "@/components/FteCharts";
 
 // THE ANSWER IN ONE GLANCE — an estimate of clinical supply against demand under the levers. Nothing
 // is placed by looking: the engine tries every shift against every site's seats to find out how many
@@ -37,38 +38,35 @@ function Rings({ placed, staffed, ready }: { placed: number; staffed: number; re
 }
 
 /** Demand against supply, as lengths: the demand bar is the yardstick, each supply bar is read against it. */
-function SupplyChart({ need, rows, caption }: { need: number; rows: { label: string; value: number; color: string; note: string }[]; caption: React.ReactNode }) {
-  const max = Math.max(need, ...rows.map((r) => r.value), 1);
-  const w = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
+/** Demand against supply as four plain numbers. */
+function Tile({ label, value, sub, tone = "text-slate-900" }: { label: string; value: string; sub?: string; tone?: string }) {
   return (
-    <div className="space-y-2.5">
-      <div>
-        <div className="flex items-baseline justify-between text-xs"><span className="font-semibold text-slate-900">Demand — student clinical shifts to place</span><span className="tabular-nums font-semibold text-slate-900">{n0(need)}</span></div>
-        <div className="relative mt-1 h-3.5 w-full rounded bg-slate-100"><div className="h-3.5 rounded bg-slate-900" style={{ width: w(need), transition: "width 400ms ease" }} /></div>
-      </div>
-      {rows.map((r) => (
-        <div key={r.label}>
-          <div className="flex items-baseline justify-between gap-2 text-xs"><span className="font-medium text-slate-700" title={r.note}>{r.label}</span><span className="shrink-0 tabular-nums text-slate-700">{n0(r.value)} <span className={r.value < need ? "font-semibold text-rose-700" : "text-slate-500"}>· {need > 0 ? `${fmt.mult(r.value / need)}×` : "—"}</span></span></div>
-          <div className="relative mt-1 h-3.5 w-full rounded bg-slate-100">
-            <div className="h-3.5 rounded" style={{ width: w(r.value), background: r.color, transition: "width 400ms ease" }} />
-            <div className="absolute top-[-3px] h-[20px] w-[2px] bg-slate-900" style={{ left: w(need) }} aria-hidden title="demand" />
-          </div>
-        </div>
-      ))}
-      <p className="text-[10px] leading-snug text-slate-500">{caption}</p>
+    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-0.5 text-2xl font-bold leading-none tabular-nums ${tone}`}>{value}</div>
+      {sub && <div className="mt-1 text-[11px] text-slate-500">{sub}</div>}
     </div>
   );
 }
 
 const fmtMY = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
-const fmtDay = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const fmtDate = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export function SchedulerCapacity({ plan, policy, window, computing, mode = "diagnostic", onShowBottlenecks, onOpenLevers }: { plan: Plan; policy: Policy; window: { from: string; to: string }; computing?: boolean; /** diagnostic: a supply estimate, nothing is written; operational: the plan can be applied. */ mode?: "diagnostic" | "operational"; onShowBottlenecks: () => void; onOpenLevers?: () => void }) {
   const s = plan.summary; const c = s.capacity; const rd = s.readiness;
   const need = c.demandSeats;
-  // Every seat on the demand days at the allowed sites, and how many of them sit on days with more seats than students.
-  const rawOnDays = Math.max(0, c.supplySeatsOnDemandDays - c.supplySeatsBooked);
-  const rawSpare = Math.max(0, rawOnDays - c.supplySeatsLinedUp);
+  // Clinical supply: every seat on the days and shift blocks the demand uses, at the sites the levers allow (each at its students-at-once), less hand-made bookings.
+  const supply = Math.max(0, c.supplySeatsOnDemandDays - c.supplySeatsBooked);
+  const supplyEvery = c.supplySeatsPhysicalOnDemandDays;
+  const mult = (v: number) => (need > 0 ? `${fmt.mult(v / need)}× demand` : "—");
+  // Week by week, banded by year and month.
+  const weekBands: ColBand[] = (() => {
+    const years = new Map<string, Map<string, typeof c.byWeek>>();
+    for (const w of c.byWeek) { const y = w.weekMonday.slice(0, 4), m = w.weekMonday.slice(0, 7); const ym = years.get(y) ?? new Map(); years.set(y, ym); const l = ym.get(m) ?? []; l.push(w); ym.set(m, l); }
+    const monthName = (m: string) => new Date(m + "-01T00:00:00Z").toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+    return [...years.entries()].map(([y, months]) => ({ label: y, groups: [...months.entries()].map(([m, ws]) => ({ label: monthName(m), leaves: ws.map((w) => ({ label: `${Number(w.weekMonday.slice(5, 7))}/${Number(w.weekMonday.slice(8, 10))}`, title: `week of ${fmtDate(w.weekMonday)}`, values: [w.demand, w.seats, w.seatsEverySite], key: w.weekMonday })) })) }));
+  })();
+  const shortWeeks = c.byWeek.filter((w) => w.seats < w.demand).length;
   // What kept the plan below the lined-up ceiling: the clashes the engine could not place around.
   const clashSeats = plan.unmet.filter((u) => u.reason === "class-day" || u.reason === "student-busy" || u.reason === "holiday").reduce((n, u) => n + u.unit.seats, 0);
   const tooBigSeats = plan.unmet.filter((u) => u.reason === "too-big").reduce((n, u) => n + u.unit.seats, 0);
@@ -106,33 +104,38 @@ export function SchedulerCapacity({ plan, policy, window, computing, mode = "dia
               <li className="flex items-center gap-2"><span className="inline-block h-3 w-3 shrink-0 rounded-full" style={{ background: RING.ready }} /><span className="text-slate-700"><strong className="tabular-nums">{pct(rd.readyShare)}</strong> ready to run <span className="text-slate-500">— secured site, preceptor named, experience confirmed, no conflicts</span></span></li>
             </ul>
           </div>
-          <SupplyChart need={need} rows={[
-            { label: "Seats a student can actually use, day by day, at the sites the levers allow", value: c.supplySeatsLinedUp, color: RING.placed, note: "a seat counts only on a day a student needs it, and never beyond that day's students: each date and shift block, the seats at the allowed sites (each held to its students-at-once) up to the students due that day, summed" },
-            { label: "…the same if every site counted", value: c.supplySeatsLinedUpEverySite, color: "#94a3b8", note: "the same day-by-day count at every live site, whatever its agreement or drive time — what loosening the Sites and Drive-time levers all the way would give" },
-          ]} caption={<>A seat is one student place on one asset on one date and shift block, and a seat cannot move to another day. {rawSpare > 0 ? <>{n0(rawOnDays)} seats exist on those days in all, but {n0(rawSpare)} of them fall on days with more seats than students, so they cannot be used.</> : null} The placed share falls below the usable bar only for class-day and holiday clashes and sections too big for one site.</>} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Tile label="Clinical demand" value={n0(need)} sub="student clinical shifts to place in the window" />
+            <Tile label="Can be placed" value={need === 0 ? "—" : pct(s.placedShare)} sub={`${n0(s.placedSeats)} of ${n0(need)} under these levers`} tone={tone} />
+            <Tile label="Clinical supply · sites the levers allow" value={n0(supply)} sub={`seats on the days the demand uses · ${mult(supply)}`} tone={need > 0 && supply < need ? "text-rose-700" : "text-slate-900"} />
+            <Tile label="Clinical supply · every site" value={n0(supplyEvery)} sub={`if every site counted · ${mult(supplyEvery)}`} />
+          </div>
         </div>
-        <p className="mt-3 text-sm text-slate-700">
-          {need === 0 ? "No clinical shifts fall in this window." : (() => { const use = c.supplySeatsLinedUp; const every = c.supplySeatsLinedUpEverySite; const r = need ? use / need : 0; const re = need ? every / need : 0; const pk = c.peakDay;
-            return <>
-              {pk && <>On the busiest day{c.days > 1 ? ` of ${n0(c.days)}` : ""} ({fmtDay(pk.date)}{pk.block !== "*" ? `, ${pk.block} shift` : ""}) <strong className="tabular-nums">{n0(pk.demand)}</strong> students need a seat; the sites these levers allow have <strong className={`tabular-nums ${pk.seatsAllowed < pk.demand ? "text-rose-700" : "text-emerald-700"}`}>{n0(pk.seatsAllowed)}</strong>, every site <strong className="tabular-nums">{n0(pk.seatsEverySite)}</strong>. </>}
-              Over the window, usable seats are <strong className={`tabular-nums ${r < 1 ? "text-rose-700" : "text-emerald-700"}`}>{fmt.mult(r)}×</strong> the demand at the sites these levers allow ({r < 1 ? <>{n0(need - use)} student-shifts short</> : <>{n0(use - need)} to spare</>}), <strong className="tabular-nums">{fmt.mult(re)}×</strong> if every site counted.
-            </>; })()}
-        </p>
         {c.settingsWithoutSupply.length > 0 && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">No site that counts offers {c.settingsWithoutSupply.join(", ")} — those shifts cannot be placed whatever the totals say.</p>}
         <details className="mt-3 text-xs text-slate-600">
           <summary className="cursor-pointer font-medium text-slate-700 hover:text-rose-700">What these numbers are</summary>
           <dl className="mt-2 grid gap-x-6 gap-y-1.5 md:grid-cols-2">
-            <div><dt className="font-semibold text-slate-800">Demand · {n0(need)}</dt><dd>One student on one clinical shift, for every dated clinical section of the chosen offerings in the window, from the program template and the offerings&apos; term dates.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Can be placed · {pct(s.placedShare)}</dt><dd>The engine tried every shift against every seat under these levers and found a seat for {n0(s.placedSeats)} of them. The big number.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Usable seats · {n0(c.supplySeatsLinedUp)}</dt><dd>Day by day, the seats at the sites the levers allow (each held to its students-at-once), counted only up to the students due that day — because a seat on a light day cannot serve a heavy one. Placed can never exceed this.</dd></div>
-            <div><dt className="font-semibold text-slate-800">If every site counted · {n0(c.supplySeatsLinedUpEverySite)}</dt><dd>The same day-by-day count at every live site, whatever its agreement or drive time — the most the Sites and Drive-time levers could unlock.</dd></div>
-            <div><dt className="font-semibold text-slate-800">Busiest day</dt><dd>The date and shift block that needs the most seats, against the seats that exist then. Where the shortage is felt, whatever the window&apos;s totals say.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Clinical demand · {n0(need)}</dt><dd>One student on one clinical shift, for every dated clinical section of the chosen offerings in the window, from the program template and the offerings&apos; term dates.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Clinical supply · {n0(supply)}</dt><dd>A seat is one student place on one asset on one date and shift block. Counted on the days and shift blocks the demand uses, at the sites the Sites-that-count and Drive-time levers allow, each site held to its students-at-once, less hand-made bookings.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Every site · {n0(supplyEvery)}</dt><dd>The same count at every live site, whatever its agreement or drive time — the most the Sites and Drive-time levers could unlock.</dd></div>
+            <div><dt className="font-semibold text-slate-800">Can be placed · {pct(s.placedShare)}</dt><dd>The engine tried every shift against every seat under these levers and found a seat for {n0(s.placedSeats)}. It can sit well below a supply that covers the demand: a seat cannot move to another week, so spare seats in light weeks do nothing for heavy ones. The chart below shows which weeks are short.</dd></div>
             <div><dt className="font-semibold text-slate-800">Preceptor available · {pct(s.preceptorShifts ? s.preceptorsAssigned / s.preceptorShifts : null)}</dt><dd>Of the placed shifts that need a preceptor, the share where a free preceptor on that site&apos;s roster was put on the shift by name.</dd></div>
             <div><dt className="font-semibold text-slate-800">Ready to run · {pct(rd.readyShare)}</dt><dd>Placed shifts that also pass every check: secured agreement, the required role named, the site&apos;s experience confirmed, the setting rule reviewed and met, no conflicts. The strictest figure on purpose.</dd></div>
-            <div><dt className="font-semibold text-slate-800">What none of this says</dt><dd>Nothing is written to the calendar, and none of it is a regulatory judgement. The roster on the calendar is an earlier run of the same engine; the line above the levers says how it compares.</dd></div>
+            <div className="md:col-span-2"><dt className="font-semibold text-slate-800">What none of this says</dt><dd>Nothing is written to the calendar, and none of it is a regulatory judgement. The roster on the calendar is an earlier run of the same engine; the line above the levers says how it compares.</dd></div>
           </dl>
         </details>
       </div>
+
+      {/* ── Clinical demand against clinical supply, week by week ── */}
+      {c.byWeek.length > 0 && (
+        <div className={`rounded-2xl border border-slate-200 bg-white p-4 ${computing ? "opacity-60" : ""}`}>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Clinical demand against clinical supply, week by week</h3>
+            <span className="text-xs text-slate-500">{shortWeeks > 0 ? <><strong className="text-rose-700">{n0(shortWeeks)}</strong> of {n0(c.byWeek.length)} weeks have more students than seats at the sites the levers allow</> : `seats cover the students in every one of the ${n0(c.byWeek.length)} weeks`}</span>
+          </div>
+          <ColumnChart bands={weekBands} series={[{ name: "Students due", color: "#1d2129" }, { name: "Seats at the sites the levers allow", color: FAC_COLOR }, { name: "Seats if every site counted", color: "#94a3b8" }]} unit="per week" leafMinWidth={54} height={130} />
+        </div>
+      )}
 
       {(unmetSeats > 0 || blocking.length > 0) && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50/40 p-4">
