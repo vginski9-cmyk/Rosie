@@ -589,6 +589,13 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
  *  student — the workbook's RAD PROGRAM COURSE ALLOCATION), the sites that
  *  matter to THIS family with a family-level agreement, and the shifts each
  *  secured site has allocated to the family. */
+/** Students an operating-room site takes at once for Surgical Technology (seeded ESTIMATES, by site name). */
+const SURG_SITE_CAPS: [string, number][] = [
+  ["FirstHealth Moore Regional Hospital & Pinehurst", 6], ["Cape Fear Valley Medical Center", 4], ["Central Carolina Hospital", 2],
+  ["Cape Fear Valley Betsy Johnson", 2], ["Randolph Hospital", 2], ["Scotland Memorial Hospital", 2], ["FirstHealth Moore Regional Hospital - Richmond", 2],
+  ["Cape Fear Valley Hoke Hospital", 1], ["Chatham Hospital", 1], ["Scotland Medical Center", 1], ["UNC Health Southeastern", 2], ["Atrium Health Stanly", 2], ["FirstHealth Montgomery Memorial", 1],
+];
+
 async function loadClinicalModels(institutionId: string) {
   type RadMap = { clinicalModel: { model: string; notes: string }; serviceAreas: { code: string; name: string; settingCodes: string }[]; courseAllocation: { courseCode: string; courseName: string; courseWeeks: number; students: number; area: string; hoursPerStudent: number }[] };
   const map = JSON.parse(readFileSync(join(__dirname, "templates", "rad-asset-map.json"), "utf8")) as RadMap;
@@ -689,6 +696,14 @@ async function loadClinicalModels(institutionId: string) {
       const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
       await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, update: { agreementStatus: status }, create: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
       sites++;
+      // Surgical Technology: an operating-room site takes only a few students at once, whatever its suite count — one or two
+      // suites open to learners on a day, one learner per suite. Seeded as the college's ESTIMATE per site (the site has not
+      // confirmed it); the figure is the site's students-at-once, editable on its page, and the scheduler holds every
+      // placement to it. So the default picture is tight, and it loosens as sites confirm more or the levers widen.
+      if (isSurg) {
+        const cap = SURG_SITE_CAPS.find(([n]) => e.name.includes(n));
+        if (cap) await prisma.familySite.update({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, data: { studentsAtOnce: cap[1], studentsAtOnceMode: "known", evidenceSource: "seeded estimate — the site has not confirmed its students-at-once", verifiedAt: null, notes: `Students at once: ${cap[1]} (seeded estimate; the site's own figure replaces it).` } });
+      }
       // JRCERT recognition for radiography sites (Form 1010R): the human-resource count is an
       // ESTIMATE from the imaging assets' day-shift preceptors until the site confirms it; a
       // secured site is treated as recognized at the capacity its resources support today, an

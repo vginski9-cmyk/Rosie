@@ -961,3 +961,7 @@ Two rules the sheet's slip exposed, fixed across the engine rather than around t
 
 **Hidden.** "How well the inputs are known" on the Capacity page, and sections 3 (Scheduling rules) and 4 (accreditor capacity) on each program's Clinical sites page; the components stay and the rules and accreditor pictures remain on the org and site pages.
 
+### Surgical Technology: operating-room sites take a few students at once (2026-09-29)
+
+Under the scheduler's base levers the Surgical Technology clinicals read almost fully placed, because every secured hospital counted every operating-room suite as a learner seat (Moore Regional 17, Cape Fear Valley 17 …). An OR programme is not placed that way: a site opens one or two suites to learners on a day, one learner per suite. The seed now sets each OR site's students-at-once for the family as a stated estimate (Moore Regional 6, Cape Fear Valley 4, Central Carolina, Betsy Johnson, Randolph and Scotland Memorial 2, the small hospitals 1; `FamilySite.studentsAtOnce`, mode known, evidence "seeded estimate — the site has not confirmed"), editable on the site's page. The scheduler holds placements to it, so the default picture is constrained and loosens as the drive-time and agreement levers widen and as sites confirm more. Nothing about the sites' physical suites changed.
+
