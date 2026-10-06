@@ -4,15 +4,17 @@
 // Lancer Academy. Each row becomes an offering of the workbook delivery model it matches (Monday &
 // Wednesday or Tuesday & Thursday; 20-, 18- or 16-week — prisma/templates/cna-lenoir.json) with its
 // own term dates and weekly class pattern in its room. The sheet carries no enrollment, so past
-// cohorts have no students here; future and running ones get the dummy roster like every other
-// planned offering.
+// cohorts have no students here; running ones get the dummy roster like every other offering.
+//
+// Only the sheet is seeded. The cohorts ahead — late 2026 onward — are not pre-filled: they are
+// planned with the college, on the goal page. The slot projection below (`projectLenoirCohorts`)
+// stays as a helper for that work; nothing seeds its output.
 
 import type { PrismaClient } from "@prisma/client";
 import { deriveCohortTargets } from "../src/lib/pipeline";
 import { BENCHMARK_RATES } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { seasonOfDate } from "../src/lib/term";
-import { holidayMap } from "../src/lib/academiccalendar";
 import { offeringName, runDetail, campusLabel } from "../src/lib/offeringname";
 
 interface Row { cohort: string; start: string; end: string; days: string; time: string; location: string; given?: string }
@@ -115,14 +117,15 @@ export function modelFor(r: Pick<Row, "days" | "time" | "start" | "end">, models
   return [...pool].sort((a, b) => miss(a) - miss(b) || b.weeks - a.weeks)[0];
 }
 
-// ----- Scheduling the cohorts ahead ------------------------------------------------------------
+// ----- Projecting the slots ahead (a helper; not seeded) ---------------------------------------
 // The college runs its classes in slots — a room, its class days (Monday & Wednesday or Tuesday &
 // Thursday) and a time of day — and most slots run one cohort after another with a short gap
 // (Bullock 175 mornings: Oct 2024 → Mar 2025, Jan → Jun, Jun → Oct, Nov → Mar, Apr → Aug). A few
 // run once a year (Lancer Academy each fall). The projection carries each slot forward the way
 // the sheet shows it running: back-to-back slots start again their usual gap after the last run
 // ends, yearly slots start again a year after their last start, each new run as long as the
-// slot's runs have been, on the same days, at the same time, in the same room.
+// slot's runs have been, on the same days, at the same time, in the same room. It is a starting
+// point for planning the runs ahead with the college, not a schedule: the seed does not create them.
 
 /** A slot: room · class days · time of day. Mon/Sat and Mon/Tue cohorts go with Monday & Wednesday. */
 export function slotOf(r: Pick<Row, "days" | "time" | "location">): string {
@@ -184,10 +187,9 @@ export function projectLenoirCohorts(rows: Row[], opts: { from: string; through:
   return out;
 }
 
-/** Seed the cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and weekly class patterns. */
-/** Seed the sheet's cohorts and, after today, the runs projected from them through `through`
- *  (projected runs are planned offerings named "Planned <month> · <slot>"). */
-export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date(), through = "2027-12-31"): Promise<{ cohorts: number; projected: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number>; startsByYear: Record<string, number> }> {
+/** Seed the sheet's cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and
+ *  weekly class patterns. Nothing ahead of the sheet is created. */
+export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number>; startsByYear: Record<string, number> }> {
   const programs = await prisma.program.findMany({ where: { institutionId, name: { startsWith: "Nurse Aide Level I" } }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
   const models = programs.map((p) => ({ program: p, model: parseModel(p.name, p.programType) })).filter((x): x is { program: (typeof programs)[number]; model: LenoirModel } => !!x.model && x.program.terms.length > 0 && x.program.terms[0].courses.length > 0);
   if (!models.length) throw new Error("Lenoir's Nurse Aide Level I delivery models are not seeded");
@@ -207,11 +209,7 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     if (!roomId.has(loc.room)) roomId.set(loc.room, (await prisma.facility.create({ data: { institutionId, name: loc.room, kind: "CLASSROOM", buildingId: buildingId.get(loc.building)!, building: loc.building, roomNumber: loc.roomNumber, availability: "Nurse Aide I cohorts", status: "active" } })).id);
   }
 
-  // The runs ahead, on the college's own holidays (a run never starts on a closed day).
-  const holidays = holidayMap((await prisma.academicEvent.findMany({ where: { institutionId, kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } }))
-    .map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind })));
-  const projected = projectLenoirCohorts(LENOIR_COHORTS, { from: today.toISOString().slice(0, 10), through, holidays });
-  const rows: Row[] = [...LENOIR_COHORTS, ...projected];
+  const rows: Row[] = LENOIR_COHORTS;
 
   const startsInYear = new Map<number, number>();
   for (const r of rows) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
@@ -251,5 +249,5 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
       patterns++;
     }
   }
-  return { cohorts: LENOIR_COHORTS.length, projected: projected.length, rooms: roomId.size, patterns, byStatus, byModel, startsByYear: Object.fromEntries([...startsInYear].sort().map(([y, n]) => [String(y), n])) };
+  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus, byModel, startsByYear: Object.fromEntries([...startsInYear].sort().map(([y, n]) => [String(y), n])) };
 }

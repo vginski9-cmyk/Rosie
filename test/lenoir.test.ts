@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { LENOIR_COHORTS, parseDays, parseTime, parseLocation, parseModel, modelFor, cohortWeeks, isEvening, slotOf, projectLenoirCohorts } from "../prisma/seed-lenoir";
 
-describe("scheduling Lenoir's cohorts ahead", () => {
+describe("projecting Lenoir's slots ahead (a helper for planning with the college; nothing seeded)", () => {
   it("names a slot by room, class days and time of day", () => {
     expect(slotOf({ days: "Mon, Wed", time: "8:00am-2:30pm", location: "Main Campus, Bullock Bldg, Rm 175" })).toBe("Bullock 175 · Mon & Wed · daytime");
     expect(slotOf({ days: "Mon, Sat", time: "6:00pm-10:00pm", location: "Jones County Center" })).toBe("Jones County Center classroom · Mon & Wed · evening");
@@ -100,6 +100,10 @@ describe("Lenoir's Nurse Aide I cohort sheet", () => {
     const fixed = LENOIR_COHORTS.filter((r) => r.given);
     expect(fixed.map((r) => r.cohort)).toEqual(["Cohort 6 - 78901", "Cohort 26 - 76811"]);
     for (const r of fixed) expect(parseDays(r.days)).toContain(DOW[new Date(r.start + "T00:00:00Z").getUTCDay()]);
+  });
+  it("holds nothing scheduled ahead: the latest start is Aug 24, 2026, so the runs from late 2026 on are planned with the college, not seeded", () => {
+    expect([...LENOIR_COHORTS].sort((a, b) => b.start.localeCompare(a.start))[0].start).toBe("2026-08-24");
+    expect(LENOIR_COHORTS.some((r) => r.start > "2026-08-24")).toBe(false);
   });
   it("reads the sheet's days, times and places", () => {
     expect(parseDays("Tue, Thur, Fri")).toEqual(["Tue", "Thu", "Fri"]);
