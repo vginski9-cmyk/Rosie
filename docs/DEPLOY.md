@@ -85,7 +85,7 @@ is what made changes vanish in the October demo.
 With `ROSIE_DB=postgres` and a connection string (`POSTGRES_URL_NON_POOLING`,
 `DATABASE_URL_UNPOOLED` or `DATABASE_URL` — the first one set wins), the build proves itself
 first (`next build`) and touches the database last (`prisma db push --force-reset` + the seed),
-and the client waits up to 30 s for a serverless database to wake. Every edit is written to Neon
+and both the build and the client wait up to 30 s for a sleeping Neon compute to wake (the build pings it until it answers, up to a minute, before creating the tables). Every edit is written to Neon
 and read from Neon by every page. Two things to know:
 - **Every successful deploy reseeds the store.** A push to the branch rebuilds the workspace
   from the seed, so edits made on the site are kept between deploys only if they are also put
