@@ -232,11 +232,12 @@ type PackSession = {
 type ProgramPack = {
   name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
   assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
-  terms: { index: number; name: string; semester?: string | null; startWeek: number; endWeek: number; courses: { code: string; title: string; alsoCoded?: string[]; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: PackSession[] }[] }[];
+  terms: { index: number; name: string; semester?: string | null; startWeek: number; endWeek: number; courses: { code: string; title: string; alsoCoded?: string[]; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; /** Catalog fields a pack may carry (Brunswick's do; the Sandhills workbooks do not). */ credits?: number | null; requisites?: string | null; courseType?: string | null; description?: string | null; sessions: PackSession[] }[] }[];
 };
-const loadPack = (file: string) => JSON.parse(readFileSync(join(__dirname, "templates", file), "utf8")) as ProgramPack;
+export type { ProgramPack };
+export const loadPack = (file: string) => JSON.parse(readFileSync(join(__dirname, "templates", file), "utf8")) as ProgramPack;
 
-async function createPackProgram(pack: ProgramPack, opts: { institutionId: string; occupationId: string; familyId: string; launchCadence: string; launchTerms: string; monthsToFullProductivity: number }) {
+export async function createPackProgram(pack: ProgramPack, opts: { institutionId: string; occupationId: string; familyId: string; launchCadence: string; launchTerms: string; monthsToFullProductivity: number }) {
   const program = await prisma.program.create({
     data: {
       institutionId: opts.institutionId, occupationId: opts.occupationId, familyId: opts.familyId,
@@ -256,9 +257,10 @@ async function createPackProgram(pack: ProgramPack, opts: { institutionId: strin
         data: {
           termId: termRow.id, code: c.code, name: c.title, sequenceOrder: order++,
           weeklyClassHours: c.weeklyClassHours, weeklyLabHours: c.weeklyLabHours, weeklyClinicalHours: c.weeklyClinicalHours,
-          semesterOffered: t.semester ?? "All", courseType: "CORE",
-          // No placeholder text: the workbook gives no course description, and the title already names the course.
-          description: c.alsoCoded?.length ? `Some workbook rows are coded ${c.alsoCoded.join(", ")}.` : null,
+          semesterOffered: t.semester ?? "All", courseType: c.courseType ?? "CORE",
+          creditHours: c.credits ?? null, requisites: c.requisites ?? null,
+          // No placeholder text: a workbook gives no course description, and the title already names the course.
+          description: c.description ?? (c.alsoCoded?.length ? `Some workbook rows are coded ${c.alsoCoded.join(", ")}.` : null),
           sessions: {
             create: c.sessions.map((x) => ({
               kind: x.kind, number: x.number, title: x.title,
@@ -457,6 +459,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Carteret Community College": { counties: ["Carteret", "Carteret", "Carteret", "Craven", "Onslow"], cities: { Carteret: "Morehead City", Craven: "Havelock", Onslow: "Jacksonville" } },
     "Lenoir Community College": { counties: ["Lenoir", "Lenoir", "Greene", "Jones", "Wayne"], cities: { Lenoir: "Kinston", Greene: "Snow Hill", Jones: "Trenton", Wayne: "Goldsboro" } },
     "Roanoke-Chowan Community College": { counties: ["Hertford", "Hertford", "Bertie", "Northampton", "Gates"], cities: { Hertford: "Ahoskie", Bertie: "Windsor", Northampton: "Jackson", Gates: "Gatesville" } },
+    "Brunswick Community College": { counties: ["Brunswick", "Brunswick", "Brunswick", "Columbus", "New Hanover"], cities: { Brunswick: "Southport", Columbus: "Whiteville", "New Hanover": "Wilmington" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -1090,7 +1093,7 @@ async function main() {
   await prisma.programFamily.update({ where: { id: surgFamily.id }, data: { goalPlan: goalPlanJson(ladder([6, 6, 14, 14, 14]), SURG_PIPELINE_RATES) } });
 
   // ----- The other institutions in the workspace, with their programs and North-Star goals ----
-  console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, genTerms, cnaPacks }));
+  console.log("institutions:", await seedInstitutions(prisma, { createProgram, createCnaProgram, createPackProgram, loadPack, genTerms, cnaPacks }));
   // Clinical partners for the colleges the license file gives none: nursing halls and externship slots in their own program terms.
   console.log("partner sites:", await loadPartnerSites(prisma));
 
@@ -1142,13 +1145,14 @@ async function main() {
   // Calendarize the offerings only now — against the families' final site agreements.
   console.log("offering meetings:", await seedOfferingMeetings(prisma, sandhills.id));
   // The workbook colleges' offerings too (Lenoir's keep the patterns its cohort sheet gives them).
-  // A college with no rooms yet gets the rooms its workbook sessions name ("Freeland 127A"), so
-  // campus sessions land somewhere on the calendar; generic places (Classroom, Lab, Internet,
-  // Clinical site) are not rooms.
+  // A college with no rooms yet gets the rooms its workbook sessions name ("Freeland 127A", and a
+  // campus clinical/simulation room such as Brunswick's "J - Health Sciences 175"), so campus
+  // sessions land somewhere on the calendar; generic places (Classroom, Lab, Internet, Clinical
+  // site) are not rooms.
   for (const inst of await prisma.institution.findMany({ where: { name: { notIn: ["Sandhills Community College", "Lenoir Community College"] } }, select: { id: true, name: true } })) {
     if (!(await prisma.facility.count({ where: { institutionId: inst.id } }))) {
       const campus = await prisma.campus.findFirst({ where: { institutionId: inst.id }, orderBy: { createdAt: "asc" } });
-      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } }, kind: { not: "CLINICAL" } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l)));
+      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l)));
       const buildings = new Map<string, string>();
       for (const loc of locations) {
         const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const building = m?.[1]?.trim() || "Main Building"; const room = m?.[2] ?? null;

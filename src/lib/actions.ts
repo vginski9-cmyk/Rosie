@@ -7,6 +7,12 @@ import { eventSpan } from "./academiccalendar";
 import { ROSTER_STATUSES } from "./learners";
 import { requireOperational } from "./mode";
 import { isHolidayRule } from "./holidayrule";
+
+/** After anything that changes what an offering is or when it runs — a lock-in, an unlock, a new or moved
+ *  offering, a course or session edit, a workload assumption — every reader is refreshed together: the home
+ *  queue, the Programs list, the program's own pages, the calendar, the scheduler and the insights pages. One
+ *  call, so no page can show the site before the change (the pages are dynamic; this clears the router cache). */
+function revalidateOfferingReaders(): void { revalidatePath("/", "layout"); }
 // Planning decisions — locking a goal-year cohort in or out, creating a planned offering, setting a
 // planned offering's dates and deriving its term dates and calendar meetings from the college
 // calendar — are the strategic product's own and are never guarded; the guard is on the actions
@@ -258,6 +264,7 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     renamed = newName;
   }
   if (opts.dryRun) return { cohortId, name: cohort.name, program: cohort.program.name, changed, terms: a.terms.length, courseWindows, warnings: a.warnings, renamed };
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}`);
   revalidatePath(`/programs/${cohort.program.id}/offerings/${cohortId}/design`);
   revalidatePath(`/programs/${cohort.program.id}`);
@@ -392,6 +399,7 @@ export async function updateWorkloadAssumptions(programId: string, formData: For
       preTermWeeks: numOr(formData.get("preTermWeeks"), 18),
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}/structure`);
   revalidatePath(`/programs/${programId}`);
 }
@@ -1253,6 +1261,7 @@ export async function createOffering(programId: string, formData: FormData) {
   for (const t of terms) await prisma.cohortTerm.create({ data: { cohortId: cohort.id, termId: t.id, startDate: null } });
   // Real term dates and course windows straight from the institution's academic calendar.
   if (startD) await alignOfferingToCalendar(cohort.id);
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
   redirect(`/programs/${programId}/offerings/${cohort.id}`);
 }
@@ -1350,6 +1359,7 @@ export async function lockInInstantiation(
   // insights. Rooms/sites stay unassigned until someone places them.
   await calendarizeCohort(cohort.id, programId);
 
+  revalidateOfferingReaders();
   revalidatePath(`/families/${familyId}`);
   revalidatePath(`/programs/${programId}`);
   return { cohortId: cohort.id, name };
@@ -1457,6 +1467,7 @@ export async function updateOfferingLocation(cohortId: string, programId: string
   const campusId = str(formData.get("campusId")) || null;
   const campus = campusId ? await prisma.campus.findFirst({ where: { id: campusId, institutionId: co.program.institutionId }, select: { id: true } }) : null;
   await prisma.cohort.update({ where: { id: cohortId }, data: { campusId: campus?.id ?? null, locationNote: str(formData.get("locationNote")) || null, code: str(formData.get("code")) || null } });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${programId}`);
 }
@@ -1467,6 +1478,7 @@ export async function setProgramCalendarMode(programId: string, formData: FormDa
   await prisma.program.update({ where: { id: programId }, data: { calendarMode: mode } });
   const dated = await prisma.cohort.findMany({ where: { programId, ...NOT_ARCHIVED, startDate: { not: null } }, select: { id: true } });
   for (const c of dated) await alignOfferingToCalendar(c.id);
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/programs/${programId}/structure`);
 }
@@ -1491,6 +1503,7 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     }
     await alignOfferingToCalendar(cohortId);
   }
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/calendar`);
@@ -1519,6 +1532,7 @@ export async function addTerm(programId: string) {
   const last = await prisma.term.findFirst({ where: { programId }, orderBy: { index: "desc" } });
   const index = (last?.index ?? 0) + 1;
   await prisma.term.create({ data: { programId, index, name: `Term ${index}`, startWeek: 1, endWeek: 16 } });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1530,6 +1544,7 @@ async function guardLoggedShifts(where: { session: Record<string, unknown> }, wh
 export async function deleteTerm(termId: string, programId: string) {
   await guardLoggedShifts({ session: { course: { termId } } }, "This term");
   await prisma.term.delete({ where: { id: termId } });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1543,6 +1558,7 @@ export async function updateTerm(termId: string, programId: string, formData: Fo
       endWeek: optNum(formData.get("endWeek")),
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/programs/${programId}/structure`);
 }
@@ -1563,6 +1579,7 @@ export async function addCourse(termId: string, programId: string, formData: For
       courseType: str(formData.get("courseType")) || null,
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1585,12 +1602,14 @@ export async function updateCourse(courseId: string, programId: string, formData
       requisites: str(formData.get("requisites")) || null,
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
 export async function deleteCourse(courseId: string, programId: string) {
   await guardLoggedShifts({ session: { courseId } }, "This course");
   await prisma.course.delete({ where: { id: courseId } });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1624,6 +1643,7 @@ export async function addSession(courseId: string, programId: string, formData: 
       preceptorContactPolicy: optNum(formData.get("preceptorContactPolicy")),
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1653,6 +1673,7 @@ export async function updateSession(sessionId: string, programId: string, formDa
       preceptorContactPolicy: optNum(formData.get("preceptorContactPolicy")),
     },
   });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
   revalidatePath(`/programs/${programId}/structure`);
 }
@@ -1660,6 +1681,7 @@ export async function updateSession(sessionId: string, programId: string, formDa
 export async function deleteSession(sessionId: string, programId: string) {
   await guardLoggedShifts({ session: { id: sessionId } }, "This session");
   await prisma.session.delete({ where: { id: sessionId } });
+  revalidateOfferingReaders();
   revalidatePath(`/programs/${programId}`);
 }
 
@@ -1904,6 +1926,7 @@ export async function saveCohortPipeline(
     where: { id: cohortId },
     data: { pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides: input.termOverrides ?? [] }), plannedSeats: Math.round(input.termOverrides?.[0] ?? t.capacity) },
   });
+  if (co.program.familyId) revalidateOfferingReaders();
   if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);
   revalidatePath(`/programs/${co.programId}/offerings/${cohortId}`);
   revalidatePath(`/programs/${co.programId}/offerings/${cohortId}/design`);
@@ -1920,6 +1943,7 @@ export async function unlockInstantiation(cohortId: string): Promise<void> {
   const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } } } });
   if (!co) return;
   await prisma.cohort.delete({ where: { id: cohortId } });
+  revalidateOfferingReaders();
   revalidatePath("/calendar");
   revalidatePath(`/programs/${co.programId}`);
   if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);

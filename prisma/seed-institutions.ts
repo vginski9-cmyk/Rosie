@@ -19,11 +19,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
-import type { createProgram, createCnaProgram, genTerms, CnaTemplate, CourseSeed, TermSeed } from "./seed";
+import type { createProgram, createCnaProgram, createPackProgram, loadPack, genTerms, CnaTemplate, CourseSeed, TermSeed } from "./seed";
 
 /** The Nurse Aide I template packs, one per college workbook (prisma/templates/cna*.json). */
 export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[]; roanokeChowan: CnaTemplate[] };
-type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; genTerms: typeof genTerms; cnaPacks: CnaPacks };
+type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; createPackProgram: typeof createPackProgram; loadPack: typeof loadPack; genTerms: typeof genTerms; cnaPacks: CnaPacks };
 
 // ── Curricula ───────────────────────────────────────────────────────────────
 const NURSING_ROTATIONS = ["Med-Surg", "ICU / Critical Care", "OB / Maternity", "Pediatrics", "Behavioral Health", "Long-Term Care", "Emergency", "Community / Public Health"];
@@ -84,7 +84,11 @@ function medicalOfficeTerms(): TermSeed[] {
 }
 
 // ── The institutions ────────────────────────────────────────────────────────
-interface ProgramDef { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string }
+/** A program is either coded here (`terms`) or a template pack under prisma/templates (`pack`: name, type, credential, class size, terms, courses and sessions all come from the file). */
+type CodedProgramDef = { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string };
+type PackProgramDef = { pack: string; launch: string; months?: number; note?: string };
+type ProgramDef = CodedProgramDef | PackProgramDef;
+const isPack = (p: ProgramDef): p is PackProgramDef => "pack" in p;
 interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean; /** Seed every delivery model in this college's own workbook pack. */ cnaAll?: keyof CnaPacks }
 interface InstitutionDef { name: string; short: string; kind: string; city: string; serviceArea: string; families: FamilyDef[] }
 
@@ -107,12 +111,24 @@ const nursingFamily = (description: string, base: number, programs: ProgramDef[]
 const adn = (entry: "Fall" | "Spring", seats = 40): ProgramDef => ({ name: `ADN — ${entry} Entry`, type: "Traditional Full Time", credential: "AAS", terms: adnTerms, launch: entry.toUpperCase(), seats, months: 6 });
 const lpnTransition = (entry: "Fall" | "Spring" | "Summer", note?: string, seats = 20): ProgramDef => ({ name: `LPN-to-ADN Transition — ${entry} Entry`, type: "Transition (LPN)", credential: "AAS", terms: () => transitionTerms(entry, "NUR 214", "Nursing Transition Concepts"), launch: entry.toUpperCase(), seats, months: 6, note });
 
+/** Brunswick Community College's three RN pathways — template packs built by scripts/build-brunswick-packs.mjs
+ *  from the college's information sheets (sequence, hours, credits) and its published course sections
+ *  (days, times, rooms, seats). Every NUR course runs once a year in a fixed term and the LPN and paramedic
+ *  cohorts join the second-year ADN cohort for NUR 113, 211, 212 and 213: the college lists one meeting with a
+ *  section per cohort, carried under each program here. */
+const TEMPLATE_PENDING = "Sessions are the college's published Fall 2026 – Summer 2027 sections; the college's own program-structure workbook replaces them when it arrives.";
+export const BRUNSWICK_PROGRAMS: PackProgramDef[] = [
+  { pack: "brunswick-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Admitted in the Dec–Jan window (TEAS ≥ 59, GPA ≥ 2.5); NUR 117 in the summer, NUR 111 in the fall. Class size from the college's sections (NUR 111: 51 seats; NUR 112 and 114: 50).` },
+  { pack: "brunswick-lpn-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150, PSY 241 (17 credits); NUR 111, 112, 114 and 117 (20 credits) credited for the LPN license after NUR 212. Application Dec 1 – Jan 31, ATI PN predictor in April, classes begin with the summer term. Class size from the college's sections (20 seats).` },
+  { pack: "brunswick-paramedic-adn.json", launch: "SPRING", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150 (14 credits); NUR 215 with a B or better converts to credit for NUR 111, 112, 114 and 117 (20 credits). Application Jul 1 – Aug 30 (TEAS ≥ 59, GPA ≥ 2.5), classes begin with the spring term. Class size from the college's sections (10 seats).` },
+];
+
 export const INSTITUTIONS: InstitutionDef[] = [
+  // Brunswick's three prelicensure RN pathways from the college's own publications (2026-10-12): the
+  // template packs above. The North-Star goal is the owner's figure (190 a year).
   { name: "Brunswick Community College", short: "Brunswick CC", kind: "Community college", city: "Bolivia", serviceArea: "Brunswick County, NC", families: [
-    nursingFamily("Brunswick's prelicensure RN pathways: the traditional ADN, the LPN-to-ADN transition and the paramedic-to-ADN bridge.", 40, [
-      adn("Fall"), lpnTransition("Summer"),
-      { name: "Paramedic-to-ADN Bridge — Spring Entry", type: "Bridge (Paramedic)", credential: "AAS", terms: () => transitionTerms("Spring", "NUR 214", "Nursing Transition Concepts (Paramedic)"), launch: "SPRING", seats: 16, months: 6 },
-    ]),
+    { name: "Nursing (prelicensure RN)", ...RN, goals: flatGoal(190), programs: BRUNSWICK_PROGRAMS,
+      description: "Brunswick's prelicensure RN pathways: the Associate Degree Nursing program (A45110, admitted for fall with NUR 117 in the summer before), the LPN-to-ADN Transition (A45110T, summer entry) and the Paramedic-to-ADN Bridge (A45110M, spring entry). Every NUR course runs once a year in a fixed term, so the LPN and paramedic cohorts join the second-year ADN cohort for NUR 113, 211, 212 and 213. Sequences and hours from the college's information sheets; sessions and class sizes from its published Fall 2026 – Summer 2027 sections." },
   ] },
   { name: "Cape Fear Community College", short: "Cape Fear CC", kind: "Community college", city: "Wilmington", serviceArea: "New Hanover & Pender Counties, NC", families: [
     nursingFamily("Cape Fear's prelicensure RN pathways: two ADN intakes a year plus the LPN-to-ADN transition.", 90, [
@@ -181,7 +197,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
 /** Institutions kept out of the workspace for now (definitions stay above so they can be
  *  switched back on by removing them from this list). */
 export const PAUSED_INSTITUTIONS = new Set([
-  "Beaufort County Community College", "Brunswick Community College", "Cape Fear Community College", "Davidson-Davie Community College",
+  "Beaufort County Community College", "Cape Fear Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
   "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
@@ -210,6 +226,13 @@ export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
         programs++;
       }
       for (const p of f.programs) {
+        if (isPack(p)) {
+          // A template pack: the program, its class size, terms, courses and sessions as the file gives them.
+          const prog = await h.createPackProgram(h.loadPack(p.pack), { institutionId: inst.id, occupationId: occ.id, familyId: fam.id, launchCadence: "ANNUAL", launchTerms: p.launch, monthsToFullProductivity: p.months ?? 6 });
+          await prisma.program.update({ where: { id: prog.id }, data: { inventoryNote: p.note ?? null } });
+          programs++;
+          continue;
+        }
         const prog = await h.createProgram({ institutionId: inst.id, occupationId: occ.id, name: p.name, programType: p.type, credential: p.credential, terms: p.terms(h) });
         await prisma.program.update({ where: { id: prog.id }, data: { familyId: fam.id, launchCadence: "ANNUAL", launchTerms: p.launch, termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: p.seats, monthsToFullProductivity: p.months ?? 6, inventoryNote: p.note ?? null } });
         programs++;

@@ -46,12 +46,15 @@ manually via **Run workflow**).
 
 ---
 
-## Option B — Full editable app (Vercel) · the real product
+## Option B — The app on Vercel · the real product
 
-Everything works and persists: create/edit/duplicate programs, edit cadence,
-assign staff, etc. Backed by a free hosted Postgres database.
+Two ways to run it. **Demo mode** (the default) needs nothing set up: the deployment carries
+its own seeded database, but edits made on the site do not persist. **Persistent mode** adds a
+hosted Postgres (Neon, free tier, three clicks in Vercel) and every lock-in, edit and policy
+change is kept and seen by everyone on every page. Use persistent mode for any demo where
+someone will make changes and look for them elsewhere on the site.
 
-### One-time setup (all in the browser, ~3 clicks)
+### One-time setup (all in the browser)
 
 1. Go to **vercel.com** → sign in with GitHub → **Add New… → Project**.
 2. **Import** the `vginski9-cmyk/rosie` repository.
@@ -61,28 +64,40 @@ assign staff, etc. Backed by a free hosted Postgres database.
    and nobody gets in. Optional: `SITE_SECRET` (a long random string) signs the
    session cookie separately from the password, so changing one does not
    require changing the other.
-4. **Deploy.** There is no database to set up: the deployment carries its own.
+4. **Deploy.** That is demo mode. For persistent mode, continue:
+5. **Storage → Create Database → Neon** (Vercel Marketplace, free plan) → **Connect** it to the
+   project for all environments. Vercel writes the connection variables, among them
+   `POSTGRES_URL_NON_POOLING`, which the build and the app read.
+6. **Settings → Environment Variables → add `ROSIE_DB` = `postgres`** (all environments).
+7. **Redeploy** (Deployments → ⋯ → Redeploy). The build creates the tables and seeds the
+   workspace into Neon; from then on edits persist.
 
-### The database travels with the deployment
-Every build seeds the whole Sandhills / Cape Fear dataset into a SQLite file
-(`prisma/rosie.db`, about 60 MB) and ships it inside every server function. So:
-- nothing to provision, connect, wake up or pay for — no storage service can expire or die under the site;
-- a build that fails (a seed error, a code error) never touches the live site: the previous
-  deployment keeps serving its own bundled database;
-- edits made on the hosted site (program design, goals) persist within a running instance only
-  (the read-only file is copied to `/tmp` on first use) and are rebuilt from the seed on the next
-  deploy. That fits the strategic product, whose operational module is off in production.
+### Demo mode: the database travels with the deployment
+Every build seeds the whole workspace into a SQLite file (`prisma/rosie.db`, about 60 MB) and
+ships it inside every server function. Nothing to provision, connect, wake up or pay for, and a
+build that fails never touches the live site. But the function's file is read-only, so the app
+copies it to `/tmp` on first use — and each server instance, and each function Vercel splits the
+routes into, has its own `/tmp`. An edit made on one page can land in a copy the next page never
+reads, and every deploy starts again from the seed. **Edits do not persist in demo mode.** This
+is what made changes vanish in the October demo.
 
-Persistent editing on the hosted site is an opt-in: set `ROSIE_DB=postgres` and a Postgres
-connection string (`POSTGRES_URL_NON_POOLING`, `DATABASE_URL_UNPOOLED` or `DATABASE_URL` —
-the first one set wins; a Vercel Marketplace store such as Neon or Supabase writes one of these
-when connected to the project) and redeploy. The build then proves itself first (`next build`)
-and touches the database last (`prisma db push --force-reset` + seed); the client waits up to
-30 s for a serverless database to wake. If that build fails, the previous deployment stays live
-against a database that has just been reset, so a broken store shows every page empty until the
-next successful deploy — replace the store (they are disposable: every deploy reseeds) and
-redeploy. Delete the old store's `POSTGRES_*` / `PG*` variables when replacing it, or the stale
-host wins.
+### Persistent mode: Neon Postgres
+With `ROSIE_DB=postgres` and a connection string (`POSTGRES_URL_NON_POOLING`,
+`DATABASE_URL_UNPOOLED` or `DATABASE_URL` — the first one set wins), the build proves itself
+first (`next build`) and touches the database last (`prisma db push --force-reset` + the seed),
+and the client waits up to 30 s for a serverless database to wake. Every edit is written to Neon
+and read from Neon by every page. Two things to know:
+- **Every successful deploy reseeds the store.** A push to the branch rebuilds the workspace
+  from the seed, so edits made on the site are kept between deploys only if they are also put
+  into the seed. Plan demos around that: make the changes after the deploy, not before.
+- If a build fails, the previous deployment stays live against a database that has just been
+  reset, so a broken store shows every page empty until the next successful deploy — replace
+  the store (they are disposable) and redeploy. Delete the old store's `POSTGRES_*` / `PG*`
+  variables when replacing it, or the stale host wins.
+
+This path was proven end to end on 2026-10-12 against Postgres 16: build, push, seed, the
+accuracy audit, and a lock-in on the goal page seen on the Offerings tab, Programs, the
+calendar, the scheduler and the staffing pages.
 
 ### Access control (how the door works)
 - The password is checked on the server for every page and API route (`src/middleware.ts`).

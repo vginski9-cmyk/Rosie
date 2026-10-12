@@ -224,3 +224,11 @@ Semester Ends | Fall 2025	December 12
     expect(warnings).toEqual([expect.stringContaining("Winter term classes")]);
   });
 });
+
+describe("a semester's last day named with every session", () => {
+  it("reads 'Last Day of Classes (16, 12 and 2nd 8 Weeks)' as the semester's end, not a session's", () => {
+    expect(classify("Last Day of Classes (16, 12 and 2nd 8 Weeks)")).toBe("term_end");
+    expect(classify("1st 8-Week Classes End")).toBe("other");
+    expect(classify("Last Day to Officially Withdraw with a Grade of W for 16 Week Classes")).toBe("other");
+  });
+});

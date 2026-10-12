@@ -116,7 +116,8 @@ const START_WORDS = /\b(classes? (?:begin|start)s?|first day (?:of|for)\b|beginn
 const END_WORDS = /\b(last day (?:of|for)\b|classes? ends?|(?:semester|term|session) ends?|end of\b|final exams? end|exams end|ends?\b)/i;
 const SESSION_WORDS = /\b(session|mini-?mester|late[- ]start|second|2nd|8[- ]weeks?|12[- ]weeks?|4[- ]weeks?|5[- ]weeks?|6[- ]weeks?|10[- ]weeks?|14[- ]weeks?|15[- ]weeks?|a[- ]term|b[- ]term|flex[- ]term|term a|term b|part of term|pot|summer i|summer ii|maymester|winter)\b/i;
 /** Words that name the whole semester: a start or end that mentions these is the semester's, even if later sessions are listed with it. */
-const FULL_TERM = /\b(16[- ]weeks?|regular[- ]term|traditional|full[- ]term|full\b|semester)\b/i;
+// "16, 12 and 2nd 8 Weeks" (Brunswick's last day of classes) names the semester too: the 16-week count leads the list.
+const FULL_TERM = /\b(16[- ]weeks?|16\b[\s,\dandstrh]*weeks?|regular[- ]term|traditional|full[- ]term|full\b|semester)\b/i;
 const OTHER_WORDS = /\b(registration|register|drop|withdraw\w*|tuition|payment|deadline|grades? due|grades? posted|priority|application|advising|orientation|fafsa|census|10% date|refund|commencement|graduation|convocation|professional development|faculty|staff|workday|work day|in-?service|planning day|interim|apply|due|schedule changes?|bookstore|charge|add period|attendance|verification|disbursement|appeals?|incomplete|transcripts?|diplomas?|awards?|pinning|honors|midterm|mid-term)\b/i;
 /** "Holiday classes" (a winter session) are classes, not a holiday. */
 const HOLIDAY_SESSION = /\bholiday (classes|session|term)\b/i;
