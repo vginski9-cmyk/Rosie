@@ -96,7 +96,7 @@ function sessionsFor(code, weeks, opts = {}) {
   const scale = opts.summer ? 2 : 1;
   const [c, l] = cat.hours;
   if (opts.apprentice) {
-    for (let w = 1; w <= weeks; w++) push("CLASS", w, null, null, null, 3, null, 0, { notes: "One 3-hour class a week for 28 weeks (September – April); the night, start date and room come from RCCC Corporate & Continuing Education / NCAEC. Class size not published." });
+    for (let w = 1; w <= weeks; w++) push("CLASS", w, null, null, null, 3, null, 17, { notes: "One 3-hour class a week for 28 weeks (September – April); the night, start date and room come from RCCC Corporate & Continuing Education / NCAEC. 17 apprentices a year (the owner's figure, 2026-10-20)." });
     return out;
   }
   if (sch && !sch.online && !opts.summer) {
@@ -150,10 +150,10 @@ const AWARDS = [
     note: `Two terms, 12 credits: residential and industrial wiring and both NEC courses. Class size 16. ${TEMPLATE}` },
 ];
 const APPRENTICESHIP = {
-  file: "rccc-electrician-apprenticeship.json", name: "Electrician Apprenticeship (NCAEC, ApprenticeshipNC #29076)", programType: "Registered apprenticeship", credential: "Journeyworker certificate (US DOL / NCCCS)", maxCohort: null, months: 0, calendarMode: "continuous",
+  file: "rccc-electrician-apprenticeship.json", name: "Electrician Apprenticeship (NCAEC, ApprenticeshipNC #29076)", programType: "Registered apprenticeship", credential: "Journeyworker certificate (US DOL / NCCCS)", maxCohort: 17, months: 0, calendarMode: "continuous",
   terms: [["Year 1", null, 28, ["ELC-3014B"]], ["Year 2", null, 28, ["ELC-3014C"]], ["Year 3", null, 28, ["ELC-3014D"]], ["Year 4", null, 28, ["ELC-3014E"]]],
   gap: 24, // weeks between one 28-week year and the next: September to September
-  note: "The NC Association of Electrical Contractors' four-year registered apprenticeship, hosted by RCCC Corporate & Continuing Education as four non-credit levels (CEUs, taught from the Mike Holt lesson plan): apprentices work full-time for a sponsoring contractor and attend one 3-hour class a week for 28 weeks a year (September – April). 336 classroom hours plus OSHA 10, 230 documented competency hours and 8,000 on-the-job hours over four years; the US DOL / NCCCS journeyworker certificate on completion. Cohorts enrol through NCAEC and RCCC Continuing Education, not open registration: the night, start date, room and class size for the current cohort are not published. On-the-job hours are recorded on each level, not scheduled. The levels map roughly onto the AAS core (I ≈ ELC 112/126/118, II ≈ 113/115, III ≈ 117/128, IV ≈ 119) but there is no published articulation.",
+  note: "The NC Association of Electrical Contractors' four-year registered apprenticeship, hosted by RCCC Corporate & Continuing Education as four non-credit levels (CEUs, taught from the Mike Holt lesson plan): apprentices work full-time for a sponsoring contractor and attend one 3-hour class a week for 28 weeks a year (September – April). 336 classroom hours plus OSHA 10, 230 documented competency hours and 8,000 on-the-job hours over four years; the US DOL / NCCCS journeyworker certificate on completion. Cohorts enrol through NCAEC and RCCC Continuing Education, not open registration: 17 apprentices a year (the owner's figure, 2026-10-20); the night, start date and room for the current cohort are not published. On-the-job hours are recorded on each level, not scheduled. The levels map roughly onto the AAS core (I ≈ ELC 112/126/118, II ≈ 113/115, III ≈ 117/128, IV ≈ 119) but there is no published articulation.",
 };
 
 function pack(def) {

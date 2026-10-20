@@ -139,7 +139,7 @@ export const RCCC_PROGRAMS: PackProgramDef[] = [
   { pack: "rccc-est-cert-mtc1.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
   { pack: "rccc-est-cert-motor-control.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
   { pack: "rccc-est-cert-wiring-nec.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
-  { pack: "rccc-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "NCAEC four-year registered apprenticeship (ApprenticeshipNC #29076) hosted by RCCC Corporate & Continuing Education: one 3-hour class a week for 28 weeks a year from September, full-time work for the sponsoring contractor between. Night, start date, room and class size for the current cohort are not published; on-the-job hours are recorded on each level, not scheduled." },
+  { pack: "rccc-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "NCAEC four-year registered apprenticeship (ApprenticeshipNC #29076) hosted by RCCC Corporate & Continuing Education: one 3-hour class a week for 28 weeks a year from September, full-time work for the sponsoring contractor between. 17 apprentices a year (the owner's figure, 2026-10-20); the night, start date and room for the current cohort are not published; on-the-job hours are recorded on each level, not scheduled." },
 ];
 
 export const INSTITUTIONS: InstitutionDef[] = [

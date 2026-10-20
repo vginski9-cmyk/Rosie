@@ -37,7 +37,7 @@ describe("Rowan-Cabarrus Community College", () => {
       ["MTC 1 Certificate (C35130MB)", 3, 17, 16],
       ["Industrial Motor Control Certificate (C35130MO)", 3, 17, 12],
       ["Wiring and the NEC Certificate (C35130NE)", 2, 12, 16],
-      ["Electrician Apprenticeship (NCAEC, ApprenticeshipNC #29076)", 4, 0, null],
+      ["Electrician Apprenticeship (NCAEC, ApprenticeshipNC #29076)", 4, 0, 17],
     ]);
     const aas = packs["rccc-est-aas.json"];
     expect(aas.terms.map((t) => [t.name, t.semester, t.endWeek - t.startWeek + 1, t.courses.map((c) => c.code)])).toEqual([
@@ -72,14 +72,14 @@ describe("Rowan-Cabarrus Community College", () => {
     // General-education electives carry their hours with no day or room.
     expect(course(aas, "ENG 111").sessions.every((s) => s.dayOfWeek === null && s.location === "General classroom")).toBe(true);
   });
-  it("the apprenticeship is four 28-week years a year apart, each one 3-hour class a week with nothing published yet", () => {
+  it("the apprenticeship is four 28-week years a year apart, each one 3-hour class a week for 17 apprentices, night and room not yet published", () => {
     const p = packs["rccc-electrician-apprenticeship.json"];
     expect(p.calendarMode).toBe("continuous");
     expect(p.terms.map((t) => [t.name, t.startWeek, t.endWeek, t.courses.map((c) => c.code)])).toEqual([["Year 1", 1, 28, ["ELC-3014B"]], ["Year 2", 53, 80, ["ELC-3014C"]], ["Year 3", 105, 132, ["ELC-3014D"]], ["Year 4", 157, 184, ["ELC-3014E"]]]);
     for (const c of p.terms.flatMap((t) => t.courses)) {
       expect([c.weeklyClassHours, c.weeklyLabHours, c.credits]).toEqual([3, 0, 0]);
       expect(c.sessions).toHaveLength(28);
-      expect(c.sessions.every((s) => s.kind === "CLASS" && s.lengthHours === 3 && s.dayOfWeek === null && s.startTime === null && s.location === null && s.maxStudents === 0)).toBe(true);
+      expect(c.sessions.every((s) => s.kind === "CLASS" && s.lengthHours === 3 && s.dayOfWeek === null && s.startTime === null && s.location === null && s.maxStudents === 17)).toBe(true);
     }
   });
   it("has the college's 2026–27 calendar: three semester starts and ends, the 14-week, 8-week and 4-week sessions, every closure found", () => {
