@@ -23,9 +23,12 @@ describe("dating sessions in a term that does not start on a Monday", () => {
     expect(iso(sessionDate(tue, 1, "Thu"))).toBe("2027-05-27"); // a Thursday, not Friday
     expect(iso(sessionDate(tue, 1, "Fri"))).toBe("2027-05-28"); // a Friday, not Saturday
     expect(iso(sessionDate(tue, 2, "Tue"))).toBe("2027-06-01");
-    const fri = { termStart: "2027-01-08" }; // Friday (Roanoke-Chowan Spring 2027)
-    expect(iso(sessionDate(fri, 1, "Fri"))).toBe("2027-01-08");
-    expect(iso(sessionDate(fri, 2, "Thu"))).toBe("2027-01-14");
+    // A Friday first day (Roanoke-Chowan Spring 2027) holds its first week from the Monday after (2026-10-20):
+    // nothing meets before then, so week 1 is January 11–15 and week 2 the week of January 18.
+    const fri = { termStart: "2027-01-08" };
+    expect(iso(weekMonday(fri, 1))).toBe("2027-01-11");
+    expect(iso(sessionDate(fri, 1, "Fri"))).toBe("2027-01-15");
+    expect(iso(sessionDate(fri, 2, "Thu"))).toBe("2027-01-21");
   });
   it("does not hold a session before the term's first day: a Monday session in a Tuesday-start week is undated and flagged", () => {
     expect(sessionDate({ termStart: "2027-05-25" }, 1, "Mon")).toBeNull();

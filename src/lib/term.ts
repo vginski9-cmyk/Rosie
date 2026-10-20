@@ -269,9 +269,18 @@ export function closedWeek(monday: Date | string, holidays: Record<string, strin
   for (let i = 0; i < 5; i++) { const h = holidays[isoDay(new Date(mon.getTime() + i * 86400000))]; if (!h) return null; label = label ?? h; }
   return label;
 }
-/** The open (not closed) weeks from a first day through a last day, week 1 = the start's week. */
+/** The Monday of a term's (or course's) FIRST week. Week 1 is the calendar week (Mon–Sun) that contains
+ *  the first day when that day is a Monday to Thursday — a Tuesday start still dates its "Mon" sessions on
+ *  a Monday (not held that week) and its "Thu" sessions on a Thursday. A term that opens on a Friday or at
+ *  the weekend (Roanoke-Chowan's Spring 2027 opens Friday, January 8) holds its first week from the Monday
+ *  after: nothing meets before then, and its weeks run to the term's coded end. */
+export function firstWeekMonday(first: Date): Date {
+  const m = mondayOfDate(first);
+  return first.getUTCDay() === 5 || first.getUTCDay() === 6 || first.getUTCDay() === 0 ? new Date(m.getTime() + 7 * 86400000) : m;
+}
+/** The open (not closed) weeks from a first day through a last day, week 1 = the start's first week (firstWeekMonday). */
 export function openWeeksBetween(start: Date | string, end: Date | string, holidays: Record<string, string> | null | undefined): number {
-  const s = mondayOfDate(asDate(start)!), e = mondayOfDate(asDate(end)!);
+  const s = firstWeekMonday(asDate(start)!), e = mondayOfDate(asDate(end)!);
   let n = 0;
   for (let m = s; m.getTime() <= e.getTime(); m = new Date(m.getTime() + 7 * 86400000)) if (!closedWeek(m, holidays)) n++;
   return Math.max(1, n);
@@ -288,11 +297,11 @@ export function weekMonday(a: WeekAnchor, week: number | null | undefined): Date
   const tpl = a.templateWeeks && a.templateWeeks > 0 ? a.templateWeeks : 16;
   const cal = termStart && termEnd ? openWeeksBetween(termStart, termEnd, a.holidays) : tpl;
   if (beyondTerm(w, tpl, cal)) return null; // after the term's last day — undated, flagged
-  // Week 1 is the calendar week (Mon–Sun) that CONTAINS the first day, so a term that starts on a
-  // Tuesday still dates its "Mon" sessions on a Monday and its "Thu" sessions on a Thursday.
-  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return nthOpenMonday(mondayOfDate(courseStart), Math.max(0, w - f0) + 1, a.holidays); }
+  // Week 1 is the first day's week (firstWeekMonday: the week that contains a Monday–Thursday first day; the
+  // week after a Friday or weekend one).
+  if (courseStart) { const f0 = a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1; return nthOpenMonday(firstWeekMonday(courseStart), Math.max(0, w - f0) + 1, a.holidays); }
   if (!termStart) return null;
-  return nthOpenMonday(mondayOfDate(termStart), w, a.holidays);
+  return nthOpenMonday(firstWeekMonday(termStart), w, a.holidays);
 }
 /** The template week a date falls in (the inverse of weekMonday): null before the anchor, or inside a closed week. */
 export function weekOfDate(a: WeekAnchor, date: Date | string): number | null {
@@ -301,10 +310,10 @@ export function weekOfDate(a: WeekAnchor, date: Date | string): number | null {
   const base = courseStart ?? termStart; if (!base) return null;
   const f0 = courseStart ? (a.courseFirstWeek && a.courseFirstWeek > 0 ? a.courseFirstWeek : 1) : 1;
   const target = mondayOfDate(d);
-  if (target.getTime() < mondayOfDate(base).getTime()) return null;
+  if (target.getTime() < firstWeekMonday(base).getTime()) return null;
   if (closedWeek(target, a.holidays)) return null;
   let n = 0;
-  for (let m = mondayOfDate(base); m.getTime() <= target.getTime(); m = new Date(m.getTime() + 7 * 86400000)) if (!closedWeek(m, a.holidays)) n++;
+  for (let m = firstWeekMonday(base); m.getTime() <= target.getTime(); m = new Date(m.getTime() + 7 * 86400000)) if (!closedWeek(m, a.holidays)) n++;
   return n + f0 - 1;
 }
 /** The Monday (UTC) of the week a date falls in. */
@@ -326,13 +335,18 @@ export function sessionDate(a: WeekAnchor, week: number | null | undefined, dayO
  *  mid-August), so the first days of August still belong to the summer term. */
 export function semesterAt(d: Date, anchors: SemesterAnchors = DEFAULT_ANCHORS): { season: Season; year: number } {
   let best: { start: Date; season: Season } | null = null;
+  // The college's coded starts first: a semester begins with the WEEK of its coded first day (a Friday
+  // start's week is that semester's), and a season-year the calendar codes never falls back to the pattern.
+  const known = (anchors.knownStarts ?? []).map((s) => new Date(s + "T00:00:00Z"));
+  const covered = new Set(known.map((k) => `${seasonOfMonth(k.getUTCMonth() + 1)}|${k.getUTCFullYear()}`));
+  for (const k of known) { const start = mondayOfDate(k); if (start.getTime() <= d.getTime() && (!best || start > best.start)) best = { start, season: seasonOfMonth(k.getUTCMonth() + 1) }; }
   for (const y of [d.getUTCFullYear() - 1, d.getUTCFullYear()]) {
     const cands: { start: Date; season: Season }[] = [
       { start: mondayOnOrAfter(y, anchors.springStart || DEFAULT_ANCHORS.springStart), season: "Spring" },
       { start: mondayOnOrAfter(y, anchors.summerStart || DEFAULT_ANCHORS.summerStart), season: "Summer" },
       { start: mondayOnOrAfter(y, anchors.fallStart || DEFAULT_ANCHORS.fallStart), season: "Fall" },
     ];
-    for (const c of cands) if (c.start.getTime() <= d.getTime() && (!best || c.start > best.start)) best = c;
+    for (const c of cands) if (!covered.has(`${c.season}|${y}`) && c.start.getTime() <= d.getTime() && (!best || c.start > best.start)) best = c;
   }
   if (!best) return { season: seasonOfDate(d), year: d.getUTCFullYear() };
   return { season: best.season, year: best.start.getUTCFullYear() };

@@ -10,7 +10,7 @@ const cache = ((React as unknown as { cache?: <F>(fn: F) => F }).cache ?? ((fn) 
 const firstWeekOf = (sessions: { week: number | null }[]) => (sessions.length ? Math.min(...sessions.map((x) => x.week ?? 1)) : null);
 const mondayMs = (ms: number) => ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000;
 const DAY_MS_SEM = 86400000;
-import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, semesterAt, nextSemesterStart, SEASON_ORDER as SEASON_RANK } from "./term";
+import { seasonOfDate, seasonOfTerm, sessionDate, weekOfDate, semesterAt, nextSemesterStart, SEASON_ORDER as SEASON_RANK, type SemesterAnchors } from "./term";
 import type { TermArchetype } from "./capacity";
 import { isOnlineSession, resolveSessionDay } from "./capacitymodel";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, resolveHolidays, holidayOn, type HolidayRule } from "./holidayrule";
@@ -84,7 +84,7 @@ export async function getProgramFull(programId: string) {
       terms: {
         orderBy: { index: "asc" },
         include: {
-          courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: true, clinicalRequirements: true } },
+          courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ week: "asc" }, { number: "asc" }] }, clinicalRequirements: true } },
         },
       },
     },
@@ -1004,7 +1004,7 @@ export async function getProgramSchedule(programId: string, cohortId?: string) {
             orderBy: { sequenceOrder: "asc" },
             include: {
               sessions: {
-                orderBy: [{ kind: "asc" }, { number: "asc" }],
+                orderBy: [{ week: "asc" }, { number: "asc" }],
                 include: { instructors: { where: offering ? { cohortId: offering.id } : {}, include: { person: { select: { id: true, name: true } } } } },
               },
             },
@@ -1395,7 +1395,7 @@ export async function getOfferingScheduler(cohortId: string) {
           yearTargets: true,
           terms: {
             orderBy: { index: "asc" },
-            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ week: "asc" }, { number: "asc" }] } } } },
           },
         },
       },
@@ -1421,7 +1421,7 @@ export async function getCourse(courseId: string) {
   return prisma.course.findUnique({
     where: { id: courseId },
     include: {
-      sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], include: { resources: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } } },
+      sessions: { orderBy: [{ week: "asc" }, { number: "asc" }], include: { resources: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] } } },
       term: { include: { program: { include: { institution: true, yearTargets: { orderBy: { year: "asc" } } } } } },
     },
   });
@@ -2269,7 +2269,11 @@ async function capacityModelFor(institution: { id: string; name: string }) {
   const holidayRuleRaw = instRow?.holidayRule;
   const holidayRule: HolidayRule = isHolidayRule(holidayRuleRaw) ? holidayRuleRaw : DEFAULT_HOLIDAY_RULE;
   // The college's semester anchors: the boards bucket each week by the calendar semester its date falls in.
-  const anchors = { springStart: instRow?.springStart ?? "01-08", summerStart: instRow?.summerStart ?? "05-28", fallStart: instRow?.fallStart ?? "08-15" };
+  const anchors: SemesterAnchors = {
+    springStart: instRow?.springStart ?? "01-08", summerStart: instRow?.summerStart ?? "05-28", fallStart: instRow?.fallStart ?? "08-15",
+    // The coded semester starts: a week belongs to the semester the college's own calendar puts it in.
+    knownStarts: (await prisma.academicEvent.findMany({ where: { institutionId: institution.id, kind: "term_start" }, select: { date: true } })).map((e) => e.date.toISOString().slice(0, 10)).sort(),
+  };
 
   const programs = await prisma.program.findMany({
     // Every offering that is a record — planned, running or graduated (lib/cohortscope): a graduated class is history
@@ -2466,7 +2470,7 @@ export async function getOfferingDesign(cohortId: string) {
           institution: { select: { id: true, name: true, holidayRule: true, academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } },
           terms: {
             orderBy: { index: "asc" },
-            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } },
+            include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ week: "asc" }, { number: "asc" }] } } } },
           },
         },
       },
@@ -2962,7 +2966,7 @@ export async function getStudentAssignments(studentId: string) {
   const cohort = await prisma.cohort.findUnique({ where: { id: s.cohortId }, select: { id: true, name: true, plannedSeats: true, _count: { select: { students: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, courseDates: { select: { courseId: true, startDate: true } },
     meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { id: true, name: true } } } },
     sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
-    program: { select: { institutionId: true, institution: { select: { academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } }, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } }, sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true } } } } } } } } } });
+    program: { select: { institutionId: true, institution: { select: { academicEvents: { where: { kind: "holiday" }, select: { date: true, endDate: true, label: true, kind: true } } } }, terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, name: true, settingCodes: true } } } }, sessions: { orderBy: [{ week: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, week: true, dayOfWeek: true, startTime: true, lengthHours: true, maxStudents: true, rotationType: true, preceptorsNeeded: true } } } } } } } } } });
   if (!cohort) return empty;
   const enrolled = Math.max(cohort._count.students, cohort.plannedSeats ?? 0, 1);
   const { holidayMap: hmap } = await import("./academiccalendar");

@@ -27,7 +27,7 @@ export async function getExpansionInput(programId: string, overrides: Record<str
     include: {
       institution: { select: { id: true, name: true, springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } },
       family: { select: { id: true, name: true, goalPlan: true, accreditedCapacity: true, familySites: { select: { employerId: true, agreementStatus: true, studentsAtOnce: true, approvedCapacity: true, employer: { select: { name: true } } } } } },
-      terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ kind: "asc" }, { number: "asc" }] } } } } },
+      terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, include: { sessions: { orderBy: [{ week: "asc" }, { number: "asc" }] } } } } },
     },
   });
   if (!program) return null;

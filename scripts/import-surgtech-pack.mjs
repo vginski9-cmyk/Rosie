@@ -76,6 +76,23 @@ const session = (r) => {
   };
 };
 
+/** The sheet's session numbers are copied as given — unless, within a course and kind, they are not unique or
+ *  do not run with the weeks (SUR 210's first six clinical rows are numbered 11–16): then that kind is
+ *  renumbered in week order, and the log says which rows changed. */
+const renumber = (course, sessions) => {
+  for (const kind of ["CLASS", "LAB", "CLINICAL"]) {
+    const rows = sessions.filter((s) => s.kind === kind);
+    const nums = rows.map((s) => s.number);
+    const unique = new Set(nums).size === nums.length;
+    const ordered = rows.every((s, i) => i === 0 || (s.week ?? 0) >= (rows[i - 1].week ?? 0) && (s.number ?? 0) > (rows[i - 1].number ?? 0));
+    if (unique && ordered) continue;
+    const sorted = [...rows].sort((a, b) => (a.week ?? 0) - (b.week ?? 0) || (a.number ?? 0) - (b.number ?? 0));
+    const changed = [];
+    sorted.forEach((s, i) => { if (s.number !== i + 1) { changed.push(`${s.number}→${i + 1} (week ${s.week})`); s.number = i + 1; } });
+    if (changed.length) console.warn(`${course} ${kind}: session numbers renumbered in week order — ${changed.join(", ")}`);
+  }
+  return sessions;
+};
 // ── Terms (by Term Number) → courses (in sheet order) → sessions ──────────────────────────────
 const terms = new Map();
 for (const r of rows.slice(1)) {
@@ -88,7 +105,7 @@ for (const r of rows.slice(1)) {
 const hoursOf = (ss, kind) => ss.filter((s) => s.kind === kind).reduce((n, s) => n + s.lengthHours, 0);
 let startWeek = 1;
 const packTerms = [...terms.values()].sort((a, b) => a.index - b.index).map((t) => {
-  const courses = [...t.courses.values()];
+  const courses = [...t.courses.values()].map((c) => ({ ...c, sessions: renumber(c.code, c.sessions) }));
   const weeks = Math.max(1, ...courses.flatMap((c) => c.sessions.map((s) => s.week ?? 1)));
   const term = { index: t.index, name: `Term ${t.index}`, semester: t.semester, startWeek, endWeek: startWeek + weeks - 1, weeks, courses: courses.map((c) => ({ code: c.code, title: c.title, weeklyClassHours: Math.round((hoursOf(c.sessions, "CLASS") / weeks) * 100) / 100, weeklyLabHours: Math.round((hoursOf(c.sessions, "LAB") / weeks) * 100) / 100, weeklyClinicalHours: Math.round((hoursOf(c.sessions, "CLINICAL") / weeks) * 100) / 100, sessions: c.sessions })) };
   startWeek += weeks; return term;

@@ -111,3 +111,40 @@ describe("the week rule: template week w = calendar week w; weeks past the term 
     expect(weekMonday({ ...term, courseStart: "2027-06-14", courseFirstWeek: 3 }, 5)?.toISOString().slice(0, 10)).toBe("2027-06-28");
   });
 });
+
+import { firstWeekMonday, semesterAt, weekOfDate } from "../src/lib/term";
+describe("a term that opens on a Friday holds its first week from the Monday after", () => {
+  // Roanoke-Chowan's Spring 2027 opens Friday, January 8; Brunswick's opens Wednesday, January 6.
+  it("Monday–Thursday first days keep their week; Friday and weekend first days move to the next Monday", () => {
+    expect(firstWeekMonday(new Date("2027-01-06T00:00:00Z")).toISOString().slice(0, 10)).toBe("2027-01-04");
+    expect(firstWeekMonday(new Date("2027-01-07T00:00:00Z")).toISOString().slice(0, 10)).toBe("2027-01-04");
+    expect(firstWeekMonday(new Date("2027-01-08T00:00:00Z")).toISOString().slice(0, 10)).toBe("2027-01-11");
+    expect(firstWeekMonday(new Date("2027-01-09T00:00:00Z")).toISOString().slice(0, 10)).toBe("2027-01-11");
+    expect(firstWeekMonday(new Date("2027-01-11T00:00:00Z")).toISOString().slice(0, 10)).toBe("2027-01-11");
+  });
+  it("a 14-week term from Friday January 8 runs weeks 1–14 from January 11 to the week of April 12 — its coded end, April 16", () => {
+    const t = { termStart: "2027-01-08", termEnd: "2027-04-16", templateWeeks: 14 };
+    expect(weekMonday(t, 1)?.toISOString().slice(0, 10)).toBe("2027-01-11");
+    expect(sessionDate(t, 1, "Mon")?.toISOString().slice(0, 10)).toBe("2027-01-11");
+    expect(weekMonday(t, 14)?.toISOString().slice(0, 10)).toBe("2027-04-12");
+    expect(weekOfDate(t, "2027-01-12")).toBe(1); expect(weekOfDate(t, "2027-01-05")).toBeNull();
+  });
+  it("a Wednesday first day still dates week 1 in its own week (Monday sessions fall before the first day)", () => {
+    const t = { termStart: "2027-01-06", termEnd: "2027-05-05", templateWeeks: 16 };
+    expect(weekMonday(t, 1)?.toISOString().slice(0, 10)).toBe("2027-01-04");
+    expect(sessionDate(t, 1, "Wed")?.toISOString().slice(0, 10)).toBe("2027-01-06");
+  });
+});
+describe("a week's semester follows the college's coded starts", () => {
+  const anchors = { springStart: "01-08", summerStart: "05-15", fallStart: "08-15", knownStarts: ["2026-08-17", "2027-01-08", "2027-05-17"] };
+  it("the week of a Friday-coded Spring start is Spring, not the tail of Fall", () => {
+    expect(semesterAt(new Date("2027-01-04T00:00:00Z"), anchors)).toEqual({ season: "Spring", year: 2027 });
+    expect(semesterAt(new Date("2027-01-07T00:00:00Z"), anchors)).toEqual({ season: "Spring", year: 2027 });
+    expect(semesterAt(new Date("2026-12-30T00:00:00Z"), anchors)).toEqual({ season: "Fall", year: 2026 });
+    expect(semesterAt(new Date("2027-05-19T00:00:00Z"), anchors)).toEqual({ season: "Summer", year: 2027 });
+  });
+  it("a season-year the calendar does not code still follows the pattern", () => {
+    expect(semesterAt(new Date("2027-09-01T00:00:00Z"), anchors)).toEqual({ season: "Fall", year: 2027 });
+    expect(semesterAt(new Date("2027-01-04T00:00:00Z"), { springStart: "01-08", summerStart: "05-15", fallStart: "08-15" })).toEqual({ season: "Fall", year: 2026 });
+  });
+});

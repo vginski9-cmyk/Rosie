@@ -1,4 +1,5 @@
 "use client";
+import { compareSessions } from "@/lib/sessionorder";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -424,16 +425,7 @@ export function OfferingDesign({
             const ordered = c.sessions
               .map((s) => savedRows.get(s.id)!)
               .filter(Boolean)
-              .sort((a, b) => {
-                const wa = a.week ?? 999, wb = b.week ?? 999;
-                if (wa !== wb) return wa - wb;
-                const da = a.dayOfWeek != null ? DAY_OFFSET[a.dayOfWeek] ?? 8 : 8;
-                const db = b.dayOfWeek != null ? DAY_OFFSET[b.dayOfWeek] ?? 8 : 8;
-                if (da !== db) return da - db;
-                const ta = a.startTime ?? "99:99", tb = b.startTime ?? "99:99";
-                if (ta !== tb) return ta.localeCompare(tb);
-                return a.kind.localeCompare(b.kind) || a.number - b.number;
-              })
+              .sort(compareSessions)
               .map((s) => rows.get(s.id) ?? s);
             return (
               <div key={c.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">

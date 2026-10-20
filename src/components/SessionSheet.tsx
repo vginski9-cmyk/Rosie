@@ -1,4 +1,5 @@
 "use client";
+import { compareSessions } from "@/lib/sessionorder";
 
 import { useEffect, useState } from "react";
 import { type SessionInput, type WorkloadAssumptions, computeColumns } from "@/lib/capacitymodel";
@@ -70,7 +71,7 @@ export function SessionSheet({
     setDirty((d) => new Set(d).add(id));
   };
   const toggle = (id: string) => setOpen((o) => { const n = new Set(o); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const ordered = [...rows].sort((a, b) => a.kind.localeCompare(b.kind) || a.number - b.number);
+  const ordered = [...rows].sort(compareSessions);
   const allOpen = ordered.length > 0 && ordered.every((r) => open.has(r.id));
   const dataOptions = harvestOptions(allSessions);
   const seq = { A: `Term ${termNumber}`, B: semester, D: courseCode ?? "—", E: courseTitle };

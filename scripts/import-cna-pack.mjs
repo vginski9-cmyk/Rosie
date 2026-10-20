@@ -92,6 +92,23 @@ const session = (r) => ({
   preceptorsNeeded: num(r[C.preceptors]) ?? 0, preceptorContactPolicy: num(r[C.preceptorPolicy]),
   rotationType: str(r[C.rotation]), clinicalMode: str(r[C.clinicalMode]),
 });
+/** A workbook's session numbers are copied as given — unless, within a course and kind, they are not
+ *  unique or do not run with the weeks (Roanoke-Chowan's sheet numbers two week-10 classes 18 and 19):
+ *  then that kind is renumbered in week order, and the log says which rows changed. */
+const renumber = (course, sessions) => {
+  for (const kind of ["CLASS", "LAB", "CLINICAL"]) {
+    const rows = sessions.filter((s) => s.kind === kind);
+    const nums = rows.map((s) => s.number);
+    const unique = new Set(nums).size === nums.length;
+    const ordered = rows.every((s, i) => i === 0 || (s.week ?? 0) >= (rows[i - 1].week ?? 0) && (s.number ?? 0) > (rows[i - 1].number ?? 0));
+    if (unique && ordered) continue;
+    const sorted = [...rows].sort((a, b) => (a.week ?? 0) - (b.week ?? 0) || (a.number ?? 0) - (b.number ?? 0));
+    const changed = [];
+    sorted.forEach((s, i) => { if (s.number !== i + 1) { changed.push(`${s.number}→${i + 1} (week ${s.week})`); s.number = i + 1; } });
+    if (changed.length) console.warn(`${course} ${kind}: session numbers renumbered in week order — ${changed.join(", ")}`);
+  }
+  return sessions;
+};
 const hoursOf = (sessions, kind) => sessions.filter((s) => s.kind === kind).reduce((n, s) => n + s.lengthHours, 0);
 const weeklyOf = (sessions, kind, weeks) => Math.round((hoursOf(sessions, kind) / weeks) * 100) / 100;
 const lastWeekOf = (sessions) => Math.max(...sessions.map((s) => s.week ?? 1));
@@ -128,7 +145,7 @@ if (isModels) {
   // One single-term template per delivery model.
   for (const g of groups.values()) {
     const { label, bare } = split(g.code);
-    const sessions = g.rows.map(session);
+    const sessions = renumber(g.code, g.rows.map(session));
     // The term is as long as the offering's name says ("18-week"), and at least as far as the
     // workbook's sessions reach, so every session row stays dated even where the sheet's week
     // numbers outrun the name (Carteret's 5-week rows reach week 6).
@@ -154,7 +171,7 @@ if (isModels) {
   const terms = termKeys.map((k, i) => {
     const gs = [...groups.values()].filter((g) => keyOf(g) === k);
     const semester = gs.find((g) => g.semester)?.semester ?? null;
-    const courses = gs.map((g) => ({ code: g.code, title: g.title, sessions: g.rows.map(session) }));
+    const courses = gs.map((g) => ({ code: g.code, title: g.title, sessions: renumber(g.code, g.rows.map(session)) }));
     const weeks = Math.max(...courses.map((c) => lastWeekOf(c.sessions)));
     return {
       index: i + 1, name: `Term ${i + 1}`, semester, weeks, enrollment: gs[0].enrollment ?? null,

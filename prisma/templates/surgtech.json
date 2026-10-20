@@ -4534,7 +4534,7 @@
           "sessions": [
             {
               "kind": "CLINICAL",
-              "number": 11,
+              "number": 1,
               "title": "Responsible and Accountable Behavior",
               "deliveryMode": "Online",
               "location": "Internet",
@@ -4557,7 +4557,7 @@
             },
             {
               "kind": "CLINICAL",
-              "number": 12,
+              "number": 2,
               "title": "Responsible and Accountable Behavior",
               "deliveryMode": "Online",
               "location": "Internet",
@@ -4580,7 +4580,7 @@
             },
             {
               "kind": "CLINICAL",
-              "number": 13,
+              "number": 3,
               "title": "Test Anxiety",
               "deliveryMode": "Online",
               "location": "Internet",
@@ -4603,7 +4603,7 @@
             },
             {
               "kind": "CLINICAL",
-              "number": 14,
+              "number": 4,
               "title": "Test Anxiety",
               "deliveryMode": "Online",
               "location": "Internet",
@@ -4626,7 +4626,7 @@
             },
             {
               "kind": "CLINICAL",
-              "number": 15,
+              "number": 5,
               "title": "Review for Final Exam",
               "deliveryMode": "Online",
               "location": "Internet",
@@ -4649,7 +4649,7 @@
             },
             {
               "kind": "CLINICAL",
-              "number": 16,
+              "number": 6,
               "title": "Final Exam",
               "deliveryMode": "Online",
               "location": "Internet",

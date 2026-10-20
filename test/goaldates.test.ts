@@ -90,6 +90,25 @@ describe("goal-year starts", () => {
 });
 
 import { computeCohortTiming } from "../src/lib/term";
+describe("a two-term Fall → Spring program (Roanoke-Chowan's Medical Assisting)", () => {
+  const MA = { calendarMode: "semester" as const, terms: [{ id: "p1", index: 1, name: "Term 1", startWeek: 1, endWeek: 14, semester: "Fall" }, { id: "p2", index: 2, name: "Term 2", startWeek: 15, endWeek: 28, semester: "Spring" }] as TermLite[] };
+  const rc = { anchors: { springStart: "01-08", summerStart: "05-15", fallStart: "08-15" }, events: [
+    { iso: "2026-08-17", endIso: null, label: "First day of classes", kind: "term_start", season: "Fall" }, { iso: "2026-12-11", endIso: null, label: "Last day of classes", kind: "term_end", season: "Fall" },
+    { iso: "2027-01-08", endIso: null, label: "First Day for 16-week classes", kind: "term_start", season: "Spring" }, { iso: "2027-05-10", endIso: null, label: "Last day of classes", kind: "term_end", season: "Spring" },
+  ] as CodedEventLite[] };
+  it("graduating in 2028 means the Fall 2027 start (the pattern, uncoded), ending in April 2028", () => {
+    const c = candidateStarts(2028, MA, rc, "2026-10-20");
+    expect(c.map((o) => [o.iso, o.source, o.timing])).toEqual([["2027-08-16", "pattern", "ahead"]]);
+    expect(c[0].endIso).toBe("2028-04-14");
+    expect(suggestedStarts(2028, 1, MA, rc, "2026-10-20").map((o) => o.iso)).toEqual(["2027-08-16"]);
+  });
+  it("graduating in 2027 means the coded Fall 2026 start, already begun; Part 2 opens on the coded Friday and ends 14 weeks on", () => {
+    const c = candidateStarts(2027, MA, rc, "2026-10-20");
+    expect(c.map((o) => [o.iso, o.source, o.timing])).toEqual([["2026-08-17", "calendar", "started"]]);
+    expect(c[0].endIso).toBe("2027-04-16");
+  });
+});
+
 describe("an offering ends on its last term's real last day", () => {
   const terms = [{ index: 1, name: "Term 1", startWeek: 1, endWeek: 16 }];
   it("the calendar's end wins over start + weeks", () => {
