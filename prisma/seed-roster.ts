@@ -346,11 +346,17 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
 
 /** The built-in policy set, coded per institution so the People page shows
  *  real rows to edit (Sandhills' own numbers: FT 16/40 → 2.5, adjunct 18/40, support 1:1, preceptor 1:1). */
+/** What a college publishes about its faculty load, when it is not the workbook figure: the note on its
+ *  full-time row says where the number stands. */
+const POLICY_NOTES: Record<string, Partial<Record<string, string>>> = {
+  "Rowan-Cabarrus Community College": { "full-time": "RCCC publishes no contact-hour load; its postings give full-time faculty a 40-hour week (instruction, preparation, student hours, committees, advising). The workspace default of 16 contact hours stands until the college states its own." },
+};
 export async function seedWorkloadPolicies(prisma: PrismaClient) {
-  const institutions = await prisma.institution.findMany({ select: { id: true } });
+  const institutions = await prisma.institution.findMany({ select: { id: true, name: true } });
   let n = 0;
   for (const inst of institutions) for (const d of DEFAULT_POLICIES) {
-    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: d.contactHoursPerWeek, workWeekHours: d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null } });
+    const note = POLICY_NOTES[inst.name]?.[d.employmentType ?? ""];
+    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: d.contactHoursPerWeek, workWeekHours: d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: note ?? (d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null) } });
     n++;
   }
   return n;

@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
 export default async function StructureEditor({ params }: { params: { id: string } }) {
   const program = await getProgramFull(params.id);
   if (!program) notFound();
-  const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)) ?? 40);
+  // The class size the design is read at: the program's own, else a year target's; none on record reads as 0 — "class size not set", never an invented number.
+  const defaultEnrollment = Math.round(program.defaultCohortSeats ?? Math.max(0, ...program.yearTargets.map((t) => t.cohortCapacity ?? 0)));
   // Structured requirements beside the structure (recommendation 1), the supervision rule each clinical session resolves to (5), and the settings the college knows (2).
   const [ledger, supervision, rules, assets, familySites] = await Promise.all([
     requirementLedger(program.id), supervisionBook([program.id]), ruleBook(program.institutionId),

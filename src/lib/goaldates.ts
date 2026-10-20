@@ -107,7 +107,10 @@ export function candidateStarts(year: number, m: PlannerModel, cal: PlannerCalen
     out.push({ iso: isoDate, source, label: ev?.label ?? null, sessionWeeks, fits: sessionWeeks != null && sessionWeeks === weeks, endIso: e.endIso, timing: timingOf(isoDate, e.endIso, todayIso) });
   };
   if (m.calendarMode === "continuous") {
-    const from = `${year - 1}-01-01`, to = `${year}-12-31`;
+    // Starts from the first year a class this long could begin in and still finish in the goal year (a
+    // four-year apprenticeship for 2031 starts in 2027), through the goal year itself.
+    const spanWeeks = Math.max(1, ...m.terms.map((t) => t.endWeek ?? 16));
+    const from = `${year - Math.ceil(spanWeeks / 52)}-01-01`, to = `${year}-12-31`;
     const byDay = new Map<string, CodedEventLite[]>();
     for (const e of cal.events) if (isStart(e) && e.iso >= from && e.iso <= to) byDay.set(e.iso, [...(byDay.get(e.iso) ?? []), e]);
     for (const [d, evs] of byDay) add(d, "calendar", pickForDay(evs, weeks));

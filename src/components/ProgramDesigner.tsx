@@ -45,7 +45,8 @@ const n1 = (n: number) => dec(n);
 const n2 = (n: number) => dec(n);
 
 export function ProgramDesigner({ programId, programName, terms, defaultEnrollment, assumptions, requirements = [], familyId = null, settings = [], extraction = null, institutionId = null, ruleRows = {}, supplyBySetting = {}, courseRules = {} }: { programId: string; programName?: string; terms: DTerm[]; defaultEnrollment: number; assumptions: WorkloadAssumptions; requirements?: import("@/lib/requirementstore").LedgerRequirement[]; familyId?: string | null; settings?: string[]; /** The "describe or upload" panel (a server-rendered child). */ extraction?: React.ReactNode; institutionId?: string | null; /** The setting rule each rotation type means (lower-cased key) — shown and edited on the session rows. */ ruleRows?: Record<string, RuleRowView>; /** The college's sites per setting code — which sites a session is eligible for. */ supplyBySetting?: Record<string, SiteSupply[]>; /** Course rotation pools — the rule a course's generically tagged sessions read. */ courseRules?: Record<string, import("@/lib/settingrule").SettingRuleSpec> }) {
-  const [enrollment, setEnrollment] = useState(Math.max(1, Math.round(defaultEnrollment) || 40));
+  // 0 = no class size on record (the apprenticeship): the sheet reads at 0 students until one is typed.
+  const [enrollment, setEnrollment] = useState(Math.max(0, Math.round(defaultEnrollment) || 0));
   // Courses are closed by default: one row each; open one to edit its catalog fields and sessions.
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [showSeq, setShowSeq] = useState(false);
@@ -133,8 +134,8 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
           <h2 className="text-base font-semibold text-slate-900">Terms &amp; courses <span className="text-sm font-normal text-slate-400">— {terms.length} term{terms.length === 1 ? "" : "s"} · {terms.reduce((n, t) => n + t.courses.length, 0)} course{terms.reduce((n, t) => n + t.courses.length, 0) === 1 ? "" : "s"} · {n1(psTotal)} h per student</span></h2>
           <label className="flex items-center gap-3 text-sm">
             <span className="font-semibold text-slate-700">Planned enrollment</span>
-            <input type="range" min={1} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
-            <input type="number" min={1} value={enrollment} onChange={(e) => setEnrollment(Math.max(1, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
+            <input type="range" min={0} max={150} value={enrollment} onChange={(e) => setEnrollment(Number(e.target.value))} className="h-2 w-40 accent-rose-600" />
+            <input type="number" min={0} value={enrollment} onChange={(e) => setEnrollment(Math.max(0, Number(e.target.value)))} className="w-16 rounded-lg border border-slate-300 px-2 py-1 text-right font-semibold" />
           </label>
         </div>
         {/* Terms → courses, the sessions each holds */}
@@ -167,7 +168,7 @@ export function ProgramDesigner({ programId, programName, terms, defaultEnrollme
 
       {/* The numbers behind it — closed until wanted. */}
       <details className="rounded-xl border border-slate-200 bg-white">
-        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Sessions, shifts and hours at {n0(enrollment)} students <span className="font-normal text-slate-400">— {n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} shifts · {n0(psTotal * enrollment)} student-hours · faculty {n2(calc.peakFacFte)} FTE and preceptors {n2(calc.peakPreFte)} FTE in the peak week</span></summary>
+        <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-slate-700 hover:text-rose-700">Sessions, shifts and hours at {enrollment > 0 ? `${n0(enrollment)} students` : "— class size not set (type one above)"} <span className="font-normal text-slate-400">— {n0(calc.sections.CLASS + calc.sections.LAB + calc.sections.CLINICAL)} shifts · {n0(psTotal * enrollment)} student-hours · faculty {n2(calc.peakFacFte)} FTE and preceptors {n2(calc.peakPreFte)} FTE in the peak week</span></summary>
         <div className="border-t border-slate-100 px-4 pb-4">
         <div className="mt-3 overflow-x-auto">
           <table className="min-w-full text-sm">

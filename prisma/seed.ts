@@ -230,7 +230,7 @@ type PackSession = {
   rotationType: string | null; clinicalMode: string | null;
 };
 type ProgramPack = {
-  name: string; programType: string; credential: string; sourceWorkbook: string; maxCohort: number;
+  name: string; programType: string; credential: string; sourceWorkbook: string; /** The class size; null when the college has not published one. */ maxCohort: number | null; /** "semester" (default) or "continuous" — a pack whose terms are not semesters (an apprenticeship's 28-week years) says so. */ calendarMode?: "semester" | "continuous";
   assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
   terms: { index: number; name: string; semester?: string | null; startWeek: number; endWeek: number; courses: { code: string; title: string; alsoCoded?: string[]; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; /** Catalog fields a pack may carry (Brunswick's do; the Sandhills workbooks do not). */ credits?: number | null; requisites?: string | null; courseType?: string | null; description?: string | null; sessions: PackSession[] }[] }[];
 };
@@ -244,7 +244,7 @@ export async function createPackProgram(pack: ProgramPack, opts: { institutionId
       name: pack.name, programType: pack.programType, credential: pack.credential,
       monthsToFullProductivity: opts.monthsToFullProductivity, status: "active",
       launchCadence: opts.launchCadence, launchTerms: opts.launchTerms, termSlots: "FALL,SPRING,SUMMER",
-      defaultCohortSeats: pack.maxCohort,
+      defaultCohortSeats: pack.maxCohort, calendarMode: pack.calendarMode ?? "semester",
       facContactHours: pack.assumptions.facContactHours, facWorkWeekHours: pack.assumptions.facWorkWeekHours, facTermWeeks: pack.assumptions.facTermWeeks,
       preContactHours: pack.assumptions.preContactHours, preWorkWeekHours: pack.assumptions.preWorkWeekHours, preTermWeeks: pack.assumptions.preTermWeeks,
     },
@@ -460,6 +460,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Lenoir Community College": { counties: ["Lenoir", "Lenoir", "Greene", "Jones", "Wayne"], cities: { Lenoir: "Kinston", Greene: "Snow Hill", Jones: "Trenton", Wayne: "Goldsboro" } },
     "Roanoke-Chowan Community College": { counties: ["Hertford", "Hertford", "Bertie", "Northampton", "Gates"], cities: { Hertford: "Ahoskie", Bertie: "Windsor", Northampton: "Jackson", Gates: "Gatesville" } },
     "Brunswick Community College": { counties: ["Brunswick", "Brunswick", "Brunswick", "Columbus", "New Hanover"], cities: { Brunswick: "Southport", Columbus: "Whiteville", "New Hanover": "Wilmington" } },
+    "Rowan-Cabarrus Community College": { counties: ["Rowan", "Rowan", "Cabarrus", "Cabarrus", "Cabarrus"], cities: { Rowan: "Salisbury", Cabarrus: "Concord" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -607,6 +608,12 @@ async function loadClinicalModels(institutionId: string) {
   let areas = 0, reqs = 0, sites = 0, allocations = 0;
 
   for (const fam of families) {
+    // A family with no clinical component (Electrical Systems Technology: labs, no clinicals) has no clinical
+    // model: no settings, no requirements, nothing for the scheduler — and never the Medical Assisting defaults.
+    if (!fam.programs.some((p) => p.terms.some((t) => t.courses.some((c) => c.weeklyClinicalHours > 0 || c.sessions.some((s) => s.kind === "CLINICAL"))))) {
+      await prisma.programFamily.update({ where: { id: fam.id }, data: { clinicalModel: "none", clinicalNotes: "No clinical component: the program is taught in class and lab." } });
+      continue;
+    }
     const isRad = /radiograph/i.test(fam.name);
     const isSurg = /surgical/i.test(fam.name);
     const isCna = /nurse aide|cna/i.test(fam.name);
@@ -1101,7 +1108,9 @@ async function main() {
   //       locked-in offerings with sections waiting for assignments ----------
   // Where every site is and how far from the campus that delivers the programs — rings are coded from drive time, not typed.
   console.log("geography:", await seedGeography(prisma, sandhills.id, { address: "3395 Airport Rd", city: "Pinehurst", state: "NC", zip: "28374" }));
-  for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true } })) await seedGeography(prisma, inst.id);
+  // Rowan-Cabarrus delivers its programs from its North Campus in Salisbury; the Electrical Systems labs are at the Cabarrus Business & Technology Center (CBTC) on the South Campus in Concord.
+  const CAMPUS_ADDRESS: Record<string, { address: string; city: string; state: string; zip: string }> = { "Rowan-Cabarrus Community College": { address: "1333 Jake Alexander Blvd S", city: "Salisbury", state: "NC", zip: "28146" } };
+  for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   // Each college's published academic calendar — semester dates, later sessions, holidays — before
   // any offering is dated, so every term lands on the college's own calendar.
   console.log("academic calendars:", await seedAcademicCalendars(prisma, join(__dirname, "seed-data", "calendars")));

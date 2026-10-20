@@ -168,3 +168,12 @@ describe("continuous calendar mode", () => {
     expect(a.terms[1]).toMatchObject({ startIso: "2026-11-16", endIso: "2027-01-08", startSource: "template" });
   });
 });
+
+describe("continuous terms a year apart (an apprenticeship)", () => {
+  it("the next term starts the Monday after the previous one ends plus the weeks the template leaves between them", () => {
+    const terms: TermLite[] = [1, 2, 3, 4].map((y) => ({ id: `y${y}`, index: y, name: `Year ${y}`, startWeek: 1 + (y - 1) * 52, endWeek: 28 + (y - 1) * 52 }));
+    const a = alignOffering({ startIso: "2027-09-13", terms, courses: [], anchors: { springStart: "01-08", summerStart: "05-28", fallStart: "08-15" }, events: [], calendarMode: "continuous" });
+    expect(a.terms.map((t) => [t.startIso, t.endIso])).toEqual([["2027-09-13", "2028-03-24"], ["2028-09-11", "2029-03-23"], ["2029-09-10", "2030-03-22"], ["2030-09-09", "2031-03-21"]]);
+    expect(a.warnings).toEqual([]);
+  });
+});

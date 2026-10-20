@@ -104,7 +104,15 @@ export function alignOffering(input: {
       // A day the college codes as a start (the semester or a later session) is named as such; a session
       // whose length equals the term's ends the term on the session's own last day (below).
       if (i === 0) { const coded = codedStartOn(input.events, input.startIso); startIso = input.startIso; startSource = coded ? "calendar" : "chosen"; startLabel = coded?.label ?? null; }
-      else { let next = mondayOnOrAfterIso(cursor); while (closedWeek(dateOf(next), holidays)) next = addDays(next, 7); startIso = next; startSource = "template"; }
+      else {
+        // The Monday after the previous term ends — plus the weeks the template leaves between the two terms
+        // (an apprenticeship's 28-week year is followed by 24 weeks of work before the next year's class).
+        const prev = terms[i - 1];
+        const gapWeeks = Math.max(0, (t.startWeek ?? 1) - (prev.endWeek ?? (prev.startWeek ?? 1)) - 1);
+        let next = addDays(mondayOnOrAfterIso(cursor), gapWeeks * 7);
+        while (closedWeek(dateOf(next), holidays)) next = addDays(next, 7);
+        startIso = next; startSource = "template";
+      }
     } else if (i === 0) {
       // Term 1: the chosen day, snapped to the coded semester start it clearly means.
       const hit = nearest(input.events, "term_start", input.startIso, 21);

@@ -42,7 +42,8 @@ export async function FamilyClinicalHub({ familyId, base }: { familyId: string; 
 
       <section id="requirements" className="scroll-mt-16 space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold">1 · What completion requires <span className="text-sm font-normal text-slate-400">— {req?.sets.map((x) => x.authority.split(" · ")[0]).join(" · ") || "no requirement set yet"}, and which site provides each experience</span></h2>
-        {req && req.sets.length > 0 ? <RequirementsPanel req={req} siteHref={siteHref} /> : <p className="text-sm text-amber-700">No requirement set is loaded for {fam.name}. Enter the credentialing body&apos;s list to score the network against it.</p>}
+        {fam.clinicalModel === "none" ? <p className="text-sm text-slate-600">{fam.name} has no clinical component: its programs are taught in class and lab, so there is nothing to place at a site and no requirement set to score.</p>
+          : req && req.sets.length > 0 ? <RequirementsPanel req={req} siteHref={siteHref} /> : <p className="text-sm text-amber-700">No requirement set is loaded for {fam.name}. Enter the credentialing body&apos;s list to score the network against it.</p>}
       </section>
 
       <section id="sites" className="scroll-mt-16 space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

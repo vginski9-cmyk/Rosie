@@ -18,6 +18,7 @@ export const CALENDAR_FILES: Record<string, string> = {
   "Roanoke-Chowan Community College": "roanoke-chowan.txt",
   "College of The Albemarle": "albemarle.txt",
   "Brunswick Community College": "brunswick.txt",
+  "Rowan-Cabarrus Community College": "rowan-cabarrus.txt",
 };
 
 export async function seedAcademicCalendars(prisma: PrismaClient, dir: string): Promise<Record<string, { events: number; starts: number; ends: number; sessions: number; holidays: number; anchors: string; warnings: number }>> {

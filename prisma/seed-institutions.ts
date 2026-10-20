@@ -123,7 +123,31 @@ export const BRUNSWICK_PROGRAMS: PackProgramDef[] = [
   { pack: "brunswick-paramedic-adn.json", launch: "SPRING", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150 (14 credits); NUR 215 with a B or better converts to credit for NUR 111, 112, 114 and 117 (20 credits). Application Jul 1 – Aug 30 (TEAS ≥ 59, GPA ≥ 2.5), classes begin with the spring term. Class size from the college's sections (10 seats).` },
 ];
 
+/** Rowan-Cabarrus Community College's Electrical Systems Technology — the eight credentials the college lists under
+ *  program 35130 and the NCAEC electrician apprenticeship its Continuing Education hosts — template packs built by
+ *  scripts/build-rccc-packs.mjs from the college's 2026–27 catalog (sequence, hours, credits, requisites), its
+ *  published Fall 2026 – Summer 2027 sections (days, times, rooms at the Cabarrus Business & Technology Center,
+ *  seat caps) and the NCAEC handbook. No clinical component. The college's workbook templates replace the
+ *  sessions when they arrive. */
+const RCCC_TEMPLATE = "Sessions are the college's published 2026–27 day sections; the college's own program-structure workbook replaces them when it arrives.";
+export const RCCC_PROGRAMS: PackProgramDef[] = [
+  { pack: "rccc-est-aas.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-est-diploma.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-est-diploma-ccpp.json", launch: "FALL", months: 3, note: "High-school (Career & College Promise) cohort at A.L. Brown HS; days and times not yet on record. The college's workbook replaces the sessions when it arrives." },
+  { pack: "rccc-est-cert-basic.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-est-cert-ccpp.json", launch: "FALL", months: 3, note: "High-school (Career & College Promise) cohort at A.L. Brown HS; days and times not yet on record. The college's workbook replaces the sessions when it arrives." },
+  { pack: "rccc-est-cert-mtc1.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-est-cert-motor-control.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-est-cert-wiring-nec.json", launch: "FALL", months: 3, note: RCCC_TEMPLATE },
+  { pack: "rccc-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "NCAEC four-year registered apprenticeship (ApprenticeshipNC #29076) hosted by RCCC Corporate & Continuing Education: one 3-hour class a week for 28 weeks a year from September, full-time work for the sponsoring contractor between. Night, start date, room and class size for the current cohort are not published; on-the-job hours are recorded on each level, not scheduled." },
+];
+
 export const INSTITUTIONS: InstitutionDef[] = [
+  { name: "Rowan-Cabarrus Community College", short: "Rowan-Cabarrus CC", kind: "Community college", city: "Salisbury", serviceArea: "Rowan & Cabarrus Counties, NC", families: [
+    { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(20), programs: RCCC_PROGRAMS,
+      description: "Rowan-Cabarrus lists eight stacked credentials under Electrical Systems Technology (program 35130): the 64-credit AAS, the 40-credit diploma and its Career & College Promise version, and five certificates (Basic, CCPP, MTC 1, Industrial Motor Control, Wiring and the NEC) — every one starting in the fall with ELC 112, taught at the Cabarrus Business & Technology Center — plus the NCAEC four-year electrician apprenticeship hosted by Continuing Education. Labs, no clinicals. The North-Star goal of 20 a year is a placeholder, not the college's figure." },
+  ] },
+
   // Brunswick's three prelicensure RN pathways from the college's own publications (2026-10-12): the
   // template packs above. The North-Star goal is the owner's figure (190 a year).
   { name: "Brunswick Community College", short: "Brunswick CC", kind: "Community college", city: "Bolivia", serviceArea: "Brunswick County, NC", families: [
@@ -156,7 +180,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
       { name: "BSN Prelicensure — Fall Entry", type: "Traditional Full Time", credential: "BSN", terms: () => bsnTerms(false), launch: "FALL", seats: 64, months: 6 },
     ] },
   ] },
-  ...[["Pitt Community College", "Pitt CC", "Winterville", "Pitt County, NC"], ["Forsyth Technical Community College", "Forsyth Tech", "Winston-Salem", "Forsyth & Stokes Counties, NC"], ["Rowan-Cabarrus Community College", "Rowan-Cabarrus CC", "Salisbury", "Rowan & Cabarrus Counties, NC"], ["Davidson-Davie Community College", "Davidson-Davie CC", "Thomasville", "Davidson & Davie Counties, NC"], ["Beaufort County Community College", "Beaufort County CC", "Washington", "Beaufort, Hyde, Tyrrell & Washington Counties, NC"]].map(([name, short, city, area]): InstitutionDef => ({
+  ...[["Pitt Community College", "Pitt CC", "Winterville", "Pitt County, NC"], ["Forsyth Technical Community College", "Forsyth Tech", "Winston-Salem", "Forsyth & Stokes Counties, NC"], ["Davidson-Davie Community College", "Davidson-Davie CC", "Thomasville", "Davidson & Davie Counties, NC"], ["Beaufort County Community College", "Beaufort County CC", "Washington", "Beaufort, Hyde, Tyrrell & Washington Counties, NC"]].map(([name, short, city, area]): InstitutionDef => ({
     name, short, kind: "Community college", city, serviceArea: area, families: [
       { name: "Electrical Systems Technology", ...ELECTRICIAN, description: "Electrical Systems Technology AAS." + (/Davidson|Beaufort/.test(name) ? " (Program assumed from the inventory list — confirm.)" : ""), goals: goals(20), programs: [{ name: "Electrical Systems Technology", type: "Traditional Full Time", credential: "AAS", terms: electricalTerms, launch: "FALL", seats: 24, months: 3 }] },
     ],
@@ -199,7 +223,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Cape Fear Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
-  "Rowan-Cabarrus Community College", "Southeastern Community College", "University of North Carolina Wilmington",
+  "Southeastern Community College", "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
   // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
   // workbook programs and offerings (see seed.ts).
