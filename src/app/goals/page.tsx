@@ -41,7 +41,7 @@ export default async function HomePage() {
                 <div key={f.id} className="px-5 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <Link href={f.programs[0] ? `/programs/${f.programs[0].id}/goal` : `/programs?inst=${inst.id}&family=${f.id}`} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.job}</Link>
+                      <Link href={f.programs.length === 1 ? `/programs/${f.programs[0].id}/goal` : `/programs?inst=${inst.id}&family=${f.id}`} title={f.programs.length === 1 ? "the program's goal page" : `the family's ${f.programs.length} programs`} className="text-base font-semibold text-slate-800 hover:text-rose-700 hover:underline">{f.job}</Link>
                       <div className="text-xs text-slate-500">{f.name}{f.socCode ? ` · SOC ${f.socCode}` : ""}</div>
                     </div>
                     <form action={deleteNorthStarGoal.bind(null, f.id)}><button className="rounded p-1 text-xs text-slate-300 hover:text-rose-600" title="clear this North Star goal (the job family, its sites and records stay)">✕</button></form>

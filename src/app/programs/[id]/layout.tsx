@@ -9,6 +9,9 @@ export default async function ProgramLayout({ children, params }: { children: Re
     select: { name: true, status: true, credential: true, programType: true, institutionId: true, familyId: true, institution: { select: { name: true } }, occupation: { select: { title: true, socCode: true } } },
   });
 
+  // The family's other programs, for the switcher on the tab bar (a family with one program shows none).
+  const siblings = program?.familyId ? await prisma.program.findMany({ where: { familyId: program.familyId }, orderBy: { name: "asc" }, select: { id: true, name: true, credential: true } }) : [];
+
   return (
     <div>
       {program && (
@@ -21,7 +24,7 @@ export default async function ProgramLayout({ children, params }: { children: Re
           <p className="text-sm text-slate-500">{[program.institution.name, program.occupation ? `${program.occupation.title} · SOC ${program.occupation.socCode}` : null, program.credential, program.programType].filter(Boolean).join(" · ")}</p>
         </div>
       )}
-      <ProgramTabBar programId={params.id} />
+      <ProgramTabBar programId={params.id} siblings={siblings} />
       {children}
     </div>
   );
