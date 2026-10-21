@@ -23,6 +23,7 @@ import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, 
 import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
+import { seedOtherCampuses } from "./seed-campuses";
 import { simulationAllowance, type RuleDefLite } from "../src/lib/requirementrules";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { loadPartnerSites } from "./seed-partner-sites";
@@ -1109,8 +1110,12 @@ async function main() {
   // Where every site is and how far from the campus that delivers the programs — rings are coded from drive time, not typed.
   console.log("geography:", await seedGeography(prisma, sandhills.id, { address: "3395 Airport Rd", city: "Pinehurst", state: "NC", zip: "28374" }));
   // Rowan-Cabarrus delivers its programs from its North Campus in Salisbury; the Electrical Systems labs are at the Cabarrus Business & Technology Center (CBTC) on the South Campus in Concord.
-  const CAMPUS_ADDRESS: Record<string, { address: string; city: string; state: string; zip: string }> = { "Rowan-Cabarrus Community College": { address: "1333 Jake Alexander Blvd S", city: "Salisbury", state: "NC", zip: "28146" } };
+  const CAMPUS_ADDRESS: Record<string, { address: string; city: string; state: string; zip: string }> = {
+    "Rowan-Cabarrus Community College": { address: "1333 Jake Alexander Blvd S", city: "Salisbury", state: "NC", zip: "28146" },
+    "Carteret Community College": { address: "3505 Arendell St", city: "Morehead City", state: "NC", zip: "28557" },
+  };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
+  console.log("other campuses:", await seedOtherCampuses(prisma));
   // Each college's published academic calendar — semester dates, later sessions, holidays — before
   // any offering is dated, so every term lands on the college's own calendar.
   console.log("academic calendars:", await seedAcademicCalendars(prisma, join(__dirname, "seed-data", "calendars")));
