@@ -25,7 +25,8 @@ import { writeFileSync } from "node:fs";
 import { carryCatalogHours, HOURS_RULE } from "./packhours.mjs";
 
 const SOURCE = "RCCC catalog 2026–27 (program 35130 and course pages), Self-Service course schedule Fall 2026 – Summer 2027, 2026–27 academic calendar, NCAEC apprenticeship handbook — compiled 2026-10-20";
-const ASSUMPTIONS = { facContactHours: 16, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
+// Faculty load: 20 contact hours of a 40-hour week — 2 work hours a contact hour (the owner's figure, 2026-10-22).
+const ASSUMPTIONS = { facContactHours: 20, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
 const GENED = "General-enrollment course taught outside the program, offered every term; placed here as the program of study has it.";
 const TEMPLATE = "The college's own program-structure workbook replaces these sessions when it arrives.";
 

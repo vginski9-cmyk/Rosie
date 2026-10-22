@@ -9,7 +9,7 @@
   "note": "The Basic Certificate's course list for Career & College Promise high-school students (A.L. Brown HS cohort, 10 seats); days and times not yet on record. The college's own program-structure workbook replaces these sessions when it arrives.",
   "weeklyHoursNote": "Term hours per student are the catalog's weekly contact hours × 16 (the 16-week basis), whatever the term's length: the sessions carry them, the posted days, times and rooms place them. Hours and credits are the catalog's; sessions are the college's day sections; clinical hours are zero in every course.",
   "assumptions": {
-    "facContactHours": 16,
+    "facContactHours": 20,
     "facWorkWeekHours": 40,
     "facTermWeeks": 16,
     "preContactHours": 40,

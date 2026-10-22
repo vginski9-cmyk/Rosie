@@ -10,7 +10,7 @@
   "note": "The NC Association of Electrical Contractors' four-year registered apprenticeship, hosted by RCCC Corporate & Continuing Education as four non-credit levels (CEUs, taught from the Mike Holt lesson plan): apprentices work full-time for a sponsoring contractor and attend one 3-hour class a week for 28 weeks a year (September – April). 336 classroom hours plus OSHA 10, 230 documented competency hours and 8,000 on-the-job hours over four years; the US DOL / NCCCS journeyworker certificate on completion. Cohorts enrol through NCAEC and RCCC Continuing Education, not open registration: 17 apprentices a year (the owner's figure, 2026-10-20); the night, start date and room for the current cohort are not published. On-the-job hours are recorded on each level, not scheduled. The levels map roughly onto the AAS core (I ≈ ELC 112/126/118, II ≈ 113/115, III ≈ 117/128, IV ≈ 119) but there is no published articulation.",
   "weeklyHoursNote": "Term hours per student are the catalog's weekly contact hours × 16 (the 16-week basis), whatever the term's length: the sessions carry them, the posted days, times and rooms place them. Hours and credits are the catalog's; sessions are the college's day sections; clinical hours are zero in every course.",
   "assumptions": {
-    "facContactHours": 16,
+    "facContactHours": 20,
     "facWorkWeekHours": 40,
     "facTermWeeks": 16,
     "preContactHours": 40,

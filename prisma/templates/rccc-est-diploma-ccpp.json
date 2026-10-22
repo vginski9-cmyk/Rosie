@@ -9,7 +9,7 @@
   "note": "The diploma's 40 credits spread over five terms for Career & College Promise high-school students (a lighter load): COM 231 fixed in place of the open elective, CST 131 and EGR 125 in a fifth term. Taught to the A.L. Brown HS cohort (10 seats); the college publishes sections there only for ELC 111 and CST 131, so days and times are not yet on record. The college's own program-structure workbook replaces these sessions when it arrives.",
   "weeklyHoursNote": "Term hours per student are the catalog's weekly contact hours × 16 (the 16-week basis), whatever the term's length: the sessions carry them, the posted days, times and rooms place them. Hours and credits are the catalog's; sessions are the college's day sections; clinical hours are zero in every course.",
   "assumptions": {
-    "facContactHours": 16,
+    "facContactHours": 20,
     "facWorkWeekHours": 40,
     "facTermWeeks": 16,
     "preContactHours": 40,

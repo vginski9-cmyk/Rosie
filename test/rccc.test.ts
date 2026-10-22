@@ -10,7 +10,7 @@ import { CALENDAR_FILES } from "../prisma/seed-calendars";
 
 type Session = { kind: string; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null; lengthHours: number; location: string | null; maxStudents: number; deliveryMode: string };
 type Course = { code: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; credits: number; courseType: string; sessions: Session[] };
-type Pack = { name: string; programType: string; credential: string; maxCohort: number | null; calendarMode?: string; terms: { name: string; semester: string | null; startWeek: number; endWeek: number; courses: Course[] }[] };
+type Pack = { name: string; programType: string; credential: string; maxCohort: number | null; calendarMode?: string; assumptions: { facContactHours: number; facWorkWeekHours: number }; terms: { name: string; semester: string | null; startWeek: number; endWeek: number; courses: Course[] }[] };
 const load = (file: string) => JSON.parse(readFileSync(new URL(`../prisma/templates/${file}`, import.meta.url), "utf8")) as Pack;
 const packs = Object.fromEntries(RCCC_PROGRAMS.map((p) => [p.pack, load(p.pack)]));
 const credits = (p: Pack) => p.terms.flatMap((t) => t.courses).reduce((n, c) => n + c.credits, 0);
@@ -52,6 +52,8 @@ describe("Rowan-Cabarrus Community College", () => {
     const hours = (code: string) => { const c = course(aas, code); return `${c.weeklyClassHours}-${c.weeklyLabHours}-${c.credits}`; };
     expect(["ELC 112", "ELC 126", "ELC 113", "ELC 118", "ELC 117", "ELC 125", "ELC 115", "ELC 119", "ELC 128", "ELC 215"].map(hours)).toEqual(["3-6-5", "2-2-3", "2-6-4", "1-2-2", "2-6-4", "1-2-2", "2-6-4", "1-2-2", "2-3-3", "2-3-3"]);
     for (const p of Object.values(packs)) for (const c of p.terms.flatMap((t) => t.courses)) { expect(c.weeklyClinicalHours).toBe(0); expect(c.sessions.some((s) => s.kind === "CLINICAL")).toBe(false); }
+    // Faculty load: 20 contact hours of a 40-hour week (the owner's figure, 2026-10-22) — 2 work hours a contact hour.
+    for (const p of Object.values(packs)) expect([p.assumptions.facContactHours, p.assumptions.facWorkWeekHours]).toEqual([20, 40]);
     // A summer course carries its 16-week hours doubled over the 8-week term.
     expect(course(aas, "BPR 130").weeklyClassHours).toBe(6);
   });

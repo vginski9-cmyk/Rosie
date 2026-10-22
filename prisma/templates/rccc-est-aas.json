@@ -9,7 +9,7 @@
   "note": "Six terms over two years, 64 credits (43 technical, 21 general education). The catalog lists ELC 115, ELC 215 and AHR 120 in Year 2 Spring; the college runs all three in the fall (ELC 115 in both terms). Co-requisite pairs: ELC 112 + 126 and ELC 113 + 118 in the first fall, ELC 117 + 125 in the spring. Class size 16 (the lab rooms' cap; 12 for the PLC lab). The college's own program-structure workbook replaces these sessions when it arrives.",
   "weeklyHoursNote": "Term hours per student are the catalog's weekly contact hours × 16 (the 16-week basis), whatever the term's length: the sessions carry them, the posted days, times and rooms place them. Hours and credits are the catalog's; sessions are the college's day sections; clinical hours are zero in every course.",
   "assumptions": {
-    "facContactHours": 16,
+    "facContactHours": 20,
     "facWorkWeekHours": 40,
     "facTermWeeks": 16,
     "preContactHours": 40,
