@@ -13,7 +13,9 @@ type Course = { code: string; title: string; weeklyClassHours: number; weeklyLab
 type Pack = { name: string; programType: string; credential: string; maxCohort: number; terms: { index: number; name: string; semester: string; startWeek: number; endWeek: number; courses: Course[] }[] };
 const load = (file: string) => JSON.parse(readFileSync(new URL(`../prisma/templates/${file}`, import.meta.url), "utf8")) as Pack;
 const packs = Object.fromEntries(BRUNSWICK_PROGRAMS.map((p) => [p.pack, load(p.pack)]));
-const table = (p: Pack) => p.terms.map((t) => [t.name, t.courses.map((c) => `${c.code} ${c.weeklyClassHours}-${c.weeklyLabHours}-${c.weeklyClinicalHours}-${c.credits}`)]);
+// Hours shown on the 16-week catalog basis (a 9-week summer term carries them × 16/9 a week): weekly × weeks ÷ 16.
+const basis = (h: number, weeks: number) => Math.round((h * weeks) / 16);
+const table = (p: Pack) => p.terms.map((t) => { const w = t.endWeek - t.startWeek + 1; return [t.name, t.courses.map((c) => `${c.code} ${basis(c.weeklyClassHours, w)}-${basis(c.weeklyLabHours, w)}-${basis(c.weeklyClinicalHours, w)}-${c.credits}`)]; });
 const credits = (p: Pack) => p.terms.flatMap((t) => t.courses).reduce((n, c) => n + c.credits, 0);
 const course = (p: Pack, code: string) => p.terms.flatMap((t) => t.courses).find((c) => c.code === code)!;
 const meetings = (c: Course, kind: string, week = 1) => c.sessions.filter((s) => s.kind === kind && s.week === week).map((s) => `${s.dayOfWeek} ${s.startTime}-${s.endTime} ${s.location}`);
@@ -72,7 +74,7 @@ describe("Brunswick Community College", () => {
   });
   it("sessions are the college's published sections: days, times, rooms, the 8-week windows and the seats per cohort", () => {
     const adn = packs["brunswick-adn.json"];
-    expect(meetings(course(adn, "NUR 111"), "CLASS")).toEqual(["Mon 09:00-10:50 J - Health Sciences 106", "Wed 09:00-10:50 J - Health Sciences 106"]);
+    expect(meetings(course(adn, "NUR 111"), "CLASS")).toEqual(["Mon 09:00-11:00 J - Health Sciences 106", "Wed 09:00-11:00 J - Health Sciences 106"]); // posted 9:00–10:50, carried at 2 h: the sheet's 4 class hours a week × 16
     expect(meetings(course(adn, "NUR 111"), "LAB")).toEqual(["Tue 08:00-14:00 J - Health Sciences 155"]);
     expect(meetings(course(adn, "NUR 111"), "CLINICAL")).toEqual(["Thu 06:30-12:30 Clinical site"]);
     // NUR 112 runs the first eight weeks of the spring, NUR 114 the second eight; NUR 211 / 212 the same in the fall.
@@ -80,13 +82,13 @@ describe("Brunswick Community College", () => {
     expect(weeksOf(course(adn, "NUR 112"))).toEqual([1, 8]); expect(weeksOf(course(adn, "NUR 114"))).toEqual([9, 16]);
     expect(weeksOf(course(adn, "NUR 211"))).toEqual([1, 8]); expect(weeksOf(course(adn, "NUR 212"))).toEqual([9, 16]);
     expect(meetings(course(adn, "NUR 112"), "CLINICAL")).toEqual(["Mon 06:30-12:30 J - Health Sciences 175", "Wed 06:30-12:30 J - Health Sciences 175"]);
-    expect(meetings(course(adn, "NUR 211"), "CLINICAL")).toEqual(["Mon 06:30-16:00 Clinical site", "Wed 06:30-16:00 Clinical site"]);
-    // NUR 213: class W, lab T, a 12-hour precepted shift every week and a second one every other week (15 h/wk).
+    expect(meetings(course(adn, "NUR 211"), "CLINICAL")).toEqual(["Mon 06:30-12:30 Clinical site", "Wed 06:30-12:30 Clinical site"]);
+    // NUR 213: class W, lab T, a precepted shift every week and a second one every other week, together the sheet's 15 h/wk × 16.
     const n213 = course(adn, "NUR 213");
-    expect(meetings(n213, "CLASS")).toEqual(["Wed 08:00-11:50 J - Health Sciences 106"]);
-    expect(meetings(n213, "LAB")).toEqual(["Tue 09:00-11:50 J - Health Sciences 145"]);
-    expect(meetings(n213, "CLINICAL", 1)).toEqual(["Mon 07:00-19:00 Clinical site", "Thu 07:00-19:00 Clinical site"]);
-    expect(meetings(n213, "CLINICAL", 2)).toEqual(["Mon 07:00-19:00 Clinical site"]);
+    expect(meetings(n213, "CLASS")).toEqual(["Wed 08:00-12:00 J - Health Sciences 106"]);
+    expect(meetings(n213, "LAB")).toEqual(["Tue 09:00-12:00 J - Health Sciences 145"]);
+    expect(meetings(n213, "CLINICAL", 1)).toEqual(["Mon 07:00-17:00 Clinical site", "Thu 07:00-17:00 Clinical site"]); // 24 shifts carry the sheet's 15 h/wk × 16 = 240 h: ten hours each
+    expect(meetings(n213, "CLINICAL", 2)).toEqual(["Mon 07:00-17:00 Clinical site"]);
     const shift = n213.sessions.find((s) => s.kind === "CLINICAL")!;
     expect([shift.clinicalMode, shift.maxStudents, shift.preceptorsNeeded, shift.facultyNeeded]).toEqual(["Preceptor-led", 1, 1, 0.1]);
     // Every other clinical is an instructor-led group of eight; class seats are the cohort's.
@@ -99,7 +101,7 @@ describe("Brunswick Community College", () => {
     }
     // The paramedic bridge course as scheduled.
     const n215 = course(packs["brunswick-paramedic-adn.json"], "NUR 215");
-    expect([meetings(n215, "CLASS"), meetings(n215, "LAB"), meetings(n215, "CLINICAL")]).toEqual([["Mon 09:00-11:50 J - Health Sciences 106"], ["Mon 13:00-15:50 J - Health Sciences 145"], ["Tue 06:30-12:30 J - Health Sciences 173"]]);
+    expect([meetings(n215, "CLASS"), meetings(n215, "LAB"), meetings(n215, "CLINICAL")]).toEqual([["Mon 09:00-12:00 J - Health Sciences 106"], ["Mon 13:00-16:00 J - Health Sciences 145"], ["Tue 06:30-12:30 J - Health Sciences 173"]]);
     // Shared courses say so; general-enrollment courses are marked and placeless.
     for (const p of Object.values(packs)) for (const c of p.terms.flatMap((t) => t.courses)) {
       if (/^NUR (113|211|212|213)$/.test(c.code)) expect(c.description, c.code).toMatch(/section per cohort/);

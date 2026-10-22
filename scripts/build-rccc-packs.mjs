@@ -22,6 +22,7 @@
 // their hours with no day or room. The college's own program-structure workbook replaces these
 // sessions when it arrives.
 import { writeFileSync } from "node:fs";
+import { carryCatalogHours, HOURS_RULE } from "./packhours.mjs";
 
 const SOURCE = "RCCC catalog 2026–27 (program 35130 and course pages), Self-Service course schedule Fall 2026 – Summer 2027, 2026–27 academic calendar, NCAEC apprenticeship handbook — compiled 2026-10-20";
 const ASSUMPTIONS = { facContactHours: 16, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
@@ -160,14 +161,15 @@ function pack(def) {
   let startWeek = 1;
   const terms = def.terms.map(([name, semester, weeks, codes], i) => {
     const t = { index: i + 1, name, semester, startWeek, endWeek: startWeek + weeks - 1, weeks, courses: codes.map((code) => {
-      const cat = CATALOG[code]; const summer = semester === "Summer"; const scale = summer ? 2 : 1; const [c, l, w] = cat.hours;
-      return { code, title: cat.title, weeklyClassHours: c * scale, weeklyLabHours: l * scale, weeklyClinicalHours: 0, weeklyWorkHours: w, credits: cat.credits, requisites: cat.requisites, courseType: cat.gened ? "GENED" : "CORE", description: cat.description ?? (cat.gened ? GENED : null), sessions: sessionsFor(code, weeks, { summer, hs: def.hs, apprentice: !!def.gap }) };
+      const cat = CATALOG[code]; const summer = semester === "Summer"; const [c, l, w] = cat.hours;
+      const course = { code, title: cat.title, weeklyClassHours: c, weeklyLabHours: l, weeklyClinicalHours: 0, weeklyWorkHours: w, credits: cat.credits, requisites: cat.requisites, courseType: cat.gened ? "GENED" : "CORE", description: cat.description ?? (cat.gened ? GENED : null), sessions: sessionsFor(code, weeks, { summer, hs: def.hs, apprentice: !!def.gap }) };
+      return carryCatalogHours(course, [c, l, 0], weeks, (m) => console.warn(m));
     }) };
     startWeek += weeks + (def.gap ?? 0);
     return t;
   });
   return { name: def.name, programType: def.programType, credential: def.credential, sourceWorkbook: SOURCE, institution: "Rowan-Cabarrus Community College", maxCohort: def.maxCohort, ...(def.calendarMode ? { calendarMode: def.calendarMode } : {}), monthsToFullProductivity: def.months, note: def.note,
-    weeklyHoursNote: "Weekly class / lab hours and credits are the catalog's (16-week basis; a summer 8-week term carries them doubled); sessions are the college's day sections; clinical hours are zero in every course.",
+    weeklyHoursNote: `${HOURS_RULE} Hours and credits are the catalog's; sessions are the college's day sections; clinical hours are zero in every course.`,
     assumptions: ASSUMPTIONS, terms };
 }
 

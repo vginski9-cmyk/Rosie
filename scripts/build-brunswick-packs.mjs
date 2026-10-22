@@ -22,6 +22,7 @@
 // meeting with a section per cohort (NUR 211: C01A 41 seats, C02A 7, C03A 13), so each pathway's
 // pack carries the course under its own seats.
 import { writeFileSync } from "node:fs";
+import { carryCatalogHours, HOURS_RULE } from "./packhours.mjs";
 
 const SOURCE = "Brunswick CC information sheets (ADN 2025–26, LPN-to-ADN 2024–25, Paramedic-to-ADN 2024–25), program pages and Self-Service course schedule (Fall 2026 – Summer 2027), 2026-10-12";
 const ASSUMPTIONS = { facContactHours: 16, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
@@ -123,13 +124,14 @@ function pack(def) {
   const terms = def.terms.map(([name, semester, weeks, codes], i) => {
     const t = { index: i + 1, name, semester, startWeek, endWeek: startWeek + weeks - 1, weeks, courses: codes.map((code) => {
       const cat = CATALOG[code]; const [c, l, k] = cat.hours;
-      return { code, title: cat.title, weeklyClassHours: c, weeklyLabHours: l, weeklyClinicalHours: k, credits: cat.credits, requisites: cat.requisites, courseType: cat.gened ? "GENED" : "CORE", description: cat.description ?? (cat.gened ? GENED : null), sessions: sessionsFor(code, def.maxCohort, weeks) };
+      const course = { code, title: cat.title, weeklyClassHours: c, weeklyLabHours: l, weeklyClinicalHours: k, credits: cat.credits, requisites: cat.requisites, courseType: cat.gened ? "GENED" : "CORE", description: cat.description ?? (cat.gened ? GENED : null), sessions: sessionsFor(code, def.maxCohort, weeks) };
+      return carryCatalogHours(course, [c, l, k], weeks, (m) => console.warn(m));
     }) };
     startWeek += weeks;
     return t;
   });
   return { name: def.name, programType: def.programType, credential: "AAS", sourceWorkbook: SOURCE, institution: "Brunswick Community College", maxCohort: def.maxCohort, maxCohortNote: def.seatsNote,
-    weeklyHoursNote: "Weekly class / lab / clinical hours and credits are the information sheets' (the NCCCS course standard); sessions are the college's published sections; a summer term is nine weeks (May 24 – Jul 20, 2027).",
+    weeklyHoursNote: `${HOURS_RULE} Hours and credits are the information sheets' (the NCCCS course standard); sessions are the college's published sections; a summer term is nine weeks (May 24 – Jul 20, 2027).`,
     assumptions: ASSUMPTIONS, terms };
 }
 

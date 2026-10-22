@@ -55,13 +55,13 @@ describe("Rowan-Cabarrus Community College", () => {
     // A summer course carries its 16-week hours doubled over the 8-week term.
     expect(course(aas, "BPR 130").weeklyClassHours).toBe(6);
   });
-  it("sessions are the college's day sections: class block then lab block in the same CBTC room, at the section's seats", () => {
+  it("sessions are the college's day sections — class block then lab block in the same CBTC room at the section's seats — carrying the catalog's hours", () => {
     const aas = packs["rccc-est-aas.json"];
-    expect(meetings(course(aas, "ELC 112"), "CLASS")).toEqual(["Mon 08:00-09:00 CBTC 259 ×16", "Wed 08:00-09:00 CBTC 259 ×16"]);
-    expect(meetings(course(aas, "ELC 112"), "LAB")).toEqual(["Mon 09:00-11:50 CBTC 259 ×16", "Wed 09:00-11:50 CBTC 259 ×16"]);
-    expect(meetings(course(aas, "ELC 128"), "LAB")).toEqual(["Tue 14:00-16:50 CBTC 253 ×12"]);
+    expect(meetings(course(aas, "ELC 112"), "CLASS")).toEqual(["Mon 08:00-09:30 CBTC 259 ×16", "Wed 08:00-09:30 CBTC 259 ×16"]); // posted 8–9, carried at 1.5 h: the catalog's 3 class hours a week × 16
+    expect(meetings(course(aas, "ELC 112"), "LAB")).toEqual(["Mon 09:30-12:30 CBTC 259 ×16", "Wed 09:30-12:30 CBTC 259 ×16"]); // after the class hour, 3 h: the catalog's 6 lab hours a week
+    expect(meetings(course(aas, "ELC 128"), "LAB")).toEqual(["Tue 15:00-18:00 CBTC 253 ×12"]);
     expect(meetings(course(aas, "ELC 118"), "CLASS")).toEqual(["Wed 13:00-14:00 CBTC 206 ×20"]);
-    expect(meetings(course(aas, "ELC 215"), "CLASS")).toEqual(["Wed 18:00-19:00 CBTC 253 ×18"]);
+    expect(meetings(course(aas, "ELC 215"), "CLASS")).toEqual(["Wed 18:00-20:00 CBTC 253 ×18"]);
     // Online 14-week sections start in week 3 with no day or room.
     const egr = course(aas, "EGR 125");
     expect(Math.min(...egr.sessions.map((s) => s.week))).toBe(3);
