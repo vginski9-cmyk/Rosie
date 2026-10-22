@@ -9,19 +9,23 @@
 // over four years, Mike Holt curriculum, about 624 class hours in all, evenings from late August to spring).
 // What is the state's: every course's title, class · lab hours and credits are the NCCCS Combined Course Library's.
 // What is laid out here: each sequence puts the standard's courses into the college's terms to its published credit
-// total; the catalog's program-of-study pages replace it when they can be read. Nothing else is invented: no day
-// sections, rooms, seat caps or class sizes were published, and none is set.
+// total; the catalog's program-of-study pages replace it when they can be read. The owner's figures (2026-10-22): a faculty contact-hour policy of 2.2222 and 16 students a section for every EST
+// course. Nothing else is invented: no day sections or rooms were published, and none is set.
 //
 //   node scripts/build-cape-fear-packs.mjs
 import { writeFileSync } from "node:fs";
 import { carryCatalogHours, HOURS_RULE } from "./packhours.mjs";
 
 const SOURCE = "Cape Fear CC: 2024–25 Programs of Study list (credentials, credit totals, CIP 46.0302), the June/July 2026 announcements of the North Campus evening sections (ELC 112 T/Th and ELC 113 M/W 5:30–8:10 PM), the Job Training Electrical Apprenticeship page, the 2026–27 term dates; course hours and credits from the NCCCS Combined Course Library; sequences laid out to the credit totals — compiled 2026-10-22";
-const ASSUMPTIONS = { facContactHours: 25, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
+// Faculty load: the owner's figures (2026-10-22) — a contact-hour policy of 2.2222 work hours a contact hour (a 40-hour week over an
+// 18-contact-hour load) on every session, and 16 students per section for every EST course.
+const FACULTY_POLICY = 2.2222;
+const SEATS = 16;
+const SEATS_NOTE = "16 students per section (the owner's figure, 2026-10-22).";
+const ASSUMPTIONS = { facContactHours: 18, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
 const GENED = "General-enrollment course taught outside the program, offered every term; placed here as the standard's program of study has it.";
 const UNCONFIRMED = "Sequence from the NCCCS standard laid out to the college's published credit total; not yet confirmed against the catalog's program of study (catalog.cfcc.edu was unreachable on 2026-10-22).";
 const NO_SECTION = "No section for this course is on record (the Class Finder was unreachable); the hours are carried with no day, time or room until the college's sections are read.";
-const SEATS_NOTE = "Seats per section not published: 20 stands in until the Class Finder's cap is on record.";
 
 // ---- The standard: hours are class · lab · work a week on a 16-week basis, then credits --------------------------
 const CATALOG = {
@@ -57,8 +61,8 @@ const CATALOG = {
 // The college posted one block per night (5:30–8:10 PM); it is carried here as the class hour leading into the lab,
 // and the hours rule stretches the blocks to the catalog's load. Rooms were not published.
 const SCHEDULE = {
-  "ELC 112": { room: "North Campus", cap: 20, class: [["Tue", "17:30", "18:30"], ["Thu", "17:30", "18:30"]], lab: [["Tue", "18:30", "20:10"], ["Thu", "18:30", "20:10"]], note: `Fall 2026 evening section: Tue/Thu 5:30–8:10 PM at the North Campus (4500 Blue Clay Rd, Castle Hayne), announced June 2026; also offered at the Burgaw and Surf City centers. Room not published. ${SEATS_NOTE}` },
-  "ELC 113": { room: "North Campus", cap: 20, class: [["Mon", "17:30", "18:30"], ["Wed", "17:30", "18:30"]], lab: [["Mon", "18:30", "20:10"], ["Wed", "18:30", "20:10"]], note: `Fall 2026 evening section: Mon/Wed 5:30–8:10 PM at the North Campus, announced June 2026; also offered at the Burgaw and Surf City centers. Room not published. ${SEATS_NOTE}` },
+  "ELC 112": { room: "North Campus", cap: SEATS, class: [["Tue", "17:30", "18:30"], ["Thu", "17:30", "18:30"]], lab: [["Tue", "18:30", "20:10"], ["Thu", "18:30", "20:10"]], note: `Fall 2026 evening section: Tue/Thu 5:30–8:10 PM at the North Campus (4500 Blue Clay Rd, Castle Hayne), announced June 2026; also offered at the Burgaw and Surf City centers. Room not published. ${SEATS_NOTE}` },
+  "ELC 113": { room: "North Campus", cap: SEATS, class: [["Mon", "17:30", "18:30"], ["Wed", "17:30", "18:30"]], lab: [["Mon", "18:30", "20:10"], ["Wed", "18:30", "20:10"]], note: `Fall 2026 evening section: Mon/Wed 5:30–8:10 PM at the North Campus, announced June 2026; also offered at the Burgaw and Surf City centers. Room not published. ${SEATS_NOTE}` },
 };
 
 const hm = (t) => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
@@ -71,12 +75,12 @@ function sessionsFor(code, weeks, opts = {}) {
   const out = []; const n = { CLASS: 0, LAB: 0 };
   const push = (kind, week, day, start, end, hours, room, seats, extra = {}) => out.push({
     kind, number: ++n[kind], title: `${cat.title} — ${kind === "CLASS" ? "Class" : "Lab"}, week ${week}`, deliveryMode: "In-person", location: room,
-    lengthHours: hours, maxStudents: seats, facultyNeeded: 1, facultyContactPolicy: kind === "CLASS" ? 2.5 : 2, supportStaffNeeded: 0, supportContactPolicy: 1,
+    lengthHours: hours, maxStudents: seats, facultyNeeded: 1, facultyContactPolicy: FACULTY_POLICY, supportStaffNeeded: 0, supportContactPolicy: 1,
     week, dayOfWeek: day, startTime: start, endTime: end, sectionTimes: null, notes: sch?.note ?? null, preceptorsNeeded: 0, preceptorContactPolicy: null, rotationType: null, clinicalMode: null, ...extra,
   });
   const [c, l] = cat.hours;
   if (opts.apprentice) {
-    for (let w = 1; w <= weeks; w++) for (let k = 0; k < 2; k++) push("CLASS", w, null, null, null, 2.6, "North Campus", 20, { notes: `Two evening classes a week over a 30-week year (late August – April): 156 classroom hours a year, 624 over four years, taught from the Mike Holt curriculum. The nights, room and class size are not published. ${SEATS_NOTE}` });
+    for (let w = 1; w <= weeks; w++) for (let k = 0; k < 2; k++) push("CLASS", w, null, null, null, 2.6, "North Campus", SEATS, { notes: `Two evening classes a week over a 30-week year (late August – April): 156 classroom hours a year, 624 over four years, taught from the Mike Holt curriculum. The nights and room are not published. ${SEATS_NOTE}` });
     return out;
   }
   if (sch && !opts.summer) {
@@ -90,7 +94,7 @@ function sessionsFor(code, weeks, opts = {}) {
   // the standard's hours as one class (and one lab) row a week with no day or time.
   const scale = opts.summer ? 16 / weeks : 1;
   const room = opts.hs ? "High school (CCP)" : cat.gened ? "General classroom" : "North Campus";
-  const seats = opts.hs ? 20 : cat.gened ? 30 : 20;
+  const seats = cat.gened ? 30 : SEATS;
   const notes = opts.hs ? `Career & College Promise high-school cohort (C35130CP); where and when it meets is not published. ${SEATS_NOTE}` : opts.summer ? `Summer 10-week session: the standard's 16-week hours carried over ${weeks} weeks (${r2(c * scale)} class / ${r2(l * scale)} lab a week); no summer section is on record. ${SEATS_NOTE}` : cat.gened ? GENED : `${NO_SECTION} ${SEATS_NOTE}`;
   for (let w = 1; w <= weeks; w++) {
     if (c) push("CLASS", w, null, null, null, r2(c * scale), room, seats, { notes });
@@ -106,24 +110,24 @@ const F = 16, S = 16, U = 10;
 const CERT_TERMS = [["Fall", "Fall", F, ["ELC 112", "ELC 113", "ELC 118"]], ["Spring", "Spring", S, ["ELC 117"]]];
 const YEAR_ONE = [["Year 1 Fall", "Fall", F, ["ELC 112", "ELC 113", "ELC 118", "ACA 111", "ENG 111"]], ["Year 1 Spring", "Spring", S, ["ELC 117", "ELC 115", "ELC 131", "ELC 128", "MAT 110"]]];
 const AWARDS = [
-  { file: "cape-fear-est-cert.json", name: "Electrical Systems Technology Certificate (C35130)", programType: "Certificate", credential: "Certificate", maxCohort: null, months: 3,
+  { file: "cape-fear-est-cert.json", name: "Electrical Systems Technology Certificate (C35130)", programType: "Certificate", credential: "Certificate", maxCohort: SEATS, months: 3,
     terms: CERT_TERMS,
-    note: `Two terms, 15 credits (the college's total): ELC 112, 113 and 118 in the fall — ELC 112 and 113 are the courses the college announced as the certificate's new evening sections — then ELC 117. ${UNCONFIRMED} Class size not published.` },
-  { file: "cape-fear-est-cert-ctep.json", name: "Electrical Systems Technology CTE Pathway (C35130CP)", programType: "High school (CCP)", credential: "Certificate", maxCohort: null, months: 3, hs: true,
+    note: `Two terms, 15 credits (the college's total): ELC 112, 113 and 118 in the fall — ELC 112 and 113 are the courses the college announced as the certificate's new evening sections — then ELC 117. ${UNCONFIRMED} Class size 16 (the owner's figure, 2026-10-22).` },
+  { file: "cape-fear-est-cert-ctep.json", name: "Electrical Systems Technology CTE Pathway (C35130CP)", programType: "High school (CCP)", credential: "Certificate", maxCohort: SEATS, months: 3, hs: true,
     terms: CERT_TERMS,
-    note: `The certificate's 15 credits for Career & College Promise high-school students (New Hanover and Pender county schools); the college publishes neither where it meets nor its size. ${UNCONFIRMED}` },
-  { file: "cape-fear-est-diploma.json", name: "Electrical Systems Technology Diploma (D35130)", programType: "Traditional Full Time", credential: "Diploma", maxCohort: null, months: 3,
+    note: `The certificate's 15 credits for Career & College Promise high-school students (New Hanover and Pender county schools); the college publishes neither where it meets nor its size; class size 16 (the owner's figure, 2026-10-22). ${UNCONFIRMED}` },
+  { file: "cape-fear-est-diploma.json", name: "Electrical Systems Technology Diploma (D35130)", programType: "Traditional Full Time", credential: "Diploma", maxCohort: SEATS, months: 3,
     terms: [...YEAR_ONE, ["Year 1 Summer", "Summer", U, ["ELC 138", "ELC 213"]]],
-    note: `Three terms over twelve months, 40 credits (the college's total; an undated college list says 37): the first year of the AAS with ELC 138 and ELC 213 in the 10-week summer. ${UNCONFIRMED} Class size not published.` },
-  { file: "cape-fear-est-aas.json", name: "Electrical Systems Technology AAS (A35130)", programType: "Traditional Full Time", credential: "AAS", maxCohort: null, months: 3,
+    note: `Three terms over twelve months, 40 credits (the college's total; an undated college list says 37): the first year of the AAS with ELC 138 and ELC 213 in the 10-week summer. ${UNCONFIRMED} Class size 16 (the owner's figure, 2026-10-22).` },
+  { file: "cape-fear-est-aas.json", name: "Electrical Systems Technology AAS (A35130)", programType: "Traditional Full Time", credential: "AAS", maxCohort: SEATS, months: 3,
     terms: [...YEAR_ONE, ["Year 1 Summer", "Summer", U, ["ELC 138", "ELC 220"]], ["Year 2 Fall", "Fall", F, ["ELC 213", "ELC 133", "ELC 218", "ELC 233", "COM 231"]], ["Year 2 Spring", "Spring", S, ["ELC 221", "ELC 215", "ELC 229", "Humanities/Fine Arts elective", "Social/Behavioral Science elective"]]],
-    note: `Five terms over two years, 71 credits (the college's 2024–25 total; an undated college list says 68): the state standard's electrical core — theory, wiring, the NEC, motors and controls, PLCs, circuit analysis, machines, instrumentation, energy management and photovoltaics (the college names energy management and alternative energy among its topics) — with ACA 111, ENG 111, MAT 110, COM 231 and two general-education electives. ${UNCONFIRMED} Class size not published.` },
+    note: `Five terms over two years, 71 credits (the college's 2024–25 total; an undated college list says 68): the state standard's electrical core — theory, wiring, the NEC, motors and controls, PLCs, circuit analysis, machines, instrumentation, energy management and photovoltaics (the college names energy management and alternative energy among its topics) — with ACA 111, ENG 111, MAT 110, COM 231 and two general-education electives. ${UNCONFIRMED} Class size 16 (the owner's figure, 2026-10-22).` },
 ];
 const APPRENTICESHIP = {
-  file: "cape-fear-electrical-apprenticeship.json", name: "Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training)", programType: "Registered apprenticeship", credential: "ApprenticeshipNC journeyman card and certificate", maxCohort: null, months: 0, calendarMode: "continuous",
+  file: "cape-fear-electrical-apprenticeship.json", name: "Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training)", programType: "Registered apprenticeship", credential: "ApprenticeshipNC journeyman card and certificate", maxCohort: SEATS, months: 0, calendarMode: "continuous",
   terms: [["Year 1", null, 30, ["Level I"]], ["Year 2", null, 30, ["Level II"]], ["Year 3", null, 30, ["Level III"]], ["Year 4", null, 30, ["Level IV"]]],
   gap: 22, // weeks between one 30-week year and the next: late August to late August
-  note: "The college's registered electrical apprenticeship (Job Training / Economic & Workforce Development, ApprenticeshipNC): four levels over four years from the Mike Holt curriculum, evening classes from late August to March/April, about 624 classroom hours in all (carried as 156 a year, two classes a week over 30 weeks), full-time work for a sponsoring employer between — a journeyman card and certificate at the end. The nights, room, start date and class size are not published, and no seat count is set.",
+  note: "The college's registered electrical apprenticeship (Job Training / Economic & Workforce Development, ApprenticeshipNC): four levels over four years from the Mike Holt curriculum, evening classes from late August to March/April, about 624 classroom hours in all (carried as 156 a year, two classes a week over 30 weeks), full-time work for a sponsoring employer between — a journeyman card and certificate at the end. The nights, room and start date are not published; class size 16 (the owner's figure, 2026-10-22).",
 };
 
 function pack(def) {

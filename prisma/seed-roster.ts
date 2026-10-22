@@ -350,12 +350,12 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
  *  full-time row says where the number stands. */
 const POLICY_NOTES: Record<string, Partial<Record<string, string>>> = {
   "Rowan-Cabarrus Community College": { "full-time": "The owner's figure (2026-10-22): Rowan-Cabarrus's full-time faculty load for Electrical Systems Technology is 20 contact hours a week of a 40-hour week — 2 work hours credited per contact hour. The college publishes no contact-hour load itself; its postings give full-time faculty a 40-hour week (instruction, preparation, student hours, committees, advising)." },
-  "Cape Fear Community College": { "full-time": "Cape Fear's employee handbook (Work Schedules policy, read 2026-10-22): full-time faculty work a 40-hour week over five days, 30 of them on campus over at least four days including five student hours; faculty whose regular teaching load is under 25 contact hours owe service hours, those at 25 or more are exempt. 25 is the handbook's threshold — the nearest published load figure — and stands here until the college states its load (a 2026 policy change on how faculty meet the 40 hours is reported but not published)." },
+  "Cape Fear Community College": { "full-time": "The owner's figure (2026-10-22): Cape Fear's faculty contact-hour policy for Electrical Systems Technology is 2.2222 work hours a contact hour — an 18-contact-hour load of a 40-hour week. What the college publishes (employee handbook, Work Schedules policy): full-time faculty work a 40-hour week over five days, 30 of them on campus over at least four days including five student hours; faculty with a regular teaching load under 25 contact hours owe service hours." },
 };
 /** A college's own figure for a policy row, where it publishes one (the note says its source). */
 const POLICY_FIGURES: Record<string, Partial<Record<string, { contactHoursPerWeek?: number; workWeekHours?: number; hoursPerContactHour?: number | null }>>> = {
   "Rowan-Cabarrus Community College": { "full-time": { contactHoursPerWeek: 20, workWeekHours: 40, hoursPerContactHour: 2 } }, // the owner's figure: 20 of 40, 2 to 1
-  "Cape Fear Community College": { "full-time": { contactHoursPerWeek: 25, workWeekHours: 40, hoursPerContactHour: null } }, // 40 ÷ 25 = 1.6 work hours a contact hour
+  "Cape Fear Community College": { "full-time": { contactHoursPerWeek: 18, workWeekHours: 40, hoursPerContactHour: 2.2222 } }, // the owner's figure: 2.2222 a contact hour (40 over 18)
 };
 export async function seedWorkloadPolicies(prisma: PrismaClient) {
   const institutions = await prisma.institution.findMany({ select: { id: true, name: true } });

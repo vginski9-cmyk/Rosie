@@ -11,9 +11,9 @@ import { geocodeOffline } from "../src/lib/geo";
 // The college's credentials, credit totals, evening sections, calendar and places; the NCCCS standard's course hours;
 // sequences laid out to the totals. Labs, no clinicals; nothing unpublished is set.
 
-type Session = { kind: string; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null; lengthHours: number; location: string | null; maxStudents: number; notes: string | null };
+type Session = { facultyContactPolicy: number | null; kind: string; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null; lengthHours: number; location: string | null; maxStudents: number; notes: string | null };
 type Course = { code: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; credits: number; courseType: string; sessions: Session[] };
-type Pack = { name: string; programType: string; credential: string; maxCohort: number | null; calendarMode?: string; note: string; terms: { name: string; semester: string | null; startWeek: number; endWeek: number; courses: Course[] }[] };
+type Pack = { name: string; programType: string; credential: string; maxCohort: number | null; calendarMode?: string; note: string; assumptions: { facContactHours: number; facWorkWeekHours: number }; terms: { name: string; semester: string | null; startWeek: number; endWeek: number; courses: Course[] }[] };
 const load = (file: string) => JSON.parse(readFileSync(new URL(`../prisma/templates/${file}`, import.meta.url), "utf8")) as Pack;
 const packs = Object.fromEntries(CAPE_FEAR_PROGRAMS.map((p) => [p.pack, load(p.pack)]));
 const courses = (p: Pack) => p.terms.flatMap((t) => t.courses);
@@ -34,13 +34,13 @@ describe("Cape Fear Community College", () => {
     expect(est.programs).toBe(CAPE_FEAR_PROGRAMS);
     expect(CAPE_FEAR_PROGRAMS.every((p) => p.launch === "FALL")).toBe(true);
   });
-  it("the credentials carry the college's credit totals, the standard's hours, and no class size (none is published)", () => {
+  it("the credentials carry the college's credit totals, the standard's hours, and the owner's class size of 16", () => {
     expect(Object.values(packs).map((p) => [p.name, p.terms.length, credits(p), p.maxCohort])).toEqual([
-      ["Electrical Systems Technology Certificate (C35130)", 2, 15, null],
-      ["Electrical Systems Technology CTE Pathway (C35130CP)", 2, 15, null],
-      ["Electrical Systems Technology Diploma (D35130)", 3, 40, null],
-      ["Electrical Systems Technology AAS (A35130)", 5, 71, null],
-      ["Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training)", 4, 0, null],
+      ["Electrical Systems Technology Certificate (C35130)", 2, 15, 16],
+      ["Electrical Systems Technology CTE Pathway (C35130CP)", 2, 15, 16],
+      ["Electrical Systems Technology Diploma (D35130)", 3, 40, 16],
+      ["Electrical Systems Technology AAS (A35130)", 5, 71, 16],
+      ["Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training)", 4, 0, 16],
     ]);
     const aas = packs["cape-fear-est-aas.json"];
     expect(aas.terms.map((t) => [t.name, t.semester, t.endWeek - t.startWeek + 1, t.courses.map((c) => c.code)])).toEqual([
@@ -77,10 +77,17 @@ describe("Cape Fear Community College", () => {
     expect(course(aas, "ENG 111").sessions.every((s) => s.dayOfWeek === null && s.location === "General classroom")).toBe(true);
     const ctep = course(packs["cape-fear-est-cert-ctep.json"], "ELC 112");
     expect(ctep.sessions.every((s) => s.dayOfWeek === null && s.location === "High school (CCP)")).toBe(true);
-    // Seats per section are a stand-in, said on every session.
-    for (const p of Object.values(packs)) for (const c of courses(p)) if (c.courseType === "CORE") expect(c.sessions.every((s) => /Seats per section not published/.test(s.notes ?? ""))).toBe(true);
+    // The owner's figures (2026-10-22): 16 students a section on every EST course (general-education sessions keep 30),
+    // a faculty contact-hour policy of 2.2222 on every session, a program load of 18 contact hours of a 40-hour week.
+    for (const p of Object.values(packs)) {
+      expect([p.assumptions.facContactHours, p.assumptions.facWorkWeekHours]).toEqual([18, 40]);
+      for (const c of courses(p)) {
+        expect(c.sessions.every((s) => s.facultyContactPolicy === 2.2222), `${p.name} ${c.code} policy`).toBe(true);
+        expect(c.sessions.every((s) => s.maxStudents === (c.courseType === "GENED" ? 30 : 16)), `${p.name} ${c.code} seats`).toBe(true);
+      }
+    }
   });
-  it("the apprenticeship is four 30-week years a year apart, 156 classroom hours each, nights and size not published", () => {
+  it("the apprenticeship is four 30-week years a year apart, 156 classroom hours each, nights not published", () => {
     const p = packs["cape-fear-electrical-apprenticeship.json"];
     expect(p.calendarMode).toBe("continuous");
     expect(p.terms.map((t) => [t.name, t.startWeek, t.endWeek, t.courses.map((c) => c.code)])).toEqual([["Year 1", 1, 30, ["Level I"]], ["Year 2", 53, 82, ["Level II"]], ["Year 3", 105, 134, ["Level III"]], ["Year 4", 157, 186, ["Level IV"]]]);
