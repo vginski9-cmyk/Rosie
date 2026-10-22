@@ -142,6 +142,20 @@ export const RCCC_PROGRAMS: PackProgramDef[] = [
   { pack: "rccc-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "NCAEC four-year registered apprenticeship (ApprenticeshipNC #29076) hosted by RCCC Corporate & Continuing Education: one 3-hour class a week for 28 weeks a year from September, full-time work for the sponsoring contractor between. 17 apprentices a year (the owner's figure, 2026-10-20); the night, start date and room for the current cohort are not published; on-the-job hours are recorded on each level, not scheduled." },
 ];
 
+/** Cape Fear Community College's Electrical Systems Technology: the four credentials under program 35130 and the
+ *  college's registered Electrical Apprenticeship, as template packs built by scripts/build-cape-fear-packs.mjs
+ *  (2026-10-22). The college's credentials, credit totals, evening sections, calendar and workload handbook are its
+ *  own; course hours are the NCCCS standard's; each sequence is the standard laid out to the college's credit total
+ *  until the catalog's program of study can be read. No clinical component. */
+const CAPE_FEAR_TEMPLATE = "Sequence from the NCCCS standard laid out to the college's published credit total; ELC 112 and ELC 113 sit on the college's announced fall 2026 evening sections at the North Campus, every other course carries its hours with no section on record. The catalog's program of study and the Class Finder's sections replace them when they can be read.";
+export const CAPE_FEAR_PROGRAMS: PackProgramDef[] = [
+  { pack: "cape-fear-est-cert.json", launch: "FALL", months: 3, note: CAPE_FEAR_TEMPLATE },
+  { pack: "cape-fear-est-cert-ctep.json", launch: "FALL", months: 3, note: "Career & College Promise high-school cohort (C35130CP, New Hanover and Pender county schools); where and when it meets is not published. The catalog's program of study replaces the sequence when it can be read." },
+  { pack: "cape-fear-est-diploma.json", launch: "FALL", months: 3, note: CAPE_FEAR_TEMPLATE },
+  { pack: "cape-fear-est-aas.json", launch: "FALL", months: 3, note: CAPE_FEAR_TEMPLATE },
+  { pack: "cape-fear-electrical-apprenticeship.json", launch: "FALL", months: 0, note: "The college's four-year registered Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training): evening classes from late August to spring from the Mike Holt curriculum, about 624 classroom hours over four levels, full-time work for a sponsoring employer between. Nights, room, start date and class size are not published." },
+];
+
 export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Rowan-Cabarrus Community College", short: "Rowan-Cabarrus CC", kind: "Community college", city: "Salisbury", serviceArea: "Rowan & Cabarrus Counties, NC", families: [
     { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(20), programs: RCCC_PROGRAMS,
@@ -159,7 +173,8 @@ export const INSTITUTIONS: InstitutionDef[] = [
       adn("Spring", 48), adn("Fall", 48),
       lpnTransition("Fall", "Confirm: the website currently shows two application windows — one cohort or two per year, and which term(s) it starts?"),
     ]),
-    { name: "Electrical Systems Technology", ...ELECTRICIAN, description: "Electrical Systems Technology AAS.", goals: goals(24), programs: [{ name: "Electrical Systems Technology", type: "Traditional Full Time", credential: "AAS", terms: electricalTerms, launch: "FALL", seats: 24, months: 3 }] },
+    { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(24), programs: CAPE_FEAR_PROGRAMS,
+      description: "Cape Fear's Electrical Systems Technology (program 35130, taught at the North Campus in Castle Hayne): the 15-credit certificate (C35130) and its Career & College Promise CTE pathway (C35130CP), the 40-credit diploma (D35130) and the 71-credit AAS (A35130) — the college's credentials and credit totals (2024–25 list), with the course sequences laid out from the NCCCS standard until the catalog's program-of-study pages can be read — plus the college's four-year registered Electrical Apprenticeship (Job Training, Mike Holt curriculum, evenings). Fall 2026 brought evening sections of ELC 112 and ELC 113 at the North Campus under a $250,000 Careers Electric grant that funds a second instructor. No clinical component. The North-Star goal of 24 a year is the earlier placeholder, not the college's figure." },
   ] },
   { name: "James Sprunt Community College", short: "James Sprunt CC", kind: "Community college", city: "Kenansville", serviceArea: "Duplin County, NC", families: [
     nursingFamily("James Sprunt's prelicensure RN pathways.", 30, [
@@ -221,7 +236,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
 /** Institutions kept out of the workspace for now (definitions stay above so they can be
  *  switched back on by removing them from this list). */
 export const PAUSED_INSTITUTIONS = new Set([
-  "Beaufort County Community College", "Cape Fear Community College", "Davidson-Davie Community College",
+  "Beaufort County Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
   "Southeastern Community College", "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.

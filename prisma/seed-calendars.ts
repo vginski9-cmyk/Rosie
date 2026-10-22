@@ -19,6 +19,9 @@ export const CALENDAR_FILES: Record<string, string> = {
   "College of The Albemarle": "albemarle.txt",
   "Brunswick Community College": "brunswick.txt",
   "Rowan-Cabarrus Community College": "rowan-cabarrus.txt",
+  // Cape Fear: Summer 2026, Fall 2026 and Spring 2027 as published (term dates, sessions, closures); Spring 2027's
+  // spring break and Summer 2027 were not found and are not seeded — the summer anchor follows the 2026 pattern.
+  "Cape Fear Community College": "cape-fear.txt",
 };
 
 export async function seedAcademicCalendars(prisma: PrismaClient, dir: string): Promise<Record<string, { events: number; starts: number; ends: number; sessions: number; holidays: number; anchors: string; warnings: number }>> {

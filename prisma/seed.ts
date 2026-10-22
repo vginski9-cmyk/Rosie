@@ -462,6 +462,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Roanoke-Chowan Community College": { counties: ["Hertford", "Hertford", "Bertie", "Northampton", "Gates"], cities: { Hertford: "Ahoskie", Bertie: "Windsor", Northampton: "Jackson", Gates: "Gatesville" } },
     "Brunswick Community College": { counties: ["Brunswick", "Brunswick", "Brunswick", "Columbus", "New Hanover"], cities: { Brunswick: "Southport", Columbus: "Whiteville", "New Hanover": "Wilmington" } },
     "Rowan-Cabarrus Community College": { counties: ["Rowan", "Rowan", "Cabarrus", "Cabarrus", "Cabarrus"], cities: { Rowan: "Salisbury", Cabarrus: "Concord" } },
+    "Cape Fear Community College": { counties: ["New Hanover", "New Hanover", "New Hanover", "Pender", "Pender"], cities: { "New Hanover": "Wilmington", Pender: "Burgaw" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -1113,6 +1114,7 @@ async function main() {
   const CAMPUS_ADDRESS: Record<string, { address: string; city: string; state: string; zip: string }> = {
     "Rowan-Cabarrus Community College": { address: "1333 Jake Alexander Blvd S", city: "Salisbury", state: "NC", zip: "28146" },
     "Carteret Community College": { address: "3505 Arendell St", city: "Morehead City", state: "NC", zip: "28557" },
+    "Cape Fear Community College": { address: "411 N Front St", city: "Wilmington", state: "NC", zip: "28401" },
   };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   console.log("other campuses:", await seedOtherCampuses(prisma));

@@ -350,13 +350,19 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
  *  full-time row says where the number stands. */
 const POLICY_NOTES: Record<string, Partial<Record<string, string>>> = {
   "Rowan-Cabarrus Community College": { "full-time": "RCCC publishes no contact-hour load; its postings give full-time faculty a 40-hour week (instruction, preparation, student hours, committees, advising). The workspace default of 16 contact hours stands until the college states its own." },
+  "Cape Fear Community College": { "full-time": "Cape Fear's employee handbook (Work Schedules policy, read 2026-10-22): full-time faculty work a 40-hour week over five days, 30 of them on campus over at least four days including five student hours; faculty whose regular teaching load is under 25 contact hours owe service hours, those at 25 or more are exempt. 25 is the handbook's threshold — the nearest published load figure — and stands here until the college states its load (a 2026 policy change on how faculty meet the 40 hours is reported but not published)." },
+};
+/** A college's own figure for a policy row, where it publishes one (the note says its source). */
+const POLICY_FIGURES: Record<string, Partial<Record<string, { contactHoursPerWeek?: number; workWeekHours?: number; hoursPerContactHour?: number | null }>>> = {
+  "Cape Fear Community College": { "full-time": { contactHoursPerWeek: 25, workWeekHours: 40, hoursPerContactHour: null } }, // 40 ÷ 25 = 1.6 work hours a contact hour
 };
 export async function seedWorkloadPolicies(prisma: PrismaClient) {
   const institutions = await prisma.institution.findMany({ select: { id: true, name: true } });
   let n = 0;
   for (const inst of institutions) for (const d of DEFAULT_POLICIES) {
     const note = POLICY_NOTES[inst.name]?.[d.employmentType ?? ""];
-    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: d.contactHoursPerWeek, workWeekHours: d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: note ?? (d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null) } });
+    const own = POLICY_FIGURES[inst.name]?.[d.employmentType ?? ""] ?? {};
+    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: own.contactHoursPerWeek ?? d.contactHoursPerWeek, workWeekHours: own.workWeekHours ?? d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: "hoursPerContactHour" in own ? own.hoursPerContactHour : d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: note ?? (d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null) } });
     n++;
   }
   return n;
