@@ -9,20 +9,21 @@
 // over four years, Mike Holt curriculum, about 624 class hours in all, evenings from late August to spring).
 // What is the state's: every course's title, class · lab hours and credits are the NCCCS Combined Course Library's.
 // What is laid out here: each sequence puts the standard's courses into the college's terms to its published credit
-// total; the catalog's program-of-study pages replace it when they can be read. The owner's figures (2026-10-22): a faculty contact-hour policy of 2.2222 and 16 students a section for every EST
-// course. Nothing else is invented: no day sections or rooms were published, and none is set.
+// total; the catalog's program-of-study pages replace it when they can be read. The faculty load is the handbook's 25-contact-hour threshold of a 40-hour week (1.6 work hours a contact hour) and 16 students a
+// section for every EST course is the owner's figure (2026-10-22). Nothing else is invented: no day sections or rooms were published, and none is set.
 //
 //   node scripts/build-cape-fear-packs.mjs
 import { writeFileSync } from "node:fs";
 import { carryCatalogHours, HOURS_RULE } from "./packhours.mjs";
 
 const SOURCE = "Cape Fear CC: 2024–25 Programs of Study list (credentials, credit totals, CIP 46.0302), the June/July 2026 announcements of the North Campus evening sections (ELC 112 T/Th and ELC 113 M/W 5:30–8:10 PM), the Job Training Electrical Apprenticeship page, the 2026–27 term dates; course hours and credits from the NCCCS Combined Course Library; sequences laid out to the credit totals — compiled 2026-10-22";
-// Faculty load: the owner's figures (2026-10-22) — a contact-hour policy of 2.2222 work hours a contact hour (a 40-hour week over an
-// 18-contact-hour load) on every session, and 16 students per section for every EST course.
-const FACULTY_POLICY = 2.2222;
+// Faculty load: anchored to what the college publishes (the owner's call, 2026-10-22) — the employee handbook's 25-contact-hour
+// threshold of a 40-hour week, so 1.6 work hours a contact hour on every session; 16 students per section for every EST course
+// (the owner's figure).
+const FACULTY_POLICY = 1.6;
 const SEATS = 16;
 const SEATS_NOTE = "16 students per section (the owner's figure, 2026-10-22).";
-const ASSUMPTIONS = { facContactHours: 18, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
+const ASSUMPTIONS = { facContactHours: 25, facWorkWeekHours: 40, facTermWeeks: 16, preContactHours: 40, preWorkWeekHours: 40, preTermWeeks: 16 };
 const GENED = "General-enrollment course taught outside the program, offered every term; placed here as the standard's program of study has it.";
 const UNCONFIRMED = "Sequence from the NCCCS standard laid out to the college's published credit total; not yet confirmed against the catalog's program of study (catalog.cfcc.edu was unreachable on 2026-10-22).";
 const NO_SECTION = "No section for this course is on record (the Class Finder was unreachable); the hours are carried with no day, time or room until the college's sections are read.";

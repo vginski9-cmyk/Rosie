@@ -78,11 +78,11 @@ describe("Cape Fear Community College", () => {
     const ctep = course(packs["cape-fear-est-cert-ctep.json"], "ELC 112");
     expect(ctep.sessions.every((s) => s.dayOfWeek === null && s.location === "High school (CCP)")).toBe(true);
     // The owner's figures (2026-10-22): 16 students a section on every EST course (general-education sessions keep 30),
-    // a faculty contact-hour policy of 2.2222 on every session, a program load of 18 contact hours of a 40-hour week.
+    // the handbook's load — 25 contact hours of a 40-hour week, 1.6 work hours a contact hour — on every session and program.
     for (const p of Object.values(packs)) {
-      expect([p.assumptions.facContactHours, p.assumptions.facWorkWeekHours]).toEqual([18, 40]);
+      expect([p.assumptions.facContactHours, p.assumptions.facWorkWeekHours]).toEqual([25, 40]);
       for (const c of courses(p)) {
-        expect(c.sessions.every((s) => s.facultyContactPolicy === 2.2222), `${p.name} ${c.code} policy`).toBe(true);
+        expect(c.sessions.every((s) => s.facultyContactPolicy === 1.6), `${p.name} ${c.code} policy`).toBe(true);
         expect(c.sessions.every((s) => s.maxStudents === (c.courseType === "GENED" ? 30 : 16)), `${p.name} ${c.code} seats`).toBe(true);
       }
     }
