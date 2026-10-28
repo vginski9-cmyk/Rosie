@@ -91,6 +91,8 @@ export const NC_PLACES: Record<string, LatLng> = {
   // Columbus, Bladen and Robeson counties (Southeastern CC's service area and its clinical radius).
   "chadbourn": { lat: 34.3221, lng: -78.8270 }, "tabor city": { lat: 34.1488, lng: -78.8767 }, "lake waccamaw": { lat: 34.3188, lng: -78.5125 }, "fair bluff": { lat: 34.3085, lng: -79.0328 }, "bolton": { lat: 34.3171, lng: -78.3978 },
   "riegelwood": { lat: 34.3496, lng: -78.2225 }, "bladenboro": { lat: 34.5399, lng: -78.7875 }, "clarkton": { lat: 34.4857, lng: -78.6539 }, "fairmont": { lat: 34.4968, lng: -79.1142 },
+  // New Hanover, Pender and Brunswick (UNCW's clinical radius).
+  "winnabow": { lat: 34.1740, lng: -78.0790 }, "carolina beach": { lat: 34.0351, lng: -77.8936 }, "kure beach": { lat: 33.9932, lng: -77.9072 }, "wrightsville beach": { lat: 34.2085, lng: -77.7964 }, "rocky point": { lat: 34.4365, lng: -77.8886 }, "holly ridge": { lat: 34.4954, lng: -77.5547 },
 };
 /** South Carolina towns just over the line from Columbus County — a clinical site's town can be in either state. */
 export const SC_PLACES: Record<string, LatLng> = {

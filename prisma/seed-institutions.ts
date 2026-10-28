@@ -132,6 +132,17 @@ export const SOUTHEASTERN_PROGRAMS: PackProgramDef[] = [
   { pack: "southeastern-lpn-adn.json", launch: "SUMMER", months: 6, note: `${SCC_PENDING} The accelerated LPN-to-ADN bridge the college launched in Summer 2026 (grant-funded): three semesters in HyFlex format — class in person, live online or recorded; labs on campus; clinicals at sites. Application Feb 15 – Apr 15, orientation in early May (2026 cycle); a current unencumbered NC or compact LPN license, GPA ≥ 2.0, the ATI Comprehensive Predictor; NUR 117 waived for LPNs. Class size 20 within the Board's 140 cap (the cohort joins the second-year courses) — derived at the owner's request, 2026-10-28; the inaugural cohort's history is a single year.` },
 ];
 
+/** UNC Wilmington's three prelicensure BSN tracks — template packs built by scripts/build-uncw-packs.mjs (2026-10-28)
+ *  from the school's published four-semester plan of study (60 nursing credits, 675 clinical/lab hours), the
+ *  catalogue's credit splits, its admission pages, McNeill Hall and the registrar's 2026–27 calendar. No section days
+ *  or rooms are published; each clinical course carries the usual settings for its content, flagged. */
+const UNCW_PENDING = "Sequence, credits and hours are the school's published plan of study; no section days, times or room numbers are published, so every session carries its hours with no day or time in McNeill Hall; clinical settings are the usual ones for each course's content until the school's rotation calendar is on record.";
+export const UNCW_PROGRAMS: PackProgramDef[] = [
+  { pack: "uncw-bsn-fall.json", launch: "FALL", months: 6, note: `${UNCW_PENDING} Fall cycle: application by Nov 15 (another UNCW page says Dec 15) after the prerequisites, TEAS and a combined GPA ≥ 2.7; CCNE-accredited, NC BON-approved; three-year NCLEX-RN first-time average 91.55 % (2022–2024). Class size 60 — the school accepts 120 a year across its fall and spring cycles.` },
+  { pack: "uncw-bsn-spring.json", launch: "SPRING", months: 6, note: `${UNCW_PENDING} Spring cycle: application by Jul 1 after the prerequisites, TEAS and a combined GPA ≥ 2.7. Class size 60 — the school accepts 120 a year across its fall and spring cycles.` },
+  { pack: "uncw-absn.json", launch: "SUMMER", months: 6, note: `${UNCW_PENDING} The Accelerated BSN for holders of a bachelor's degree: four semesters from the summer (Summer → Fall → Spring → Summer), admitted once a year (application Dec 1 – Jan 6 for the next summer; combined GPA ≥ 3.0, prerequisites with a B or better); the first class graduated 11 in 2026 and the next cohort more than doubled. Class size not published and not set.` },
+];
+
 /** Rowan-Cabarrus Community College's Electrical Systems Technology — the eight credentials the college lists under
  *  program 35130 and the NCAEC electrician apprenticeship its Continuing Education hosts — template packs built by
  *  scripts/build-rccc-packs.mjs from the college's 2026–27 catalog (sequence, hours, credits, requisites), its
@@ -197,12 +208,11 @@ export const INSTITUTIONS: InstitutionDef[] = [
     { name: "Nursing (prelicensure RN)", ...RN, goals: goals(36), programs: SOUTHEASTERN_PROGRAMS,
       description: "Southeastern's prelicensure RN pathways, taught in the R Building (nursing and allied-health classrooms, labs and offices; the simulation lab, enlarged into an emergency-room setting under a 2020 Golden LEAF grant) on the Whiteville campus: the Associate Degree Nursing program (A45110, fall entry; NC Board of Nursing full approval, maximum enrollment 140; NCLEX-RN first-time pass 89 % in 2020, 84 % in 2021, 68 % in 2022, 100 % in 2023) and the accelerated LPN-to-ADN Transition launched in Summer 2026 (three semesters, HyFlex). Course hours and sequence are the NCCCS standard's until the catalog's program of study can be read. The North-Star goal of 36 a year is the earlier placeholder, not the college's figure." },
   ] },
-  { name: "University of North Carolina Wilmington", short: "UNC-W", kind: "University", city: "Wilmington", serviceArea: "Southeastern North Carolina", families: [
-    { name: "Nursing (prelicensure BSN)", ...RN, description: "UNCW's prelicensure BSN pathways: two traditional intakes a year and the accelerated BSN.", goals: goals(150), programs: [
-      { name: "Accelerated BSN — Summer Entry", type: "Accelerated (second degree)", credential: "BSN", terms: () => bsnTerms(true), launch: "SUMMER", seats: 48, months: 6 },
-      { name: "BSN Prelicensure — Spring Entry", type: "Traditional Full Time", credential: "BSN", terms: () => bsnTerms(false), launch: "SPRING", seats: 64, months: 6 },
-      { name: "BSN Prelicensure — Fall Entry", type: "Traditional Full Time", credential: "BSN", terms: () => bsnTerms(false), launch: "FALL", seats: 64, months: 6 },
-    ] },
+  // UNCW's three prelicensure BSN tracks from the school's own plan of study (2026-10-28): the packs above. Drive-time
+  // bands 45 / 60 / 90 so "Core" is the owner's 45-minute clinical radius from McNeill Hall.
+  { name: "University of North Carolina Wilmington", short: "UNC-W", kind: "University", city: "Wilmington", serviceArea: "Southeastern North Carolina", rings: { core: 45, one: 60, two: 90 }, families: [
+    { name: "Nursing (prelicensure BSN)", ...RN, goals: goals(150), programs: UNCW_PROGRAMS,
+      description: "UNCW's prelicensure BSN tracks, taught in McNeill Hall (601 S College Rd — the School of Nursing's classrooms and its 10,000-square-foot Simulation Learning Center): the four-semester prelicensure BSN with a fall and a spring entry (120 accepted a year; CCNE-accredited, NC Board of Nursing-approved; three-year NCLEX-RN first-time average 91.55 %, 2022–2024) and the Accelerated BSN for second-degree students (summer entry, four semesters, first class graduated 2026). The RN-to-BSN is not a prelicensure track and is not carried. Sequence, credits and hours are the school's published plan of study. The North-Star goal of 150 a year is the earlier placeholder, not the school's figure." },
   ] },
   ...[["Pitt Community College", "Pitt CC", "Winterville", "Pitt County, NC"], ["Forsyth Technical Community College", "Forsyth Tech", "Winston-Salem", "Forsyth & Stokes Counties, NC"], ["Davidson-Davie Community College", "Davidson-Davie CC", "Thomasville", "Davidson & Davie Counties, NC"], ["Beaufort County Community College", "Beaufort County CC", "Washington", "Beaufort, Hyde, Tyrrell & Washington Counties, NC"]].map(([name, short, city, area]): InstitutionDef => ({
     name, short, kind: "Community college", city, serviceArea: area, families: [
@@ -247,7 +257,6 @@ export const INSTITUTIONS: InstitutionDef[] = [
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
-  "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
   // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
   // workbook programs and offerings (see seed.ts).

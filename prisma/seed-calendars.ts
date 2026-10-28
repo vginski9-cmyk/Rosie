@@ -25,6 +25,8 @@ export const CALENDAR_FILES: Record<string, string> = {
   // Southeastern: Fall 2026, Spring 2027 and Summer 2027 from the college's calendars page (read 2026-10-28);
   // Summer 2026 was not published there and is not seeded.
   "Southeastern Community College": "southeastern.txt",
+  // UNCW: the registrar's 2026–27 dates (fall, spring, the two summer sessions); the nursing summer term spans both sessions.
+  "University of North Carolina Wilmington": "uncw.txt",
 };
 
 export async function seedAcademicCalendars(prisma: PrismaClient, dir: string): Promise<Record<string, { events: number; starts: number; ends: number; sessions: number; holidays: number; anchors: string; warnings: number }>> {

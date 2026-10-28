@@ -1,19 +1,19 @@
 {
-  "name": "Prelicensure RN (ADN) clinical experiences",
-  "authority": "NC Board of Nursing · 21 NCAC 36 .0321 · NCCCS A45110 curriculum standard",
-  "edition": "Starter content, 2026-10-28: the Board sets no minimum hour count per course or setting — the hours are the college's own course sessions; the experiences below are the lifespan settings the concept-based curriculum places students in",
+  "name": "Prelicensure RN clinical experiences",
+  "authority": "NC Board of Nursing · 21 NCAC 36 .0321 · the NCCCS A45110 curriculum standard for a community college's ADN, the school's own plan of study for a university's BSN",
+  "edition": "Starter content, 2026-10-28: the Board sets no minimum hour count per course or setting — the hours are the program's own course sessions; the experiences below are the lifespan settings a concept-based prelicensure curriculum places students in",
   "kind": "competency",
   "sourceUrl": "https://www.ncbon.com/education-program-directors-approved-programs",
-  "summary": "A North Carolina prelicensure RN program's clinical experiences are faculty-supervised (an instructor-led group of at most ten students, or a precepted experience directed by nursing faculty) across the lifespan: adult medical-surgical and critical care, maternal-newborn, pediatric, mental-health, older-adult / long-term care and community settings, closing with a precepted capstone in an adult acute setting. No state minimum hours apply per setting; the college's course sessions carry the hours and the ledger scores experiences as logged.",
+  "summary": "A North Carolina prelicensure RN program's clinical experiences are faculty-supervised (an instructor-led group of at most ten students, or a precepted experience directed by nursing faculty) across the lifespan: adult medical-surgical and critical care, maternal-newborn, pediatric, mental-health, older-adult / long-term care and community settings, closing with a precepted capstone in an adult acute setting. No state minimum hours apply per setting; the program's course sessions carry the hours and the ledger scores experiences as logged.",
   "rules": [],
   "items": [
-    { "category": "Adult health", "name": "Adult medical-surgical nursing (acute inpatient)", "mandatory": true, "settingCodes": "BEDS", "notes": "NUR 111, 112, 211 and the capstone's primary setting." },
-    { "category": "Adult health", "name": "Critical care (ICU / CCU)", "mandatory": true, "settingCodes": "ICU", "notes": "NUR 212 and the capstone where the site offers it." },
-    { "category": "Family health", "name": "Maternal-newborn nursing (labor & delivery, mother-baby)", "mandatory": true, "settingCodes": "OB", "notes": "NUR 113." },
-    { "category": "Family health", "name": "Pediatric nursing (inpatient or ambulatory)", "mandatory": true, "settingCodes": "PEDS,AMB", "notes": "NUR 113; a pediatric practice or clinic serves where no inpatient unit is within reach." },
-    { "category": "Mental health", "name": "Behavioral / mental-health nursing", "mandatory": true, "settingCodes": "BH", "notes": "NUR 114." },
-    { "category": "Older adult", "name": "Long-term care / skilled nursing", "mandatory": true, "settingCodes": "LTC", "notes": "NUR 111's first clinical weeks." },
-    { "category": "Community", "name": "Community, public-health, home-health or hospice nursing", "mandatory": true, "settingCodes": "PH,HH,HOSP", "notes": "NUR 212." },
-    { "category": "Capstone", "name": "Precepted practicum in an adult acute setting (1 student : 1 RN preceptor, directed by faculty)", "mandatory": true, "role": "precepted", "settingCodes": "BEDS,ICU", "notes": "NUR 213: 15 clinical hours a week." }
+    { "category": "Adult health", "name": "Adult medical-surgical nursing (acute inpatient)", "mandatory": true, "settingCodes": "BEDS", "notes": "ADN: NUR 111, 112, 211; BSN: NSG 302, 426 — and the capstone's primary setting." },
+    { "category": "Adult health", "name": "Critical care (ICU / CCU)", "mandatory": true, "settingCodes": "ICU", "notes": "ADN: NUR 212; BSN: NSG 426 — and the capstone where the site offers it." },
+    { "category": "Family health", "name": "Maternal-newborn nursing (labor & delivery, mother-baby)", "mandatory": true, "settingCodes": "OB", "notes": "ADN: NUR 113; BSN: NSG 313." },
+    { "category": "Family health", "name": "Pediatric nursing (inpatient or ambulatory)", "mandatory": true, "settingCodes": "PEDS,AMB", "notes": "ADN: NUR 113; BSN: NSG 314; a pediatric practice or clinic serves where no inpatient unit is within reach." },
+    { "category": "Mental health", "name": "Behavioral / mental-health nursing", "mandatory": true, "settingCodes": "BH", "notes": "ADN: NUR 114; BSN: NSG 422." },
+    { "category": "Older adult", "name": "Long-term care / skilled nursing", "mandatory": true, "settingCodes": "LTC", "notes": "ADN: NUR 111's first clinical weeks; BSN: NSG 302's first clinical weeks." },
+    { "category": "Community", "name": "Community, public-health, home-health or hospice nursing", "mandatory": true, "settingCodes": "PH,HH,HOSP", "notes": "ADN: NUR 212; BSN: NSG 430." },
+    { "category": "Capstone", "name": "Precepted practicum in an adult acute setting (1 student : 1 RN preceptor, directed by faculty)", "mandatory": true, "role": "precepted", "settingCodes": "BEDS,ICU", "notes": "ADN: NUR 213 at 15 clinical hours a week; BSN: NSG 434 at 135 hours." }
   ]
 }
