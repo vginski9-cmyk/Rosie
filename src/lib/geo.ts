@@ -88,15 +88,27 @@ export const NC_PLACES: Record<string, LatLng> = {
   "salisbury": { lat: 35.6710, lng: -80.4742 }, "thomasville": { lat: 35.8826, lng: -80.0820 }, "washington": { lat: 35.5466, lng: -77.0522 }, "whiteville": { lat: 34.3388, lng: -78.7031 }, "bolivia": { lat: 34.0687, lng: -78.1481 }, "southport": { lat: 33.9216, lng: -78.0203 }, "shallotte": { lat: 33.9735, lng: -78.3861 }, "leland": { lat: 34.2563, lng: -78.0447 }, "supply": { lat: 34.0163, lng: -78.2697 }, "oak island": { lat: 33.9166, lng: -78.1611 },
   "kenansville": { lat: 34.9624, lng: -77.9622 }, "ahoskie": { lat: 36.2868, lng: -76.9847 }, "winterville": { lat: 35.5290, lng: -77.4011 }, "greenville": { lat: 35.6127, lng: -77.3663 }, "cary": { lat: 35.7915, lng: -78.7811 },
   "high point": { lat: 35.9557, lng: -80.0053 }, "burlington": { lat: 36.0957, lng: -79.4378 }, "concord": { lat: 35.4088, lng: -80.5795 }, "kannapolis": { lat: 35.4874, lng: -80.6217 }, "monroe": { lat: 34.9854, lng: -80.5495 }, "albemarle": { lat: 35.3501, lng: -80.2001 },
+  // Columbus, Bladen and Robeson counties (Southeastern CC's service area and its clinical radius).
+  "chadbourn": { lat: 34.3221, lng: -78.8270 }, "tabor city": { lat: 34.1488, lng: -78.8767 }, "lake waccamaw": { lat: 34.3188, lng: -78.5125 }, "fair bluff": { lat: 34.3085, lng: -79.0328 }, "bolton": { lat: 34.3171, lng: -78.3978 },
+  "riegelwood": { lat: 34.3496, lng: -78.2225 }, "bladenboro": { lat: 34.5399, lng: -78.7875 }, "clarkton": { lat: 34.4857, lng: -78.6539 }, "fairmont": { lat: 34.4968, lng: -79.1142 },
 };
+/** South Carolina towns just over the line from Columbus County — a clinical site's town can be in either state. */
+export const SC_PLACES: Record<string, LatLng> = {
+  "loris": { lat: 34.0563, lng: -78.8906 }, "conway": { lat: 33.8360, lng: -79.0478 }, "little river": { lat: 33.8732, lng: -78.6142 }, "north myrtle beach": { lat: 33.8160, lng: -78.6800 }, "myrtle beach": { lat: 33.6891, lng: -78.8867 },
+};
+const GAZETTEER: Record<string, Record<string, LatLng>> = { NC: NC_PLACES, SC: SC_PLACES };
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z\- ]/g, "").replace(/\s+/g, " ").trim();
-/** Offline: a place centroid for a city (NC), else null. */
+/** Offline: a place centroid for a city in its state (NC when none is given), else null. */
 export function geocodeOffline(parts: { city?: string | null; state?: string | null }): Located | null {
   if (!parts.city) return null;
-  if (parts.state && parts.state.toUpperCase() !== "NC") return null;
-  const hit = NC_PLACES[norm(parts.city)];
-  return hit ? { ...hit, source: "gazetteer", label: `${parts.city} centroid (built-in gazetteer)` } : null;
+  const st = (parts.state ?? "NC").toUpperCase();
+  const book = GAZETTEER[st];
+  if (!book) return null;
+  const hit = book[norm(parts.city)];
+  return hit ? { ...hit, source: "gazetteer", label: `${parts.city}, ${st} centroid (built-in gazetteer)` } : null;
 }
+/** Whether the offline gazetteer can place a town (for data checks). */
+export const inGazetteer = (city: string, state?: string | null) => geocodeOffline({ city, state }) !== null;
 /** Online: the US Census Bureau geocoder (free, no key). Null when unreachable, ambiguous or unmatched. */
 export async function geocodeOnline(parts: { address?: string | null; city?: string | null; state?: string | null; zip?: string | null }, timeoutMs = 6000): Promise<Located | null> {
   const line = [parts.address, parts.city, parts.state, parts.zip].filter(Boolean).join(", ");

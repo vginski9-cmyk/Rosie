@@ -277,6 +277,7 @@ const ALIASES: [RegExp, string][] = [
   [/\b(operating room|or suite|\bors?\b|surgery|surgical)\b/i, "ORS"],
   [/\b(c-arm|c arm|operating room)\b/i, "OR"],
   [/\b(icu|critical care|ccu|intensive)\b/i, "ICU"],
+  [/\b(ob|obstetric\w*|maternity|maternal|labor|l&d|mother-baby|postpartum|newborn)\b/i, "OB"],
   [/\b(emergency|\bed\b|trauma)\b/i, "ED"],
   [/\b(pediatric|peds)\b/i, "PEDS"],
   [/\b(behavioral|psych|mental health)\b/i, "BH"],

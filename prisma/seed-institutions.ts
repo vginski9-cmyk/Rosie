@@ -12,8 +12,6 @@
 //    windows; confirm one or two cohorts a year and which term(s) they start.
 //  · James Sprunt CC — LPN Advanced Placement Option: confirm whether this is
 //    a distinct offering or advanced placement into the ADN cohort.
-//  · Southeastern CC — LPN-to-ADN Transition: Summer 2026 is the inaugural
-//    cohort of a new grant-funded program, so history is limited.
 //  · Davidson-Davie CC and Beaufort County CC were listed without a program;
 //    Electrical Systems Technology is assumed from the surrounding list.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,7 +88,7 @@ type PackProgramDef = { pack: string; launch: string; months?: number; note?: st
 type ProgramDef = CodedProgramDef | PackProgramDef;
 const isPack = (p: ProgramDef): p is PackProgramDef => "pack" in p;
 interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; programs: ProgramDef[]; cna?: boolean; /** Seed every delivery model in this college's own workbook pack. */ cnaAll?: keyof CnaPacks }
-interface InstitutionDef { name: string; short: string; kind: string; city: string; serviceArea: string; families: FamilyDef[] }
+interface InstitutionDef { name: string; short: string; kind: string; city: string; serviceArea: string; families: FamilyDef[]; /** Drive-time bands in minutes (Core / Ring 1 / Ring 2 edges); the workspace default is 30 / 60 / 90. */ rings?: { core: number; one: number; two: number } }
 
 const RN = { soc: "29-1141", occupation: "Registered Nurses" };
 const ELECTRICIAN = { soc: "47-2111", occupation: "Electricians" };
@@ -121,6 +119,17 @@ export const BRUNSWICK_PROGRAMS: PackProgramDef[] = [
   { pack: "brunswick-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Admitted in the Dec–Jan window (TEAS ≥ 59, GPA ≥ 2.5); NUR 117 in the summer, NUR 111 in the fall. Class size from the college's sections (NUR 111: 51 seats; NUR 112 and 114: 50).` },
   { pack: "brunswick-lpn-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150, PSY 241 (17 credits); NUR 111, 112, 114 and 117 (20 credits) credited for the LPN license after NUR 212. Application Dec 1 – Jan 31, ATI PN predictor in April, classes begin with the summer term. Class size from the college's sections (20 seats).` },
   { pack: "brunswick-paramedic-adn.json", launch: "SPRING", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150 (14 credits); NUR 215 with a B or better converts to credit for NUR 111, 112, 114 and 117 (20 credits). Application Jul 1 – Aug 30 (TEAS ≥ 59, GPA ≥ 2.5), classes begin with the spring term. Class size from the college's sections (10 seats).` },
+];
+
+/** Southeastern Community College's RN pathways — template packs built by scripts/build-southeastern-packs.mjs
+ *  (2026-10-28) from what the college publishes (the ADN and LPN-to-ADN admission pages, the NC Board of Nursing's
+ *  approval and 140-student cap, the campus facilities list, the 2026–27 calendar) with the course hours, credits
+ *  and sequence from the NCCCS A45110 standard, since the catalog's program of study could not be read. Class sizes
+ *  are derived from the Board's cap at the owner's request. */
+const SCC_PENDING = "Sequence and hours from the NCCCS standard with the college's listed general-education courses — the catalog's term placement, total and sections replace them when they can be read; clinical rotation settings are the standard's usual ones until the college's rotation plan arrives.";
+export const SOUTHEASTERN_PROGRAMS: PackProgramDef[] = [
+  { pack: "southeastern-adn.json", launch: "FALL", months: 6, note: `${SCC_PENDING} Fall entry: application Dec 1 – Mar 1, acceptance notices Apr 1, orientation in June (2026 cycle); TEAS ≥ 59, SCC GPA ≥ 2.5, NUR 117 Pharmacology within five years before admission; ACA 122, ENG 111/112, BIO 168/169, PSY 150/241 and PHI 240 encouraged beforehand. Class size 70: the NC Board of Nursing's approved maximum enrollment of 140 (2024 list, full approval, no national accreditation listed) covers both levels, so a fall class of 70 leaves 70 second-year seats for the continuing students and the LPN-to-ADN cohort (the Board allows ten over) — derived at the owner's request, 2026-10-28.` },
+  { pack: "southeastern-lpn-adn.json", launch: "SUMMER", months: 6, note: `${SCC_PENDING} The accelerated LPN-to-ADN bridge the college launched in Summer 2026 (grant-funded): three semesters in HyFlex format — class in person, live online or recorded; labs on campus; clinicals at sites. Application Feb 15 – Apr 15, orientation in early May (2026 cycle); a current unencumbered NC or compact LPN license, GPA ≥ 2.0, the ATI Comprehensive Predictor; NUR 117 waived for LPNs. Class size 20 within the Board's 140 cap (the cohort joins the second-year courses) — derived at the owner's request, 2026-10-28; the inaugural cohort's history is a single year.` },
 ];
 
 /** Rowan-Cabarrus Community College's Electrical Systems Technology — the eight credentials the college lists under
@@ -182,11 +191,11 @@ export const INSTITUTIONS: InstitutionDef[] = [
       { name: "LPN Advanced Placement Option — Fall Entry", type: "Advanced Placement (LPN)", credential: "AAS", terms: () => transitionTerms("Fall", "NUR 214", "Nursing Transition Concepts"), launch: "FALL", seats: 12, months: 6, note: "Confirm: a distinct program offering, or advanced placement into the ADN cohort?" },
     ]),
   ] },
-  { name: "Southeastern Community College", short: "Southeastern CC", kind: "Community college", city: "Whiteville", serviceArea: "Columbus County, NC", families: [
-    nursingFamily("Southeastern's prelicensure RN pathways, including the new grant-funded LPN-to-ADN transition.", 36, [
-      adn("Fall", 36),
-      lpnTransition("Summer", "Summer 2026 is the inaugural cohort of this new grant-funded program — history is limited."),
-    ]),
+  // Southeastern's two RN pathways from the college's publications and the NCCCS standard (2026-10-28): the packs
+  // above. Drive-time bands 45 / 60 / 90 so "Core" is the owner's 45-minute clinical radius from the Whiteville campus.
+  { name: "Southeastern Community College", short: "Southeastern CC", kind: "Community college", city: "Whiteville", serviceArea: "Columbus County, NC", rings: { core: 45, one: 60, two: 90 }, families: [
+    { name: "Nursing (prelicensure RN)", ...RN, goals: goals(36), programs: SOUTHEASTERN_PROGRAMS,
+      description: "Southeastern's prelicensure RN pathways, taught in the R Building (nursing and allied-health classrooms, labs and offices; the simulation lab, enlarged into an emergency-room setting under a 2020 Golden LEAF grant) on the Whiteville campus: the Associate Degree Nursing program (A45110, fall entry; NC Board of Nursing full approval, maximum enrollment 140; NCLEX-RN first-time pass 89 % in 2020, 84 % in 2021, 68 % in 2022, 100 % in 2023) and the accelerated LPN-to-ADN Transition launched in Summer 2026 (three semesters, HyFlex). Course hours and sequence are the NCCCS standard's until the catalog's program of study can be read. The North-Star goal of 36 a year is the earlier placeholder, not the college's figure." },
   ] },
   { name: "University of North Carolina Wilmington", short: "UNC-W", kind: "University", city: "Wilmington", serviceArea: "Southeastern North Carolina", families: [
     { name: "Nursing (prelicensure BSN)", ...RN, description: "UNCW's prelicensure BSN pathways: two traditional intakes a year and the accelerated BSN.", goals: goals(150), programs: [
@@ -238,7 +247,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
-  "Southeastern Community College", "University of North Carolina Wilmington",
+  "University of North Carolina Wilmington",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
   // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
   // workbook programs and offerings (see seed.ts).
@@ -248,7 +257,7 @@ export const PAUSED_INSTITUTIONS = new Set([
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
   let institutions = 0, families = 0, programs = 0;
   for (const def of INSTITUTIONS.filter((d) => !PAUSED_INSTITUTIONS.has(d.name))) {
-    const inst = await prisma.institution.create({ data: { name: def.name, shortName: def.short, kind: def.kind, city: def.city, state: "NC", serviceArea: def.serviceArea } });
+    const inst = await prisma.institution.create({ data: { name: def.name, shortName: def.short, kind: def.kind, city: def.city, state: "NC", serviceArea: def.serviceArea, ...(def.rings ? { ringCoreMinutes: def.rings.core, ringOneMinutes: def.rings.one, ringTwoMinutes: def.rings.two } : {}) } });
     institutions++;
     for (const f of def.families) {
       const occ = await prisma.occupation.upsert({ where: { institutionId_socCode: { institutionId: inst.id, socCode: f.soc } }, update: {}, create: { institutionId: inst.id, socCode: f.soc, title: f.occupation } });

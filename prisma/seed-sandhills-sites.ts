@@ -17,6 +17,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { PrismaClient } from "@prisma/client";
+import { NURSING_ROTATIONS } from "./seed-kits";
 
 type Kit = { code: string; setting: string; assetType: string; n: number; learners: number; preceptors?: number; rule: "24x7" | "wd" | "wde" | "7d" | "mwf" | "wds"; hours?: number; serves?: string };
 const K = (code: string, setting: string, assetType: string, n: number, learners: number, rule: Kit["rule"], extra: Partial<Kit> = {}): Kit => ({ code, setting, assetType, n, learners, rule, ...extra });
@@ -215,13 +216,12 @@ export const SANDHILLS_SITES: SiteSeed[] = [
   S("S105", "Randolph Health — Outpatient Imaging", "Randolph Health", "imaging", "Imaging center", "Randolph", "364 White Oak St", "Asheboro", "27203", { est: true }),
 ];
 
-// Rotation type → asset setting (adds to the radiography map's join).
+// Rotation type → asset setting (adds to the radiography map's join): the nursing rows every RN family shares
+// (prisma/seed-kits.ts) plus the Sandhills-only ones.
 export const EXTRA_ROTATIONS: [string, string | null, string][] = [
-  ["Med-Surg", "BEDS", "Inpatient beds"], ["Medical-Surgical", "BEDS", "Inpatient beds"], ["ICU / Critical Care", "ICU", "Inpatient beds"], ["ICU", "ICU", "Inpatient beds"], ["Critical Care", "ICU", "Inpatient beds"],
-  ["OB / Maternity", "OB", "Inpatient beds"], ["Obstetrics", "OB", "Inpatient beds"], ["Behavioral Health", "BH", "Behavioral health"], ["Mental Health", "BH", "Behavioral health"],
-  ["Long-Term Care", "LTC", "Long-term care beds"], ["Skilled Nursing", "LTC", "Long-term care beds"], ["Adult Care", "ALF", "Adult care beds"],
+  ...NURSING_ROTATIONS.map(([rotationType, settingCode, unitCategory]): [string, string | null, string] => [rotationType, settingCode, unitCategory]),
+  ["Adult Care", "ALF", "Adult care beds"],
   ["Doctor's Office", "AMB", "Ambulatory"], ["Ambulatory / Clinic", "AMB", "Ambulatory"], ["Ambulatory Surgery", "ORS", "Surgical"],
-  ["Community / Public Health", "PH", "Ambulatory"], ["Community Health", "PH", "Ambulatory"], ["Home Health", "HH", "Home & community"], ["Hospice", "HOSP", "Home & community"],
   ["Laboratory", "LAB", "Laboratory"], ["MRI", "MRI", "Imaging"], ["Rehabilitation", "REHAB", "Ambulatory"], ["Emergency", "ED", "Emergency"],
 ];
 

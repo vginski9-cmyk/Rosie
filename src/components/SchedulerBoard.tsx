@@ -50,8 +50,10 @@ const LEVER_NAMES: Record<keyof Policy, string> = {
 };
 const sigOf = (p: Plan) => `${p.summary.placedSeats}|${p.summary.readiness.ready}|${p.summary.unmetShifts}|${p.assignments.length}|${p.blockers.map((b) => `${b.kind}:${b.seats}`).join(",")}`;
 
-export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, courseRules = {}, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null, range }: {
+export function SchedulerBoard({ institutionId, cohorts, assets, overrides, bookings, rotations, courseRules = {}, preceptors, instructors, students, familyAgreements, siteCaps, confirmedSettings, changes, from, to, canApply = true, roster = null, range, bands = DEFAULT_BANDS }: {
   institutionId: string; cohorts: CapacityCohort[]; assets: AssetLite[]; overrides: AssetDayOverride[]; bookings: (AssetBookingLite & { note?: string | null })[]; rotations: RotationCodeRow[];
+  /** The college's own drive-time bands (the lever labels read them; the sites' rings were banded with them). */
+  bands?: import("@/lib/geo").RingBands;
   preceptors: Preceptor[]; instructors: Instructor[]; students: StudentLite[]; familyAgreements: FamilyAgreement[]; siteCaps: SiteCapacityLite[]; confirmedSettings: ConfirmedSetting[]; changes: ChangeSetRow[]; from: string; to: string;
   /** Course rotation pools — the rule a course's generically tagged sessions read (lib/requirementcoverage). */
   courseRules?: Record<string, import("@/lib/settingrule").SettingRuleSpec>;
@@ -173,10 +175,10 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
       {/* ── Levers — on top, always in view: the rules the plan is built under. Everything below recomputes. ── */}
       <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— {policy.agreements === "secured" ? "secured sites" : policy.agreements === "secured+asked" ? "secured + asked sites" : "any partner"} · {policy.maxRing === "any" ? "any drive time" : driveBandPhrase(policy.maxRing) ?? policy.maxRing} · {policy.flexibleShift ? "any shift" : "exact shift"} · {policy.flexibleDays ? `± ${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact date"} · {policy.requirePreceptor ? "preceptor required" : "seats only"} · {cohortFilter.size === 0 ? `all ${cohortsInDemand.length} offerings` : `${cohortFilter.size} of ${cohortsInDemand.length} offerings`}</span></div>
+          <div className="text-sm font-semibold text-slate-800">Levers <span className="font-normal text-slate-500">— {policy.agreements === "secured" ? "secured sites" : policy.agreements === "secured+asked" ? "secured + asked sites" : "any partner"} · {policy.maxRing === "any" ? "any drive time" : driveBandPhrase(policy.maxRing, bands) ?? policy.maxRing} · {policy.flexibleShift ? "any shift" : "exact shift"} · {policy.flexibleDays ? `± ${policy.flexibleDays} day${policy.flexibleDays === 1 ? "" : "s"}` : "exact date"} · {policy.requirePreceptor ? "preceptor required" : "seats only"} · {cohortFilter.size === 0 ? `all ${cohortsInDemand.length} offerings` : `${cohortFilter.size} of ${cohortsInDemand.length} offerings`}</span></div>
           <div className="flex items-center gap-3 text-xs">
             {computing && <span role="status" aria-live="polite" className="inline-flex items-center gap-1.5 text-amber-800"><span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />{hydrated ? "recomputing…" : `building the plan for ${n0(demand.length)} shifts…`}</span>}
-            <button onClick={() => setPolicy(BASE_POLICY)} title="Back to the base levers: secured sites, within 30 min, exact shift, exact date, seats only" className="text-slate-500 hover:text-rose-700">reset to the base levers</button>
+            <button onClick={() => setPolicy(BASE_POLICY)} title={`Back to the base levers: secured sites, within ${bands.coreMinutes} min, exact shift, exact date, seats only`} className="text-slate-500 hover:text-rose-700">reset to the base levers</button>
             <button onClick={() => setPolicy(ROSTER_POLICY)} title="The looser levers the roster on the calendar was placed with: any drive time, any shift, ± 2 days" className="text-slate-500 hover:text-rose-700">roster levers</button>
             <button type="button" onClick={() => setShowLevers((v) => !v)} aria-expanded={showLevers} className="rounded-full bg-white px-2.5 py-0.5 font-medium text-slate-700 ring-1 ring-slate-300 hover:bg-slate-100">{showLevers ? "fewer levers" : "all levers"}</button>
           </div>
@@ -192,7 +194,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
             <select value={policy.agreements} onChange={(e) => setPolicy({ ...policy, agreements: e.target.value as Policy["agreements"] })} className={sel}><option value="secured">secured only</option><option value="secured+asked">secured + asked</option><option value="any">any partner with the asset</option></select>
           </Lever>
           <Lever label="Drive time" hint="Farthest a site may be from the main campus, by its drive-time band.">
-            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">{driveBandPhrase("Core")}</option><option value="Ring 1">{`within ${DEFAULT_BANDS.oneMinutes} min drive`}</option><option value="Ring 2">{`within ${DEFAULT_BANDS.twoMinutes} min drive`}</option><option value="any">any drive time</option></select>
+            <select value={policy.maxRing} onChange={(e) => setPolicy({ ...policy, maxRing: e.target.value as Policy["maxRing"] })} className={sel}><option value="Core">{driveBandPhrase("Core", bands)}</option><option value="Ring 1">{`within ${bands.oneMinutes} min drive`}</option><option value="Ring 2">{`within ${bands.twoMinutes} min drive`}</option><option value="any">any drive time</option></select>
           </Lever>
           <Lever label="Shift" hint="May a clinical shift land on a different shift block (day / evening / night) than its session says?">
             <select value={String(policy.flexibleShift)} onChange={(e) => setPolicy({ ...policy, flexibleShift: e.target.value === "true" })} className={sel}><option value="false">exact shift only</option><option value="true">any shift the asset runs</option></select>
@@ -440,7 +442,7 @@ export function SchedulerBoard({ institutionId, cohorts, assets, overrides, book
                 <tr key={x.employerId} className={x.sections === 0 ? "text-slate-400" : ""}>
                   <td className="px-3 py-1.5 font-medium text-slate-800"><a href={`/employers/${x.employerId}`} className="hover:text-rose-700 hover:underline">{x.siteName}</a></td>
                   <td className="px-3 py-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${AGREEMENT[x.agreementStatus] ?? AGREEMENT.none}`}>{x.agreementStatus}</span></td>
-                  <td className="px-3 py-1.5 text-slate-500">{[driveBandLabel(x.ring), x.county].filter(Boolean).join(" · ")}</td>
+                  <td className="px-3 py-1.5 text-slate-500">{[driveBandLabel(x.ring, bands), x.county].filter(Boolean).join(" · ")}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{x.assets}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{n0(x.slotSeats)}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{n0(x.usedSeats)}</td>

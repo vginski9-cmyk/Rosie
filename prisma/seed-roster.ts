@@ -349,6 +349,7 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
 /** What a college publishes about its faculty load, when it is not the workbook figure: the note on its
  *  full-time row says where the number stands. */
 const POLICY_NOTES: Record<string, Partial<Record<string, string>>> = {
+  "Southeastern Community College": { "full-time": "Southeastern's New Employee Orientation guide (2023) states the FTE basis as 512 contact hours a year — 16 contact hours a week × 16 weeks × 2 semesters — so the workspace's 16 of 40 is the college's own figure. Faculty load is set under Procedure 3.1.3.2 Instructional Employees Workload, whose text is not published; replace on Setup → People when the college states it." },
   "Rowan-Cabarrus Community College": { "full-time": "The owner's figure (2026-10-22): Rowan-Cabarrus's full-time faculty load for Electrical Systems Technology is 20 contact hours a week of a 40-hour week — 2 work hours credited per contact hour. The college publishes no contact-hour load itself; its postings give full-time faculty a 40-hour week (instruction, preparation, student hours, committees, advising)." },
   "Cape Fear Community College": { "full-time": "Cape Fear's employee handbook (Work Schedules policy, read 2026-10-22): full-time faculty work a 40-hour week over five days, 30 of them on campus over at least four days including five student hours; faculty whose regular teaching load is under 25 contact hours owe service hours, those at 25 or more are exempt. The policy and the Electrical Systems Technology templates are anchored to that published 25-hour threshold (the owner's call, 2026-10-22): 1.6 work hours a contact hour." },
 };
@@ -387,6 +388,7 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
     { test: /Radiograph/i, title: /Radiolog|RT\(R\)|Radiograph|MRI/i, titles: ["Radiologic Technologist, RT(R)", "RT(R)(CT)", "Lead Radiographer"] },
     { test: /Surgical/i, title: /Surg|OR |CST|CSFA|Operating/i, titles: ["CST, Preceptor", "OR RN, Preceptor", "CSFA, Preceptor"] },
     { test: /Nurse Aide/i, title: /Nurse Aide|CNA|LPN|SNF|RN,/i, titles: ["LPN, Skilled Nursing", "Nurse Aide Preceptor, CNA II"] },
+    { test: /Nursing|A45110|ADN|LPN-to-ADN/i, title: /\bRN\b|Nurse Educator|Clinical Nurse|Charge Nurse/i, titles: ["RN, Clinical Nurse Educator", "RN, Charge Nurse Preceptor", "RN, BSN — Unit Preceptor"] },
   ];
   const prand = rng(20260909);
   const usedNames = new Set(people.map((p) => p.name));

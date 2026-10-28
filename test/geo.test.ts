@@ -25,9 +25,21 @@ describe("site geography", () => {
     expect(d.sameTown).toBe(true); expect(d.miles).toBe(2); expect(d.ring).toBe("Core"); expect(d.minutes).toBeGreaterThan(4);
     expect(distanceFrom(campus, campus).sameTown).toBe(false); // exact coordinates: no floor
   });
-  it("the gazetteer knows the region's towns and refuses other states", () => {
+  it("the gazetteer knows the region's towns in their own state and refuses a town in the wrong one", () => {
     expect(geocodeOffline({ city: "Raeford", state: "NC" })?.source).toBe("gazetteer");
     expect(geocodeOffline({ city: "Raeford", state: "SC" })).toBeNull();
     expect(geocodeOffline({ city: "Nowhere" })).toBeNull();
+    expect(geocodeOffline({ city: "Loris", state: "SC" })?.label).toBe("Loris, SC centroid (built-in gazetteer)");
+    expect(geocodeOffline({ city: "Loris", state: "NC" })).toBeNull();
+    expect(geocodeOffline({ city: "Loris", state: "VA" })).toBeNull();
+  });
+  it("Southeastern's 45-minute core band from Whiteville holds the Columbus County towns; Loris sits at its edge by the centroid estimate", () => {
+    const whiteville = geocodeOffline({ city: "Whiteville", state: "NC" })!;
+    const bands = { coreMinutes: 45, oneMinutes: 60, twoMinutes: 90 };
+    for (const [city, state] of [["Tabor City", "NC"], ["Lake Waccamaw", "NC"], ["Chadbourn", "NC"], ["Fair Bluff", "NC"]]) expect(distanceFrom(whiteville, geocodeOffline({ city, state })!, bands).ring, city).toBe("Core");
+    // Loris, SC: 25 road miles (about 36 minutes by road); the town-centroid estimate reads a minute or two over the band.
+    const loris = distanceFrom(whiteville, geocodeOffline({ city: "Loris", state: "SC" })!, bands);
+    expect(loris.minutes).toBeGreaterThan(44); expect(loris.minutes).toBeLessThan(48); expect(loris.ring).toBe("Ring 1");
+    expect(distanceFrom(whiteville, geocodeOffline({ city: "Bolivia", state: "NC" })!, bands).ring).not.toBe("Core");
   });
 });

@@ -39,6 +39,7 @@ export async function seedRequirementSets(prisma: PrismaClient) {
     { file: "radiography.json", match: /radiograph|imaging/i },
     { file: "surgical-technology.json", match: /surgical/i },
     { file: "nurse-aide.json", match: /nurse aide|cna/i },
+    { file: "nursing.json", match: /nursing \(prelicensure/i },
   ];
   const families = await prisma.programFamily.findMany({ select: { id: true, name: true } });
   let sets = 0, items = 0;

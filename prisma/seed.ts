@@ -27,6 +27,7 @@ import { seedOtherCampuses } from "./seed-campuses";
 import { simulationAllowance, type RuleDefLite } from "../src/lib/requirementrules";
 import { loadSandhillsSites } from "./seed-sandhills-sites";
 import { loadPartnerSites } from "./seed-partner-sites";
+import { NURSING_ROTATIONS, nursingAreaOf } from "./seed-kits";
 import { applySurgicalCaseVolumes } from "./seed-surg-cases";
 import { avgCasesPerDay } from "../src/lib/surgvolume";
 import { seedInstitutions, goals, goalPlanJson, type CnaPacks } from "./seed-institutions";
@@ -463,6 +464,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Brunswick Community College": { counties: ["Brunswick", "Brunswick", "Brunswick", "Columbus", "New Hanover"], cities: { Brunswick: "Southport", Columbus: "Whiteville", "New Hanover": "Wilmington" } },
     "Rowan-Cabarrus Community College": { counties: ["Rowan", "Rowan", "Cabarrus", "Cabarrus", "Cabarrus"], cities: { Rowan: "Salisbury", Cabarrus: "Concord" } },
     "Cape Fear Community College": { counties: ["New Hanover", "New Hanover", "New Hanover", "Pender", "Pender"], cities: { "New Hanover": "Wilmington", Pender: "Burgaw" } },
+    "Southeastern Community College": { counties: ["Columbus", "Columbus", "Columbus", "Bladen", "Brunswick"], cities: { Columbus: "Whiteville", Bladen: "Elizabethtown", Brunswick: "Shallotte" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -620,16 +622,25 @@ async function loadClinicalModels(institutionId: string) {
     const isSurg = /surgical/i.test(fam.name);
     const isCna = /nurse aide|cna/i.test(fam.name);
     const isMa = /medical assist/i.test(fam.name);
+    // A prelicensure RN (or BSN) family: the lifespan settings the concept-based curriculum places students in.
+    const isRn = !isCna && /nursing|prelicensure (rn|bsn)/i.test(fam.name);
     const model = isRad ? map.clinicalModel : isSurg
       ? { model: "competency", notes: "Competency / case-based: CAAHEP requires a documented case log (120 cases across specialties, 30 first-scrub in general surgery) rather than a fixed hour count — supply is OR suites and ASC procedure rooms with a preceptor per learner." }
       : isCna ? { model: "hours", notes: "Hours-based: NC NATCEP requires a minimum of clinical hours in a skilled nursing setting under RN supervision (currently 16 h clinical in the 75-h minimum), delivered in short blocks at long-term care sites." }
+      : isRn ? { model: "hours", notes: "Hours-based, faculty-supervised (NC BON 21 NCAC 36 .0321: every clinical experience is directed by nursing faculty — an instructor-led group of at most ten students, the workspace plans eight — and the capstone is precepted 1:1). The Board sets no minimum hour count per course or setting: the hours are the college's own course sessions, placed across the lifespan settings (medical-surgical, critical care, maternal-newborn, pediatric, behavioral health, long-term care, community)." }
       : { model: "hours", notes: "Hours-based practicum: 160-hour unpaid externship in an ambulatory office / clinic setting (CAAHEP), plus competency check-offs in administrative and clinical skills." };
-    await prisma.programFamily.update({ where: { id: fam.id }, data: { clinicalModel: model.model, clinicalNotes: model.notes } });
+    await prisma.programFamily.update({ where: { id: fam.id }, data: { clinicalModel: model.model, clinicalNotes: model.notes, ...(isRn ? { rotationPrimarySetting: "BEDS" } : {}) } });
 
     const areaDefs: { code: string; name: string; settingCodes: string; unitCategories: string }[] = isRad
       ? map.serviceAreas.map((a) => ({ ...a, unitCategories: "Imaging" }))
       : isSurg ? [{ code: "OR", name: "Operating room — scrub / first assist", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "ASC", name: "Ambulatory surgery center procedures", settingCodes: "ORS", unitCategories: "Surgical" }, { code: "SPD", name: "Sterile processing", settingCodes: "", unitCategories: "Surgical" }, { code: "AMB", name: "Physician office / clinic observation", settingCodes: "AMB", unitCategories: "Ambulatory office" }]
       : isCna ? [{ code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" }, { code: "ACH", name: "Adult care home", settingCodes: "LTC", unitCategories: "Adult care beds" }, { code: "MS", name: "Hospital medical-surgical unit", settingCodes: "BEDS", unitCategories: "Inpatient beds" }]
+      : isRn ? [
+        { code: "BEDS", name: "Medical-surgical / telemetry (adult acute)", settingCodes: "BEDS", unitCategories: "Inpatient beds" }, { code: "ICU", name: "Critical care", settingCodes: "ICU", unitCategories: "Inpatient beds" },
+        { code: "OB", name: "Maternal-newborn (labor & delivery, mother-baby)", settingCodes: "OB", unitCategories: "Inpatient beds" }, { code: "PEDS", name: "Pediatrics (inpatient or ambulatory)", settingCodes: "PEDS,AMB", unitCategories: "Inpatient beds,Ambulatory office" },
+        { code: "BH", name: "Behavioral / mental health", settingCodes: "BH", unitCategories: "Behavioral health" }, { code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" },
+        { code: "PH", name: "Community / public health", settingCodes: "PH", unitCategories: "Ambulatory office" }, { code: "HH", name: "Home health and hospice", settingCodes: "HH,HOSP", unitCategories: "Home & community" },
+      ]
       : [{ code: "AMB", name: "Ambulatory office / clinic externship", settingCodes: "AMB", unitCategories: "Ambulatory office" }, { code: "LAB", name: "Laboratory / phlebotomy", settingCodes: "", unitCategories: "Laboratory" }, { code: "IMG", name: "Imaging front office", settingCodes: "GEN", unitCategories: "Imaging" }];
     const areaByCode = new Map<string, string>();
     for (let i = 0; i < areaDefs.length; i++) {
@@ -657,12 +668,19 @@ async function loadClinicalModels(institutionId: string) {
       // Medical-Surgical, Long-Term Care), each rotation's hours go to its own setting; otherwise
       // the course's catalog clinical hours go to the family's primary setting.
       const AREA_OF: Record<string, string> = { "medical-surgical": "MS", "med-surg": "MS", "long-term care": "LTC", "skilled nursing": "LTC", "adult care": "ACH", "adult care home": "ACH", "community health": "AMB", "doctor's office": "AMB", "physician office": "AMB", "clinic": "AMB" };
+      // An RN family's rotations map through the shared nursing table (home health and hospice share one area).
+      const RN_AREA: Record<string, string> = { HOSP: "HH" };
+      const areaCodeOf = (rt: string): string | null => isRn ? (() => { const s = nursingAreaOf(rt); return s ? RN_AREA[s] ?? s : null; })() : AREA_OF[rt.trim().toLowerCase()] ?? null;
       const primary = areaByCode.get(areaDefs[0].code)!;
+      const uncoded = new Set<string>();
       for (const p of fam.programs) for (const t of p.terms) for (const c of t.courses) {
         const byArea = new Map<string, number>();
         for (const s of c.sessions) {
           if (s.kind !== "CLINICAL" || !s.rotationType) continue;
-          const areaId = areaByCode.get(AREA_OF[s.rotationType.trim().toLowerCase()] ?? "") ?? primary;
+          const code = areaCodeOf(s.rotationType);
+          // Missing ≠ zero: a rotation the nursing table does not name is left uncoded (the hub's hours banner shows it), never credited to the primary area.
+          if (isRn && !code) { if (!uncoded.has(`${c.code}|${s.rotationType}`)) { uncoded.add(`${c.code}|${s.rotationType}`); console.warn(`clinical model — ${fam.name} ${c.code}: rotation "${s.rotationType}" is not in the nursing table; its hours are left uncoded`); } continue; }
+          const areaId = areaByCode.get(code ?? "") ?? primary;
           byArea.set(areaId, (byArea.get(areaId) ?? 0) + s.lengthHours);
         }
         if (byArea.size) {
@@ -695,6 +713,11 @@ async function loadClinicalModels(institutionId: string) {
         await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
       }
     }
+    if (isRn) {
+      for (const [rotationType, settingCode, unitCategory, unitType] of NURSING_ROTATIONS) {
+        await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
+      }
+    }
 
     // Sites for this family: anything with assets in its settings or units in its categories.
     const settingSet = new Set(areaDefs.flatMap((a) => a.settingCodes.split(",").filter(Boolean)));
@@ -704,7 +727,7 @@ async function loadClinicalModels(institutionId: string) {
       const hasUnit = e.units.some((u) => catSet.has(u.unitCategory));
       if (!hasAsset && !hasUnit) continue;
       // Family-level agreement: the global one for the family that "owns" the site's primary use, a notch lower elsewhere.
-      const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || (isMa && e.units.some((u) => u.unitCategory === "Ambulatory office"));
+      const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || (isMa && e.units.some((u) => u.unitCategory === "Ambulatory office")) || (isRn && e.units.some((u) => /Inpatient beds|Long-term care beds|Adult care beds|Behavioral health|Home & community|Ambulatory office/.test(u.unitCategory)));
       const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
       await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, update: { agreementStatus: status }, create: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
       sites++;
@@ -1115,6 +1138,7 @@ async function main() {
     "Rowan-Cabarrus Community College": { address: "1333 Jake Alexander Blvd S", city: "Salisbury", state: "NC", zip: "28146" },
     "Carteret Community College": { address: "3505 Arendell St", city: "Morehead City", state: "NC", zip: "28557" },
     "Cape Fear Community College": { address: "411 N Front St", city: "Wilmington", state: "NC", zip: "28401" },
+    "Southeastern Community College": { address: "4564 Chadbourn Hwy", city: "Whiteville", state: "NC", zip: "28472" },
   };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   console.log("other campuses:", await seedOtherCampuses(prisma));
@@ -1168,10 +1192,13 @@ async function main() {
   for (const inst of await prisma.institution.findMany({ where: { name: { notIn: ["Sandhills Community College", "Lenoir Community College"] } }, select: { id: true, name: true } })) {
     if (!(await prisma.facility.count({ where: { institutionId: inst.id } }))) {
       const campus = await prisma.campus.findFirst({ where: { institutionId: inst.id }, orderBy: { createdAt: "asc" } });
-      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l)));
+      // A room is a location with a room number ("Freeland 127A"), or a named building with a space in it and no
+      // number published ("R Building – Skills lab": Southeastern's nursing building).
+      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l) || /\bBuilding\b/.test(l)));
       const buildings = new Map<string, string>();
       for (const loc of locations) {
-        const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const building = m?.[1]?.trim() || "Main Building"; const room = m?.[2] ?? null;
+        const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const b = m ? null : /^(.*?\bBuilding)\b/.exec(loc);
+        const building = (m?.[1]?.trim() || b?.[1]?.trim()) || "Main Building"; const room = m?.[2] ?? null;
         if (!buildings.has(building)) buildings.set(building, (await prisma.building.create({ data: { institutionId: inst.id, campusId: campus?.id ?? (await prisma.campus.create({ data: { institutionId: inst.id, name: "Main Campus", state: "NC" } })).id, name: building } })).id);
         await prisma.facility.create({ data: { institutionId: inst.id, name: loc, kind: "CLASSROOM", buildingId: buildings.get(building)!, building, roomNumber: room, availability: "From the program workbook", status: "active" } });
       }

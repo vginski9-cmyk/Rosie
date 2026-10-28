@@ -1,21 +1,35 @@
 import { describe, it, expect } from "vitest";
 import { PARTNER_SITES } from "../prisma/seed-partner-sites";
-import { NC_PLACES } from "../src/lib/geo";
+import { inGazetteer } from "../src/lib/geo";
+import { SETTING_KITS } from "../prisma/seed-kits";
 
 // The clinical partners seeded for Lenoir, Carteret and Roanoke-Chowan follow each program's own
 // placement model: instructor-led nursing-hall groups for Nurse Aide I, 1:1 precepted externship
-// slots for Medical Assisting. These checks keep the data honest as sites are added.
-
-const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+// slots for Medical Assisting; Southeastern's RN sites carry the settings an RN program rotates
+// through. These checks keep the data honest as sites are added.
 
 describe("partner sites", () => {
-  it("every site is unique, in a town the offline gazetteer can place, at a college that exists in the seed", () => {
+  it("every site is unique, in a town the offline gazetteer can place in its state, at a college that exists in the seed", () => {
     const ids = PARTNER_SITES.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
     const names = PARTNER_SITES.map((s) => `${s.institution}|${s.name}`);
     expect(new Set(names).size).toBe(names.length);
-    for (const s of PARTNER_SITES) expect(NC_PLACES[norm(s.city)], `${s.city} missing from the gazetteer`).toBeDefined();
-    expect(new Set(PARTNER_SITES.map((s) => s.institution))).toEqual(new Set(["Lenoir Community College", "Carteret Community College", "Roanoke-Chowan Community College"]));
+    for (const s of PARTNER_SITES) expect(inGazetteer(s.city, s.state ?? "NC"), `${s.city}, ${s.state ?? "NC"} missing from the gazetteer`).toBe(true);
+    expect(new Set(PARTNER_SITES.map((s) => s.institution))).toEqual(new Set(["Lenoir Community College", "Carteret Community College", "Roanoke-Chowan Community College", "Southeastern Community College"]));
+  });
+  it("the three earlier colleges' rows are untouched by the RN kits; Southeastern's sites carry every RN setting within 45 minutes, all prospects", () => {
+    for (const s of PARTNER_SITES.filter((s) => s.institution !== "Southeastern Community College")) { expect(s.kits).toBeUndefined(); expect(s.state).toBeUndefined(); }
+    const scc = PARTNER_SITES.filter((s) => s.institution === "Southeastern Community College");
+    expect(scc.length).toBeGreaterThanOrEqual(30);
+    expect(scc.every((s) => s.agreement === "prospect" && s.lookedUp === "Oct 2026")).toBe(true);
+    for (const s of scc) for (const k of s.kits ?? []) expect(SETTING_KITS[k.code], `${s.id} ${k.code}`).toBeDefined();
+    const hospitals = scc.filter((s) => s.kind === "hospital");
+    expect(hospitals.map((s) => s.city).sort()).toEqual(["Elizabethtown", "Loris", "Lumberton", "Whiteville"]);
+    expect(hospitals.filter((s) => (s.kits ?? []).map((k) => k.code).join() === "BEDS,ICU,OB" || (s.kits ?? []).map((k) => k.code).join() === "BEDS,ICU,OB,BH").length).toBe(3);
+    expect(scc.filter((s) => s.kind === "snf").length).toBeGreaterThanOrEqual(10);
+    for (const kind of ["hospice", "home-health", "dialysis", "health-dept", "fqhc", "office", "behavioral", "ach"]) expect(scc.some((s) => s.kind === kind), kind).toBe(true);
+    expect(scc.find((s) => s.id === "SCC-H01")!.note).toMatch(/clinical-instructor partnership/);
+    expect([...new Set(scc.map((s) => s.county))].sort()).toEqual(["Bladen", "Columbus", "Horry", "Robeson"]);
   });
   it("Nurse Aide colleges get nursing halls and an acute unit; the Medical Assisting college gets ambulatory externship sites", () => {
     const na = PARTNER_SITES.filter((s) => /Lenoir|Carteret/.test(s.institution));
@@ -40,5 +54,6 @@ describe("partner sites", () => {
     expect([...counties(/Lenoir/)].sort()).toEqual(["Greene", "Jones", "Lenoir"]);
     expect([...counties(/Carteret/)]).toEqual(["Carteret"]);
     expect([...counties(/Roanoke/)].sort()).toEqual(["Bertie", "Gates", "Hertford", "Northampton"]);
+    expect(counties(/Southeastern/).has("Columbus")).toBe(true);
   });
 });

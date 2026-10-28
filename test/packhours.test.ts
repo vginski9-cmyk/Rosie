@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from "node:fs";
 type S = { kind: string; lengthHours: number; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null };
 type C = { code: string; credits: number; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; sessions: S[] };
 type P = { name: string; terms: { name: string; startWeek: number; endWeek: number; courses: C[] }[] };
-const files = readdirSync("prisma/templates").filter((f) => /^(rccc-|brunswick-|cape-fear-)/.test(f) && f.endsWith(".json"));
+const files = readdirSync("prisma/templates").filter((f) => /^(rccc-|brunswick-|cape-fear-|southeastern-)/.test(f) && f.endsWith(".json"));
 const load = (f: string) => JSON.parse(readFileSync(`prisma/templates/${f}`, "utf8")) as P;
 const sum = (c: C, kind: string) => Math.round(c.sessions.filter((s) => s.kind === kind).reduce((n, s) => n + s.lengthHours, 0) * 100) / 100;
 const near = (a: number, b: number) => Math.abs(a - b) <= 0.06;

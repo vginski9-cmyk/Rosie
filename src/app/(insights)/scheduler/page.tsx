@@ -4,6 +4,8 @@ import { SchedulerBoard } from "@/components/SchedulerBoard";
 import { listChangeSets } from "@/lib/changesets";
 import { OPERATIONAL } from "@/lib/mode";
 import { PageHeader } from "@/components/PageHeader";
+import { prisma } from "@/lib/db";
+import { bandsOf } from "@/lib/geo";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,8 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
   const sched = await getSchedulerData(data.institution.id, range.from, range.to);
   const changes = await listChangeSets(data.institution.id);
   const roster = await getRosterPlacement(data.institution.id);
+  // The college's own drive-time bands: the lever reads "within 45 min" where the college banded its sites at 45.
+  const bands = bandsOf(await prisma.institution.findUnique({ where: { id: data.institution.id }, select: { ringCoreMinutes: true, ringOneMinutes: true, ringTwoMinutes: true } }));
   return (
     <div className="space-y-6">
       <PageHeader title={<>Clinical scheduler</>} meta={`${data.institution.name}${OPERATIONAL ? "" : " · diagnostic — nothing is written to the calendar"}`} />
@@ -44,6 +48,7 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
         range={range}
         canApply={OPERATIONAL}
         roster={roster}
+        bands={bands}
       />
     </div>
   );
