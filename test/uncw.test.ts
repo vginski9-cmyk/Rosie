@@ -8,8 +8,9 @@ import { PARTNER_SITES } from "../prisma/seed-partner-sites";
 
 // UNC Wilmington's three prelicensure BSN tracks — the four-semester prelicensure BSN's fall and spring entries and the
 // Accelerated BSN (summer entry) — as template packs (scripts/build-uncw-packs.mjs, 2026-10-28) from the school's
-// published plan of study: 60 nursing credits, 675 clinical/lab hours at 45 hours a lab or clinical credit and 15 a
-// lecture credit; no section days or rooms published; each clinical course carrying the usual settings, flagged.
+// published plan of study (confirmed by the program on 2026-10-28): 60 nursing credits, 675 clinical/lab hours at 45 hours a
+// lab or clinical credit and 15 a lecture credit; class sizes at the program's planned 80 / 80 / 24; NSG 302 as med-surg with
+// its first five weeks in the lab; no section days or rooms published; each clinical course carrying the usual settings, flagged.
 
 type Session = { kind: string; week: number; dayOfWeek: string | null; startTime: string | null; lengthHours: number; location: string | null; maxStudents: number; rotationType: string | null; clinicalMode: string | null; preceptorsNeeded: number; notes: string | null };
 type Course = { code: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; credits: number; sessions: Session[] };
@@ -34,9 +35,9 @@ describe("UNC Wilmington", () => {
   });
   it("every track carries the school's four-semester plan: 60 nursing credits and 675 clinical/lab hours (135, 180, 180, 180)", () => {
     expect(Object.values(packs).map((p) => [p.name, p.programType, p.credential, p.maxCohort, courses(p).reduce((n, c) => n + c.credits, 0)])).toEqual([
-      ["BSN Prelicensure — Fall Entry", "Traditional Full Time", "BSN", 60, 60],
-      ["BSN Prelicensure — Spring Entry", "Traditional Full Time", "BSN", 60, 60],
-      ["Accelerated BSN (second degree) — Summer Entry", "Accelerated (second degree)", "BSN", null, 60],
+      ["BSN Prelicensure — Fall Entry", "Traditional Full Time", "BSN", 80, 60],
+      ["BSN Prelicensure — Spring Entry", "Traditional Full Time", "BSN", 80, 60],
+      ["Accelerated BSN (second degree) — Summer Entry", "Accelerated (second degree)", "BSN", 24, 60],
     ]);
     for (const p of Object.values(packs)) {
       expect(p.terms.map((t) => t.courses.reduce((n, c) => n + c.credits, 0))).toEqual([15, 16, 15, 14]);
@@ -53,22 +54,29 @@ describe("UNC Wilmington", () => {
     expect([hours(course(fall, "NSG 300"), "LAB"), hours(course(absn, "NSG 300"), "LAB")]).toEqual([45, 45]);
     // Weekly figures follow the semester's weeks: NSG 302 at 3 class hours a week over 15, 4.5 over the ABSN's 10-week summer.
     expect([course(fall, "NSG 302").weeklyClassHours, course(absn, "NSG 302").weeklyClassHours, course(absn, "NSG 302").weeklyClinicalHours]).toEqual([3, 4.5, 9]);
-    expect(absn.maxCohortNote).toMatch(/not published/);
+    expect(absn.maxCohortNote).toMatch(/24/); expect(fall.maxCohortNote).toMatch(/70 now .* 80 from Fall 2027/);
   });
   it("sessions carry their hours with no day or time, in McNeill Hall or at a clinical site, with the usual settings per course and the capstone precepted", () => {
     for (const p of Object.values(packs)) for (const c of courses(p)) for (const s of c.sessions) {
       expect(s.dayOfWeek).toBeNull(); expect(s.startTime).toBeNull();
-      if (s.kind === "CLINICAL") { expect(s.location).toBe("Clinical site"); expect(KNOWN.has(s.rotationType ?? ""), `${c.code} ${s.rotationType}`).toBe(true); expect(s.notes).toMatch(/not the school's own rotation calendar/); }
+      if (s.kind === "CLINICAL" && s.clinicalMode === "Simulation") { expect(s.location).toBe("McNeill Hall – Simulation Learning Center"); expect(s.rotationType).toBeNull(); expect(c.code).toBe("NSG 302"); }
+      else if (s.kind === "CLINICAL") { expect(s.location).toBe("Clinical site"); expect(KNOWN.has(s.rotationType ?? ""), `${c.code} ${s.rotationType}`).toBe(true); expect(s.notes).toMatch(/confirmed the sequence on 2026-10-28/); }
       else expect(s.location).toMatch(/^McNeill Hall – /);
     }
-    const rot = (code: string) => [...new Set(course(fall, code).sessions.filter((s) => s.kind === "CLINICAL").map((s) => s.rotationType))];
-    expect([rot("NSG 302"), rot("NSG 313"), rot("NSG 314"), rot("NSG 422"), rot("NSG 426"), rot("NSG 430"), rot("NSG 434")]).toEqual([["Long-Term Care", "Med-Surg"], ["Obstetrics"], ["Pediatrics"], ["Behavioral Health"], ["Med-Surg", "Critical Care"], ["Community Health"], ["Med-Surg or Critical Care"]]);
+    const rot = (code: string) => [...new Set(course(fall, code).sessions.filter((s) => s.kind === "CLINICAL" && s.clinicalMode !== "Simulation").map((s) => s.rotationType))];
+    expect([rot("NSG 302"), rot("NSG 313"), rot("NSG 314"), rot("NSG 422"), rot("NSG 426"), rot("NSG 430"), rot("NSG 434")]).toEqual([["Med-Surg"], ["Obstetrics"], ["Pediatrics"], ["Behavioral Health"], ["Med-Surg", "Critical Care"], ["Community Health"], ["Med-Surg or Critical Care"]]);
+    // NSG 302: the first five weeks in the lab (the program, 2026-10-28) — 4 of 12 shifts as simulation in weeks 1–5, 8 at the hospital in weeks 6–15; the ABSN's ten-week summer keeps the proportion.
+    const s302 = course(fall, "NSG 302").sessions.filter((s) => s.kind === "CLINICAL");
+    expect(s302.filter((s) => s.clinicalMode === "Simulation").map((s) => s.week)).toEqual([1, 2, 3, 4]);
+    expect(s302.filter((s) => s.clinicalMode !== "Simulation").every((s) => s.week >= 6 && s.rotationType === "Med-Surg" && s.notes!.includes("geriatrics are objectives"))).toBe(true);
+    expect(course(absn, "NSG 302").sessions.filter((s) => s.kind === "CLINICAL" && s.clinicalMode === "Simulation").map((s) => s.week)).toEqual([1, 1, 2, 3]);
     expect(course(fall, "NSG 311").sessions.some((s) => s.kind === "CLINICAL")).toBe(false); // lab only
     const cap = course(fall, "NSG 434").sessions.filter((s) => s.kind === "CLINICAL");
     expect(cap).toHaveLength(12); expect(cap.every((s) => s.maxStudents === 1 && s.clinicalMode === "Preceptor-led" && s.preceptorsNeeded === 1 && s.lengthHours === 11.25)).toBe(true);
     const n302 = course(fall, "NSG 302").sessions.filter((s) => s.kind === "CLINICAL");
-    expect(n302).toHaveLength(12); expect(n302.every((s) => s.maxStudents === 8 && s.clinicalMode === "Instructor-led" && s.lengthHours === 7.5)).toBe(true);
-    expect(course(fall, "NSG 302").sessions.find((s) => s.kind === "CLASS")!.maxStudents).toBe(60);
+    expect(n302).toHaveLength(12); expect(n302.every((s) => s.maxStudents === 8 && ["Instructor-led", "Simulation"].includes(s.clinicalMode ?? "") && s.lengthHours === 7.5)).toBe(true);
+    expect(course(fall, "NSG 302").sessions.find((s) => s.kind === "CLASS")!.maxStudents).toBe(80); // didactic courses stay one section; growth adds clinical sections
+    expect(course(absn, "NSG 302").sessions.find((s) => s.kind === "CLASS")!.maxStudents).toBe(24);
   });
   it("has the registrar's 2026–27 calendar and the Wilmington-area sites within 45 minutes, all prospects", () => {
     expect(CALENDAR_FILES["University of North Carolina Wilmington"]).toBe("uncw.txt");
