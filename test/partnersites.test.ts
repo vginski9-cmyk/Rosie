@@ -24,8 +24,10 @@ describe("partner sites", () => {
     expect(scc.every((s) => s.agreement === "prospect" && s.lookedUp === "Oct 2026")).toBe(true);
     for (const s of scc) for (const k of s.kits ?? []) expect(SETTING_KITS[k.code], `${s.id} ${k.code}`).toBeDefined();
     const hospitals = scc.filter((s) => s.kind === "hospital");
-    expect(hospitals.map((s) => s.city).sort()).toEqual(["Elizabethtown", "Loris", "Lumberton", "Whiteville"]);
-    expect(hospitals.filter((s) => (s.kits ?? []).map((k) => k.code).join() === "BEDS,ICU,OB" || (s.kits ?? []).map((k) => k.code).join() === "BEDS,ICU,OB,BH").length).toBe(3);
+    expect(hospitals.map((s) => s.city).sort()).toEqual(["Elizabethtown", "Little River", "Loris", "Lumberton", "Whiteville"]);
+    // Every Southeastern hospital carries an emergency-department kit (the program's rotate-out day, 2026-10-28); three carry med-surg, ICU and OB.
+    expect(hospitals.every((s) => (s.kits ?? []).some((k) => k.code === "ED"))).toBe(true);
+    expect(hospitals.filter((s) => ["BEDS", "ICU", "OB"].every((c) => (s.kits ?? []).some((k) => k.code === c))).length).toBe(3);
     expect(scc.filter((s) => s.kind === "snf").length).toBeGreaterThanOrEqual(10);
     for (const kind of ["hospice", "home-health", "dialysis", "health-dept", "fqhc", "office", "behavioral", "ach"]) expect(scc.some((s) => s.kind === kind), kind).toBe(true);
     expect(scc.find((s) => s.id === "SCC-H01")!.note).toMatch(/clinical-instructor partnership/);

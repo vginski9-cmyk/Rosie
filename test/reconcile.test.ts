@@ -24,6 +24,15 @@ const rows = [
   inst("s5", "2026-09-30", 41, 4, 12),            // outside the window below
 ];
 
+describe("simulation on campus is clinical hours, never site demand", () => {
+  it("a clinical row run as simulation (its mode, or a simulation-lab location) seats nobody at a site", () => {
+    const sim = { ...inst("sim1", "2026-08-17", 41, 5, 10, "Med-Surg"), session: { ...inst("sim1", "2026-08-17", 41, 5, 10).session, rotationType: null, clinicalMode: "Simulation", location: "R Building – Simulation lab" } } as DatedInstance;
+    const byLocation = { ...inst("sim2", "2026-08-18", 41, 5, 10, "Med-Surg"), session: { ...inst("sim2", "2026-08-18", 41, 5, 10).session, clinicalMode: "Instructor-led", location: "Simulation lab" } } as DatedInstance;
+    expect(clinicalDemandRows([sim, byLocation], rotations)).toEqual([]);
+    expect(clinicalDemandRows([sim, inst("s1", "2026-08-17", 41, 4, 12)], rotations)).toHaveLength(1);
+  });
+});
+
 describe("one definition of dated clinical demand", () => {
   it("the scheduler and site capacity count the same learner-shifts and shifts for the same rows", () => {
     const base = clinicalDemandRows(rows, rotations);

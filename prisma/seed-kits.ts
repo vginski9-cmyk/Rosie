@@ -20,11 +20,13 @@ export const NURSING_ROTATIONS: RotationRow[] = [
   ["Long-Term Care", "LTC", "Long-term care beds", "SNF Nursing Unit"], ["Skilled Nursing", "LTC", "Long-term care beds", "SNF Nursing Unit"],
   ["Community Health", "PH", "Ambulatory office", "Public Health Clinic"], ["Community / Public Health", "PH", "Ambulatory office", "Public Health Clinic"],
   ["Home Health", "HH", "Home & community", "Home Health Team"], ["Hospice", "HOSP", "Home & community", "Hospice Team"],
+  // The emergency department: a rotate-out day with the unit's nurse (Southeastern, 2026-10-28), not a group placement.
+  ["Emergency", "ED", "Emergency department", "Emergency Department"], ["Emergency Department", "ED", "Emergency department", "Emergency Department"], ["ED", "ED", "Emergency department", "Emergency Department"],
   // The precepted capstone: an adult acute setting — med-surg or critical care — one student per preceptor.
   ["Med-Surg or Critical Care", "BEDS", "Inpatient beds", "Med-Surg / Telemetry"],
 ];
 /** The settings an RN family's sites can carry, primary first. */
-export const NURSING_SETTINGS = ["BEDS", "ICU", "OB", "PEDS", "BH", "LTC", "PH", "HH", "HOSP", "DIAL", "AMB"];
+export const NURSING_SETTINGS = ["BEDS", "ICU", "OB", "PEDS", "ED", "BH", "LTC", "PH", "HH", "HOSP", "DIAL", "AMB"];
 const ROT_BY_KEY = new Map(NURSING_ROTATIONS.map(([r, s]) => [r.trim().toLowerCase(), s]));
 /** The setting code a nursing rotation maps to, or null when the wording is not in the table (never a guess). */
 export const nursingAreaOf = (rotationType: string | null | undefined): string | null => (rotationType ? ROT_BY_KEY.get(rotationType.trim().toLowerCase()) ?? null : null);
@@ -42,6 +44,8 @@ export const SETTING_KITS: Record<string, SettingKit> = {
   ICU: { ...preset("ICU"), ...UNIT_24x7, learners: 8, preceptors: 0, serves: `Critically ill adults — ${GROUP}; the unit may hold a group smaller than eight`, unitType: "ICU / CCU", unitCategory: "Inpatient beds", uom: "beds", unitName: "Intensive care unit", liaisonTitle: "RN, Critical Care Educator" },
   OB: { ...preset("OB"), ...UNIT_24x7, learners: 8, preceptors: 0, serves: `Labor, delivery, postpartum and newborn care — ${GROUP}; the unit may hold a group smaller than eight`, unitType: "L&D / Mother-Baby", unitCategory: "Inpatient beds", uom: "beds", unitName: "Labor & delivery / mother-baby unit", liaisonTitle: "RN, Women's Services Educator" },
   PEDS: { ...preset("PEDS"), ...UNIT_24x7, learners: 8, preceptors: 0, serves: `Hospitalized children — ${GROUP}`, unitType: "Pediatric Unit", unitCategory: "Inpatient beds", uom: "beds", unitName: "Pediatric unit", liaisonTitle: "RN, Pediatric Nurse Educator" },
+  // The emergency department as a NURSING setting: the radiography preset "ED" names an imaging room, so this kit carries its own wording. A student's rotate-out day with the unit's nurse — not an instructor-led group.
+  ED: { code: "ED", setting: "Emergency department", assetType: "ED treatment bays", ...UNIT_24x7, learners: 2, preceptors: 0, serves: "Emergency and trauma patients — a student's rotate-out day paired with the department's nurse (two at once is the planning estimate)", unitType: "Emergency Department", unitCategory: "Emergency department", uom: "bays", unitName: "Emergency department", liaisonTitle: "RN, Emergency Department Educator" },
   BH: { ...preset("BH"), ...UNIT_24x7, learners: 8, preceptors: 0, serves: `Adults in behavioral-health care — ${GROUP}`, unitType: "Inpatient Behavioral Health", unitCategory: "Behavioral health", uom: "beds", unitName: "Behavioral health unit", liaisonTitle: "RN, Behavioral Health Educator" },
   LTC: { ...preset("LTC"), rule: "7-day Day+Evening", days: "Mon,Tue,Wed,Thu,Fri,Sat,Sun", blocks: "Day,Evening", hours: 6, dayStart: "07:00", learners: 8, preceptors: 0, serves: `Long-term care residents — ${GROUP} per hall`, unitType: "SNF Nursing Unit", unitCategory: "Long-term care beds", uom: "beds", unitName: "Nursing hall(s)", liaisonTitle: "Staff Development RN — nursing clinical liaison" },
   PH: { ...preset("PH"), ...WEEKDAY, learners: 2, preceptors: 1, serves: "Immunizations, screenings, maternal and child health, communicable disease — students paired with a public health nurse", unitType: "Public Health Clinic", unitCategory: "Ambulatory office", uom: "exam rooms", unitName: "Clinic", liaisonTitle: "Public Health Nurse, RN — Preceptor" },

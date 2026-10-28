@@ -117,3 +117,11 @@ describe("role-specific guidance", () => {
     expect(s.byCode.map((t) => [t.code, t.placements, t.occurrences])).toEqual([["INSTRUCTOR_UNASSIGNED", 1, 1], ["HOLIDAY", 1, 1]]);
   });
 });
+
+describe("supervision — simulation on campus", () => {
+  it("reads a simulation mode as an instructor-led group in the college's own lab, reviewed, with no site preceptor", () => {
+    const sim = supervisionFromLegacy({ clinicalMode: "Simulation", facultyNeeded: 1, preceptorsNeeded: 0, maxStudents: 10 });
+    expect([sim.mode, sim.status, requires(sim, "instructor"), requires(sim, "preceptor")]).toEqual(["instructor-led", "reviewed", true, false]);
+    expect(modeFromText("Sim lab")).toBe("instructor-led");
+  });
+});

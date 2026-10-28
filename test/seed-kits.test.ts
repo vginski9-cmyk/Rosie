@@ -15,17 +15,20 @@ describe("nursing clinical vocabulary", () => {
     expect(nursingAreaOf("Operating Room")).toBeNull();
     expect(nursingAreaOf(null)).toBeNull();
     expect(nursingAreaOf("Med-Surg or Critical Care")).toBe("BEDS");
+    expect([nursingAreaOf("Emergency"), nursingAreaOf("Emergency Department"), nursingAreaOf("ED")]).toEqual(["ED", "ED", "ED"]); // the rotate-out day (Southeastern, 2026-10-28)
     expect(new Set(NURSING_ROTATIONS.map(([r]) => r)).size).toBe(NURSING_ROTATIONS.length);
   });
   it("every setting kit carries its preset's wording, a learner count and a liaison title; the family's settings are all kitted", () => {
     for (const [code, kit] of Object.entries(SETTING_KITS)) {
       const preset = SETTING_PRESETS.find((p) => p[0] === code)!;
-      expect([kit.code, kit.setting, kit.assetType]).toEqual([code, preset[1], preset[2]]);
+      // The ED preset names a radiography room; the nursing kit carries its own wording for the emergency department.
+      expect([kit.code, kit.setting, kit.assetType]).toEqual(code === "ED" ? ["ED", "Emergency department", "ED treatment bays"] : [code, preset[1], preset[2]]);
       expect(kit.learners).toBeGreaterThan(0); expect(kit.liaisonTitle).toMatch(/RN/); expect(kit.unitCategory.length).toBeGreaterThan(0);
     }
     for (const s of NURSING_SETTINGS) expect(SETTING_KITS[s], s).toBeDefined();
     // Inpatient and long-term-care units take an instructor-led group; community settings a precepted pair.
     expect([SETTING_KITS.BEDS.learners, SETTING_KITS.BEDS.preceptors, SETTING_KITS.PH.learners, SETTING_KITS.PH.preceptors]).toEqual([8, 0, 2, 1]);
+    expect([SETTING_KITS.ED.learners, SETTING_KITS.ED.preceptors, SETTING_KITS.ED.unitCategory]).toEqual([2, 0, "Emergency department"]); // a rotate-out day with the unit's nurse
   });
   it("Sandhills' rotation join carries the shared nursing rows plus its own", () => {
     const sandhills = new Map(EXTRA_ROTATIONS.map(([r, s]) => [r, s]));

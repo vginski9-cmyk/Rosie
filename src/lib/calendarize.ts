@@ -8,7 +8,7 @@ import { autoSchedule, toHHMM, type PlaceReq, type RoomLite, type Weekday } from
 import { sectionSlot, toMinutes } from "./sessiontimes";
 import { hostSlots, type HostLite } from "./hosts";
 import type { RotationCode } from "./assetmap";
-import { isOnlineSession } from "./capacitymodel";
+import { isOnlineSession, isSimulationSession } from "./capacitymodel";
 
 const WK_MS = 7 * 24 * 3600 * 1000;
 
@@ -18,7 +18,7 @@ export interface CalendarizeTerm {
   startMs: number | null;
   /** Real last day of the term (ms) — weekly bookings recur until it, not past the semester. */
   endMs?: number | null;
-  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; endTime?: string | null; sectionTimes?: string | null; location?: string | null; rotationType?: string | null; deliveryMode?: string | null }[] }[];
+  courses: { id: string; sessions: { kind: string; maxStudents: number; lengthHours: number; dayOfWeek?: string | null; startTime?: string | null; endTime?: string | null; sectionTimes?: string | null; location?: string | null; rotationType?: string | null; deliveryMode?: string | null; clinicalMode?: string | null }[] }[];
 }
 export interface CalendarizeInput {
   cohortId: string;
@@ -49,7 +49,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
   const roomByName = new Map(input.rooms.map((r) => [normName(r.name), r]));
   const codeOf = new Map((input.rotations ?? []).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
   const siteSlots = new Map<string, string[]>();
-  const meta = new Map<string, { courseId: string; kind: string; sectionIndex: number; sectionCount: number; seats: number; lengthHours: number; termIndex: number; startWeek: number; endWeek: number }>();
+  const meta = new Map<string, { courseId: string; kind: string; sim?: boolean; sectionIndex: number; sectionCount: number; seats: number; lengthHours: number; termIndex: number; startWeek: number; endWeek: number }>();
   for (const t of input.terms) {
     const base = t.startMs ?? (input.cohortStartMs != null ? input.cohortStartMs + (t.index - 1) * 17 * WK_MS : null);
     if (base == null) continue;
@@ -61,17 +61,19 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
       // with no fixed weekday never book a room or a site (a kind that is only that has no
       // pattern at all); a session the sheet gives a weekday and time is booked whatever its
       // delivery code says — the contradiction is flagged in its notes, not hidden.
-      const kinds = new Map<string, { kind: string; day: string | null; maxStudents: number; lengthHours: number; sample: (typeof c.sessions)[number] }>();
+      const kinds = new Map<string, { kind: string; sim: boolean; day: string | null; maxStudents: number; lengthHours: number; sample: (typeof c.sessions)[number] }>();
       const online = (s: (typeof c.sessions)[number]) => isOnlineSession(s.deliveryMode, s.location);
       const inPerson = c.sessions.filter((s) => !(online(s) && !s.dayOfWeek));
       for (const s of inPerson) {
-        const key = `${s.kind}|${s.dayOfWeek ?? ""}`;
+        // A simulation clinical row is its own weekly pattern: it books the sim room, never a site.
+        const sim = s.kind === "CLINICAL" && isSimulationSession(s.clinicalMode, s.location);
+        const key = `${s.kind}${sim ? "|sim" : ""}|${s.dayOfWeek ?? ""}`;
         const cur = kinds.get(key);
         // Prefer a session that states a time as the pattern's representative.
-        if (!cur || (!(cur.sample.startTime || cur.sample.sectionTimes) && (s.startTime || s.sectionTimes))) kinds.set(key, { kind: s.kind, day: s.dayOfWeek ?? null, maxStudents: s.maxStudents, lengthHours: s.lengthHours, sample: s });
+        if (!cur || (!(cur.sample.startTime || cur.sample.sectionTimes) && (s.startTime || s.sectionTimes))) kinds.set(key, { kind: s.kind, sim, day: s.dayOfWeek ?? null, maxStudents: s.maxStudents, lengthHours: s.lengthHours, sample: s });
       }
       // A kind that has dated days drops its undated sessions (they are the same course's flex/TBA rows, not another weekly meeting).
-      for (const [key, info] of [...kinds]) if (info.day == null && [...kinds.values()].some((x) => x.kind === info.kind && x.day != null)) kinds.delete(key);
+      for (const [key, info] of [...kinds]) if (info.day == null && [...kinds.values()].some((x) => x.kind === info.kind && x.sim === info.sim && x.day != null)) kinds.delete(key);
       const siteSlotsByKind = new Map<string, string[]>();
       for (const info of kinds.values()) {
         const kind = info.kind;
@@ -79,7 +81,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
         const sections = Math.max(1, Math.ceil(E / cap));
         const room = info.sample.location ? roomByName.get(normName(info.sample.location)) ?? null : null;
         // Sites for this course's clinical: the settings its rotation types need, at sites that have them — the same site on every weekday of a section.
-        let slots = siteSlotsByKind.get(kind);
+        let slots = info.sim ? [] : siteSlotsByKind.get(kind);
         if (!slots) {
           slots = [];
           if (kind === "CLINICAL" && input.hosts?.length) {
@@ -93,9 +95,10 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
           siteSlotsByKind.set(kind, slots);
           siteSlots.set(`${c.id}|${kind}`, slots);
         }
+        const kindKey = info.sim ? "SIM" : kind;
         let seatStart = 1;
         for (let si = 1; si <= sections; si++) {
-          const id = `${input.cohortId}:${c.id}:${kind}:${si}:${info.day ?? "any"}`;
+          const id = `${input.cohortId}:${c.id}:${kindKey}:${si}:${info.day ?? "any"}`;
           const slot = sectionSlot({ dayOfWeek: info.day, startTime: info.sample.startTime ?? null, endTime: info.sample.endTime ?? null, sectionTimes: info.sample.sectionTimes ?? null }, si);
           const preferDay = (slot?.dayOfWeek ?? info.day ?? undefined) as Weekday | undefined;
           // Seats dealt evenly: 41 students in 4 sections are 11, 10, 10, 10 — never 44.
@@ -105,7 +108,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
           const lengthHours = span ?? (info.lengthHours || 2);
           reqs.push({ id, cohortId: input.cohortId, sectionIndex: si, kind, seats, lengthHours, weekStartMs: base, weekEndMs: endMs, preferDay, preferStartMin: slot ? toMinutes(slot.startTime) : undefined, preferFacilityId: room?.id ?? undefined, seatStart });
           seatStart += seats;
-          meta.set(id, { courseId: c.id, kind, sectionIndex: si, sectionCount: sections, seats, lengthHours, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
+          meta.set(id, { courseId: c.id, kind, sim: info.sim, sectionIndex: si, sectionCount: sections, seats, lengthHours, termIndex: t.index, startWeek: t.startWeek ?? 1, endWeek: t.endWeek ?? 16 });
         }
       }
     }
@@ -119,7 +122,7 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
     return {
       cohortId: input.cohortId, courseId: m.courseId, kind: m.kind, sectionIndex: m.sectionIndex, sectionCount: m.sectionCount, seats: m.seats,
       dayOfWeek: pl.dayOfWeek, startTime: toHHMM(pl.startMin), lengthHours: m.lengthHours, termIndex: m.termIndex, startWeek: m.startWeek, endWeek: m.endWeek,
-      facilityId: pl.facilityId, employerId: m.kind === "CLINICAL" ? (siteSlots.get(`${m.courseId}|${m.kind}`)?.length ? siteSlots.get(`${m.courseId}|${m.kind}`)![(m.sectionIndex - 1) % siteSlots.get(`${m.courseId}|${m.kind}`)!.length] : input.hostIds.length ? input.hostIds[(ci++) % input.hostIds.length] : null) : null, staffPersonId: null,
+      facilityId: pl.facilityId, employerId: m.kind === "CLINICAL" && !m.sim ? (siteSlots.get(`${m.courseId}|${m.kind}`)?.length ? siteSlots.get(`${m.courseId}|${m.kind}`)![(m.sectionIndex - 1) % siteSlots.get(`${m.courseId}|${m.kind}`)!.length] : input.hostIds.length ? input.hostIds[(ci++) % input.hostIds.length] : null) : null, staffPersonId: null,
     };
   });
 }

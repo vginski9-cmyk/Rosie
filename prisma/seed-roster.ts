@@ -321,7 +321,7 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
     where: { program: { institutionId }, ...NOT_ARCHIVED },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
-      program: { select: { familyId: true, defaultCohortSeats: true, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
+      program: { select: { familyId: true, defaultCohortSeats: true, terms: { orderBy: { index: "asc" }, include: { courses: { include: { sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, clinicalMode: true, location: true, rotationType: true } } } } } } } },
     },
   });
   const secured = (await prisma.employer.findMany({ where: { institutionId, status: "active", agreementStatus: "secured" }, select: { id: true } })).map((e) => e.id);
@@ -350,14 +350,23 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
  *  full-time row says where the number stands. */
 const POLICY_NOTES: Record<string, Partial<Record<string, string>>> = {
   "University of North Carolina Wilmington": { "full-time": "UNCW's Policy on Faculty Workload (03.250) sets a differentiated workload under UNC System Policy 400.3.4: every full-time faculty member has a plan summing to 100 %, and the Faculty Senate's guidance (April 2024) counts a 3-credit organized class, or its equivalent contact hours, as 10 % of workload with teaching 50–80 % of a position — 15 to 24 contact hours a week in those terms. The workspace's 16 of 40 sits in that range and stands until the School of Nursing states its own clinical-faculty load (none is published)." },
-  "Southeastern Community College": { "full-time": "Southeastern's New Employee Orientation guide (2023) states the FTE basis as 512 contact hours a year — 16 contact hours a week × 16 weeks × 2 semesters — so the workspace's 16 of 40 is the college's own figure. Faculty load is set under Procedure 3.1.3.2 Instructional Employees Workload, whose text is not published; replace on Setup → People when the college states it." },
+  "Southeastern Community College": { "full-time": "Nursing's own load, as the program stated it to the owner on 2026-10-28: nursing instructors are instructional staff on campus 8 to 5 (a 40-hour week) with a direct-contact load of 20 to 24 contact hours a week of class, lab and clinical — down from 22 to 26 the year before (a later remark put regular full-time faculty at 20 to 26; the Dec 4 data package settles the range). The simulation-lab coordinator carries 18 to 20 and the program coordinator 18 to 22 (their own rows below); there is no clinical coordinator, and placement, test-review and check-off help carry no workload credit. Six full-time nursing faculty cover the ADN, the LPN-to-ADN transition and the PN program, two positions have been open about a year with no applicants, and adjunct clinical faculty fill in. The college-wide FTE basis in its 2023 orientation guide is 512 contact hours a year (16 a week × 16 weeks × 2 semesters) under Procedure 3.1.3.2 Instructional Employees Workload, whose text is not published." },
   "Rowan-Cabarrus Community College": { "full-time": "The owner's figure (2026-10-22): Rowan-Cabarrus's full-time faculty load for Electrical Systems Technology is 20 contact hours a week of a 40-hour week — 2 work hours credited per contact hour. The college publishes no contact-hour load itself; its postings give full-time faculty a 40-hour week (instruction, preparation, student hours, committees, advising)." },
   "Cape Fear Community College": { "full-time": "Cape Fear's employee handbook (Work Schedules policy, read 2026-10-22): full-time faculty work a 40-hour week over five days, 30 of them on campus over at least four days including five student hours; faculty whose regular teaching load is under 25 contact hours owe service hours, those at 25 or more are exempt. The policy and the Electrical Systems Technology templates are anchored to that published 25-hour threshold (the owner's call, 2026-10-22): 1.6 work hours a contact hour." },
 };
 /** A college's own figure for a policy row, where it publishes one (the note says its source). */
-const POLICY_FIGURES: Record<string, Partial<Record<string, { contactHoursPerWeek?: number; workWeekHours?: number; hoursPerContactHour?: number | null }>>> = {
+const POLICY_FIGURES: Record<string, Partial<Record<string, { contactHoursPerWeek?: number; workWeekHours?: number; hoursPerContactHour?: number | null; maxContactHoursPerWeek?: number | null }>>> = {
+  "Southeastern Community College": { "full-time": { contactHoursPerWeek: 20, workWeekHours: 40, hoursPerContactHour: 2, maxContactHoursPerWeek: 24 } }, // the program's stated range, 20–24 (2026-10-28)
   "Rowan-Cabarrus Community College": { "full-time": { contactHoursPerWeek: 20, workWeekHours: 40, hoursPerContactHour: 2 } }, // the owner's figure: 20 of 40, 2 to 1
   "Cape Fear Community College": { "full-time": { contactHoursPerWeek: 25, workWeekHours: 40, hoursPerContactHour: null } }, // the handbook's published threshold: 40 ÷ 25 = 1.6 work hours a contact hour
+};
+/** Position-specific loads a college states beyond its employment types: a row whose `title` matches the person's
+ *  title (the workload resolver prefers a title row over the employment-type row). */
+export const EXTRA_POLICIES: Record<string, { role: string; employmentType: string | null; title: string; label: string; contactHoursPerWeek: number; workWeekHours: number; hoursPerContactHour: number | null; maxContactHoursPerWeek: number | null; notes: string }[]> = {
+  "Southeastern Community College": [
+    { role: "instructor", employmentType: "full-time", title: "Simulation Lab Coordinator", label: "Simulation lab coordinator", contactHoursPerWeek: 18, workWeekHours: 40, hoursPerContactHour: null, maxContactHoursPerWeek: 20, notes: "The program's stated load for its simulation-lab coordinator, 18 to 20 contact hours a week (2026-10-28); the coordinator also teaches classes and clinical groups, so the simulation lab is open only when that teaching allows — it has closed for whole eight-week sessions." },
+    { role: "instructor", employmentType: "full-time", title: "Program Coordinator", label: "Program coordinator", contactHoursPerWeek: 18, workWeekHours: 40, hoursPerContactHour: null, maxContactHoursPerWeek: 22, notes: "The program's stated load for its program coordinator, 18 to 22 contact hours a week (2026-10-28)." },
+  ],
 };
 export async function seedWorkloadPolicies(prisma: PrismaClient) {
   const institutions = await prisma.institution.findMany({ select: { id: true, name: true } });
@@ -365,7 +374,11 @@ export async function seedWorkloadPolicies(prisma: PrismaClient) {
   for (const inst of institutions) for (const d of DEFAULT_POLICIES) {
     const note = POLICY_NOTES[inst.name]?.[d.employmentType ?? ""];
     const own = POLICY_FIGURES[inst.name]?.[d.employmentType ?? ""] ?? {};
-    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: own.contactHoursPerWeek ?? d.contactHoursPerWeek, workWeekHours: own.workWeekHours ?? d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: "hoursPerContactHour" in own ? own.hoursPerContactHour : d.hoursPerContactHour, maxContactHoursPerWeek: d.maxContactHoursPerWeek, notes: note ?? (d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null) } });
+    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: d.role, employmentType: d.employmentType, title: d.title, label: d.label ?? null, contactHoursPerWeek: own.contactHoursPerWeek ?? d.contactHoursPerWeek, workWeekHours: own.workWeekHours ?? d.workWeekHours, termWeeks: d.termWeeks, annualWeeks: d.annualWeeks, hoursPerContactHour: "hoursPerContactHour" in own ? own.hoursPerContactHour : d.hoursPerContactHour, maxContactHoursPerWeek: own.maxContactHoursPerWeek ?? d.maxContactHoursPerWeek, notes: note ?? (d.role === "instructor" && d.employmentType === "full-time" ? "FT = 16/40 = 2.5 (program workbook)" : d.role === "instructor" && d.employmentType === "adjunct" ? "adjunct = 18/40 = 2.25 (program workbook)" : d.role === "support" ? "support = 1:1 (program workbook)" : null) } });
+    n++;
+  }
+  for (const inst of institutions) for (const x of EXTRA_POLICIES[inst.name] ?? []) {
+    await prisma.workloadPolicy.create({ data: { institutionId: inst.id, employerId: null, role: x.role, employmentType: x.employmentType, title: x.title, label: x.label, contactHoursPerWeek: x.contactHoursPerWeek, workWeekHours: x.workWeekHours, termWeeks: 16, annualWeeks: 32, hoursPerContactHour: x.hoursPerContactHour, maxContactHoursPerWeek: x.maxContactHoursPerWeek, notes: x.notes } });
     n++;
   }
   return n;

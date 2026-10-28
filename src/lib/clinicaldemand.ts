@@ -8,7 +8,7 @@
 // site (C capped at Y × max students), the shift block from the start time, and the asset setting
 // the rotation type maps to.
 
-import { isOnlineSession, type DatedInstance } from "./capacitymodel";
+import { isOnlineSession, isSimulationSession, type DatedInstance } from "./capacitymodel";
 import { shiftBlockOf, type ShiftBlock } from "./clinicalsupply";
 import { ruleFromLegacy, eligibleSettings, proposeRuleFromText, type SettingRuleSpec } from "./settingrule";
 
@@ -48,6 +48,8 @@ export function clinicalDemandRows(rows: DatedInstance[], rotations: RotationCod
     if (r.session.kind !== "CLINICAL" || !r.dateIso) continue;
     // An online row typed "Clinical" (a sheet's slip, or a virtual session) seats nobody anywhere.
     if (isOnlineSession(r.session.deliveryMode, r.session.location)) continue;
+    // A simulation row delivers clinical hours on campus: no seat at any site.
+    if (isSimulationSession(r.session.clinicalMode, r.session.location)) continue;
     const sections = Math.max(0, Math.round(r.computed.Y ?? 0));
     const enrollment = Math.max(0, Math.round(r.computed.C ?? 0));
     const seatsPerSection = Math.max(1, r.session.maxStudents ?? 1);

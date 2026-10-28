@@ -639,6 +639,7 @@ async function loadClinicalModels(institutionId: string) {
       : isRn ? [
         { code: "BEDS", name: "Medical-surgical / telemetry (adult acute)", settingCodes: "BEDS", unitCategories: "Inpatient beds" }, { code: "ICU", name: "Critical care", settingCodes: "ICU", unitCategories: "Inpatient beds" },
         { code: "OB", name: "Maternal-newborn (labor & delivery, mother-baby)", settingCodes: "OB", unitCategories: "Inpatient beds" }, { code: "PEDS", name: "Pediatrics (inpatient or ambulatory)", settingCodes: "PEDS,AMB", unitCategories: "Inpatient beds,Ambulatory office" },
+        { code: "ED", name: "Emergency department", settingCodes: "ED", unitCategories: "Emergency department" },
         { code: "BH", name: "Behavioral / mental health", settingCodes: "BH", unitCategories: "Behavioral health" }, { code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" },
         { code: "PH", name: "Community / public health", settingCodes: "PH", unitCategories: "Ambulatory office" }, { code: "HH", name: "Home health and hospice", settingCodes: "HH,HOSP", unitCategories: "Home & community" },
       ]

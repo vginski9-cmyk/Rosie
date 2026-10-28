@@ -49,6 +49,8 @@ export interface SupervisionSpec {
 const MODE_WORDS: [RegExp, SupervisionMode][] = [
   [/hybrid|combined|both|instructor.*preceptor|preceptor.*instructor/i, "combined"],
   [/instructor|faculty|group/i, "instructor-led"],
+  // Simulation on campus is an instructor-led group in the college's own lab (the college's faculty count applies; no site preceptor).
+  [/simulation|\bsim\b/i, "instructor-led"],
   [/precept|1:1|one[- ]to[- ]one/i, "preceptor-led"],
 ];
 /** The legacy mode string → a mode, or unknown. Explicit words only; nothing is coerced. */

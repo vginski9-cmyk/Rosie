@@ -54,7 +54,7 @@ export async function calendarizeRows(cohortId: string) {
     where: { id: cohortId },
     include: {
       cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
-      program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, location: true, rotationType: true } } } } } } } },
+      program: { select: { institutionId: true, familyId: true, defaultCohortSeats: true, terms: { select: { id: true, index: true, startWeek: true, endWeek: true, courses: { select: { id: true, sessions: { select: { kind: true, maxStudents: true, lengthHours: true, dayOfWeek: true, startTime: true, endTime: true, sectionTimes: true, deliveryMode: true, clinicalMode: true, location: true, rotationType: true } } } } } } } },
     },
   });
   if (!co) return [];
