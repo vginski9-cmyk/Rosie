@@ -72,6 +72,9 @@ const NOT_A_FIELD = /^(institution name|program name|program type|version)$/;
 export const normalizeHeader = (h: unknown): string =>
   String(h ?? "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/_+/g, " ").replace(/[^a-z0-9#]+/g, " ").replace(/\s+/g, " ").trim();
 
+/** A campus room named as a clinical row's location (a classroom, lab or simulation space), as against a site. */
+const CAMPUS_ROOM = /^(classroom|lab|labs?\b.*|skills lab|simulation.*|sim lab|computer lab|lecture hall)$/i;
+
 const hasPhrase = (hay: string, needle: string) => (` ${hay} `).includes(` ${needle} `);
 
 /** Recognize one header. Exact header wins; else the longest synonym contained as a whole phrase. */
@@ -205,8 +208,15 @@ export function rowsToSessions(rows: unknown[][], det: HeaderDetection): ImportR
     const courseCode = text(get(row, "courseCode")) ?? carry.courseCode;
     const courseTitle = text(get(row, "courseTitle")) ?? carry.courseTitle;
     carry = { termNumber, semester, courseCode, courseTitle };
-    const kind = parseKind(get(row, "kind")) ?? parseKind(get(row, "title")) ?? parseKind(get(row, "location"));
+    let kind = parseKind(get(row, "kind")) ?? parseKind(get(row, "title")) ?? parseKind(get(row, "location"));
     if (!kind) { skipped++; issues.push(`Row ${r + 1}: no session type (class / lab / clinical) — skipped`); continue; }
+    // A clinical-typed row held in a campus room (a program's final exam or post-clinical skills lab inside its
+    // clinical-hours bucket) is a lab or class on campus, never a seat at a site; its rotation and mode are cleared.
+    const locationText = text(get(row, "location"));
+    const onCampus = kind === "CLINICAL" && !!locationText && CAMPUS_ROOM.test(locationText);
+    if (onCampus) { kind = /class/i.test(locationText!) ? "CLASS" : "LAB"; issues.push(`Row ${r + 1}: clinical row at "${locationText}" read as ${kind.toLowerCase()} on campus (not a clinical site)`); }
+    // An asynchronous online row has no weekday of its own: a day the sheet gives it is a placeholder.
+    const asyncOnline = /asynchronous|self-paced/i.test(text(get(row, "deliveryMode")) ?? "");
     if (!courseCode && !courseTitle) { skipped++; issues.push(`Row ${r + 1}: no course code or title — skipped`); continue; }
     const key = `${courseCode ?? courseTitle}|${kind}`;
     let number = num(get(row, "number"));
@@ -214,17 +224,18 @@ export function rowsToSessions(rows: unknown[][], det: HeaderDetection): ImportR
     counters.set(key, Math.max(counters.get(key) ?? 0, number));
     for (const f of ["maxStudents", "facultyNeeded"] as const) if (severalFigures(get(row, f))) issues.push(`Row ${r + 1}: ${IMPORT_FIELD_LABEL[f]} "${String(get(row, f)).trim()}" lists several figures — left blank, the text kept in the notes`);
     const dayRaw = get(row, "dayOfWeek");
-    const dayOfWeek = parseDay(dayRaw);
-    if (dayRaw != null && String(dayRaw).trim() && !dayOfWeek) issues.push(`Row ${r + 1}: day "${String(dayRaw)}" not recognized — left blank`);
+    const dayOfWeek = asyncOnline ? null : parseDay(dayRaw);
+    if (!asyncOnline && dayRaw != null && String(dayRaw).trim() && !dayOfWeek) issues.push(`Row ${r + 1}: day "${String(dayRaw)}" not recognized — left blank`);
+    if (asyncOnline && dayRaw != null && String(dayRaw).trim()) issues.push(`Row ${r + 1}: asynchronous online — the day "${String(dayRaw)}" is a placeholder, left blank`);
     out.push({
       termNumber, semester, courseCode, courseTitle, kind, number, title: text(get(row, "title")),
       deliveryMode: text(get(row, "deliveryMode")), location: text(get(row, "location")),
       lengthHours: num(get(row, "lengthHours")), maxStudents: countOf(get(row, "maxStudents"), "learners"),
       facultyNeeded: countOf(get(row, "facultyNeeded"), "staff"), facultyContactPolicy: num(get(row, "facultyContactPolicy")),
       supportStaffNeeded: num(get(row, "supportStaffNeeded")), supportContactPolicy: num(get(row, "supportContactPolicy")),
-      week: num(get(row, "week")), dayOfWeek, startTime: parseTime(get(row, "startTime")) ?? timeFromNotes(get(row, "notes")), notes: [text(get(row, "notes")), ...(["maxStudents", "facultyNeeded"] as const).filter((f) => severalFigures(get(row, f))).map((f) => `${IMPORT_FIELD_LABEL[f]}: "${String(get(row, f)).trim()}" — several figures, left blank`)].filter(Boolean).join(" · ") || null,
+      week: num(get(row, "week")), dayOfWeek, startTime: asyncOnline ? null : parseTime(get(row, "startTime")) ?? timeFromNotes(get(row, "notes")), notes: [onCampus ? "In the program's clinical-hours bucket, held on campus." : null, text(get(row, "notes")), ...(["maxStudents", "facultyNeeded"] as const).filter((f) => severalFigures(get(row, f))).map((f) => `${IMPORT_FIELD_LABEL[f]}: "${String(get(row, f)).trim()}" — several figures, left blank`)].filter(Boolean).join(" · ") || null,
       preceptorsNeeded: num(get(row, "preceptorsNeeded")), preceptorContactPolicy: num(get(row, "preceptorContactPolicy")),
-      rotationType: text(get(row, "rotationType")), clinicalMode: text(get(row, "clinicalMode")),
+      rotationType: onCampus ? null : text(get(row, "rotationType")), clinicalMode: onCampus ? null : text(get(row, "clinicalMode")),
       experiences: text(get(row, "experiences")), progression: text(get(row, "progression")),
       sourceRow: r + 1,
     });

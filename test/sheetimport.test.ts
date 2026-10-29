@@ -97,6 +97,16 @@ describe("sheet import — the Program Planning Template", () => {
     expect([det.map[3], det.map[4], det.map[16], det.map[17]]).toEqual(["termNumber", "courseCode", "week", "dayOfWeek"]);
     expect(det.unmapped.map((u) => u.header)).toEqual(["Institution Name", "Program Name", "Program Type"]);
   });
+  it("reads a clinical-typed row in a campus room as a lab on campus and an asynchronous online row without its placeholder day", () => {
+    const lab = ["Craven CC", "Nurse Aide Level I", "Hybrid", "Term 1", "NA I (DAY)", "Clinical", "14", "Lab", "In-person", "Lab", "4", "16", "2", "1.379", "0", "1", "13", "Thursday", "Post-clinical skills lab (state exam prep), 8:30a-12:30p, whole cohort", "0", "1", "Long-Term Care", "Instructor-Led Clinical Group"];
+    const online = ["Craven CC", "Nurse Aide Level I", "Hybrid", "Term 1", "NA I (CCP)", "Online", "1", "Online module - Week 1", "Online (asynchronous)", "Online / LMS", "1.5", "10", "1", "1", "0", "1", "1", "Friday", "Weekly online content; day is a placeholder", "0", "1", "", ""];
+    const det = detectHeader([header, lab, online])!;
+    const { sessions, issues } = rowsToSessions([header, lab, online], det);
+    expect([sessions[0].kind, sessions[0].rotationType, sessions[0].clinicalMode, sessions[0].maxStudents, sessions[0].facultyNeeded, sessions[0].startTime]).toEqual(["LAB", null, null, 16, 2, "08:30"]);
+    expect(sessions[0].notes).toMatch(/^In the program's clinical-hours bucket, held on campus\./);
+    expect([sessions[1].kind, sessions[1].dayOfWeek, sessions[1].startTime, sessions[1].lengthHours]).toEqual(["CLASS", null, null, 1.5]);
+    expect(issues.some((i) => /read as lab on campus/.test(i)) && issues.some((i) => /placeholder, left blank/.test(i))).toBe(true);
+  });
   it("reads a ratio as seats or staff, leaves a several-figure cell blank with the text in the notes, and takes the start time from the notes", () => {
     const det = detectHeader([header, row1, row2])!;
     const { sessions, issues } = rowsToSessions([header, row1, row2], det);
