@@ -82,3 +82,28 @@ describe("sheet import", () => {
     expect(textToRows("a\tb\n1\t2")).toEqual([["a", "b"], ["1", "2"]]);
   });
 });
+
+// The Program Planning Template's "Program Data_All Together" sheet (Craven's Nurse Aide workbook, 2026-10-27): a header row
+// that names the program before the sessions, and count cells the college wrote as text.
+describe("sheet import — the Program Planning Template", () => {
+  const header = ["Institution Name", "Program Name", "Program Type", "Term", "Course", "Session Type", "Session Number", "session title (if used)", "Session Delivery Mode", "Session Location", "Session length (in hours)", "Max number of students that ONE session can accommodate", "Number of faculty required to teach full session", "Contact hour policy for faculty during session (___hrs per contact hour)", "Number of support staff required to teach full session", "Contact hour policy for support staff during session (___hrs per contact hour)", "This session occurs during  Week __ of term", "This session occurs on ____.", "Notes", "Number of preceptors required to teach full clinical session", "Contact hour policy for preceptors during session (___hrs per contact hour)", "Clinical Rotation Type", "Clinical Mode"];
+  const row1 = ["Craven CC", "Nurse Aide Level I", "Hybrid", "Term 6", "Nurse Aide Level I", "Class", "1", "Module A: The Nurse Aide I", "In-person + online", "Classroom", "1.8", "*10 CCP;16 &22 seats Non-CCP", "*1:10 ratio", "1", "0", "1", "1", "Tuesday", "Class, 8:30a-12p Day; 5;30-9p Evening non-CCP; 7:30a-11a CCP + online CCP", "0", "1", "", ""];
+  const row2 = ["Craven CC", "Nurse Aide Level I", "Hybrid", "Term 6", "Nurse Aide Level I", "Clinical", "1", "Personal Care Skills", "In-person", "Clinical", "4", "*1:10 ratio", "*1:10 ratio", "1", "0", "1", "10", "Tuesday", "Clinical, 5:30-9:30p", "0", "1", "Long-Term Care", "Instructor-Led Clinical Group"];
+  it("keeps the session-type column for the kind although Program Type comes first, and reads the program's own headers as nothing", () => {
+    const det = detectHeader([header, row1])!;
+    expect(det.map[5]).toBe("kind");
+    expect(Object.values(det.map)).not.toContain(undefined);
+    expect([mapHeader("Program Type"), mapHeader("Program Name"), mapHeader("Institution Name"), mapHeader("VERSION")]).toEqual([null, null, null, null]);
+    expect([det.map[3], det.map[4], det.map[16], det.map[17]]).toEqual(["termNumber", "courseCode", "week", "dayOfWeek"]);
+    expect(det.unmapped.map((u) => u.header)).toEqual(["Institution Name", "Program Name", "Program Type"]);
+  });
+  it("reads a ratio as seats or staff, leaves a several-figure cell blank with the text in the notes, and takes the start time from the notes", () => {
+    const det = detectHeader([header, row1, row2])!;
+    const { sessions, issues } = rowsToSessions([header, row1, row2], det);
+    expect(sessions).toHaveLength(2);
+    expect([sessions[0].kind, sessions[0].termNumber, sessions[0].maxStudents, sessions[0].facultyNeeded, sessions[0].startTime]).toEqual(["CLASS", 6, null, 1, "08:30"]);
+    expect(sessions[0].notes).toMatch(/several figures, left blank/);
+    expect(issues.some((i) => /lists several figures/.test(i))).toBe(true);
+    expect([sessions[1].kind, sessions[1].maxStudents, sessions[1].facultyNeeded, sessions[1].startTime, sessions[1].rotationType]).toEqual(["CLINICAL", 10, 1, "17:30", "Long-Term Care"]);
+  });
+});

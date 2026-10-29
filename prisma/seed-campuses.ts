@@ -11,6 +11,10 @@ export const OTHER_CAMPUSES: Record<string, { name: string; address: string; cit
     { name: "East Carteret High School (ECHS)", address: "3263 US-70 East", city: "Beaufort", state: "NC", zip: "28516", notes: "Nurse Aide I classes meet here." },
     { name: "Carteret Health Care (CHC)", address: "3500 Arendell St", city: "Morehead City", state: "NC", zip: "28557", notes: "Nurse Aide I classes meet at the hospital, which is also a clinical site (CCC-H01)." },
   ],
+  "Craven Community College": [
+    // The college's second campus (its site; the Nurse Aide workbook names "Havelock Campus – Redd Bldg" as a class location, 2026-10-27). The high-school site is not named.
+    { name: "Havelock Campus", address: "305 Cunningham Blvd", city: "Havelock", state: "NC", zip: "28532", notes: "Nurse Aide I classes meet here (Redd Bldg) as well as at the New Bern campus (Perdue Bldg); which sections run where is not on record." },
+  ],
   "Cape Fear Community College": [
     // The college's other locations (its site, 2026-10-22). Electrical Systems Technology is a North Campus program.
     { name: "North Campus", address: "4500 Blue Clay Rd", city: "Castle Hayne", state: "NC", zip: "28429", notes: "Electrical Systems Technology's home: its labs and the fall 2026 evening sections. McKeithan Center is Building NA; the Advanced & Emerging Technologies building holds sciences, HVAC and sustainable-technology labs." },

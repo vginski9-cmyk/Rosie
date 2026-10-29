@@ -66,6 +66,9 @@ const SYNONYMS: Record<ImportField, string[]> = {
   progression: ["progression stage", "progression", "stage", "level", "learner level", "role", "scrub role"],
 };
 
+/** Headers of the Program Planning Template that describe the program, not a session column — never a field. */
+const NOT_A_FIELD = /^(institution name|program name|program type|version)$/;
+
 export const normalizeHeader = (h: unknown): string =>
   String(h ?? "").toLowerCase().replace(/\(.*?\)/g, " ").replace(/_+/g, " ").replace(/[^a-z0-9#]+/g, " ").replace(/\s+/g, " ").trim();
 
@@ -74,7 +77,7 @@ const hasPhrase = (hay: string, needle: string) => (` ${hay} `).includes(` ${nee
 /** Recognize one header. Exact header wins; else the longest synonym contained as a whole phrase. */
 export function mapHeader(header: unknown): ImportField | null {
   const h = normalizeHeader(header);
-  if (!h) return null;
+  if (!h || NOT_A_FIELD.test(h)) return null;
   let best: { f: ImportField; score: number } | null = null;
   for (const f of IMPORT_FIELDS) {
     for (const syn of SYNONYMS[f]) {
@@ -84,6 +87,12 @@ export function mapHeader(header: unknown): ImportField | null {
     }
   }
   return best?.f ?? null;
+}
+
+/** Whether a header is one of the synonyms verbatim (after normalizing), not merely containing one. */
+function isExactHeader(header: unknown): boolean {
+  const h = normalizeHeader(header);
+  return IMPORT_FIELDS.some((f) => SYNONYMS[f].some((syn) => normalizeHeader(syn) === h));
 }
 
 export interface HeaderDetection { headerRow: number; map: Record<number, ImportField>; unmapped: { index: number; header: string }[] }
@@ -98,12 +107,13 @@ export function detectHeader(rows: unknown[][]): HeaderDetection | null {
     const map: Record<number, ImportField> = {};
     const seen = new Set<ImportField>();
     const unmapped: { index: number; header: string }[] = [];
-    row.forEach((cell, i) => {
-      const text = String(cell ?? "").trim();
-      if (!text) return;
-      const f = mapHeader(text);
-      if (f && !seen.has(f)) { map[i] = f; seen.add(f); } else unmapped.push({ index: i, header: text });
-    });
+    // Two passes: a column whose header IS a field's synonym ("Session Type") claims the field before a column that only
+    // contains one ("Program Type" ⊃ "type"), whatever their order on the sheet.
+    const claims = row.map((cell, i) => { const text = String(cell ?? "").trim(); return text ? { i, text, f: mapHeader(text), exact: isExactHeader(text) } : null; });
+    for (const pass of [true, false]) for (const c of claims) {
+      if (!c || c.exact !== pass) continue;
+      if (c.f && !seen.has(c.f)) { map[c.i] = c.f; seen.add(c.f); } else if (!pass || !c.f) unmapped.push({ index: c.i, header: c.text });
+    }
     if (seen.size >= 3 && (!best || seen.size > Object.keys(best.map).length)) best = { headerRow: r, map, unmapped };
   }
   return best;
@@ -116,6 +126,12 @@ const num = (v: unknown): number | null => {
   const m = /-?\d+(?:\.\d+)?/.exec(s);
   return m ? Number(m[0]) : null;
 };
+/** A staffing ratio written into a count cell ("*1:10 ratio"): staff : learners. */
+const ratioOf = (v: unknown): { staff: number; learners: number } | null => { const m = /(\d+)\s*:\s*(\d+)\s*ratio/i.exec(String(v ?? "")); return m ? { staff: Number(m[1]), learners: Number(m[2]) } : null; };
+/** A count cell that lists several figures ("*10 CCP; 16 & 22 seats non-CCP") is not one number: null, with the text kept for the notes. */
+const severalFigures = (v: unknown): boolean => typeof v === "string" && (String(v).match(/\d+(?:\.\d+)?/g) ?? []).length > 1 && !ratioOf(v);
+/** Seats or staff from a count cell: a plain number; a ratio's learners (seats) or staff (faculty); several figures → null. */
+const countOf = (v: unknown, side: "learners" | "staff"): number | null => { const r = ratioOf(v); if (r) return side === "learners" ? r.learners : r.staff; return severalFigures(v) ? null : num(v); };
 const text = (v: unknown): string | null => { const s = String(v ?? "").trim(); return s ? s : null; };
 
 export function parseKind(v: unknown): "CLASS" | "LAB" | "CLINICAL" | null {
@@ -152,6 +168,20 @@ export function parseTime(v: unknown): string | null {
   return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+/** The time of day a session starts, as the sheet's notes give it ("5:30p-9:30p", "Class, 8:30a-12p", "8am - 2:30pm") when no
+ *  time column exists; a range whose start has no am/pm reads noon as noon, 1–6 as afternoon, 7–11 as morning. */
+export function timeFromNotes(notes: unknown): string | null {
+  const text = String(notes ?? "");
+  if (!text) return null;
+  const hhmm = (h: number, m?: string) => `${String(h).padStart(2, "0")}:${m ?? "00"}`;
+  const range = /(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*[-–]\s*\d{1,2}(?::\d{2})?\s*[ap]\.?m?\b/i.exec(text);
+  const m = /(?<![\d:])(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m?\b/i.exec(text);
+  if (range && (!m || range.index <= m.index)) { const h = Number(range[1]); return hhmm(h === 12 ? 12 : h <= 6 ? h + 12 : h, range[2]); }
+  if (!m) return null;
+  let h = Number(m[1]) % 12; if (m[3].toLowerCase() === "p") h += 12;
+  return hhmm(h, m[2]);
+}
+
 export interface ImportResult { sessions: ImportedSession[]; skipped: number; issues: string[] }
 
 /** Turn the sheet's rows (after the header) into sessions. Blank term / course
@@ -182,16 +212,17 @@ export function rowsToSessions(rows: unknown[][], det: HeaderDetection): ImportR
     let number = num(get(row, "number"));
     if (number == null) { number = (counters.get(key) ?? 0) + 1; }
     counters.set(key, Math.max(counters.get(key) ?? 0, number));
+    for (const f of ["maxStudents", "facultyNeeded"] as const) if (severalFigures(get(row, f))) issues.push(`Row ${r + 1}: ${IMPORT_FIELD_LABEL[f]} "${String(get(row, f)).trim()}" lists several figures — left blank, the text kept in the notes`);
     const dayRaw = get(row, "dayOfWeek");
     const dayOfWeek = parseDay(dayRaw);
     if (dayRaw != null && String(dayRaw).trim() && !dayOfWeek) issues.push(`Row ${r + 1}: day "${String(dayRaw)}" not recognized — left blank`);
     out.push({
       termNumber, semester, courseCode, courseTitle, kind, number, title: text(get(row, "title")),
       deliveryMode: text(get(row, "deliveryMode")), location: text(get(row, "location")),
-      lengthHours: num(get(row, "lengthHours")), maxStudents: num(get(row, "maxStudents")),
-      facultyNeeded: num(get(row, "facultyNeeded")), facultyContactPolicy: num(get(row, "facultyContactPolicy")),
+      lengthHours: num(get(row, "lengthHours")), maxStudents: countOf(get(row, "maxStudents"), "learners"),
+      facultyNeeded: countOf(get(row, "facultyNeeded"), "staff"), facultyContactPolicy: num(get(row, "facultyContactPolicy")),
       supportStaffNeeded: num(get(row, "supportStaffNeeded")), supportContactPolicy: num(get(row, "supportContactPolicy")),
-      week: num(get(row, "week")), dayOfWeek, startTime: parseTime(get(row, "startTime")), notes: text(get(row, "notes")),
+      week: num(get(row, "week")), dayOfWeek, startTime: parseTime(get(row, "startTime")) ?? timeFromNotes(get(row, "notes")), notes: [text(get(row, "notes")), ...(["maxStudents", "facultyNeeded"] as const).filter((f) => severalFigures(get(row, f))).map((f) => `${IMPORT_FIELD_LABEL[f]}: "${String(get(row, f)).trim()}" — several figures, left blank`)].filter(Boolean).join(" · ") || null,
       preceptorsNeeded: num(get(row, "preceptorsNeeded")), preceptorContactPolicy: num(get(row, "preceptorContactPolicy")),
       rotationType: text(get(row, "rotationType")), clinicalMode: text(get(row, "clinicalMode")),
       experiences: text(get(row, "experiences")), progression: text(get(row, "progression")),

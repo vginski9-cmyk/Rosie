@@ -15,10 +15,15 @@ describe("partner sites", () => {
     const names = PARTNER_SITES.map((s) => `${s.institution}|${s.name}`);
     expect(new Set(names).size).toBe(names.length);
     for (const s of PARTNER_SITES) expect(inGazetteer(s.city, s.state ?? "NC"), `${s.city}, ${s.state ?? "NC"} missing from the gazetteer`).toBe(true);
-    expect(new Set(PARTNER_SITES.map((s) => s.institution))).toEqual(new Set(["Lenoir Community College", "Carteret Community College", "Roanoke-Chowan Community College", "Southeastern Community College", "University of North Carolina Wilmington"]));
+    expect(new Set(PARTNER_SITES.map((s) => s.institution))).toEqual(new Set(["Lenoir Community College", "Carteret Community College", "Roanoke-Chowan Community College", "Southeastern Community College", "University of North Carolina Wilmington", "Craven Community College"]));
   });
   it("the three earlier colleges' rows are untouched by the RN kits; Southeastern's sites carry every RN setting within 45 minutes, all prospects", () => {
     for (const s of PARTNER_SITES.filter((s) => !/Southeastern|Wilmington/.test(s.institution))) { expect(s.kits).toBeUndefined(); expect(s.state).toBeUndefined(); }
+    // Craven's Nurse Aide sites follow the CNA shape (snf / ach / hospital, no kits), all prospects until the college names its partners.
+    const crv = PARTNER_SITES.filter((s) => s.institution === "Craven Community College");
+    expect(crv.length).toBeGreaterThanOrEqual(15);
+    expect(crv.every((s) => ["snf", "ach", "hospital"].includes(s.kind) && s.agreement === "prospect" && s.lookedUp === undefined)).toBe(true);
+    expect(crv.filter((s) => s.kind === "snf").length).toBeGreaterThanOrEqual(7);
     const scc = PARTNER_SITES.filter((s) => s.institution === "Southeastern Community College");
     expect(scc.length).toBeGreaterThanOrEqual(30);
     expect(scc.every((s) => s.agreement === "prospect" && s.lookedUp === "Oct 2026")).toBe(true);
@@ -58,5 +63,6 @@ describe("partner sites", () => {
     expect([...counties(/Roanoke/)].sort()).toEqual(["Bertie", "Gates", "Hertford", "Northampton"]);
     expect(counties(/Southeastern/).has("Columbus")).toBe(true);
     expect(counties(/Wilmington/).has("New Hanover")).toBe(true);
+    expect([...counties(/Craven/)].sort()).toEqual(["Carteret", "Craven", "Pamlico"]);
   });
 });

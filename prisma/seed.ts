@@ -466,6 +466,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Cape Fear Community College": { counties: ["New Hanover", "New Hanover", "New Hanover", "Pender", "Pender"], cities: { "New Hanover": "Wilmington", Pender: "Burgaw" } },
     "Southeastern Community College": { counties: ["Columbus", "Columbus", "Columbus", "Bladen", "Brunswick"], cities: { Columbus: "Whiteville", Bladen: "Elizabethtown", Brunswick: "Shallotte" } },
     "University of North Carolina Wilmington": { counties: ["New Hanover", "New Hanover", "New Hanover", "Brunswick", "Pender"], cities: { "New Hanover": "Wilmington", Brunswick: "Leland", Pender: "Hampstead" } },
+    "Craven Community College": { counties: ["Craven", "Craven", "Craven", "Pamlico", "Jones"], cities: { Craven: "New Bern", Pamlico: "Bayboro", Jones: "Trenton" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -915,6 +916,8 @@ export type CnaCourse = { code: string; title: string; weeklyClassHours: number;
 export type CnaTerm = { index: number; name: string; semester: string | null; weeks: number; enrollment: number | null; courses: (CnaCourse & { sessions: CnaSession[] })[] };
 export type CnaTemplate = {
   name: string; label: string; programType: string; credential: string; sourceWorkbook: string;
+  /** Whose reading of the program this model is, where a workbook carries two side by side (Craven: "Alec & Katie's Version", "Kim"). */
+  version?: string;
   termWeeks: number; maxCohort: number;
   assumptions: { facContactHours: number; facWorkWeekHours: number; facTermWeeks: number; preContactHours: number; preWorkWeekHours: number; preTermWeeks: number };
   course: CnaCourse | null;
@@ -1109,6 +1112,9 @@ async function main() {
     lenoir: JSON.parse(readFileSync(join(__dirname, "templates", "cna-lenoir.json"), "utf8")) as CnaTemplate[],
     //  · ma-roanoke-chowan.json (Roanoke-Chowan): Medical Assisting MED 3300, Part 1 (Fall) and Part 2 (Spring).
     roanokeChowan: JSON.parse(readFileSync(join(__dirname, "templates", "ma-roanoke-chowan.json"), "utf8")) as CnaTemplate[],
+    //  · cna-craven.json (Craven): Nurse Aide Level I in both readings of the college's combined workbook — the college's
+    //    four 16-week models (day CCP, 16- and 22-seat day, night) and the contractor's three (day, night, CCP).
+    craven: JSON.parse(readFileSync(join(__dirname, "templates", "cna-craven.json"), "utf8")) as CnaTemplate[],
   };
 
 
@@ -1142,6 +1148,7 @@ async function main() {
     "Cape Fear Community College": { address: "411 N Front St", city: "Wilmington", state: "NC", zip: "28401" },
     "Southeastern Community College": { address: "4564 Chadbourn Hwy", city: "Whiteville", state: "NC", zip: "28472" },
     "University of North Carolina Wilmington": { address: "601 S College Rd", city: "Wilmington", state: "NC", zip: "28403" },
+    "Craven Community College": { address: "800 College Ct", city: "New Bern", state: "NC", zip: "28562" },
   };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   console.log("other campuses:", await seedOtherCampuses(prisma));
@@ -1197,12 +1204,14 @@ async function main() {
       const campus = await prisma.campus.findFirst({ where: { institutionId: inst.id }, orderBy: { createdAt: "asc" } });
       // A room is a location with a room number ("Freeland 127A"), or a named building with a space in it and no
       // number published ("R Building – Skills lab": Southeastern's nursing building; "McNeill Hall – Simulation Learning Center").
-      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l) || /\b(Building|Hall)\b/.test(l)));
+      const locations = new Set((await prisma.session.findMany({ where: { course: { term: { program: { institutionId: inst.id } } } }, select: { location: true } })).map((s) => s.location?.trim() ?? "").filter((l) => /\d/.test(l) || /\b(Building|Bldg|Hall)\b/.test(l)));
       const buildings = new Map<string, string>();
       for (const loc of locations) {
-        const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const b = m ? null : /^(.*?\b(?:Building|Hall))\b/.exec(loc);
+        const m = /^(.*?)\s*([A-Za-z]?\d+[A-Za-z]?)$/.exec(loc); const b = m ? null : /^(.*?\b(?:Building|Bldg|Hall))\b/.exec(loc);
         const building = (m?.[1]?.trim() || b?.[1]?.trim()) || "Main Building"; const room = m?.[2] ?? null;
-        if (!buildings.has(building)) buildings.set(building, (await prisma.building.create({ data: { institutionId: inst.id, campusId: campus?.id ?? (await prisma.campus.create({ data: { institutionId: inst.id, name: "Main Campus", state: "NC" } })).id, name: building } })).id);
+        // The building sits on the campus its wording names ("Havelock Campus – Redd Bldg" on the Havelock campus), else the main one.
+        const named = (await prisma.campus.findMany({ where: { institutionId: inst.id }, select: { id: true, name: true } })).find((c) => c.name.length > 3 && loc.toLowerCase().includes(c.name.toLowerCase().replace(/\s*\(.*\)$/, "")));
+        if (!buildings.has(building)) buildings.set(building, (await prisma.building.create({ data: { institutionId: inst.id, campusId: named?.id ?? campus?.id ?? (await prisma.campus.create({ data: { institutionId: inst.id, name: "Main Campus", state: "NC" } })).id, name: building } })).id);
         // The room's kind from its name: a simulation space, a skills or science lab, otherwise a classroom.
         const kind = /simulation/i.test(loc) ? "SIM" : /\blabs?\b|laboratory|skills/i.test(loc) ? "LAB" : "CLASSROOM";
         await prisma.facility.create({ data: { institutionId: inst.id, name: loc, kind, buildingId: buildings.get(building)!, building, roomNumber: room, availability: "From the program workbook", status: "active" } });

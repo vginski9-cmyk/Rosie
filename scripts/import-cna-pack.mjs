@@ -29,7 +29,8 @@ const ws = wb.Sheets[wb.SheetNames.find((n) => /raw data/i.test(n)) ?? wb.SheetN
 const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
 
 const str = (v) => (v === "" || v == null ? null : String(v).trim());
-const num = (v) => (v === "" || v == null ? null : Number(v));
+/** A number cell; text that is not a number ("*10 CCP;16 & 22 seats") is null — missing, never NaN or zero — and the log names it. */
+const num = (v) => { if (v === "" || v == null) return null; const n = Number(v); if (Number.isNaN(n)) { console.warn(`not a number, left blank: "${v}"`); return null; } return n; };
 const DAY = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
 const dayOf = (v) => DAY[String(v).trim().toLowerCase()] ?? null; // "Online" → null: no fixed weekday
 /** "Class" / "Lab" / "Clinical" (and the workbooks' spellings of them). */
@@ -66,6 +67,8 @@ const C = {
   preceptors: col(/^number of preceptors/), preceptorPolicy: col(/policy for preceptors/),
   rotation: col(/^clinical rotation type/), clinicalMode: col(/^clinical mode/),
   term: col(/^term number/, false), semester: col(/^semester/, false),
+  // A workbook that carries two authors' readings of the same program side by side (Craven: "Alec & Katie's Version" and "Kim").
+  version: col(/^version/, false),
 };
 
 // The two workload-assumption blocks sit to the right of the session table beside the first
@@ -113,25 +116,36 @@ const hoursOf = (sessions, kind) => sessions.filter((s) => s.kind === kind).redu
 const weeklyOf = (sessions, kind, weeks) => Math.round((hoursOf(sessions, kind) / weeks) * 100) / 100;
 const lastWeekOf = (sessions) => Math.max(...sessions.map((s) => s.week ?? 1));
 
-// Group the session rows by course code (in the order the workbook lists them).
+// Group the session rows by course code (and by VERSION where the workbook has one), in the order the workbook lists them.
 const groups = new Map();
 for (const r of rows.slice(1)) {
   const code = str(r[C.code]); if (!code) continue;
-  if (!groups.has(code)) groups.set(code, { code, title: str(r[C.title]) ?? "", enrollment: num(r[C.enrollment]), term: C.term >= 0 ? num(r[C.term]) : null, semester: C.semester >= 0 ? str(r[C.semester]) : null, rows: [] });
-  groups.get(code).rows.push(r);
+  const version = C.version >= 0 ? str(r[C.version]) : null;
+  const key = version ? `${version} | ${code}` : code;
+  if (!groups.has(key)) groups.set(key, { code, version, title: str(r[C.title]) ?? "", enrollment: num(r[C.enrollment]), term: C.term >= 0 ? num(r[C.term]) : null, semester: C.semester >= 0 ? str(r[C.semester]) : null, rows: [] });
+  groups.get(key).rows.push(r);
 }
 
-/** "NAS 111 (curriculum) & NAS 3240 (continuing ed) (5-week offering)" → the offering label and the course code without it. */
-const split = (code) => {
-  const m = /\(([^()]*week[^()]*)\)\s*$/i.exec(code);
-  const label = m ? m[1].trim() : code;
-  const bare = m ? code.slice(0, m.index).trim().replace(/[;\s]+$/, "") : code;
-  return { label, bare };
+/** "NAS 111 (curriculum) & NAS 3240 (continuing ed) (5-week offering)" → the offering label and the course code without it.
+ *  When the "(N-week …)" sits on the course title instead ("NA I (CCP)" / "16-week day (CCP)"), the label is the title's
+ *  parenthetical and the code keeps its own tag ("NA I (CCP)"). */
+const WEEK_TAG = /\(([^()]*week[^()]*)\)\s*$/i;
+const WEEK_TITLE = /\b\d+\s*-\s*week\b/i; // a title that IS the offering's name: "16-week day (CCP)"
+const split = (code, title = "") => {
+  const m = WEEK_TAG.exec(code);
+  if (m) return { label: m[1].trim(), bare: code.slice(0, m.index).trim().replace(/[;\s]+$/, "") };
+  return { label: WEEK_TITLE.test(title) ? title.trim() : code, bare: code };
 };
 /** Time of day and audience from the workbook's own words (session notes and title). */
 const programType = (label, notes) => {
   const text = `${label} ${notes}`.toLowerCase();
-  if (/high school|pre-apprentice/.test(text)) return "High school pre-apprenticeship";
+  // Who the offering is for comes from its name alone (a "non-CCP" day class whose notes mention the CCP window is not a CCP class).
+  const name = label.toLowerCase().replace(/non[- ]?ccp/g, "");
+  if (/\bccp\b/.test(name)) return "High school (CCP)";
+  if (/high school|pre-apprentice/.test(name)) return "High school pre-apprenticeship";
+  // Time of day from the name where it says so ("16-week (NIGHT)", "16-week day"); the notes decide only when the name is silent.
+  if (/night|evening/.test(name)) return /summer/.test(text) ? "Summer evening" : "Evening";
+  if (/\bday\b|daytime/.test(name)) return /\bfs\b|fri|sat/.test(text) && /daytime/.test(name) ? "Daytime (Fri/Sat)" : "Daytime";
   if (/night|evening|5:30p|6:00p/.test(text)) return /summer/.test(text) ? "Summer evening" : "Evening";
   if (/\bfs\b|fri|sat/.test(text) && /daytime/.test(label)) return "Daytime (Fri/Sat)";
   return "Daytime";
@@ -140,11 +154,11 @@ const stripParen = (s) => s.replace(/\s*\([^()]*\)\s*$/, "").trim(); // "Nurse A
 const sourceWorkbook = basename(src).replace(/^[0-9a-f]{8}-/, "");
 
 const templates = [];
-const isModels = [...groups.values()].every((g) => /\([^()]*week[^()]*\)\s*$/i.test(g.code));
+const isModels = [...groups.values()].every((g) => WEEK_TAG.test(g.code) || WEEK_TITLE.test(g.title));
 if (isModels) {
-  // One single-term template per delivery model.
+  // One single-term template per delivery model (per version, where the workbook carries two).
   for (const g of groups.values()) {
-    const { label, bare } = split(g.code);
+    const { label, bare } = split(g.code, g.title);
     const sessions = renumber(g.code, g.rows.map(session));
     // The term is as long as the offering's name says ("18-week"), and at least as far as the
     // workbook's sessions reach, so every session row stays dated even where the sheet's week
@@ -153,11 +167,17 @@ if (isModels) {
     const lastWeek = lastWeekOf(sessions);
     const termWeeks = Math.max(lastWeek, named ? Number(named[1]) : 0);
     if (named && Number(named[1]) !== lastWeek) console.warn(`${label}: sessions run to week ${lastWeek} though the offering is named ${named[1]}-week — term kept at ${termWeeks} weeks`);
-    const title = stripParen(g.title);
+    const title = WEEK_TAG.test(g.code) ? stripParen(g.title) : "Nurse Aide Level I"; // a title that names the offering is not the course title
     const notes = sessions.map((s) => s.notes ?? "").join(" ");
+    const versionTag = g.version ? ` · ${/version/i.test(g.version) ? g.version.replace(/Version$/i, "version") : `${g.version}'s version`}` : "";
+    // The class size: the workbook's enrollment, unless every class row seats more — then the class rows' cap is the
+    // college's statement of the class size and the enrollment column is the template's planning figure (the log says so).
+    const classCap = Math.min(...sessions.filter((s) => s.kind === "CLASS").map((s) => s.maxStudents ?? Infinity));
+    const maxCohort = Number.isFinite(classCap) && g.enrollment != null && classCap > g.enrollment ? classCap : g.enrollment ?? 10;
+    if (maxCohort !== (g.enrollment ?? 10)) console.warn(`${label}${versionTag}: class rows seat ${classCap}, the enrollment column says ${g.enrollment} — class size taken from the class rows`);
     templates.push({
-      name: `${title} — ${label}`, label, programType: programType(label, notes), credential: "Certificate",
-      sourceWorkbook, termWeeks, maxCohort: g.enrollment ?? 10, assumptions,
+      name: `${title} — ${label}${versionTag}`, label, ...(g.version ? { version: g.version } : {}), programType: programType(`${label} ${g.code}`, notes), credential: "Certificate",
+      sourceWorkbook, termWeeks, maxCohort, assumptions,
       course: { code: bare, title, weeklyClassHours: weeklyOf(sessions, "CLASS", termWeeks), weeklyLabHours: weeklyOf(sessions, "LAB", termWeeks), weeklyClinicalHours: weeklyOf(sessions, "CLINICAL", termWeeks) },
       sessions,
     });
@@ -194,7 +214,7 @@ if (isModels) {
 writeFileSync(out, JSON.stringify(templates, null, 2) + "\n");
 for (const t of templates) {
   if (t.terms) for (const term of t.terms) console.log(`${t.name} · ${t.programType} · ${term.name} (${term.semester ?? "—"}) ${term.weeks} wks · ${term.courses.map((c) => `${c.code}: ${c.sessions.length} sessions, class ${c.weeklyClassHours} / lab ${c.weeklyLabHours} / clinical ${c.weeklyClinicalHours} h/wk`).join("; ")}`);
-  else console.log(`${t.name} · ${t.programType} · ${t.termWeeks} wks · ${t.sessions.length} sessions · ${t.course.code} · class ${t.course.weeklyClassHours} / lab ${t.course.weeklyLabHours} / clinical ${t.course.weeklyClinicalHours} h/wk`);
+  else console.log(`${t.name} · ${t.programType} · ${t.termWeeks} wks · ${t.sessions.length} sessions (${["CLASS", "LAB", "CLINICAL"].map((k) => `${t.sessions.filter((s) => s.kind === k).length} ${k.toLowerCase()} ${Math.round(hoursOf(t.sessions, k) * 100) / 100} h`).join(", ")}) · ${t.course.code} · seats ${t.maxCohort} · class ${t.course.weeklyClassHours} / lab ${t.course.weeklyLabHours} / clinical ${t.course.weeklyClinicalHours} h/wk`);
 }
 console.log("assumptions:", JSON.stringify(assumptions));
 console.log("wrote", out);

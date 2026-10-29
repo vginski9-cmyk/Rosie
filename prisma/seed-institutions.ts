@@ -20,7 +20,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { createProgram, createCnaProgram, createPackProgram, loadPack, genTerms, CnaTemplate, CourseSeed, TermSeed } from "./seed";
 
 /** The Nurse Aide I template packs, one per college workbook (prisma/templates/cna*.json). */
-export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[]; roanokeChowan: CnaTemplate[] };
+export type CnaPacks = { carteret: CnaTemplate[]; lenoir: CnaTemplate[]; roanokeChowan: CnaTemplate[]; craven: CnaTemplate[] };
 type Helpers = { createProgram: typeof createProgram; createCnaProgram: typeof createCnaProgram; createPackProgram: typeof createPackProgram; loadPack: typeof loadPack; genTerms: typeof genTerms; cnaPacks: CnaPacks };
 
 // ── Curricula ───────────────────────────────────────────────────────────────
@@ -232,8 +232,12 @@ export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Roanoke-Chowan Community College", short: "Roanoke-Chowan CC", kind: "Community college", city: "Ahoskie", serviceArea: "Hertford, Bertie, Gates & Northampton Counties, NC", families: [
     { name: "Medical Assisting", ...MA, description: "Medical Assisting (MED 3300 continuing education) from the college's program-structure workbook: 720 hours as Part 1 in the fall (class and lab, Tue/Thu evenings plus online) and Part 2 in the spring (class plus a precepted community-health clinical).", goals: flatGoal(9), programs: [], cnaAll: "roanokeChowan" },
   ] },
-  { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven County, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(50), programs: [], cna: true },
+  // Craven's Nurse Aide Level I from the combined workbook the owner received on 2026-10-29 (scripts/import-cna-pack.mjs →
+  // prisma/templates/cna-craven.json): the college's reading ("Alec & Katie's Version") and the contractor's ("Kim") side by
+  // side, so the validation session can compare them. Drive-time bands 45 / 60 / 90 from the New Bern campus.
+  { name: "Craven Community College", short: "Craven CC", kind: "Community college", city: "New Bern", serviceArea: "Craven, Pamlico & Jones Counties, NC", rings: { core: 45, one: 60, two: 90 }, families: [
+    { name: "Nurse Aide (CNA)", ...NA, goals: goals(50), programs: [], cna: true, cnaAll: "craven",
+      description: "Nurse Aide Level I (NAS 3240 day and NAS 3420 evening continuing education; the CCP high-school section's code not on record) in seven 16-week delivery models from the college's combined program-structure workbook (received 2026-10-29), in two readings kept side by side for the validation session. The college's own reading (\"Alec & Katie's Version\"): a day CCP class of 10, day classes of 16 and 22 with two faculty, a night class of 10 — each as the college's tabs stood, with class and lab sessions 13–20 missing (17 of 44 class sessions, 17 of 25 labs; about 60 of the 87.5 class-and-lab hours) and 12 long-term-care clinical shifts of 4 hours (48 of the 72 hours; the night model 3.6-hour shifts and a lab that runs 1.7 then 3.6 hours). The contractor's reading (\"Kim\"): day (22 seats, two faculty), night (16 seats; lab capped at 10) and CCP (10) as 25 class and 25 lab sessions of 1.75 hours and 20 long-term-care shifts of 3.6 hours — 159.5 hours, the college's stated certification total — with the 72 clinical hours and 3.6-hour shifts, the night lab cap and the seat split (the college wrote \"16 & 22 seats non-CCP\" beside three locations: Main Campus – Perdue Bldg, Havelock Campus – Redd Bldg, a high school) her inferences, to confirm. Faculty load 29 contact hours of 40 is the workbook's own assumption block, source to confirm. The North-Star goal of 50 a year is the earlier placeholder; cohorts a year are not on record." },
   ] },
   // Lenoir's stated North-Star goal: 80 nurse aides a year reaching full productivity. Its Nurse Aide
   // Level I (NAS 3240 continuing ed) runs in the six delivery models of the college's program-structure
@@ -260,7 +264,7 @@ export const PAUSED_INSTITUTIONS = new Set([
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
   // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
   // workbook programs and offerings (see seed.ts).
-  "College of The Albemarle", "Craven Community College",
+  "College of The Albemarle",
 ]);
 
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
