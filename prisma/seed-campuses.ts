@@ -15,6 +15,10 @@ export const OTHER_CAMPUSES: Record<string, { name: string; address: string; cit
     // The college's second campus (its site; the Nurse Aide workbook names "Havelock Campus – Redd Bldg" as a class location, 2026-10-27). The high-school site is not named.
     { name: "Havelock Campus", address: "305 Cunningham Blvd", city: "Havelock", state: "NC", zip: "28532", notes: "Nurse Aide I classes meet here (Redd Bldg) as well as at the New Bern campus (Perdue Bldg); which sections run where is not on record." },
   ],
+  "Pitt Community College": [
+    // The college's Greenville location (its directory and campus-map pages, 2026-11-10). Electrical Systems Technology is taught in the Vernon E. White Building on the Winterville campus.
+    { name: "Greenville Center", address: "3107 S Memorial Dr", city: "Greenville", state: "NC", zip: "27834", notes: "Continuing education, the Small Business Center and law-enforcement training; the continuing-education electrical wiring classes are scheduled from here. Electrical Systems Technology's labs are in the Vernon E. White Building at Winterville." },
+  ],
   "Cape Fear Community College": [
     // The college's other locations (its site, 2026-10-22). Electrical Systems Technology is a North Campus program.
     { name: "North Campus", address: "4500 Blue Clay Rd", city: "Castle Hayne", state: "NC", zip: "28429", notes: "Electrical Systems Technology's home: its labs and the fall 2026 evening sections. McKeithan Center is Building NA; the Advanced & Emerging Technologies building holds sciences, HVAC and sustainable-technology labs." },

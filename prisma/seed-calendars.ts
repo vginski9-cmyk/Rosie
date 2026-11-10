@@ -27,6 +27,9 @@ export const CALENDAR_FILES: Record<string, string> = {
   "Southeastern Community College": "southeastern.txt",
   // UNCW: the registrar's 2026–27 dates (fall, spring, the two summer sessions); the nursing summer term spans both sessions.
   "University of North Carolina Wilmington": "uncw.txt",
+  // Pitt: Fall 2026, Spring 2027 and Summer 2027 from the 2026–27 Curriculum Academic Calendar PDF as search gave it (read
+  // 2026-11-10); the spring and summer 2027 end dates, spring commencement and Thanksgiving were not found and are not seeded.
+  "Pitt Community College": "pitt.txt",
 };
 
 export async function seedAcademicCalendars(prisma: PrismaClient, dir: string): Promise<Record<string, { events: number; starts: number; ends: number; sessions: number; holidays: number; anchors: string; warnings: number }>> {

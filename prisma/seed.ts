@@ -467,6 +467,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "Southeastern Community College": { counties: ["Columbus", "Columbus", "Columbus", "Bladen", "Brunswick"], cities: { Columbus: "Whiteville", Bladen: "Elizabethtown", Brunswick: "Shallotte" } },
     "University of North Carolina Wilmington": { counties: ["New Hanover", "New Hanover", "New Hanover", "Brunswick", "Pender"], cities: { "New Hanover": "Wilmington", Brunswick: "Leland", Pender: "Hampstead" } },
     "Craven Community College": { counties: ["Craven", "Craven", "Craven", "Pamlico", "Jones"], cities: { Craven: "New Bern", Pamlico: "Bayboro", Jones: "Trenton" } },
+    "Pitt Community College": { counties: ["Pitt", "Pitt", "Pitt", "Pitt", "Greene"], cities: { Pitt: "Greenville", Greene: "Snow Hill" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
   // One person, one name: a dummy name is never reused across offerings or funnel stages, so nothing that keys by name
@@ -1149,6 +1150,8 @@ async function main() {
     "Southeastern Community College": { address: "4564 Chadbourn Hwy", city: "Whiteville", state: "NC", zip: "28472" },
     "University of North Carolina Wilmington": { address: "601 S College Rd", city: "Wilmington", state: "NC", zip: "28403" },
     "Craven Community College": { address: "800 College Ct", city: "New Bern", state: "NC", zip: "28562" },
+    // Pitt's main campus (its directory page now gives 169 Bulldog Run as the physical address; the Vernon E. White Building, EST's home, is 1958 Pitt Tech Rd).
+    "Pitt Community College": { address: "1986 Pitt Tech Rd", city: "Winterville", state: "NC", zip: "28590" },
   };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   console.log("other campuses:", await seedOtherCampuses(prisma));

@@ -176,6 +176,26 @@ export const CAPE_FEAR_PROGRAMS: PackProgramDef[] = [
   { pack: "cape-fear-electrical-apprenticeship.json", launch: "FALL", months: 0, note: "The college's four-year registered Electrical Apprenticeship (ApprenticeshipNC, CFCC Job Training): evening classes from late August to spring from the Mike Holt curriculum, about 624 classroom hours over four levels, full-time work for a sponsoring employer between. Nights, room, start date and class size are not published." },
 ];
 
+/** Pitt Community College's Electrical Systems Technology: the AAS, the diploma, five certificates, the high-school Technical
+ *  Academy sequence, the summer Careers Electric Academy and the Pitt-sponsored electrician apprenticeship, as template packs
+ *  built by scripts/build-pitt-packs.mjs (2026-11-10). The college's credentials, course lists, the AAS's 68 credits, the
+ *  Technical Academy block, the calendar and the apprenticeship directory entry are its own; course hours are the NCCCS
+ *  standard's; each sequence is the college's course list laid out to its total until the catalog's program of study can be
+ *  read. No clinical component; no workload policy or class size published (defaults and a stand-in of 16). */
+const PITT_TEMPLATE = "Sequence laid out from the college's published course lists to its published total; no day section or room number is published, so every course carries its hours with no day or time in the Vernon E. White Building. The catalog's program of study and the class search's sections replace them when they can be read.";
+export const PITT_PROGRAMS: PackProgramDef[] = [
+  { pack: "pitt-est-aas.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-diploma.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-cert-basic.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-cert-intro.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-cert-plc.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-cert-controls.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-cert-pv.json", launch: "FALL", months: 3, note: PITT_TEMPLATE },
+  { pack: "pitt-est-hs-academy.json", launch: "FALL", months: 3, note: "The Career & College Promise Technical Academy sequence for Pitt County high-school students as the college's high-school options page gives it (dated about 2019): four semesters, every class Mon–Fri 9:00–11:00 AM; the 2025–26 CIP list's Commercial Pathway certificate (C35130H5) likely supersedes it — its course list was not read." },
+  { pack: "pitt-careers-electric-academy.json", launch: "SUMMER", months: 3, note: "The summer Careers Electric Academy pre-apprenticeship for high-school students (with Pitt County Schools, ApprenticeshipNC-recognized): June 11 – August 4, ELC 113, ELC 118 and ISC 121 with OSHA 30; partners Greenville Utilities and Thomas Electric. Days, times and the cohort size are not published." },
+  { pack: "pitt-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "The electrician apprenticeship the college sponsors (NCCCS apprenticeship directory #97754): time-based, an 8,000-hour term over four years, 1:1 ratio, through Thomas Electrical Solutions and the City of Greenville; related instruction carried at the US DOL / ApprenticeshipNC minimum of 144 hours a year because the college publishes none. Nights, room, start date and class size are not published; on-the-job hours are recorded on each year, not scheduled." },
+];
+
 export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Rowan-Cabarrus Community College", short: "Rowan-Cabarrus CC", kind: "Community college", city: "Salisbury", serviceArea: "Rowan & Cabarrus Counties, NC", families: [
     { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(20), programs: RCCC_PROGRAMS,
@@ -214,7 +234,12 @@ export const INSTITUTIONS: InstitutionDef[] = [
     { name: "Nursing (prelicensure BSN)", ...RN, goals: goals(150), programs: UNCW_PROGRAMS,
       description: "UNCW's prelicensure BSN tracks, taught in McNeill Hall (601 S College Rd — the School of Nursing's classrooms and its 10,000-square-foot Simulation Learning Center): the four-semester prelicensure BSN with a fall and a spring entry and the Accelerated BSN for second-degree students (summer entry, four semesters, first class graduated 2026); CCNE-accredited, NC Board of Nursing-approved; three-year NCLEX-RN first-time average 91.55 % (2022–2024). The RN-to-BSN is not a prelicensure track and is not carried. What the program told the owner on 2026-10-28 (Patricia Suplee, Melissa Scott): the online sequences are accurate and the three cohorts share no courses; BSN cohorts were 60, are 70 now and go to 80 from Fall 2027 (modeled at 80), the ABSN is 24 — a planned intake of 164 a year now and 184 from Fall 2027; growth adds clinical sections, not didactic ones; faculty is not the constraint (88 full-time and about 70 temps across the school) — clinical-site availability and competition for high-demand units is, and the university is also capped by classroom space; the first five weeks of the first clinical course are in the lab; NSG 302 is med-surg with long-term care and geriatrics as objectives; workload is percentage effort, to be translated in a working session. The North-Star goal of 150 a year is the earlier placeholder — the program's targets are due Dec 4." },
   ] },
-  ...[["Pitt Community College", "Pitt CC", "Winterville", "Pitt County, NC"], ["Forsyth Technical Community College", "Forsyth Tech", "Winston-Salem", "Forsyth & Stokes Counties, NC"], ["Davidson-Davie Community College", "Davidson-Davie CC", "Thomasville", "Davidson & Davie Counties, NC"], ["Beaufort County Community College", "Beaufort County CC", "Washington", "Beaufort, Hyde, Tyrrell & Washington Counties, NC"]].map(([name, short, city, area]): InstitutionDef => ({
+  // Pitt's Electrical Systems Technology from the college's publications and the NCCCS standard (2026-11-10): the packs above.
+  { name: "Pitt Community College", short: "Pitt CC", kind: "Community college", city: "Winterville", serviceArea: "Pitt County, NC", families: [
+    { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(20), programs: PITT_PROGRAMS,
+      description: "Pitt's Electrical Systems Technology (program 35130, Construction and Industrial Technology division), taught in the Vernon E. White Building on the Winterville campus (1958 Pitt Tech Rd — the wiring lab with residential, commercial and industrial bays; department chair Steven Reynolds, instructors Joseph Strickland and Jeff Hudson): the 68-credit AAS (A35130, five semesters), the diploma (D3513001), the Basic Electrical (C3513001), Introduction to Electrical (C3513008), Programmable Logic Controller (C3513002), Industrial Controls (C3513003) and Photovoltaic Systems (C3513004) certificates, the high-school Technical Academy sequence (the CIP list's Commercial Pathway C35130H5), the summer Careers Electric Academy pre-apprenticeship with Pitt County Schools, and the electrician apprenticeship the college sponsors (ApprenticeshipNC #97754: 8,000 hours over four years through Thomas Electrical Solutions and the City of Greenville; other electrical employer partners Coastline Electrical, Hemby Electrical, Pitt Electric, Sharpes Electrical, Greenville Utilities). Students can earn NCCER, NC3 and OSHA 30 credentials. The college's course lists, credit totals, calendar and places are its own; course hours are the NCCCS standard's; sequences are laid out to the totals until the catalog's program-of-study pages can be read. Not published: day sections, room numbers, class sizes (\"small\"), the faculty load (the workspace default stands) and the apprenticeship's related-instruction hours (the standard's 144 a year stands). No clinical component. The North-Star goal of 20 a year is the earlier placeholder, not the college's figure." },
+  ] },
+  ...[["Forsyth Technical Community College", "Forsyth Tech", "Winston-Salem", "Forsyth & Stokes Counties, NC"], ["Davidson-Davie Community College", "Davidson-Davie CC", "Thomasville", "Davidson & Davie Counties, NC"], ["Beaufort County Community College", "Beaufort County CC", "Washington", "Beaufort, Hyde, Tyrrell & Washington Counties, NC"]].map(([name, short, city, area]): InstitutionDef => ({
     name, short, kind: "Community college", city, serviceArea: area, families: [
       { name: "Electrical Systems Technology", ...ELECTRICIAN, description: "Electrical Systems Technology AAS." + (/Davidson|Beaufort/.test(name) ? " (Program assumed from the inventory list — confirm.)" : ""), goals: goals(20), programs: [{ name: "Electrical Systems Technology", type: "Traditional Full Time", credential: "AAS", terms: electricalTerms, launch: "FALL", seats: 24, months: 3 }] },
     ],
@@ -260,7 +285,7 @@ export const INSTITUTIONS: InstitutionDef[] = [
  *  switched back on by removing them from this list). */
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Davidson-Davie Community College",
-  "Forsyth Technical Community College", "James Sprunt Community College", "Pitt Community College",
+  "Forsyth Technical Community College", "James Sprunt Community College",
   // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
   // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
   // workbook programs and offerings (see seed.ts).
