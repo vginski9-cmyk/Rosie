@@ -215,7 +215,7 @@ function kitsFor(s: PartnerSite): SiteKit[] {
   return [{ ...KITS[s.kind as keyof typeof KITS], n }];
 }
 /** Which job families a kind of site serves, by the setting code its assets carry. */
-const FAMILY_SETTINGS: Record<string, string[]> = { "nurse aide": ["LTC", "BEDS"], "cna": ["LTC", "BEDS"], "medical assist": ["AMB"], "nursing": ["BEDS", "ICU", "OB", "PEDS", "ED", "BH", "LTC", "HH", "HOSP", "PH", "DIAL", "AMB"] };
+const FAMILY_SETTINGS: Record<string, string[]> = { "nurse aide": ["LTC", "BEDS"], "cna": ["LTC", "BEDS"], "medical assist": ["AMB"], "medical office": ["AMB"], "nursing": ["BEDS", "ICU", "OB", "PEDS", "ED", "BH", "LTC", "HH", "HOSP", "PH", "DIAL", "AMB"] };
 
 const PRECEPTOR_NAMES = ["Denise Whitaker", "Marcus Bell", "Tanya Pierce", "Rodney Askew", "Lakeisha Vaughan", "Carla Futrell", "Brian Overton", "Sheila Godwin", "Kevin Sutton", "Angela Bazemore", "Monica Rountree", "Terrence Hollowell", "Paula Willoughby", "Jamal Copeland", "Renee Garner", "Heather Mizelle"];
 const emailOf = (name: string, domain: string) => `${name.toLowerCase().replace(/[^a-z]+/g, ".").replace(/^\.|\.$/g, "")}@${domain}`;

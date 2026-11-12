@@ -626,11 +626,14 @@ async function loadClinicalModels(institutionId: string) {
     const isSurg = /surgical/i.test(fam.name);
     const isCna = /nurse aide|cna/i.test(fam.name);
     const isMa = /medical assist/i.test(fam.name);
+    // Medical Office Administration: WBL 111, a work-based term with an approved employer (an office), not an externship.
+    const isMoa = /medical office/i.test(fam.name);
     // A prelicensure RN (or BSN) family: the lifespan settings the concept-based curriculum places students in.
     const isRn = !isCna && /nursing|prelicensure (rn|bsn)/i.test(fam.name);
     const model = isRad ? map.clinicalModel : isSurg
       ? { model: "competency", notes: "Competency / case-based: CAAHEP requires a documented case log (120 cases across specialties, 30 first-scrub in general surgery) rather than a fixed hour count — supply is OR suites and ASC procedure rooms with a preceptor per learner." }
       : isCna ? { model: "hours", notes: "Hours-based: NC NATCEP requires a minimum of clinical hours in a skilled nursing setting under RN supervision (currently 16 h clinical in the 75-h minimum), delivered in short blocks at long-term care sites." }
+      : isMoa ? { model: "hours", notes: "Work-based learning: WBL 111, about 160 hours (10 a week over the 16-week term) with an approved employer — a medical or health-related office — one student per workplace supervisor, coordinated by the college; CTS 130 Spreadsheet is the catalog's alternative." }
       : isRn ? { model: "hours", notes: "Hours-based, faculty-supervised (NC BON 21 NCAC 36 .0321: every clinical experience is directed by nursing faculty — an instructor-led group of at most ten students, the workspace plans eight — and the capstone is precepted 1:1). The Board sets no minimum hour count per course or setting: the hours are the college's own course sessions, placed across the lifespan settings (medical-surgical, critical care, maternal-newborn, pediatric, behavioral health, long-term care, community)." }
       : { model: "hours", notes: "Hours-based practicum: 160-hour unpaid externship in an ambulatory office / clinic setting (CAAHEP), plus competency check-offs in administrative and clinical skills." };
     await prisma.programFamily.update({ where: { id: fam.id }, data: { clinicalModel: model.model, clinicalNotes: model.notes, ...(isRn ? { rotationPrimarySetting: "BEDS" } : {}) } });
@@ -646,6 +649,7 @@ async function loadClinicalModels(institutionId: string) {
         { code: "BH", name: "Behavioral / mental health", settingCodes: "BH", unitCategories: "Behavioral health" }, { code: "LTC", name: "Long-term care / skilled nursing", settingCodes: "LTC", unitCategories: "Long-term care beds" },
         { code: "PH", name: "Community / public health", settingCodes: "PH", unitCategories: "Ambulatory office" }, { code: "HH", name: "Home health and hospice", settingCodes: "HH,HOSP", unitCategories: "Home & community" },
       ]
+      : isMoa ? [{ code: "AMB", name: "Approved employer — medical or health-related office (WBL 111)", settingCodes: "AMB", unitCategories: "Ambulatory office" }]
       : [{ code: "AMB", name: "Ambulatory office / clinic externship", settingCodes: "AMB", unitCategories: "Ambulatory office" }, { code: "LAB", name: "Laboratory / phlebotomy", settingCodes: "", unitCategories: "Laboratory" }, { code: "IMG", name: "Imaging front office", settingCodes: "GEN", unitCategories: "Imaging" }];
     const areaByCode = new Map<string, string>();
     for (let i = 0; i < areaDefs.length; i++) {
@@ -710,7 +714,7 @@ async function loadClinicalModels(institutionId: string) {
         await prisma.rotationSetting.upsert({ where: { institutionId_rotationType: { institutionId, rotationType } }, update: {}, create: { institutionId, rotationType, unitCategory, unitType, settingCode } });
       }
     }
-    if (isMa) {
+    if (isMa || isMoa) {
       const MA_ROT: [string, string, string | null, string][] = [
         ["Community Health", "Ambulatory office", "Community Health Center", "AMB"], ["Doctor's Office", "Ambulatory office", "Physician Office", "AMB"], ["Physician Office", "Ambulatory office", "Physician Office", "AMB"], ["Clinic", "Ambulatory office", "Clinic", "AMB"],
       ];
@@ -732,7 +736,7 @@ async function loadClinicalModels(institutionId: string) {
       const hasUnit = e.units.some((u) => catSet.has(u.unitCategory));
       if (!hasAsset && !hasUnit) continue;
       // Family-level agreement: the global one for the family that "owns" the site's primary use, a notch lower elsewhere.
-      const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || (isMa && e.units.some((u) => u.unitCategory === "Ambulatory office")) || (isRn && e.units.some((u) => /Inpatient beds|Long-term care beds|Adult care beds|Behavioral health|Home & community|Ambulatory office/.test(u.unitCategory)));
+      const primaryFamily = isRad ? hasAsset : (isCna && e.units.some((u) => /Long-term|Adult care/.test(u.unitCategory))) || (isSurg && e.units.some((u) => u.unitCategory === "Surgical")) || ((isMa || isMoa) && e.units.some((u) => u.unitCategory === "Ambulatory office")) || (isRn && e.units.some((u) => /Inpatient beds|Long-term care beds|Adult care beds|Behavioral health|Home & community|Ambulatory office/.test(u.unitCategory)));
       const status = primaryFamily ? e.agreementStatus : e.agreementStatus === "secured" ? "asked" : e.agreementStatus === "asked" ? "prospect" : "none";
       await prisma.familySite.upsert({ where: { familyId_employerId: { familyId: fam.id, employerId: e.id } }, update: { agreementStatus: status }, create: { familyId: fam.id, employerId: e.id, agreementStatus: status } });
       sites++;
