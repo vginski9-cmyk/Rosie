@@ -12,7 +12,7 @@ import { deriveCohortTargets } from "@/lib/pipeline";
 import { solveLadder, countsOfPlan, cleanCounts, ownRatesOfPlan, type PlannedCounts } from "@/lib/pipelinecounts";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
-import { yearAllocations, spreadGoal, offeringsNeeded, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
+import { yearAllocations, spreadGoal, oneOfferingSlot, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
 import { dec, fmt, numInput } from "@/lib/format";
 import { goalTiming } from "@/lib/goaltiming";
 import { candidateStarts, offeringEnd, suggestedStarts, term1Weeks, type PlannerCalendar, type PlannerModel, type StartOption } from "@/lib/goaldates";
@@ -238,17 +238,12 @@ export function GoalPlanner({
   const addAlloc = (programId: string) => {
     if (allocs.some((a) => a.programId === programId)) return;
     const m = models.find((x) => x.programId === programId);
-    // A new model takes whatever the year's goal still leaves uncovered — split evenly over as many
-    // offerings as its class size needs (30 workers at 10 a class is not one offering of 30), each
-    // ready to lock in; every figure is editable on its slot.
+    // A dropped model adds ONE offering, planned on its own: a class at the model's max cohort (never more than the
+    // goal still leaves uncovered), on the first start that finishes inside the year. More offerings are added one at a
+    // time with "+ offering" — the owner's call (2026-11-12): thirty prefilled slots at once is not how a planner works.
     const remaining = Math.max(0, yearGoal - allocs.reduce((n, a) => n + allocGoal(a), 0));
-    const terms = Math.max(1, m?.terms ?? 1);
-    const n = m ? offeringsNeeded(seatsNeeded(deriveCohortTargets(remaining, s.goal, terms).capacity), m.maxCapacity) : 1;
-    const goals = spreadGoal(remaining, n);
-    // Several offerings do not all start the same day: their starts are spaced through the goal year, each
-    // one finishing inside it (never before today). Each date is yours to change.
-    const starts = m ? startsFor(m, n) : [];
-    setAllocs([...allocs, { programId, goal: remaining, offeringCount: n, offerings: goals.map((g, i) => ({ startDate: starts[i] ?? null, goal: g, termOverrides: [], campusId: campuses.length === 1 ? campuses[0].id : null })) }]);
+    const slot = oneOfferingSlot({ maxCapacity: m?.maxCapacity, remaining, rates: s.goal, numTerms: Math.max(1, m?.terms ?? 1), startDate: m ? startsFor(m, 1)[0] ?? null : null, campusId: campuses.length === 1 ? campuses[0].id : null });
+    setAllocs([...allocs, { programId, goal: slot.goal ?? 0, offeringCount: 1, offerings: [slot] }]);
   };
 
   /** The runs an allocation needs, sized to the model's max cohort capacity —
@@ -541,7 +536,7 @@ export function GoalPlanner({
             className={`rounded-xl border-2 border-dashed p-3 transition-colors ${dragOver ? "border-rose-400 bg-rose-50/50" : "border-slate-200 bg-slate-50/40"}`}>
             {allocs.length === 0 ? (
               <div className="flex h-full min-h-[120px] items-center justify-center text-center text-xs text-slate-400">
-                Drop programs here — the offerings responsible for delivering the {s.selectedYear} goal.
+                Drop a program here to plan one offering toward the {s.selectedYear} goal; add more one at a time.
               </div>
             ) : (
               <div className="space-y-3">
@@ -561,19 +556,26 @@ export function GoalPlanner({
                   const nSuggested = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capOwn / m.maxCapacity)) : 1;
                   const withSlots = (next: OfferingSlot[], extra: Partial<Alloc> = {}) =>
                     setAllocs(allocs.map((x, i) => (i === ai ? { ...x, ...extra, offerings: next, goal: next.reduce((n, o) => n + (o.goal ?? 0), 0), termOverrides: undefined, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
-                  // Add or remove an offering: the unlocked slots then share the unlocked goal evenly again.
+                  // "Spread evenly": the unlocked slots share the unlocked goal evenly again (on request only).
                   const respread = (list: OfferingSlot[]): OfferingSlot[] => {
                     const open = list.filter((o) => !o.locked);
                     const total = open.reduce((n, o) => n + (slotTargets(o).goal ?? 0), 0);
                     const parts = spreadGoal(total, open.length); let i = 0;
                     return list.map((o) => (o.locked ? o : { ...o, goal: parts[i++] ?? 0 }));
                   };
+                  // Add an offering: one more class planned on its own from what the goal still leaves uncovered, on the next
+                  // start not yet taken — the other slots keep their numbers and dates. Remove: the last unlocked slot goes.
                   const setCount = (next: number) => {
                     const target = Math.max(1, lockedCount, next);
-                    let list = [...slots];
-                    while (list.length < target) list.push({ startDate: null, goal: 0, termOverrides: [], campusId: list[list.length - 1]?.campusId ?? null });
+                    const list = [...slots];
+                    while (list.length < target) {
+                      const uncovered = Math.max(0, yearGoal - allocated);
+                      const taken = new Set(list.map((o) => o.startDate).filter(Boolean));
+                      const start = startsFor(m, list.length + 1).find((d) => !taken.has(d)) ?? null;
+                      list.push(oneOfferingSlot({ maxCapacity: m.maxCapacity, remaining: uncovered, rates: s.goal, numTerms: Math.max(1, m.terms), startDate: start, campusId: list[list.length - 1]?.campusId ?? null }));
+                    }
                     while (list.length > target && !list[list.length - 1].locked) list.pop();
-                    withSlots(respace(respread(list)), { offeringCount: target });
+                    withSlots(list, { offeringCount: target });
                   };
                   // The unlocked offerings take their places through the goal year again (a locked one keeps its real dates).
                   const respace = (list: OfferingSlot[]): OfferingSlot[] => {
@@ -611,7 +613,7 @@ export function GoalPlanner({
                         <span className="text-slate-500">max cohort capacity <strong className="text-slate-700">{m.maxCapacity != null ? fmt.num(m.maxCapacity) : "—"}</strong></span>
                         <span className="inline-flex items-center gap-1">
                           <button onClick={() => setCount(slots.length - 1)} disabled={slots.length <= Math.max(1, lockedCount)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300" title={lockedCount > 0 && slots.length <= lockedCount ? "unlock an offering first" : "remove an offering"}>− offering</button>
-                          <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add another offering of this model — give it its own goal and enrollment below">+ offering</button>
+                          <button onClick={() => setCount(slots.length + 1)} className="rounded border border-slate-300 px-1.5 py-0.5 font-semibold text-slate-600 hover:bg-slate-50" title="add one more offering of this model, planned on its own from what the goal still leaves uncovered">+ offering</button>
                         </span>
                         {slots.length !== nSuggested && <span className="text-slate-400">the class size says {nSuggested} — your call</span>}
                         {slots.filter((o) => !o.locked).length > 1 && <button onClick={() => withSlots(respread(slots))} className="rounded border border-slate-300 px-1.5 py-0.5 text-slate-600 hover:bg-slate-50" title="give the unlocked offerings equal shares of their goal">spread evenly</button>}

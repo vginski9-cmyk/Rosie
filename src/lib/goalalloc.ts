@@ -4,7 +4,7 @@
 // total counts what actually runs. An offering the plan already references is never added twice.
 
 import type { LadderRates } from "./northstar";
-import type { PlannedCounts } from "./pipelinecounts";
+import { solveLadder, type PlannedCounts } from "./pipelinecounts";
 
 /** One planned run of a delivery model inside an allocation. */
 export interface OfferingSlot {
@@ -81,6 +81,19 @@ export function spreadGoal(total: number, n: number): number[] {
   const whole = Math.max(0, Math.round(total));
   const base = Math.floor(whole / count), extra = whole - base * count;
   return Array.from({ length: count }, (_, i) => base + (i < extra ? 1 : 0));
+}
+
+/** ONE offering planned on its own — what a program dropped onto the goal plan (or "+ offering") adds: a class at the
+ *  model's max cohort (counts.enrolled, the ladder deriving its productive share through the family rates), never
+ *  covering more than the goal still leaves uncovered (then the slot takes that remainder as its productive count);
+ *  a model with no max cohort takes the remainder. More offerings are added one at a time, each planned the same way. */
+export function oneOfferingSlot(input: { maxCapacity: number | null | undefined; remaining: number; rates: LadderRates; numTerms: number; startDate: string | null; campusId?: string | null }): OfferingSlot {
+  const remaining = Math.max(0, input.remaining);
+  const cap = input.maxCapacity != null && input.maxCapacity > 0 ? input.maxCapacity : null;
+  let counts: PlannedCounts = cap ? { enrolled: cap } : { productive: remaining };
+  let goal = cap ? solveLadder({ goal: remaining, rates: input.rates, counts, numTerms: input.numTerms }).goal : remaining;
+  if (cap && goal > remaining) { counts = { productive: remaining }; goal = remaining; }
+  return { startDate: input.startDate, goal, termOverrides: [], counts, campusId: input.campusId ?? null };
 }
 
 /** How many offerings a goal takes when each seats at most `maxCapacity` in term 1. */

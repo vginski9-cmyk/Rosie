@@ -35,8 +35,30 @@ describe("a year's goal allocations (audit §1.10)", () => {
   });
 });
 
-import { spreadGoal, offeringsNeeded, sectionsFor } from "../src/lib/goalalloc";
-// A goal dropped on a program is split over as many offerings as its class size needs, evenly.
+import { spreadGoal, offeringsNeeded, sectionsFor, oneOfferingSlot } from "../src/lib/goalalloc";
+import { BENCHMARK_RATES } from "../src/lib/northstar";
+
+// A program dropped onto the goal plan adds ONE offering, planned on its own (the owner's call, 2026-11-12).
+describe("one offering at a time", () => {
+  const rates = { ...BENCHMARK_RATES, completionRate: 0.75, licensureRate: 1, placementRate: 1, productivityRate: 1 };
+  it("plans a class at the model's max cohort and derives its productive share", () => {
+    const slot = oneOfferingSlot({ maxCapacity: 20, remaining: 100, rates, numTerms: 5, startDate: "2027-08-16", campusId: "c1" });
+    expect(slot.counts).toEqual({ enrolled: 20 });
+    expect(slot.goal).toBeCloseTo(15, 6); // 20 × 0.75 × 1 × 1 × 1
+    expect([slot.startDate, slot.campusId, slot.termOverrides]).toEqual(["2027-08-16", "c1", []]);
+  });
+  it("never covers more than the goal still leaves uncovered", () => {
+    const slot = oneOfferingSlot({ maxCapacity: 20, remaining: 5, rates, numTerms: 5, startDate: null });
+    expect(slot.counts).toEqual({ productive: 5 }); expect(slot.goal).toBe(5); expect(slot.campusId).toBeNull();
+  });
+  it("a model with no max cohort takes the remainder as its productive count", () => {
+    const slot = oneOfferingSlot({ maxCapacity: null, remaining: 12, rates, numTerms: 2, startDate: null });
+    expect(slot.counts).toEqual({ productive: 12 }); expect(slot.goal).toBe(12);
+    expect(oneOfferingSlot({ maxCapacity: 20, remaining: -3, rates, numTerms: 2, startDate: null }).goal).toBe(0);
+  });
+});
+
+// "Spread evenly" still splits a model's goal over its offerings on request.
 describe("spreading a goal over offerings", () => {
   it("splits in whole workers, the first offerings taking the remainder", () => {
     expect(spreadGoal(30, 4)).toEqual([8, 8, 7, 7]);
