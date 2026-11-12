@@ -71,15 +71,6 @@ function electricalTerms(): TermSeed[] {
     T(5, "Second Spring", 16, [e("ELC 229", "Applications Project", 1, 6, 3), e("ELC 221", "Advanced PLC", 2, 3, 3), e("ELC 128A", "Industrial Networks", 2, 3, 3), e("HUM 115", "Critical Thinking", 3, 0, 3, "GENED")], 59),
   ];
 }
-/** Medical Office Administration — diploma with a work-based learning term in a practice. */
-function medicalOfficeTerms(): TermSeed[] {
-  const o = (code: string, name: string, cl: number, lab: number, cr: number, type = "CORE") => cc(code, name, cl, lab, 0, cr, type);
-  return [
-    T(1, "Fall", 16, [o("OST 131", "Keyboarding", 1, 2, 2), o("OST 136", "Word Processing", 2, 2, 3), o("MED 121", "Medical Terminology I", 3, 0, 3), o("OST 149", "Medical Legal Issues", 3, 0, 3), o("ENG 111", "Writing and Inquiry", 3, 0, 3, "GENED")]),
-    T(2, "Spring", 16, [o("OST 148", "Medical Coding, Billing and Insurance", 3, 0, 3), o("OST 247", "Procedures for the Medical Office", 3, 0, 3), o("MED 122", "Medical Terminology II", 3, 0, 3), o("OST 236", "Advanced Word / Information Processing", 2, 2, 3), o("OST 286", "Professional Development", 3, 0, 3)], 17),
-    T(3, "Summer", 10, [o("OST 248", "Diagnostic Coding", 3, 0, 3), cc("WBL 111", "Work-Based Learning I", 0, 0, 10, 1, "CORE", { rotations: ["Doctor's Office"], clinical: { mode: "Preceptor-led", maxStudents: 1, faculty: 0.05, preceptors: 1 } })], 33),
-  ];
-}
 
 // ── The institutions ────────────────────────────────────────────────────────
 /** A program is either coded here (`terms`) or a template pack under prisma/templates (`pack`: name, type, credential, class size, terms, courses and sessions all come from the file). */
@@ -196,6 +187,21 @@ export const PITT_PROGRAMS: PackProgramDef[] = [
   { pack: "pitt-electrician-apprenticeship.json", launch: "FALL", months: 0, note: "The electrician apprenticeship the college sponsors (NCCCS apprenticeship directory #97754): time-based, an 8,000-hour term over four years, 1:1 ratio, through Thomas Electrical Solutions and the City of Greenville; related instruction carried at the US DOL / ApprenticeshipNC minimum of 144 hours a year because the college publishes none. Nights, room, start date and class size are not published; on-the-job hours are recorded on each year, not scheduled." },
 ];
 
+/** College of The Albemarle's Medical Office Administration: the hybrid AAS as its program coordinator filled the owner's
+ *  Program Planning Template (received 2026-11-12), built by scripts/build-albemarle-packs.mjs through the template reader
+ *  scripts/planning-template.mjs into prisma/templates/albemarle-moa-aas.json. The college's session rows, hours, class
+ *  sizes and policies are its own; credits are the NCCCS standard's; no clinical component (WBL 111 is named in the
+ *  workbook's notes with no rows). */
+export const ALBEMARLE_PROGRAMS: PackProgramDef[] = [
+  { pack: "albemarle-moa-aas.json", launch: "FALL", months: 3, note: "The college's own session rows from its Program Planning Template (2026-11-12): twelve core courses over four 16-week terms, online except the Tuesday labs in Owens 211. The general-education courses the coordinator removed, the AAS's full credit total and WBL 111 are not in the workbook; the Diploma and the Patient Representative Certificate are not modeled." },
+];
+/** COA's earlier placeholder families (a Nurse Aide I copied from Carteret's model, a generic coded Medical Assisting
+ *  diploma) — kept here, not seeded, until the college's own data arrives (the owner's call, 2026-11-12). */
+export const COA_PLACEHOLDER_FAMILIES: FamilyDef[] = [
+  { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(60), programs: [], cna: true },
+  { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(20), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 24, months: 3 }] },
+];
+
 export const INSTITUTIONS: InstitutionDef[] = [
   { name: "Rowan-Cabarrus Community College", short: "Rowan-Cabarrus CC", kind: "Community college", city: "Salisbury", serviceArea: "Rowan & Cabarrus Counties, NC", families: [
     { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(20), programs: RCCC_PROGRAMS,
@@ -244,10 +250,11 @@ export const INSTITUTIONS: InstitutionDef[] = [
       { name: "Electrical Systems Technology", ...ELECTRICIAN, description: "Electrical Systems Technology AAS." + (/Davidson|Beaufort/.test(name) ? " (Program assumed from the inventory list — confirm.)" : ""), goals: goals(20), programs: [{ name: "Electrical Systems Technology", type: "Traditional Full Time", credential: "AAS", terms: electricalTerms, launch: "FALL", seats: 24, months: 3 }] },
     ],
   })),
+  // COA's Medical Office Administration from the college's own Program Planning Template (2026-11-12): the pack above.
+  // The Nurse Aide and Medical Assisting placeholders (COA_PLACEHOLDER_FAMILIES) stay out until the college's data arrives.
   { name: "College of The Albemarle", short: "COA", kind: "Community college", city: "Elizabeth City", serviceArea: "Camden, Chowan, Currituck, Dare, Gates, Pasquotank & Perquimans Counties, NC", families: [
-    { name: "Nurse Aide (CNA)", ...NA, description: "Nurse Aide I.", goals: goals(60), programs: [], cna: true },
-    { name: "Medical Assisting", ...MA, description: "Medical Assisting diploma / AAS.", goals: goals(20), programs: [{ name: "Medical Assisting", type: "Traditional Full Time", credential: "Diploma", terms: (h) => h.genTerms("MED", 52, 2, true), launch: "FALL", seats: 24, months: 3 }] },
-    { name: "Medical Office Administration", ...MOA, description: "Medical Office Administration.", goals: goals(18), programs: [{ name: "Medical Office Administration", type: "Traditional Full Time", credential: "Diploma", terms: medicalOfficeTerms, launch: "FALL", seats: 24, months: 3 }] },
+    { name: "Medical Office Administration", ...MOA, goals: goals(18), programs: ALBEMARLE_PROGRAMS,
+      description: "COA's Medical Office Administration (A25310) as its program coordinator (Rebecca Walker, Program Coordinator, Medical Office Administration and Medical Assisting, Owens Center 101) filled the Program Planning Template on 2026-11-12: the hybrid AAS — twelve core courses over four 16-week terms (fall, spring, fall, spring): MED 110, 121, 130, 131 · MED 122, 118, OST 164, 247 · OST 148, 136, 248 · OST 249 — online with asynchronous weekly sessions except the Tuesday 9a–12:50p labs of MED 130 and MED 131 in room 211 of the Dr. Zack D. Owens Health Sciences Center at Elizabeth City. Class sizes 25 (20 on the coding courses, which cap a cohort at 20; 30 on MED 118). Faculty load as the workbook states it: full-time 18 contact hours of a 40-hour week (2.22 work hours a contact hour), adjuncts 1:1. MED 121 is also run as a 12-week and a summer-only 8-week format. The workbook's notes call it a three-semester (fall, spring, summer) program where its sheets run four terms, and name WBL 111 (about 160 work hours with an approved employer) with no session rows — both to confirm with the coordinator; the general-education courses she marked \"not a core course\" and the AAS's full credit total are not in the workbook. The Diploma and the Patient Representative Certificate (C25310PR) exist; their course lists were not read. No clinical component modeled. The North-Star goal of 18 a year is the earlier placeholder, not the college's figure." },
   ] },
   // Roanoke-Chowan's Medical Assisting is the continuing-education MED 3300 from the college's
   // program-structure workbook (prisma/templates/ma-roanoke-chowan.json): 720 hours in two terms —
@@ -286,10 +293,6 @@ export const INSTITUTIONS: InstitutionDef[] = [
 export const PAUSED_INSTITUTIONS = new Set([
   "Beaufort County Community College", "Davidson-Davie Community College",
   "Forsyth Technical Community College", "James Sprunt Community College",
-  // Paused while the workspace zeroes in on Sandhills' radiography and surgical technology programs.
-  // Carteret and Lenoir (Nurse Aide I) and Roanoke-Chowan (Medical Assisting) are back in with their
-  // workbook programs and offerings (see seed.ts).
-  "College of The Albemarle",
 ]);
 
 export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {

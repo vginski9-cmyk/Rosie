@@ -15,6 +15,12 @@ export const OTHER_CAMPUSES: Record<string, { name: string; address: string; cit
     // The college's second campus (its site; the Nurse Aide workbook names "Havelock Campus – Redd Bldg" as a class location, 2026-10-27). The high-school site is not named.
     { name: "Havelock Campus", address: "305 Cunningham Blvd", city: "Havelock", state: "NC", zip: "28532", notes: "Nurse Aide I classes meet here (Redd Bldg) as well as at the New Bern campus (Perdue Bldg); which sections run where is not on record." },
   ],
+  "College of The Albemarle": [
+    // The college's other three locations (its location pages, 2026-11-12). Medical Office Administration is online with its labs in Owens 211 at Elizabeth City.
+    { name: "COA – Edenton-Chowan", address: "118 Blades St", city: "Edenton", state: "NC", zip: "27932", notes: "The Chowan County location." },
+    { name: "COA – Currituck", address: "107 College Way", city: "Barco", state: "NC", zip: "27917", notes: "The Currituck County location in the Currituck Community Park at Barco (aviation, machining and drafting labs)." },
+    { name: "COA – Dare", address: "205 Highway 64 S", city: "Manteo", state: "NC", zip: "27954", notes: "The Dare County location at Manteo." },
+  ],
   "Pitt Community College": [
     // The college's Greenville location (its directory and campus-map pages, 2026-11-10). Electrical Systems Technology is taught in the Vernon E. White Building on the Winterville campus.
     { name: "Greenville Center", address: "3107 S Memorial Dr", city: "Greenville", state: "NC", zip: "27834", notes: "Continuing education, the Small Business Center and law-enforcement training; the continuing-education electrical wiring classes are scheduled from here. Electrical Systems Technology's labs are in the Vernon E. White Building at Winterville." },

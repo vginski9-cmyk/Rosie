@@ -16,6 +16,8 @@ export const CALENDAR_FILES: Record<string, string> = {
   "Lenoir Community College": "lenoir.txt",
   "Craven Community College": "craven.txt",
   "Roanoke-Chowan Community College": "roanoke-chowan.txt",
+  // College of The Albemarle: Fall 2026 – Summer 2027 complete as published (sessions, closures, faculty days); Fall 2027 onward
+  // carries the published term starts and ends with the session rows still "TBD" on the college's page.
   "College of The Albemarle": "albemarle.txt",
   "Brunswick Community College": "brunswick.txt",
   "Rowan-Cabarrus Community College": "rowan-cabarrus.txt",
