@@ -271,7 +271,9 @@ export async function seedInstructors(prisma: PrismaClient, institutionId: strin
   return rows.length;
 }
 
-export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES>; /** The counts stated for the class by pipeline stage (enrolled, completing, …); the rest derives. */ counts?: PlannedCounts; /** Where it meets: a campus of the college by name (default: the main campus). */ campus?: string; locationNote?: string; code?: string }[]): Promise<number> {
+/** One offering to seed: the program by name, its first day, its goal share, and what the college or the plan states for the class. */
+export type OfferingSpec = { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES>; /** The counts stated for the class by pipeline stage (enrolled, completing, …); the rest derives. */ counts?: PlannedCounts; /** Where it meets: a campus of the college by name (default: the main campus). */ campus?: string; locationNote?: string; code?: string };
+export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: OfferingSpec[]): Promise<number> {
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
   // The college's coded calendar dates the terms (semester ends, session starts, holidays), exactly as lock-in does.
@@ -296,7 +298,10 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const lastEnd = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
     // Named the way lock-in names an offering: by class year, or by start month and place for a short-term program.
     const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
-    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), detail: programDetail(program.name), existing: familyNames });
+    // A family that runs more than one class-year program (Albemarle's AAS and Diploma) names each class by its credential too.
+    const siblings = program.familyId ? await prisma.program.findMany({ where: { familyId: program.familyId, id: { not: program.id } }, select: { launchCadence: true, credential: true, terms: { select: { startWeek: true, endWeek: true } } } }) : [];
+    const longSibling = siblings.some((s) => !shortTermProgram({ launchCadence: s.launchCadence, spanWeeks: s.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0) }));
+    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), detail: programDetail(program.name), credential: longSibling ? program.credential : null, existing: familyNames });
     const startD = new Date(o.start + "T00:00:00Z");
     // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
     const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;

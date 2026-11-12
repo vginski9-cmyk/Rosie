@@ -6,6 +6,9 @@ describe("offering names", () => {
     expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: [] })).toBe("Class of 2028");
     expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: ["Class of 2028"] })).toBe("Class of 2028 · 2nd class");
     expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-11", existing: ["Class of 2028", "Class of 2028 · 2nd class", "Class of 2028 · 3rd class"] })).toBe("Class of 2028 · 3rd class (2)");
+    // A family with more than one class-year program (Albemarle's AAS and Diploma) names each class by its credential.
+    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2027-07-26", credential: "Diploma", existing: ["Class of 2027 · AAS", "Class of 2027 · AAS · 2nd class"] })).toBe("Class of 2027 · Diploma");
+    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2027-07-26", credential: "Diploma", existing: ["Class of 2027 · Diploma"] })).toBe("Class of 2027 · Diploma · 2nd class");
   });
   it("a short-term program names by its start month and where it meets", () => {
     expect(offeringName({ shortTerm: true, startIso: "2026-01-05", endIso: "2026-06-08", campus: "Greene County Center", existing: [] })).toBe("Jan 2026 · Greene County Center");

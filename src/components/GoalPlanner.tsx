@@ -496,7 +496,7 @@ export function GoalPlanner({
           <h3 className="text-sm font-semibold text-slate-700">{s.selectedYear} — who delivers this goal</h3>
           <span className="text-[11px] tabular-nums">
             goal <strong className="text-slate-800">{yearGoal}</strong> · allocated <strong className={Math.abs(remaining) < 0.005 ? "text-emerald-600" : "text-slate-800"}>{dec(allocated)}</strong> ·{" "}
-            <strong className={Math.abs(remaining) < 0.005 ? "text-emerald-600" : remaining > 0 ? "text-amber-600" : "text-rose-600"}>{Math.abs(remaining) < 0.005 ? "fully covered" : remaining > 0 ? `${dec(remaining)} uncovered` : `${dec(-remaining)} over`}</strong>
+            <strong className={remaining > 0.005 ? "text-amber-600" : "text-emerald-600"}>{Math.abs(remaining) < 0.005 ? "fully covered" : remaining > 0 ? `${dec(remaining)} uncovered` : `fully covered · ${dec(-remaining)} to spare`}</strong>
           </span>
         </div>
         <p className="mb-3 text-[11px] text-slate-500">Add a program: the goal is split over as many offerings as its class size needs, each with its own start, place and share. Change any of it, then lock each offering in.</p>

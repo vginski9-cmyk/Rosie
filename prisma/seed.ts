@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { computeCohortTiming, seasonOfName, type TimingTerm } from "../src/lib/term";
 import { autoSchedule, toMin, toHHMM, type PlaceReq, type Weekday } from "../src/lib/space";
 import { seedRoster, seedOfferings, seedOfferingMeetings, seedWorkloadPolicies, seedShiftAssignments, seedLearnerRecords, seedRequirementLogs, seedInstructors } from "./seed-roster";
+import { SCHEDULED_OFFERINGS } from "./seed-offerings";
 import { seedLenoirCohorts } from "./seed-lenoir";
 import { seedAcademicCalendars } from "./seed-calendars";
 import { seedGeography, seedRequirementSets } from "./seed-geo-requirements";
@@ -1183,13 +1184,13 @@ async function main() {
     { program: "Nurse Aide Level I — 14-week high school offering", start: "2027-01-11", goal: 9, seats: 10 },
     { program: "Nurse Aide Level I — 8-week summer offering", start: "2027-06-01", goal: 9, seats: 10 },
   ]));
-  // Roanoke-Chowan runs Medical Assisting once a year: Part 1 from the fall semester's first day,
-  // Part 2 in the spring — this year's class and next year's, each carrying the 9-a-year goal.
-  const roanoke = await prisma.institution.findFirst({ where: { name: "Roanoke-Chowan Community College" }, select: { id: true } });
-  if (roanoke) console.log("Roanoke-Chowan offerings:", await seedOfferings(prisma, roanoke.id, [
-    { program: "Medical Assisting", start: "2026-08-17", goal: 9, seats: 10 },
-    { program: "Medical Assisting", start: "2027-08-16", goal: 9, seats: 10 },
-  ]));
+  // The cohorts scheduled to each college's goal through 2030 (seed-offerings.ts): Roanoke-Chowan's two Medical Assisting
+  // classes a year (Part 1 from the fall semester's first day, Part 2 in the spring), Albemarle's three AAS and three
+  // Diploma classes a year.
+  for (const [name, specs] of Object.entries(SCHEDULED_OFFERINGS)) {
+    const inst = await prisma.institution.findFirst({ where: { name }, select: { id: true } });
+    if (inst) console.log(`${name} offerings:`, await seedOfferings(prisma, inst.id, specs));
+  }
   // Lenoir's real Nurse Aide I cohort schedule (dates, days, times, rooms), each cohort on the
   // workbook delivery model its days and length match — see seed-lenoir.ts.
   const lenoir = await prisma.institution.findFirst({ where: { name: "Lenoir Community College" }, select: { id: true } });

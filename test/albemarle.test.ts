@@ -14,7 +14,7 @@ import { readPlanningTemplate, isEmptyBlock } from "../scripts/planning-template
 // (scripts/planning-template.mjs → scripts/build-albemarle-packs.mjs → prisma/templates/albemarle-moa-aas.json, 2026-11-12):
 // the college's session rows, hours, class sizes and policies; credits the standard's; the data corrections said on the rows.
 
-type Session = { facultyContactPolicy: number | null; kind: string; number: number; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null; lengthHours: number; location: string | null; deliveryMode: string | null; maxStudents: number; supportStaffNeeded: number; supportContactPolicy: number | null; notes: string | null };
+type Session = { facultyContactPolicy: number | null; facultyNeeded: number; kind: string; number: number; week: number; dayOfWeek: string | null; startTime: string | null; endTime: string | null; lengthHours: number; location: string | null; deliveryMode: string | null; maxStudents: number; supportStaffNeeded: number; supportContactPolicy: number | null; preceptorsNeeded: number; rotationType: string | null; clinicalMode: string | null; notes: string | null };
 type Course = { code: string; title: string; weeklyClassHours: number; weeklyLabHours: number; weeklyClinicalHours: number; credits: number; description: string; sessions: Session[] };
 type Pack = { name: string; programType: string; credential: string; maxCohort: number | null; calendarMode?: string; note: string; assumptions: { facContactHours: number; facWorkWeekHours: number }; terms: { name: string; semester: string | null; startWeek: number; endWeek: number; courses: Course[] }[] };
 type Course2 = Course & { courseType: string; requisites: string };

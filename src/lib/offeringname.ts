@@ -1,7 +1,9 @@
 // How an offering is named, everywhere one is created (lock-in, the offering form, the seeds).
 //
 //   A program that graduates a class a year (an AAS, a diploma) names its offerings by the year the
-//   last term ends: "Class of 2028".
+//   last term ends: "Class of 2028" — and, where its family runs more than one such program, by the
+//   credential too, so a diploma class and an AAS class of the same year are told apart:
+//   "Class of 2028 · Diploma", "Class of 2028 · AAS".
 //   A short-term program that runs several times a year (a Nurse Aide class, a continuing-education
 //   course) names them by when and where they start: "Jan 2026 · Greene County Center". Two runs
 //   that start the same month at the same place are told apart by their days and time of day
@@ -41,11 +43,13 @@ export function offeringName(o: {
   campus?: string | null;
   /** Its days and time of day ("Mon & Wed evening"), used only to tell two same-month runs apart. */
   detail?: string | null;
+  /** The program's credential ("AAS", "Diploma"), given only when its family runs more than one class-year program. */
+  credential?: string | null;
   /** Names its siblings in the program already use. */
   existing: string[];
 }): string {
   // A second class graduating the same year is a parallel class, and says so.
-  if (!o.shortTerm) { const base = `Class of ${o.endIso.slice(0, 4)}`; return unique([base, `${base} · 2nd class`, `${base} · 3rd class`], o.existing); }
+  if (!o.shortTerm) { const base = [`Class of ${o.endIso.slice(0, 4)}`, o.credential].filter(Boolean).join(" · "); return unique([base, `${base} · 2nd class`, `${base} · 3rd class`], o.existing); }
   const base = [monthYearOf(o.startIso), o.campus].filter(Boolean).join(" · ");
   return unique(o.detail ? [base, `${base} · ${o.detail}`] : [base], o.existing);
 }
