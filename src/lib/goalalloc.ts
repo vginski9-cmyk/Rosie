@@ -4,6 +4,7 @@
 // total counts what actually runs. An offering the plan already references is never added twice.
 
 import type { LadderRates } from "./northstar";
+import type { PlannedCounts } from "./pipelinecounts";
 
 /** One planned run of a delivery model inside an allocation. */
 export interface OfferingSlot {
@@ -13,8 +14,10 @@ export interface OfferingSlot {
   goal?: number;
   /** THIS offering's per-term enrollment (index 0 = term 1); null = derived from its goal. */
   termOverrides?: (number | null)[];
-  /** THIS offering's own health rates (only the keys that differ from the family defaults). */
+  /** THIS offering's own health rates (only the keys that differ from the family defaults) — set by earlier plans; new edits plan in counts. */
   rates?: Partial<LadderRates>;
+  /** THIS offering's typed counts by pipeline stage; every other stage derives from the family defaults. */
+  counts?: PlannedCounts;
   /** Where this run meets (a campus of the college), chosen before lock-in. */
   campusId?: string | null;
   /** Locked in: the real cohort this run became. */

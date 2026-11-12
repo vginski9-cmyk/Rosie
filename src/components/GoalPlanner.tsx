@@ -9,6 +9,7 @@ import {
   type LadderRates,
 } from "@/lib/northstar";
 import { deriveCohortTargets } from "@/lib/pipeline";
+import { solveLadder, countsOfPlan, cleanCounts, ownRatesOfPlan, type PlannedCounts } from "@/lib/pipelinecounts";
 import { saveFamilyGoalPlan, lockInInstantiation, unlockInstantiation, saveCohortPipeline } from "@/lib/actions";
 import { OfferingTargetsEditor, seatsNeeded, type OfferingTargets } from "@/components/OfferingTargetsEditor";
 import { yearAllocations, spreadGoal, offeringsNeeded, sectionsFor, type Alloc, type OfferingSlot } from "@/lib/goalalloc";
@@ -282,18 +283,19 @@ export function GoalPlanner({
   /** Only the rate keys that differ from the family defaults count as "own". */
   // Every offering the planner knows about, whatever year it graduates in (declared before the slot readers that use it).
   const allInsts = useMemo(() => Object.values(offeringsByYear).flat(), [offeringsByYear]);
-  const ownRatesOf = (r: Partial<LadderRates> | undefined): Partial<LadderRates> => { const out: Partial<LadderRates> = {}; for (const [k, v] of Object.entries(r ?? {})) if (typeof v === "number" && v !== s.goal[k as keyof LadderRates]) out[k as keyof LadderRates] = v; return out; };
   /** What a slot's editor shows: its own fields, else (locked, older plan) the cohort's saved plan. */
   const slotTargets = (o: OfferingSlot): OfferingTargets => {
     // A locked-in offering's own saved plan (its goal, per-term enrollment and health rates) is the
     // truth for that slot, whether the slot came from the saved allocation or was merged in from the
     // offering itself; a rate counts as the offering's own only where it differs from the family's.
     const inst = o.locked && o.cohortId ? allInsts.find((x) => x.id === o.cohortId) : undefined;
-    let saved: { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } | null = null;
+    let saved: { goal?: number; rates?: Partial<LadderRates>; ownRates?: Partial<LadderRates>; termOverrides?: (number | null)[]; counts?: PlannedCounts } | null = null;
     try { saved = inst?.pipelineRates ? JSON.parse(inst.pipelineRates) : null; } catch { saved = null; }
-    const ownSaved = ownRatesOf(saved?.rates);
-    if (o.goal == null && inst) return { goal: saved?.goal ?? inst.goalProductive ?? 0, termOverrides: saved?.termOverrides ?? [], rates: ownSaved };
-    return { goal: o.goal ?? 0, termOverrides: o.termOverrides?.length ? o.termOverrides : saved?.termOverrides ?? [], rates: o.rates && Object.keys(o.rates).length ? o.rates : ownSaved };
+    const ownSaved = ownRatesOfPlan(saved, s.goal);
+    const savedCounts = countsOfPlan(saved);
+    if (o.goal == null && inst) return { goal: saved?.goal ?? inst.goalProductive ?? 0, termOverrides: saved?.termOverrides ?? [], rates: ownSaved, counts: savedCounts };
+    const counts = o.counts && Object.keys(cleanCounts(o.counts)).length ? cleanCounts(o.counts) : o.termOverrides?.[0] != null && !o.counts ? countsOfPlan({ termOverrides: o.termOverrides }) : savedCounts;
+    return { goal: o.goal ?? 0, termOverrides: o.termOverrides?.length ? o.termOverrides : saved?.termOverrides ?? [], rates: o.rates && Object.keys(o.rates).length ? o.rates : ownSaved, counts };
   };
   const allocated = allocs.reduce((n, a) => n + allocGoal(a), 0);
   const remaining = yearGoal - allocated;
@@ -301,7 +303,7 @@ export function GoalPlanner({
   const pendingSaves = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const persistLocked = (cohortId: string, v: OfferingTargets) => {
     clearTimeout(pendingSaves.current[cohortId]);
-    pendingSaves.current[cohortId] = setTimeout(() => { saveCohortPipeline(cohortId, { goal: v.goal, rates: { ...s.goal, ...v.rates } as unknown as Record<string, number>, termOverrides: v.termOverrides }).then(() => router.refresh()).catch(() => undefined); }, 800);
+    pendingSaves.current[cohortId] = setTimeout(() => { saveCohortPipeline(cohortId, { goal: v.goal, rates: v.rates as Record<string, number>, termOverrides: v.termOverrides, counts: v.counts }).then(() => router.refresh()).catch(() => undefined); }, 800);
   };
   const [dragOver, setDragOver] = useState(false);
   const [lockingId, setLockingId] = useState<string | null>(null);
@@ -385,7 +387,7 @@ export function GoalPlanner({
     const tv = slotTargets(slot);
     setLockingId(`${a.programId}:${oi}`); setActionError(null);
     try {
-      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? ({ ...s.goal, ...tv.rates } as unknown as Record<string, number>) : undefined, campusId: slot.campusId ?? null });
+      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? (tv.rates as Record<string, number>) : undefined, counts: tv.counts, campusId: slot.campusId ?? null });
       const next = slots.map((x, i) => (i === oi ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
@@ -554,7 +556,7 @@ export function GoalPlanner({
                   const lockedCount = slots.filter((o) => o.locked).length;
                   // What the offerings actually need, each at its OWN health rates (a class planned at a 90%
                   // completion rate needs fewer seats than the family's default says).
-                  const capOwn = slots.reduce((n, o) => { const tv = slotTargets(o); return n + seatsNeeded(deriveCohortTargets(Math.max(0, tv.goal), { ...s.goal, ...tv.rates }, Math.max(1, m.terms)).capacity); }, 0);
+                  const capOwn = slots.reduce((n, o) => { const tv = slotTargets(o); return n + seatsNeeded(solveLadder({ goal: Math.max(0, tv.goal), rates: { ...s.goal, ...tv.rates }, counts: tv.counts, numTerms: Math.max(1, m.terms) }).ladder.enrolled); }, 0);
                   const anyOwnRates = slots.some((o) => Object.keys(slotTargets(o).rates ?? {}).length > 0);
                   const nSuggested = m.maxCapacity != null && m.maxCapacity > 0 ? Math.max(1, Math.ceil(capOwn / m.maxCapacity)) : 1;
                   const withSlots = (next: OfferingSlot[], extra: Partial<Alloc> = {}) =>
@@ -585,7 +587,7 @@ export function GoalPlanner({
                   const setSlotTargets = (oi: number, patch: Partial<OfferingTargets>) => {
                     const cur = slotTargets(slots[oi]);
                     const v: OfferingTargets = { ...cur, ...patch };
-                    setSlot(oi, { goal: v.goal, termOverrides: v.termOverrides, rates: v.rates });
+                    setSlot(oi, { goal: v.goal, termOverrides: v.termOverrides, rates: v.rates, counts: v.counts });
                     if (slots[oi].locked && slots[oi].cohortId) persistLocked(slots[oi].cohortId!, v);
                   };
                   const allLocked = slots.length > 0 && slots.every((o) => o.locked);
@@ -623,8 +625,8 @@ export function GoalPlanner({
                       <div className="mt-2 space-y-2">
                         {slots.map((o, oi) => {
                           const tv = slotTargets(o);
-                          const own = deriveCohortTargets(Math.max(0, tv.goal), { ...s.goal, ...tv.rates }, Math.max(1, m.terms));
-                          const seats = tv.termOverrides[0] ?? seatsNeeded(own.capacity);
+                          const own = solveLadder({ goal: Math.max(0, tv.goal), rates: { ...s.goal, ...tv.rates }, counts: tv.counts, numTerms: Math.max(1, m.terms) });
+                          const seats = seatsNeeded(own.ladder.enrolled);
                           const over = m.maxCapacity != null && m.maxCapacity > 0 && seats > m.maxCapacity;
                           return (
                             <div key={oi} className={`rounded-lg border px-3 py-2 ${o.locked ? "border-emerald-200 bg-emerald-50/30" : "border-slate-200 bg-slate-50/70"}`}>
@@ -676,7 +678,7 @@ export function GoalPlanner({
                           );
                         })}
                         <p className="text-[10px] text-slate-400">
-                          Every offering has its own goal, its own enrollment for each term, and (if you want) its own health rates — the program is just the sum of them.
+                          Every offering is planned in counts — how many enroll, complete and go to work — and the rest derives from the family&apos;s default rates; the program is just the sum of its offerings.
                           Lock in creates the real offering with exactly these numbers; after that, editing here saves to the offering itself, and the offering page shows the same editor.
                         </p>
                       </div>
@@ -692,7 +694,7 @@ export function GoalPlanner({
       {/* Family DEFAULT health rates — what new offerings start from; each offering overrides its own */}
       <details className="rounded-xl border border-slate-200 bg-white">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">
-          Default health rates for new offerings <span className="font-normal text-slate-400">— every locked-in offering can set its own (⚙ pipeline targets); these are the starting point</span>
+          Default health rates for new offerings <span className="font-normal text-slate-400">— offerings are planned in counts; these rates fill every row nobody types</span>
           <button onClick={(e) => { e.preventDefault(); resetBenchmark(); }} className="ml-3 rounded-lg border border-slate-300 px-2 py-0.5 text-[11px] font-normal text-slate-500 hover:bg-slate-50" title="puts every rate back to the default assumptions: the institutions workbook's 2025 health-metric benchmarks (capacity 49 → 25 productive)">Reset to default assumptions (workbook 2025)</button>
         </summary>
       <div className="border-t border-slate-100 p-4">

@@ -19,7 +19,8 @@ import { CapacityBoard } from "@/components/CapacityBoard";
 import { Collapse } from "@/components/Collapse";
 import { ProvisionalDatesBanner, UnverifiedStandard } from "@/components/Evidence";
 import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
-import { BENCHMARK_RATES, type LadderRates } from "@/lib/northstar";
+import { familyRatesOf, type LadderRates } from "@/lib/northstar";
+import { countsOfPlan, ownRatesOfPlan, type PlannedCounts } from "@/lib/pipelinecounts";
 import { alignOffering, SOURCE_LABEL, type DateSource } from "@/lib/termalign";
 import { OPERATIONAL } from "@/lib/mode";
 import { ReadOnly } from "@/components/ReadOnly";
@@ -102,16 +103,15 @@ export default async function OfferingPage({ params, searchParams }: { params: {
 
   // THIS offering's saved plan (goal · per-term enrollment · rates), with the
   // family's default rates underneath.
-  let defaultRates: LadderRates = { ...BENCHMARK_RATES };
-  if (program.family?.goalPlan) { try { const gp = JSON.parse(program.family.goalPlan) as { goal?: Partial<LadderRates> }; if (gp.goal) defaultRates = { ...defaultRates, ...gp.goal }; } catch { /* benchmarks */ } }
-  let savedPlan: { goal?: number; rates?: Partial<LadderRates>; termOverrides?: (number | null)[] } = {};
+  const defaultRates: LadderRates = familyRatesOf(program.family?.goalPlan);
+  let savedPlan: { goal?: number; rates?: Partial<LadderRates>; ownRates?: Partial<LadderRates>; termOverrides?: (number | null)[]; counts?: PlannedCounts } = {};
   if (offering.pipelineRates) { try { savedPlan = JSON.parse(offering.pipelineRates); } catch { /* none */ } }
-  const ownRates: Partial<LadderRates> = {};
-  for (const [k, v] of Object.entries(savedPlan.rates ?? {})) if (typeof v === "number" && v !== defaultRates[k as keyof LadderRates]) ownRates[k as keyof LadderRates] = v;
+  const ownRates = ownRatesOfPlan(savedPlan, defaultRates);
   const initialTargets = {
     goal: savedPlan.goal ?? offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0,
     termOverrides: savedPlan.termOverrides ?? [],
     rates: ownRates,
+    counts: countsOfPlan(savedPlan),
   };
 
   // Sequence board inputs (template-wide; re-sequencing moves every offering).

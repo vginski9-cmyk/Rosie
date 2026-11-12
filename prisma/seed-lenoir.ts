@@ -12,7 +12,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { deriveCohortTargets } from "../src/lib/pipeline";
-import { BENCHMARK_RATES } from "../src/lib/northstar";
+import { BENCHMARK_RATES, familyRatesOf } from "../src/lib/northstar";
 import { STAGES } from "../src/lib/funnel";
 import { seasonOfDate } from "../src/lib/term";
 import { offeringName, runDetail, campusLabel } from "../src/lib/offeringname";
@@ -194,8 +194,7 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
   const models = programs.map((p) => ({ program: p, model: parseModel(p.name, p.programType) })).filter((x): x is { program: (typeof programs)[number]; model: LenoirModel } => !!x.model && x.program.terms.length > 0 && x.program.terms[0].courses.length > 0);
   if (!models.length) throw new Error("Lenoir's Nurse Aide Level I delivery models are not seeded");
   const family = models[0].program.family;
-  let rates = { ...BENCHMARK_RATES };
-  if (family?.goalPlan) { try { const saved = JSON.parse(family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES>; goalsByYear?: Record<string, number> }; if (saved.goal) rates = { ...rates, ...saved.goal }; } catch { /* benchmarks */ } }
+  const rates = familyRatesOf(family?.goalPlan);
   const annualGoal = (year: number) => { try { const gp = JSON.parse(family?.goalPlan ?? "{}") as { goalsByYear?: Record<string, number> }; return gp.goalsByYear?.[String(year)] ?? 80; } catch { return 80; } };
 
   // Campuses, buildings and rooms — one room per distinct place in the sheet.

@@ -1274,11 +1274,11 @@ export async function createOffering(programId: string, formData: FormData) {
 export async function lockInInstantiation(
   programId: string,
   familyId: string,
-  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number>; /** Where the offering meets (a campus of the college). */ campusId?: string | null; locationNote?: string | null },
+  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number>; /** The counts typed for this offering by pipeline stage; the rest derive from the family's rates. */ counts?: Record<string, number | null>; /** Where the offering meets (a campus of the college). */ campusId?: string | null; locationNote?: string | null },
 ): Promise<{
   cohortId: string; name: string }> {
-  const { deriveCohortTargets } = await import("./pipeline");
-  const { BENCHMARK_RATES } = await import("./northstar");
+  const { solveLadder, cleanCounts } = await import("./pipelinecounts");
+  const { familyRatesOf, BENCHMARK_RATES } = await import("./northstar");
   const { offeringName, shortTermProgram, campusLabel, programDetail } = await import("./offeringname");
 
   const program = await prisma.program.findUnique({
@@ -1290,19 +1290,19 @@ export async function lockInInstantiation(
   const familyNames = program.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : program.cohorts.map((c) => c.name);
   const campus = input.campusId ? await prisma.campus.findFirst({ where: { id: input.campusId, institutionId: program.institutionId }, select: { id: true, name: true, city: true, isMain: true } }) : null;
 
-  // The SAME rates the goal planner saves — one plan, every surface reads it.
-  let rates = { ...BENCHMARK_RATES };
-  if (program.family?.goalPlan) {
-    try {
-      const saved = JSON.parse(program.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> };
-      if (saved.goal) rates = { ...rates, ...saved.goal };
-    } catch { /* benchmarks */ }
-  }
-  // …unless this offering set its own rates on its slot.
-  if (input.rates) rates = { ...rates, ...(input.rates as Partial<typeof BENCHMARK_RATES>) };
-  const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, program.terms.length));
+  // The SAME rates the goal planner saves — one plan, every surface reads it — under any rates an earlier plan set on
+  // this slot; then the counts typed for this offering stand and the rest derives (lib/pipelinecounts).
+  const familyRates = familyRatesOf(program.family?.goalPlan);
+  const ownRates: Partial<typeof BENCHMARK_RATES> = {};
+  for (const [k, v] of Object.entries(input.rates ?? {})) if (typeof v === "number" && Number.isFinite(v) && v !== familyRates[k as keyof typeof BENCHMARK_RATES]) ownRates[k as keyof typeof BENCHMARK_RATES] = v;
+  const rates = { ...familyRates, ...ownRates };
+  const counts = cleanCounts(input.counts);
+  const solved = solveLadder({ goal: Math.max(0, input.goal), rates, counts, numTerms: Math.max(1, program.terms.length) });
   const termOverrides = (input.termOverrides ?? []).map((v) => (v == null ? null : Math.max(0, Math.round(v))));
-  const term1 = termOverrides[0] ?? t.capacity;
+  // Term 1 is the enrolled count (typed or derived); the later terms keep their own overrides.
+  if (counts.enrolled != null) { while (termOverrides.length < 1) termOverrides.push(null); termOverrides[0] = Math.round(counts.enrolled); }
+  const term1 = solved.ladder.enrolled;
+  const t = solved.ladder;
 
   // Real term dates come from the institution's coded academic calendar: term 1
   // on the chosen day (snapped to the coded semester start), every later term
@@ -1332,8 +1332,8 @@ export async function lockInInstantiation(
       entryYear: startD.getUTCFullYear(), isExplicit: true,
       campusId: campus?.id ?? null, locationNote: input.locationNote?.trim() || null,
       plannedSeats: Math.round(term1),
-      // The slot's own plan travels with the offering: goal, per-term enrollment, rates.
-      pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides }),
+      // The slot's own plan travels with the offering: the counts typed, the goal and rates they imply, per-term enrollment.
+      pipelineRates: JSON.stringify({ goal: solved.goal, rates: solved.rates, ownRates, termOverrides, counts }),
     },
   });
 
@@ -1899,20 +1899,29 @@ export async function setSessionTiming(courseId: string, programId: string, form
  *  insights) reads the same plan. */
 export async function saveCohortPipeline(
   cohortId: string,
-  input: { goal: number; rates: Record<string, number>; termOverrides?: (number | null)[] },
+  input: { goal: number; rates: Record<string, number>; termOverrides?: (number | null)[]; /** The counts typed for this offering by pipeline stage; the rest derive. */ counts?: Record<string, number | null> },
 ): Promise<void> {
-  const { deriveCohortTargets } = await import("./pipeline");
-  const { BENCHMARK_RATES } = await import("./northstar");
+  const { solveLadder, cleanCounts } = await import("./pipelinecounts");
+  const { familyRatesOf } = await import("./northstar");
   const co = await prisma.cohort.findUnique({
     where: { id: cohortId },
-    select: { programId: true, program: { select: { familyId: true, terms: { select: { id: true } } } } },
+    select: { programId: true, program: { select: { familyId: true, family: { select: { goalPlan: true } }, terms: { select: { id: true } } } } },
   });
   if (!co) return;
-  const rates = { ...BENCHMARK_RATES, ...input.rates } as typeof BENCHMARK_RATES;
-  const t = deriveCohortTargets(Math.max(0, input.goal), rates, Math.max(1, co.program.terms.length));
+  // The family's defaults under any rates set for this offering (never the bare benchmarks: a save from the offering
+  // page sends only the rates that differ, and the family's own figures must stay underneath).
+  const familyRates = familyRatesOf(co.program.family?.goalPlan);
+  const ownRates: Record<string, number> = {};
+  for (const [k, v] of Object.entries(input.rates ?? {})) if (typeof v === "number" && Number.isFinite(v) && v !== familyRates[k as keyof typeof familyRates]) ownRates[k] = v;
+  const rates = { ...familyRates, ...ownRates };
+  const counts = cleanCounts(input.counts);
+  const solved = solveLadder({ goal: Math.max(0, input.goal), rates, counts, numTerms: Math.max(1, co.program.terms.length) });
+  const termOverrides = (input.termOverrides ?? []).map((v) => (v == null ? null : Math.max(0, Math.round(v))));
+  if (counts.enrolled != null) { while (termOverrides.length < 1) termOverrides.push(null); termOverrides[0] = Math.round(counts.enrolled); }
+  const t = solved.ladder;
   const targets: Record<string, number> = {
     interested: t.interested, qualified: t.qualified, offered: t.offered,
-    enrolled: input.termOverrides?.[0] ?? t.capacity, completing: t.completing, licensed: t.licensed,
+    enrolled: t.enrolled, completing: t.completing, licensed: t.licensed,
     placed: t.placed, productive: t.productive,
   };
   for (const s of STAGES) {
@@ -1924,7 +1933,7 @@ export async function saveCohortPipeline(
   }
   await prisma.cohort.update({
     where: { id: cohortId },
-    data: { pipelineRates: JSON.stringify({ goal: input.goal, rates, termOverrides: input.termOverrides ?? [] }), plannedSeats: Math.round(input.termOverrides?.[0] ?? t.capacity) },
+    data: { pipelineRates: JSON.stringify({ goal: solved.goal, rates: solved.rates, ownRates, termOverrides, counts }), plannedSeats: Math.round(t.enrolled) },
   });
   if (co.program.familyId) revalidateOfferingReaders();
   if (co.program.familyId) revalidatePath(`/families/${co.program.familyId}`);

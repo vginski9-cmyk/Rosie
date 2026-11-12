@@ -46,6 +46,18 @@ export const BENCHMARK_RATES: LadderRates = {
   productivityRate: 0.9,
 };
 
+/** A family's default rates: the workbook benchmarks under whatever its saved goal plan sets (`goalPlan.goal`). The one
+ *  resolution every reader of an offering's rates starts from. */
+export function familyRatesOf(goalPlanJson: string | null | undefined): LadderRates {
+  const rates = { ...BENCHMARK_RATES };
+  if (!goalPlanJson) return rates;
+  try {
+    const saved = JSON.parse(goalPlanJson) as { goal?: Partial<LadderRates> };
+    if (saved.goal) for (const [k, v] of Object.entries(saved.goal)) if (typeof v === "number" && Number.isFinite(v)) rates[k as keyof LadderRates] = v;
+  } catch { /* benchmarks */ }
+  return rates;
+}
+
 export type RateAnchor = "capacity" | "chain";
 
 export interface RateDef {

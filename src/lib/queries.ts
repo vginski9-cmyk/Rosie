@@ -2257,7 +2257,7 @@ async function getCapacityModelUncached(opts?: { institutionId?: string; cohortI
 /** One college's offerings as the capacity model reads them, with its sites, rooms and people. */
 async function capacityModelFor(institution: { id: string; name: string }) {
   const { deriveCohortTargets, thinTerms } = await import("./pipeline");
-  const { BENCHMARK_RATES } = await import("./northstar");
+  const { BENCHMARK_RATES, familyRatesOf } = await import("./northstar");
 
   // The institution's coded holidays & breaks (imported academic calendar) —
   // every dated session checks against these before the U.S. defaults.
@@ -2303,13 +2303,7 @@ async function capacityModelFor(institution: { id: string; name: string }) {
 
   const cohorts = programs.flatMap((p) => {
     // Rates: the family's saved goal plan, else benchmarks.
-    let rates = { ...BENCHMARK_RATES };
-    if (p.family?.goalPlan) {
-      try {
-        const saved = JSON.parse(p.family.goalPlan) as { goal?: Partial<typeof BENCHMARK_RATES> };
-        if (saved.goal) rates = { ...rates, ...saved.goal };
-      } catch { /* benchmarks */ }
-    }
+    const rates = familyRatesOf(p.family?.goalPlan);
     const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
     return p.cohorts.map((co) => {
       const productiveGoal = co.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0;

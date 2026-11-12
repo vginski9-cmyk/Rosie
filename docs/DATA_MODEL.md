@@ -70,7 +70,12 @@ turnoverPct }`. `openings = growth + replacement` (the Lightcast definition).
 ### FunnelStage — the pipeline
 `cohort × stageKey → { targetNumber, actualNumber }`. Stage keys and order are
 canonical (see `src/lib/funnel.ts STAGES`). Conversions, gaps, attainment, and
-leak detection are all derived, not stored.
+leak detection are all derived, not stored. An offering's plan lives in
+`Cohort.pipelineRates` JSON: `{ goal, rates, termOverrides, counts }` — `counts`
+is what someone typed by stage (`src/lib/pipelinecounts.ts`), `rates` the full
+set the counts imply (every reader of an offering's rates uses it unchanged),
+`goal` the ladder's productive row; the stage targets are rewritten from the
+solved ladder on every save.
 
 ### CalendarBlock — the date dimension
 A schedulable block within an academic term, with holiday-adjusted teachable

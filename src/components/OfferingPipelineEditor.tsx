@@ -18,7 +18,7 @@ export function OfferingPipelineEditor({ cohortId, initial, termNames, defaultRa
   const save = async () => {
     setBusy(true);
     try {
-      await saveCohortPipeline(cohortId, { goal: value.goal, rates: value.rates as Record<string, number>, termOverrides: value.termOverrides });
+      await saveCohortPipeline(cohortId, { goal: value.goal, rates: value.rates as Record<string, number>, termOverrides: value.termOverrides, counts: value.counts });
       setDirty(false); router.refresh();
     } finally { setBusy(false); }
   };

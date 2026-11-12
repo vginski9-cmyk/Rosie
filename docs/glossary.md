@@ -152,11 +152,17 @@ The number a pipeline stage must reach for the goal to hold. Required counts rou
 
 - **Where:** The goal page, the offering funnel, the pipeline analytics board
 
+### Planned counts (an offering's plan)
+
+An offering is planned in numbers, not percentages: how many are interested, qualified, offered a seat, enrolled in term 1, completing, licensed, placed in a job and fully productive. Type any of them and it stands; every row left alone follows the family's default health rates from the nearest typed row above it (the rows above the first typed one follow it backward), and the percent each count implies shows under the box. Fully productive is the offering's share of the North Star goal. The rates the counts imply are stored on the offering, so every analysis reads them as before.
+
+- **Where:** The goal page's offering slots, the offering page's enrollment & pipeline targets
+
 ### Health rates
 
-The conversion rates between pipeline stages (enrollment rate, completion rate, licensure pass rate, placement rate, productivity rate) and the surpluses above capacity (interested, qualified, offered). Family defaults; an offering may carry its own.
+The conversion rates between pipeline stages (enrollment rate, completion rate, licensure pass rate, placement rate, productivity rate) and the surpluses above capacity (interested, qualified, offered). Set once per family as its defaults (percentages, on the goal page); on an offering they are derived from its planned counts, never typed.
 
-- **Where:** The goal page, the offering's targets editor
+- **Where:** The goal page (family defaults); under each count box on an offering
 
 ## Clinical sites and supply
 
