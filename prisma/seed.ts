@@ -469,6 +469,7 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     "University of North Carolina Wilmington": { counties: ["New Hanover", "New Hanover", "New Hanover", "Brunswick", "Pender"], cities: { "New Hanover": "Wilmington", Brunswick: "Leland", Pender: "Hampstead" } },
     "Craven Community College": { counties: ["Craven", "Craven", "Craven", "Pamlico", "Jones"], cities: { Craven: "New Bern", Pamlico: "Bayboro", Jones: "Trenton" } },
     "Pitt Community College": { counties: ["Pitt", "Pitt", "Pitt", "Pitt", "Greene"], cities: { Pitt: "Greenville", Greene: "Snow Hill" } },
+    "Forsyth Technical Community College": { counties: ["Forsyth", "Forsyth", "Forsyth", "Forsyth", "Stokes"], cities: { Forsyth: "Winston-Salem", Stokes: "King" } },
     "College of The Albemarle": { counties: ["Pasquotank", "Pasquotank", "Camden", "Currituck", "Chowan", "Dare", "Perquimans"], cities: { Pasquotank: "Elizabeth City", Camden: "Camden", Currituck: "Currituck", Chowan: "Edenton", Dare: "Manteo", Perquimans: "Hertford" } },
   };
   const pickW = <T,>(arr: readonly T[], weights: number[], x: number): T => { const tot = weights.reduce((a, b) => a + b, 0); let r = (x % 1000) / 1000 * tot; for (let i = 0; i < arr.length; i++) { r -= weights[i]; if (r < 0) return arr[i]; } return arr[arr.length - 1]; };
@@ -1159,6 +1160,8 @@ async function main() {
     // Pitt's main campus (its directory page now gives 169 Bulldog Run as the physical address; the Vernon E. White Building, EST's home, is 1958 Pitt Tech Rd).
     "Pitt Community College": { address: "1986 Pitt Tech Rd", city: "Winterville", state: "NC", zip: "28590" },
     "College of The Albemarle": { address: "1208 N Road St", city: "Elizabeth City", state: "NC", zip: "27909" },
+    // Forsyth Tech's Main Campus (the Electrical Systems Technology program pages' address; the lab building is not published).
+    "Forsyth Technical Community College": { address: "2100 Silas Creek Pkwy", city: "Winston-Salem", state: "NC", zip: "27103" },
   };
   for (const inst of await prisma.institution.findMany({ where: { id: { not: sandhills.id } }, select: { id: true, name: true } })) await seedGeography(prisma, inst.id, CAMPUS_ADDRESS[inst.name]);
   console.log("other campuses:", await seedOtherCampuses(prisma));

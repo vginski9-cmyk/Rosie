@@ -32,6 +32,10 @@ export const CALENDAR_FILES: Record<string, string> = {
   // Pitt: Fall 2026, Spring 2027 and Summer 2027 from the 2026–27 Curriculum Academic Calendar PDF as search gave it (read
   // 2026-11-10); the spring and summer 2027 end dates, spring commencement and Thanksgiving were not found and are not seeded.
   "Pitt Community College": "pitt.txt",
+  // Forsyth Tech: Fall 2026, Spring 2027 and Summer 2027 from the 2026–27 academic calendar as search gave it (read 2026-11-18:
+  // the catalog's page and the WS/FCS-hosted copy); the 10-week summer end and the faculty days of August were not found and
+  // are not seeded.
+  "Forsyth Technical Community College": "forsyth.txt",
 };
 
 export async function seedAcademicCalendars(prisma: PrismaClient, dir: string): Promise<Record<string, { events: number; starts: number; ends: number; sessions: number; holidays: number; anchors: string; warnings: number }>> {

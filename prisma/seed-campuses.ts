@@ -25,6 +25,16 @@ export const OTHER_CAMPUSES: Record<string, { name: string; address: string; cit
     // The college's Greenville location (its directory and campus-map pages, 2026-11-10). Electrical Systems Technology is taught in the Vernon E. White Building on the Winterville campus.
     { name: "Greenville Center", address: "3107 S Memorial Dr", city: "Greenville", state: "NC", zip: "27834", notes: "Continuing education, the Small Business Center and law-enforcement training; the continuing-education electrical wiring classes are scheduled from here. Electrical Systems Technology's labs are in the Vernon E. White Building at Winterville." },
   ],
+  "Forsyth Technical Community College": [
+    // The college's other locations (its locations page and the 2025–26 catalog's campus-locations page, 2026-11-18). Electrical
+    // Systems Technology is at the Main Campus (2100 Silas Creek Pkwy); the apprenticeship meets in the Robert L. Strickland
+    // Center there (1615 Miller St). The Transportation Technology Center, the aviation lab and the Innovation Quarter site are not seeded.
+    { name: "West Campus", address: "1300 Bolton St", city: "Winston-Salem", state: "NC", zip: "27103", notes: "Workforce Continuing Education: the Electrical: Installation/Troubleshooting evening course (room 17) and a Tue/Thu Level 2 section of the FCECA apprenticeship meet here." },
+    { name: "Mazie S. Woodruff Center", address: "4905 Lansing Dr", city: "Winston-Salem", state: "NC", zip: "27105", notes: "The college's northeast Winston-Salem center (1998)." },
+    { name: "Grady P. Swisher Center", address: "1108 Swisher Center Rd", city: "Kernersville", state: "NC", zip: "27284", notes: "The Kernersville center." },
+    { name: "Stokes County Center", address: "1165 Dodgetown Rd", city: "Walnut Cove", state: "NC", zip: "27052", notes: "The Stokes County center at Walnut Cove." },
+    { name: "Northwest Forsyth Center", address: "3111 Big Oaks Dr", city: "King", state: "NC", zip: "27021", notes: "The northwest Forsyth County center at King." },
+  ],
   "Cape Fear Community College": [
     // The college's other locations (its site, 2026-10-22). Electrical Systems Technology is a North Campus program.
     { name: "North Campus", address: "4500 Blue Clay Rd", city: "Castle Hayne", state: "NC", zip: "28429", notes: "Electrical Systems Technology's home: its labs and the fall 2026 evening sections. McKeithan Center is Building NA; the Advanced & Emerging Technologies building holds sciences, HVAC and sustainable-technology labs." },
