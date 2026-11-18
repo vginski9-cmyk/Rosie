@@ -6,9 +6,13 @@
 // own term dates and weekly class pattern in its room. The sheet carries no enrollment, so past
 // cohorts have no students here; running ones get the dummy roster like every other offering.
 //
-// Only the sheet is seeded. The cohorts ahead — late 2026 onward — are not pre-filled: they are
-// planned with the college, on the goal page. The slot projection below (`projectLenoirCohorts`)
-// stays as a helper for that work; nothing seeds its output.
+// The sheet is seeded as the college's record. The cohorts ahead — class years 2027 through 2030 —
+// are the model's: the slot projection below (`projectLenoirCohorts`) carries each of the college's
+// room-day-time slots forward the way the sheet shows it running, and `scheduledLenoirCohorts`
+// keeps sixteen runs a year from it, spread across the year — the count the 80-a-year goal needs
+// at ten seats and the family's rates (5.1 productive a class, 81.6 a year). A short class counts
+// toward the year it starts (the year in its name, as the goal page reads it), as the sheet's own
+// cohorts do. The owner's call (2026-11-18): "schedule out the cohorts to ensure it hits its numbers".
 
 import type { PrismaClient } from "@prisma/client";
 import { deriveCohortTargets } from "../src/lib/pipeline";
@@ -187,9 +191,30 @@ export function projectLenoirCohorts(rows: Row[], opts: { from: string; through:
   return out;
 }
 
+/** The runs scheduled to the goal, 2027–2030: the projection from the sheet's last start through 2030, sixteen a year (the
+ *  year a run starts — the year in its name, which is how the goal page counts a short class) spread across the year — every
+ *  ⌊n/16⌋th run in start order, so months, rooms and days stay mixed and a slot never runs two classes at once (the projection
+ *  never overlaps a slot with itself). */
+export const LENOIR_RUNS_A_YEAR = 16;
+export const LENOIR_SCHEDULE_NOTE = "Scheduled to the goal: the model's run on the college's own slot, not the college's record";
+export function scheduledLenoirCohorts(rows: Row[] = LENOIR_COHORTS, years: number[] = [2027, 2028, 2029, 2030]): ProjectedRow[] {
+  const last = rows.map((r) => r.start).sort().at(-1)!;
+  const all = projectLenoirCohorts(rows, { from: last, through: `${years[years.length - 1]}-12-31` });
+  const out: ProjectedRow[] = [];
+  for (const y of years) {
+    const runs = all.filter((r) => Number(r.start.slice(0, 4)) === y);
+    const step = runs.length / LENOIR_RUNS_A_YEAR;
+    for (let i = 0; i < LENOIR_RUNS_A_YEAR && i * step < runs.length; i++) out.push(runs[Math.floor(i * step)]);
+  }
+  out.sort((a, b) => a.start.localeCompare(b.start) || a.slot.localeCompare(b.slot));
+  // Numbered on from the college's own cohorts in start order, as the projection numbers them.
+  const next = 1 + Math.max(0, ...rows.map((r) => Number(/^Cohort (\d+)/.exec(r.cohort)?.[1] ?? 0)));
+  return out.map((r, i) => ({ ...r, cohort: r.cohort.replace(/^Cohort \d+/, `Cohort ${next + i}`) }));
+}
+
 /** Seed the sheet's cohorts as offerings of Lenoir's Nurse Aide Level I models, with their rooms and
- *  weekly class patterns. Nothing ahead of the sheet is created. */
-export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number>; startsByYear: Record<string, number> }> {
+ *  weekly class patterns, then the runs scheduled to the goal (`scheduledLenoirCohorts`) the same way. */
+export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: string, today = new Date()): Promise<{ cohorts: number; scheduled: number; scheduledByYear: Record<string, number>; rooms: number; patterns: number; byStatus: Record<string, number>; byModel: Record<string, number>; startsByYear: Record<string, number> }> {
   const programs = await prisma.program.findMany({ where: { institutionId, name: { startsWith: "Nurse Aide Level I" } }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" }, include: { courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true } } } } } });
   const models = programs.map((p) => ({ program: p, model: parseModel(p.name, p.programType) })).filter((x): x is { program: (typeof programs)[number]; model: LenoirModel } => !!x.model && x.program.terms.length > 0 && x.program.terms[0].courses.length > 0);
   if (!models.length) throw new Error("Lenoir's Nurse Aide Level I delivery models are not seeded");
@@ -208,10 +233,13 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     if (!roomId.has(loc.room)) roomId.set(loc.room, (await prisma.facility.create({ data: { institutionId, name: loc.room, kind: "CLASSROOM", buildingId: buildingId.get(loc.building)!, building: loc.building, roomNumber: loc.roomNumber, availability: "Nurse Aide I cohorts", status: "active" } })).id);
   }
 
-  const rows: Row[] = LENOIR_COHORTS;
+  const scheduled = scheduledLenoirCohorts();
+  const rows: Row[] = [...LENOIR_COHORTS, ...scheduled];
+  const isScheduled = (r: Row) => scheduled.includes(r as ProjectedRow);
 
+  // The sheet's cohorts share the year's goal among the sheet's starts; a scheduled run carries the model's share (80 ÷ 16).
   const startsInYear = new Map<number, number>();
-  for (const r of rows) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
+  for (const r of LENOIR_COHORTS) { const y = iso(r.start).getUTCFullYear(); startsInYear.set(y, (startsInYear.get(y) ?? 0) + 1); }
   const byStatus: Record<string, number> = {}; const byModel: Record<string, number> = {}; let patterns = 0;
   // Names: "Jan 2026 · Greene County Center" — the sheet's "Cohort 26 - 76811" becomes the offering's code (76811).
   // Unique across the family (every delivery model is its own program): two runs starting the same month at the
@@ -228,14 +256,15 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
     byModel[pick.name.replace(/^Nurse Aide Level I — /, "")] = (byModel[pick.name.replace(/^Nurse Aide Level I — /, "")] ?? 0) + 1;
     const year = start.getUTCFullYear();
     // Each cohort carries its share of the year's North-Star goal across the cohorts starting that year.
-    const goal = Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
+    const goal = isScheduled(r) ? Math.max(1, Math.round(annualGoal(year) / LENOIR_RUNS_A_YEAR)) : Math.max(1, Math.round(annualGoal(year) / (startsInYear.get(year) ?? 1)));
     const t = deriveCohortTargets(goal, rates, 1);
     const loc0 = parseLocation(r.location);
     const name = offeringName({ shortTerm: true, startIso: r.start, endIso: r.end, campus: campusLabel({ name: loc0.campus, city: loc0.city, isMain: loc0.campus === "Main Campus" }), detail: runDetail(parseDays(r.days), parseTime(r.time).start), existing: familyNames });
     familyNames.push(name);
     const code = /^Cohort \d+ - (\d+)/.exec(r.cohort)?.[1] ?? null;
     // The note says only what the campus does not: a room, or a building with its own name.
-    const locationNote = loc0.roomNumber ? `${loc0.building}, Rm ${loc0.roomNumber}` : loc0.building === loc0.campus ? null : loc0.building.replace(`${loc0.campus} — `, "");
+    const room = loc0.roomNumber ? `${loc0.building}, Rm ${loc0.roomNumber}` : loc0.building === loc0.campus ? null : loc0.building.replace(`${loc0.campus} — `, "");
+    const locationNote = isScheduled(r) ? [room, `${LENOIR_SCHEDULE_NOTE} (${(r as ProjectedRow).basis})`].filter(Boolean).join(" · ") : room;
     const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: start, entryYear: year, isExplicit: true, plannedSeats: seats, pipelineRates: JSON.stringify({ goal, rates, termOverrides: [] }), campusId: campusId.get(loc0.campus) ?? null, locationNote, code } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: seats, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
@@ -248,5 +277,7 @@ export async function seedLenoirCohorts(prisma: PrismaClient, institutionId: str
       patterns++;
     }
   }
-  return { cohorts: LENOIR_COHORTS.length, rooms: roomId.size, patterns, byStatus, byModel, startsByYear: Object.fromEntries([...startsInYear].sort().map(([y, n]) => [String(y), n])) };
+  const scheduledByYear: Record<string, number> = {};
+  for (const r of scheduled) scheduledByYear[r.start.slice(0, 4)] = (scheduledByYear[r.start.slice(0, 4)] ?? 0) + 1;
+  return { cohorts: LENOIR_COHORTS.length, scheduled: scheduled.length, scheduledByYear, rooms: roomId.size, patterns, byStatus, byModel, startsByYear: Object.fromEntries([...startsInYear].sort().map(([y, n]) => [String(y), n])) };
 }

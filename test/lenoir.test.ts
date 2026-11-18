@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { LENOIR_COHORTS, parseDays, parseTime, parseLocation, parseModel, modelFor, cohortWeeks, isEvening, slotOf, projectLenoirCohorts } from "../prisma/seed-lenoir";
+import { LENOIR_COHORTS, parseDays, parseTime, parseLocation, parseModel, modelFor, cohortWeeks, isEvening, slotOf, projectLenoirCohorts, scheduledLenoirCohorts, LENOIR_RUNS_A_YEAR } from "../prisma/seed-lenoir";
+import { BENCHMARK_RATES } from "../src/lib/northstar";
+import { solveLadder } from "../src/lib/pipelinecounts";
+
+describe("Lenoir's runs scheduled to the goal (seeded beside the sheet)", () => {
+  it("keeps sixteen of the projection's runs every year 2027–2030 (the year a run starts, as the goal page counts it), spread across the year on the college's own slots, covering 80 a year", () => {
+    expect(LENOIR_COHORTS).toHaveLength(38);
+    const runs = scheduledLenoirCohorts();
+    expect(runs).toHaveLength(4 * LENOIR_RUNS_A_YEAR);
+    const byYear = new Map<string, number>(); for (const r of runs) byYear.set(r.start.slice(0, 4), (byYear.get(r.start.slice(0, 4)) ?? 0) + 1);
+    expect([...byYear.entries()].sort()).toEqual([["2027", 16], ["2028", 16], ["2029", 16], ["2030", 16]]);
+    // Every run is one of the projection's, on a slot the sheet shows running, after the sheet's last start.
+    const projected = projectLenoirCohorts(LENOIR_COHORTS, { from: "2026-08-24", through: "2030-12-31" });
+    const sheetSlots = new Set(LENOIR_COHORTS.map(slotOf));
+    for (const r of runs) {
+      expect(projected.some((p) => p.slot === r.slot && p.start === r.start && p.end === r.end), r.cohort).toBe(true);
+      expect(sheetSlots.has(r.slot)).toBe(true);
+      expect(r.start > "2026-08-24").toBe(true);
+      expect(LENOIR_COHORTS.some((x) => slotOf(x) === r.slot && r.start <= x.end && r.end >= x.start), `${r.cohort} overlaps a real run`).toBe(false);
+    }
+    // A slot never runs two classes at once; every month of a class year has a run starting or running.
+    for (const r of runs) for (const o of runs) if (r !== o && r.slot === o.slot) expect(r.start <= o.end && r.end >= o.start, `${r.cohort} / ${o.cohort}`).toBe(false);
+    for (const y of ["2027", "2028", "2029", "2030"]) for (let m = 1; m <= 12; m++) { const mm = `${y}-${String(m).padStart(2, "0")}`; expect(runs.some((r) => r.start <= `${mm}-31` && r.end >= `${mm}-01`), mm).toBe(true); }
+    // Numbered on from Cohort 38 in start order; rooms across the campus and the centers.
+    expect(runs.map((r) => Number(/^Cohort (\d+)/.exec(r.cohort)![1]))).toEqual(runs.map((_, i) => 39 + i));
+    expect(new Set(runs.map((r) => parseLocation(r.location).campus)).size).toBeGreaterThanOrEqual(3);
+    const each = solveLadder({ goal: 5, rates: BENCHMARK_RATES, counts: { enrolled: 10 }, numTerms: 1 }).goal;
+    expect(each).toBeCloseTo(5.103, 3);
+    expect(LENOIR_RUNS_A_YEAR * each).toBeGreaterThanOrEqual(80);
+  });
+});
 
 describe("projecting Lenoir's slots ahead (a helper for planning with the college; nothing seeded)", () => {
   it("names a slot by room, class days and time of day", () => {

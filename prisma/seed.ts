@@ -1173,23 +1173,10 @@ async function main() {
   const roster = await seedRoster(prisma, sandhills.id);
   lap("roster");
   console.log("roster:", roster);
-  // Carteret runs Nurse Aide Level I in six delivery models (prisma/templates/cna.json, imported from
-  // the college's program-structure workbook): one planned offering per model, each capped at the
-  // workbook's class size of ten. Rooms, people and sites for the college are theirs to enter. Each
-  // offering carries its share of the college's 55-a-year North-Star goal. The high-school
-  // pre-apprenticeship runs Spring 2027, as the workbook says.
-  const carteret = await prisma.institution.findFirst({ where: { name: "Carteret Community College" }, select: { id: true } });
-  if (carteret) console.log("Carteret offerings:", await seedOfferings(prisma, carteret.id, [
-    { program: "Nurse Aide Level I — 6-week offering", start: "2026-08-17", goal: 9, seats: 10 },
-    { program: "Nurse Aide Level I — 5-week offering", start: "2026-10-05", goal: 9, seats: 10 },
-    { program: "Nurse Aide Level I — 11-week daytime offering", start: "2026-08-21", goal: 9, seats: 10 },
-    { program: "Nurse Aide Level I — 11-week nighttime offering", start: "2027-01-11", goal: 9, seats: 10 },
-    { program: "Nurse Aide Level I — 14-week high school offering", start: "2027-01-11", goal: 9, seats: 10 },
-    { program: "Nurse Aide Level I — 8-week summer offering", start: "2027-06-01", goal: 9, seats: 10 },
-  ]));
   // The cohorts scheduled to each college's goal through 2030 (seed-offerings.ts): Roanoke-Chowan's two Medical Assisting
   // classes a year (Part 1 from the fall semester's first day, Part 2 in the spring), Albemarle's three AAS and three
-  // Diploma classes a year.
+  // Diploma classes a year, Carteret's eleven and Craven's seven or eight Nurse Aide classes a year on the workbook delivery
+  // models (prisma/templates/cna.json, cna-craven.json; rooms, people and sites are the colleges' to enter).
   for (const [name, specs] of Object.entries(SCHEDULED_OFFERINGS)) {
     const inst = await prisma.institution.findFirst({ where: { name }, select: { id: true } });
     if (inst) console.log(`${name} offerings:`, await seedOfferings(prisma, inst.id, specs));
