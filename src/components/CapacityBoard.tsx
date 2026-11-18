@@ -9,8 +9,7 @@ import {
 import { ColumnChart, FAC_COLOR, PRE_COLOR, KIND_COLORS, type ColBand } from "@/components/FteCharts";
 import { CoverageCalendar, type CalRoom, type CalPerson } from "@/components/CoverageCalendar";
 import { dec, fmt } from "@/lib/format";
-import { semesterAt, mondayOfDate } from "@/lib/term";
-const isoOfDate = (d: Date) => d.toISOString().slice(0, 10);
+import { semesterOfWeek, weeksBySemester, SEM_ORDER } from "@/lib/weeksemester";
 import { MultiSelect } from "@/components/MultiSelect";
 import { drillDown, type DrillAssignment, type DrillResult, type DrillScale } from "@/lib/staffingdrill";
 import type { ColLeaf } from "@/components/FteCharts";
@@ -289,7 +288,7 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
         </div>
       </div>
 
-      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} assignments={assignments} assumptionsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.assumptions]))} anchorsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.anchors]))} termsByCohort={new Map(cohorts.map((c) => [c.cohortId, Object.fromEntries(Object.keys(c.termStartByIndex).map((k) => [Number(k), { start: c.termStartByIndex[Number(k)]?.slice(0, 10) ?? null, end: c.termEndByIndex?.[Number(k)]?.slice(0, 10) ?? null }]))]))} />}
+      {view === "staffing" && <StaffingView rows={instances} assumptions={assumptions} assignments={assignments} assumptionsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.assumptions]))} anchorsByCohort={new Map(cohorts.map((c) => [c.cohortId, c.anchors]))} />}
       {view === "sites" && <SitesView rows={instances} sites={sites} />}
       {view === "coverage" && <CoverageView rows={instances} cohorts={cohorts} rooms={rooms} people={people} sites={sites} />}
     </div>
@@ -301,23 +300,19 @@ export function CapacityBoard({ cohorts, view, sites = [], rooms = [], people = 
 // narrative with the conversion math, a what-to-do list with real deadlines,
 // then week-by-week (people OR contact hours, split class/lab/clinical) with a
 // day-by-day drill-down inside every week.
-function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anchorsByCohort, termsByCohort }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null; assignments: DrillAssignment[]; assumptionsByCohort: Map<string, WorkloadAssumptions>; /** Each cohort's term dates by term index — a week inside a term is that term's semester. */ termsByCohort: Map<string, Record<number, { start: string | null; end: string | null }>>; /** Each cohort's college semester anchors — a week is bucketed by the calendar semester its date falls in. */ anchorsByCohort: Map<string, { springStart: string; summerStart: string; fallStart: string } | undefined> }) {
+function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anchorsByCohort }: { rows: DatedInstance[]; assumptions: WorkloadAssumptions | null; assignments: DrillAssignment[]; assumptionsByCohort: Map<string, WorkloadAssumptions>; /** Each cohort's college semester anchors (coded starts first) — a week is bucketed by the calendar semester it falls in. */ anchorsByCohort: Map<string, { springStart: string; summerStart: string; fallStart: string; knownStarts?: string[] } | undefined> }) {
   const weekly = useMemo(() => weeklyNeedByKind(rows), [rows]);
-  // A week belongs to the semester the college's own calendar puts it in: the cohort's term when the week
-  // falls inside that term's coded dates (Roanoke-Chowan's Part 2 opens Friday, January 8 — its weeks are
-  // Spring 2027), else the calendar semester its date falls in (coded starts first, then the anchors) — a
-  // 20-week class that starts in November has Fall weeks and Spring weeks.
+  // A calendar week belongs to one semester for every class on the chart: the college's coded semester start
+  // whose week it falls in, else the anchor pattern (src/lib/weeksemester.ts) — never the season of the class's
+  // own term. A class that starts in January and runs twenty weeks has Spring weeks and Summer weeks; a class
+  // that starts in May has Spring weeks until the college's summer start week; a Friday-opening semester is
+  // carried by the coded start's week. So the same Monday is never drawn twice (2026-11-18).
+  const semCache = useMemo(() => new Map<string, { year: string; sem: string }>(), [rows]);
   const semOf = (r: DatedInstance): { year: string; sem: string } => {
-    const d = r.dateIso ?? r.mondayIso;
-    if (!d) return { year: r.mondayIso?.slice(0, 4) ?? "", sem: r.semester };
-    const term = termsByCohort.get(r.cohortId)?.[r.termIndex];
-    if (term?.start && term.end) {
-      const weekStart = isoOfDate(mondayOfDate(new Date(term.start + "T00:00:00Z")));
-      const weekEnd = isoOfDate(new Date(mondayOfDate(new Date(term.end + "T00:00:00Z")).getTime() + 6 * 86400000));
-      if (d >= weekStart && d <= weekEnd) return { year: term.start.slice(0, 4), sem: r.semester };
-    }
-    const s = semesterAt(new Date(d + "T00:00:00Z"), anchorsByCohort.get(r.cohortId));
-    return { year: String(s.year), sem: s.season };
+    const k = `${r.cohortId}|${r.mondayIso}`;
+    let x = semCache.get(k);
+    if (!x) { x = semesterOfWeek(r.mondayIso!, anchorsByCohort.get(r.cohortId)); semCache.set(k, x); }
+    return x;
   };
 
   // Drill-down: the bar clicked (its rows), and who fills it.
@@ -404,7 +399,6 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
   const maxLen = Math.max(1, ...rows.map((r) => r.session.lengthHours ?? 0));
 
   // ── The workbook's pivot charts, vertical, every cap labeled ──────────────
-  const SEM_ORDER: Record<string, number> = { Spring: 0, Summer: 1, Fall: 2 };
   const KIND_ORDER = ["CLASS", "LAB", "CLINICAL"];
   const KIND_NAME: Record<string, string> = { CLASS: "Class", LAB: "Lab", CLINICAL: "Clinical" };
 
@@ -437,23 +431,17 @@ function StaffingView({ rows, assumptions, assignments, assumptionsByCohort, anc
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 
-  /** Faculty & preceptor FTEs (weekly): Year → Semester → real calendar week. */
+  /** Faculty & preceptor FTEs (weekly): Year → Semester → real calendar week — one column per Monday. */
   const weekBands: ColBand[] = useMemo(() => {
-    const acc = new Map<string, Map<string, Map<string, [number, number]>>>();
-    for (const r of rows) {
-      const { year, sem } = semOf(r);
-      const y = acc.get(year) ?? new Map(); acc.set(year, y);
-      const s = y.get(sem) ?? new Map(); y.set(sem, s);
-      const k = s.get(r.mondayIso!) ?? [0, 0];
-      k[0] += nz2(r.computed.AB); k[1] += nz2(r.computed.AE);
-      s.set(r.mondayIso!, k);
-    }
-    return [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([year, sems]) => ({
+    const byYear = new Map<string, { sem: string; weeks: Map<string, DatedInstance[]> }[]>();
+    for (const b of weeksBySemester(rows, (id) => anchorsByCohort.get(id))) { const y = byYear.get(b.year) ?? []; y.push(b); byYear.set(b.year, y); }
+    return [...byYear.entries()].map(([year, sems]) => ({
       label: year,
-      groups: [...sems.entries()].sort((a, b) => (SEM_ORDER[a[0]] ?? 9) - (SEM_ORDER[b[0]] ?? 9)).map(([sem, wks]) => ({
+      groups: sems.map(({ sem, weeks }) => ({
         label: sem,
-        leaves: [...wks.keys()].sort().map((w) => ({
-          label: fmtMD(w), title: `${sem} ${year} · week of ${fmtDateM(w)}`, values: wks.get(w)!, key: `week|${w}`,
+        leaves: [...weeks.entries()].map(([w, rs]) => ({
+          label: fmtMD(w), title: `${sem} ${year} · week of ${fmtDateM(w)}`, key: `week|${w}`,
+          values: [rs.reduce((n, r) => n + nz2(r.computed.AB), 0), rs.reduce((n, r) => n + nz2(r.computed.AE), 0)],
         })),
       })),
     }));
