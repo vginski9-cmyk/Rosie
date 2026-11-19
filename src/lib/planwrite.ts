@@ -4,6 +4,7 @@
 // Pure Prisma: nothing here touches a request, so it runs inside a seed as well as a server action.
 
 import { prisma } from "./db";
+import { joinerSeatOffsets, hostSeat } from "./cohortjoin";
 import { AUTO_PLAN_NOTE } from "./scheduler";
 export { AUTO_PLAN_NOTE };
 
@@ -135,38 +136,47 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
   // Students follow their section. Each student's shifts are pinned to the booked asset, preceptor
   // and instructor (created when missing, pinned when unpinned, left alone when someone pinned or
   // logged them by hand), and one planned placement per student × site spans that site's dates.
-  const students = await prisma.student.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, sectionIndex: true } });
+  // Students of these offerings, and of the offerings that join them (lib/cohortjoin): a joiner's student also holds a seat in the host's space.
+  const students = (await prisma.student.findMany({ where: { OR: [{ cohortId: { in: cohortIds } }, { cohort: { joinsCohortId: { in: cohortIds } } }] }, select: { id: true, cohortId: true, sectionIndex: true, cohort: { select: { joinsCohortId: true, joinsHost: { select: { id: true, plannedSeats: true, program: { select: { defaultCohortSeats: true } }, joiners: { select: { id: true, name: true, plannedSeats: true, startDate: true } } } } } } } }))
+    .map((st) => {
+      const host = st.cohort?.joinsHost;
+      const seats: { cohortId: string; seat: number }[] = [{ cohortId: st.cohortId!, seat: st.sectionIndex }];
+      if (host) { const offsets = joinerSeatOffsets({ cohortId: host.id, plannedSeats: host.plannedSeats ?? host.program.defaultCohortSeats ?? null, enrollmentByTerm: {} }, host.joiners.map((j) => ({ cohortId: j.id, plannedSeats: j.plannedSeats, startIso: j.startDate?.toISOString().slice(0, 10) ?? null, name: j.name }))); seats.push({ cohortId: host.id, seat: hostSeat(offsets.get(st.cohortId!) ?? 0, st.sectionIndex) }); }
+      return { id: st.id, cohortId: st.cohortId, sectionIndex: st.sectionIndex, seats };
+    });
+  const hostOf = new Map(students.filter((s) => s.seats.length > 1).map((s) => [s.cohortId!, s.seats[1].cohortId]));
   const placements: { studentId: string; employerId: string; cohortId: string; startDate: Date; endDate: Date; status: string; notes: string }[] = [];
   const target = new Map<string, { studentId: string; cohortId: string; sessionId: string; sectionIndex: number; assetId: string; preceptorId: string | null; instructorId: string | null }>();
   for (const st of students) {
     const mine = assignments.filter((a) => {
-      if (a.cohortId !== st.cohortId) return false;
+      const mySeat = st.seats.find((s) => s.cohortId === a.cohortId)?.seat;
+      if (mySeat == null) return false;
       // Seats are dealt evenly across sections (lib/sections); the plan carries each section's span. Older inputs without it fall back to the ceiling rule.
       const per = Math.max(1, a.seatsPerSection);
-      const inSection = a.seatStart != null && a.sectionSeats != null ? st.sectionIndex >= a.seatStart && st.sectionIndex < a.seatStart + a.sectionSeats : Math.max(1, Math.ceil(Math.max(1, st.sectionIndex) / per)) === a.sectionIndex;
+      const inSection = a.seatStart != null && a.sectionSeats != null ? mySeat >= a.seatStart && mySeat < a.seatStart + a.sectionSeats : Math.max(1, Math.ceil(Math.max(1, mySeat) / per)) === a.sectionIndex;
       if (!inSection) return false;
-      const ord = a.seatStart != null ? st.sectionIndex - a.seatStart + 1 : st.sectionIndex - (a.sectionIndex - 1) * per;
+      const ord = a.seatStart != null ? mySeat - a.seatStart + 1 : mySeat - (a.sectionIndex - 1) * per;
       return ord > (a.seatOffset ?? 0) && ord <= (a.seatOffset ?? 0) + a.seats;
     });
 
     const bySite = new Map<string, { from: string; to: string }>();
     for (const a of mine) {
       const w = bySite.get(a.employerId) ?? { from: a.date, to: a.date }; if (a.date < w.from) w.from = a.date; if (a.date > w.to) w.to = a.date; bySite.set(a.employerId, w);
-      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: roomForSeat(a, st.sectionIndex), preceptorId: leadPreceptor(a), instructorId: a.instructorId ?? null });
+      target.set(`${st.id}|${a.sessionId}`, { studentId: st.id, cohortId: st.cohortId!, sessionId: a.sessionId, sectionIndex: a.sectionIndex, assetId: roomForSeat(a, st.seats.find((s) => s.cohortId === a.cohortId)!.seat), preceptorId: leadPreceptor(a), instructorId: a.instructorId ?? null });
     }
     // A rotation's placement reads by its dates: over (completed), under way (active) or ahead (planned) — a graduated class's are history.
     for (const [employerId, w] of bySite) placements.push({ studentId: st.id, employerId, cohortId: st.cohortId!, startDate: new Date(w.from + "T00:00:00Z"), endDate: new Date(w.to + "T00:00:00Z"), status: w.to < todayIsoPw ? "completed" : w.from <= todayIsoPw ? "active" : "planned", notes: AUTO_PLAN_NOTE });
   }
   if (placements.length) await prisma.wblPlacement.createMany({ data: placements });
 
-  const existing = await prisma.studentShift.findMany({ where: { cohortId: { in: cohortIds } }, select: { id: true, cohortId: true, studentId: true, sessionId: true, sectionIndex: true, note: true, assetId: true, preceptorId: true, instructorId: true, status: true } });
+  const existing = await prisma.studentShift.findMany({ where: { OR: [{ cohortId: { in: cohortIds } }, { cohort: { joinsCohortId: { in: cohortIds } } }] }, select: { id: true, cohortId: true, studentId: true, sessionId: true, sectionIndex: true, note: true, assetId: true, preceptorId: true, instructorId: true, status: true } });
   const seen = new Set<string>();
   const updates = new Map<string, { ids: string[]; data: { assetId: string; preceptorId: string | null; instructorId: string | null; sectionIndex: number; note: string } }>();
   const stale: string[] = []; const unpin: string[] = []; const repin: { id: string; assetId: string }[] = [];
   for (const row of existing) {
     const k = `${row.studentId}|${row.sessionId}`;
     const t = target.get(k);
-    if (!t) { if (pastSessions.has(`${row.cohortId ?? ""}|${row.sessionId}`)) continue; if (row.note === AUTO_PLAN_NOTE) stale.push(row.id); else if (row.note === PLAN_PIN_NOTE) unpin.push(row.id); continue; }
+    if (!t) { if (pastSessions.has(`${row.cohortId ?? ""}|${row.sessionId}`) || pastSessions.has(`${hostOf.get(row.cohortId ?? "") ?? ""}|${row.sessionId}`)) continue; if (row.note === AUTO_PLAN_NOTE) stale.push(row.id); else if (row.note === PLAN_PIN_NOTE) unpin.push(row.id); continue; }
     seen.add(k);
     // A logged shift keeps its history (status, hours, preceptor, instructor); only when the caller re-plans its date on purpose
     // (a cutoff before it) does its seat follow the new booking, so no pin ever points at a booking that no longer exists.
@@ -192,8 +202,11 @@ export async function writeSchedulerPlan(allAssignments: PlanAssignmentInput[], 
 
 /** Remove everything a plan wrote for these offerings: bookings, placements, moves, shift staffing,
  *  the student shifts it created — and the shifts it merely pinned go back to unpinned. Hand-made rows stay. */
-export async function clearSchedulerPlanRows(cohortIds: string[]): Promise<void> {
-  if (!cohortIds.length) return;
+export async function clearSchedulerPlanRows(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  // The offerings that join these share their sections: their students' rows on those sections go too.
+  const joiners = await prisma.cohort.findMany({ where: { joinsCohortId: { in: ids } }, select: { id: true } });
+  const cohortIds = [...new Set([...ids, ...joiners.map((j) => j.id)])];
   await prisma.assetBooking.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });
   await prisma.wblPlacement.deleteMany({ where: { cohortId: { in: cohortIds }, notes: AUTO_PLAN_NOTE } });
   await prisma.shiftMove.deleteMany({ where: { cohortId: { in: cohortIds }, note: AUTO_PLAN_NOTE } });

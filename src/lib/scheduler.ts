@@ -117,6 +117,8 @@ export interface StudentLite {
   homeLabel?: string | null;
   /** Estimated drive minutes from the student's home to each site (employerId → minutes); absent when the home is unknown. */
   driveTo?: Record<string, number>;
+  /** Set on the second row of a student whose offering joins another's sections (lib/cohortjoin): this row is their seat in the host's space. */
+  viaCohortId?: string;
 }
 export interface FamilyAgreement { familyId: string; employerId: string; agreementStatus: string; /** ISO date the agreement ends; a placement after it is not agreement-eligible (Phase 5). */ agreementEnds?: string | null }
 /** What a site may hold at once for a family (null = unknown, never unlimited) and which settings it has CONFIRMED it provides (Phase 5). */
@@ -888,8 +890,13 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const rosters: StudentRoster[] = [];
   const byCohort = new Map<string, Assignment[]>();
   for (const x of assignments) { const l = byCohort.get(x.unit.cohortId) ?? []; l.push(x); byCohort.set(x.unit.cohortId, l); }
-  for (const st of input.students) {
-    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (!seatInUnit(st.sectionIndex, x.unit)) return false; const ord = st.sectionIndex - x.unit.seatStart + 1; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
+  // A student whose offering joins another's sections has two rows (their own seat and their seat in the host's space): one roster, one set of stats.
+  const rowsById = new Map<string, StudentLite[]>();
+  for (const st of input.students) { const l = rowsById.get(st.id) ?? []; l.push(st); rowsById.set(st.id, l); }
+  const assignmentsOf = (rows: StudentLite[]) => rows.flatMap((st) => (byCohort.get(st.cohortId) ?? []).filter((x) => { if (!seatInUnit(st.sectionIndex, x.unit)) return false; const ord = st.sectionIndex - x.unit.seatStart + 1; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; })).slice().sort((a, b) => a.date.localeCompare(b.date));
+  for (const rows of rowsById.values()) {
+    const st = rows.find((r) => !r.viaCohortId) ?? rows[0];
+    const xs = assignmentsOf(rows);
     if (!xs.length) continue;
     const stops: StudentRoster["stops"] = [];
     for (const x of xs) {
@@ -905,8 +912,9 @@ function analyze(input: SchedulerInput, live: AssetLite[], assignments: Assignme
   const assetById = new Map(live.map((a) => [a.id, a]));
   const preceptorById = new Map(input.preceptors.map((p) => [p.id, p]));
   const studentStats: StudentStat[] = [];
-  for (const st of input.students) {
-    const xs = (byCohort.get(st.cohortId) ?? []).filter((x) => { if (!seatInUnit(st.sectionIndex, x.unit)) return false; const ord = st.sectionIndex - x.unit.seatStart + 1; return ord > x.seatOffset && ord <= x.seatOffset + x.seats; }).slice().sort((a, b) => a.date.localeCompare(b.date));
+  for (const rows of rowsById.values()) {
+    const st = rows.find((r) => !r.viaCohortId) ?? rows[0];
+    const xs = assignmentsOf(rows);
     if (!xs.length) continue;
     const sites = new Set(xs.map((x) => x.employerId)); const types = new Set<string>(); const systems = new Set<string>(); const settings = new Set<string>(); const precs = new Set<string>();
     let run = 0, longest = 0, last: string | null = null;

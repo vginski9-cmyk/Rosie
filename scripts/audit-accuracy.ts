@@ -33,6 +33,10 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const { from, to } = schedulerWindow(data.cohorts);
   const supply = await getSchedulerData(inst.id, from, to);
   const courseRules = supply.courseRules ?? {};
+  // Shared sections (lib/cohortjoin): a joiner's students sit in the host's sections, so their shifts on the host's sessions are
+  // seated by the host's bookings and led by the host's staff rows — every lookup keyed by offering falls back to the host.
+  const joinRows = await prisma.cohort.findMany({ where: { program: { institutionId: inst.id }, joinsCohortId: { not: null } }, select: { id: true, name: true, joinsCohortId: true, joinsAtTermIndex: true, joinsHostTermIndex: true, cohortTerms: { select: { endDate: true, term: { select: { index: true } } } }, joinsHost: { select: { name: true, cohortTerms: { select: { endDate: true, term: { select: { index: true } } } } } } } });
+  const hostOf = new Map(joinRows.map((j) => [j.id, j.joinsCohortId!]));
 
   // ── A. Template → dated demand ─────────────────────────────────────────────────────────────────
   const rows = data.cohorts.flatMap((c) => buildInstances({
@@ -66,6 +70,14 @@ async function auditInstitution(inst: { id: string; name: string }) {
   if (unmapped.length) warn(tag("A3 unmapped"), `${unmapped.length} dated clinical rows have no setting rule: ${[...new Set(unmapped.map((d) => d.rotationType))].slice(0, 6).join(", ")}`, unmapped.length);
   const inWindowDemand = demandRows.filter((d) => d.dateIso >= from && d.dateIso <= to);
   info(tag("A demand"), `${clinical.length} dated clinical rows · ${demandRows.length} demand rows · ${sum(inWindowDemand.map((d) => d.students))} learner-shifts in the window ${from}→${to}`);
+
+  // A4: a course the host holds never appears among the joiner's dated rows; a host's shared term is sized for its joiners' seats too.
+  for (const c of data.cohorts) {
+    for (const h of c.heldIn ?? []) if (rows.some((r) => r.cohortId === c.cohortId && r.termIndex === h.termIndex && r.courseCode === h.code)) err(tag("A4 held-in course"), `${c.cohort} dates ${h.code} in term ${h.termIndex} itself, a course ${h.hostCohortName} holds for it`);
+    for (const [ti, seats] of Object.entries(c.joinedSeats ?? {})) { const joined = sum(seats.map((x) => x.seats)); if ((c.enrollmentByTerm[Number(ti)] ?? 0) < joined) err(tag("A4 host seats"), `${c.cohort} term ${ti}: enrollment ${c.enrollmentByTerm[Number(ti)]} is below the ${joined} joined seats`); }
+    if (c.joinUnresolved) err(tag("A4 join"), `${c.cohort}: ${c.joinUnresolved}`);
+  }
+  if (joinRows.length) info(tag("A4 joins"), joinRows.map((j) => `${j.name} → ${j.joinsHost?.name} (its ${j.joinsAtTermIndex} ↔ host ${j.joinsHostTermIndex})`).join(" · "));
 
   // ── B. Scheduler plan invariants ───────────────────────────────────────────────────────────────
   const { demand, campus, holidays } = schedulerModel(data.cohorts, supply.rotations, courseRules);
@@ -166,7 +178,7 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const stAt = new Map<string, number>(); const pinned = new Map<string, number>(); let orphanPins = 0;
   for (const s of shifts) {
     if (s.session.kind !== "CLINICAL" || !s.assetId) continue;
-    const bs = bookingOf.get(`${s.cohortId}|${s.assetId}|${s.sessionId}|${s.sectionIndex}`) ?? [];
+    const bs = bookingOf.get(`${s.cohortId}|${s.assetId}|${s.sessionId}|${s.sectionIndex}`) ?? (hostOf.has(s.cohortId) ? bookingOf.get(`${hostOf.get(s.cohortId)}|${s.assetId}|${s.sessionId}|${s.sectionIndex}`) : undefined) ?? [];
     if (!bs.length) { orphanPins++; continue; }
     // a section's session recurs weekly: one student shift per booking date is what the roster means
     for (const b of bs) { if (s.student.status === "withdrawn" && !s.student.keepAssignments && b.date > todayIso) continue; /* site load leaves a withdrawn student's FUTURE seats out unless kept on purpose; history stays */ const k1 = `${s.studentId}|${b.date}|${b.block}`; stAt.set(k1, (stAt.get(k1) ?? 0) + 1); const k2 = `${s.assetId}|${b.date}|${b.block}`; pinned.set(k2, (pinned.get(k2) ?? 0) + 1); }
@@ -226,7 +238,7 @@ async function auditInstitution(inst: { id: string; name: string }) {
   const dueLed = ledShifts.filter((s) => s.status === "scheduled" && s.student.status !== "withdrawn");
   const dueNoInstructor = dueLed.filter((s) => !s.instructorId).length;
   if (dueNoInstructor) warn(tag("F1 instructor ahead"), `${dueNoInstructor} of ${dueLed.length} upcoming instructor-led clinical shifts name no college instructor yet`, dueNoInstructor);
-  const badPin = ledShifts.filter((s) => s.instructorId && !instructorRows.has(`${s.cohortId}|${s.sessionId}|${s.sectionIndex}|${s.instructorId}`)).length;
+  const badPin = ledShifts.filter((s) => s.instructorId && !instructorRows.has(`${s.cohortId}|${s.sessionId}|${s.sectionIndex}|${s.instructorId}`) && !instructorRows.has(`${hostOf.get(s.cohortId) ?? ""}|${s.sessionId}|${s.sectionIndex}|${s.instructorId}`)).length;
   if (badPin) err(tag("F2 instructor pin"), `${badPin} clinical shifts are pinned to an instructor who is not on that section's staff`);
   const loadInstr = load ? load.rows.filter((r) => r.instructorId).length : 0;
   const pinnedInstr = (await prisma.studentShift.count({ where: { cohort: { program: { institutionId: inst.id }, ...NOT_ARCHIVED }, session: { kind: "CLINICAL" }, instructorId: { not: null }, OR: [{ status: { not: "scheduled" } }, { student: { status: { not: "withdrawn" } } }] } }));
@@ -235,7 +247,9 @@ async function auditInstitution(inst: { id: string; name: string }) {
 
   // ── G. Requirements vs the template ────────────────────────────────────────────────────────────
   const pools = await coursePoolRules(data.cohorts.map((c) => c.programId));
+  const heldCourseIds = new Set(data.cohorts.flatMap((co) => (co.heldIn ?? []).map((h) => h.courseId)));
   for (const [courseId, rule] of Object.entries(pools)) if (rule.rule.kind === "pool") {
+    if (heldCourseIds.has(courseId)) continue; // held in the host: the host's course of that code carries the sessions and the rule
     const c = data.cohorts.flatMap((co) => co.courses).find((x) => x.courseId === courseId);
     const hours = sum((c?.sessions ?? []).filter((s) => s.kind === "CLINICAL").map((s) => s.lengthHours));
     const mins = sum(rule.rule.minimums.map((m) => m.quantity));
@@ -274,12 +288,21 @@ async function auditInstitution(inst: { id: string; name: string }) {
     // A logged shift pinned to a seat must have the booking behind it (pin integrity — an error); one logged with no seat at all
     // is the plan's own shortfall carried into history (site load says "no seat yet"), reported, never hidden.
     const completedShifts = grads.flatMap((s) => s.shifts.filter((x) => x.status === "completed"));
-    const pinnedNoBooking = completedShifts.filter((x) => x.assetId && !(bookingOf.get(`${c.id}|${x.assetId}|${x.sessionId}|${x.sectionIndex}`) ?? []).length).length;
+    const pinnedNoBooking = completedShifts.filter((x) => x.assetId && !(bookingOf.get(`${c.id}|${x.assetId}|${x.sessionId}|${x.sectionIndex}`) ?? []).length && !(bookingOf.get(`${hostOf.get(c.id) ?? ""}|${x.assetId}|${x.sessionId}|${x.sectionIndex}`) ?? []).length).length;
     if (pinnedNoBooking) err(tagc("H4 pin integrity"), `${pinnedNoBooking} completed clinical shifts are pinned to a seat with no booking behind it`);
     const noSeat = completedShifts.filter((x) => !x.assetId).length;
     if (noSeat) warn(tagc("H4 unseated history"), `${noSeat} of ${completedShifts.length} completed clinical shifts were logged with no seat${hasSites ? " — the plan could not place them" : " (the college has no sites on record)"}`, noSeat);
     const openWbl = c.placements.filter((w) => w.status !== "completed" || !w.endDate || w.endDate.toISOString().slice(0, 10) >= todayIso).length;
     if (openWbl) err(tagc("H5 rotations"), `${openWbl} of ${c.placements.length} rotation placements are not marked completed with a past end date`);
+  }
+  // H6: a joiner's last day is the host's mapped term's last day (its graduates complete the day the shared term ends).
+  for (const j of joinRows) {
+    if (!j.joinsHost || j.joinsAtTermIndex == null || j.joinsHostTermIndex == null) { err(tag("H6 join"), `${j.name} joins an offering with no term mapping`); continue; }
+    const last = j.cohortTerms.slice().sort((a, b) => a.term.index - b.term.index).at(-1);
+    const hostTerm = last ? j.joinsHost.cohortTerms.find((t) => t.term.index === j.joinsHostTermIndex! + (last.term.index - j.joinsAtTermIndex!)) : null;
+    const a = last?.endDate?.toISOString().slice(0, 10) ?? null, b = hostTerm?.endDate?.toISOString().slice(0, 10) ?? null;
+    if (!hostTerm) err(tag("H6 join"), `${j.name}: its last term maps past ${j.joinsHost.name}'s terms`);
+    else if (a !== b) err(tag("H6 join end"), `${j.name} ends ${a} but ${j.joinsHost.name}'s term it sits in ends ${b}`);
   }
   info(tag("H graduated"), `${graduated.length} graduated classes · ${sum(graduated.map((c) => c.students.length))} students · ${sum(graduated.map((c) => sum(c.students.map((s) => s.shifts.filter((x) => x.status === "completed").length))))} completed clinical shifts on record`);
 }

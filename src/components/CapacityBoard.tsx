@@ -67,6 +67,14 @@ export interface CapacityCohort {
   moves?: ShiftMoveInfo[];
   courses: { code: string | null; title: string; courseId?: string | null; termIndex: number; termName: string; simulation?: { max: number; unit: string; note: string | null } | null; sessions: SessionInput[] }[];
   assumptions: WorkloadAssumptions;
+  /** Planned seats (term 1), for the seat numbering of students sitting in from a joiner. */
+  plannedSeats?: number | null;
+  /** Shared sections (lib/cohortjoin): the offering this one joins, the courses of its own held in the host's sections,
+   *  and — on a host — the seats each joiner adds to each of its terms. */
+  join?: import("@/lib/cohortjoin").JoinSpec | null;
+  heldIn?: import("@/lib/cohortjoin").HeldIn[];
+  joinedSeats?: Record<number, import("@/lib/cohortjoin").JoinedSeats[]>;
+  joinUnresolved?: string;
 }
 
 export type CapacityView = "staffing" | "sites" | "coverage";

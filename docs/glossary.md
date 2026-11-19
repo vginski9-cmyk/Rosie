@@ -70,6 +70,13 @@ A section's weekly slot on the calendar: day, time, room or clinical site, and t
 - **Retired:** meeting, meeting pattern, weekly pattern (the set of bookings)
 - **Where:** The offering's weekly pattern, the master calendar, a site's "Booked here"
 
+### Joined offering (shared sections)
+
+An offering whose students sit in another offering's sections from one of its terms on: Cape Fear's Nursing Transition joins the fall-entry ADN class from the transition's first semester (the host's second). From that term, a course both run in the same term is one meeting — the host's section, sized for both classes' students, staffed and booked once; the joiner dates, books and staffs nothing for it, and its own courses in those terms stay its own. The joined terms take the host's dates. A host cannot be unlocked while an offering joins it, and a join never chains.
+
+- **Not the same as:** Not a merged cohort: each class keeps its own roster, goal and pipeline; only the meetings are shared. Not two sections of one course: the shared students are counted once, in the host's sections.
+- **Where:** The offering page ("Joins …" / "Shared with …", the Students tile's "+ 10 joined", the held-in list), the Programs page's create form, the goal page's lock-in
+
 ## Shifts, seats and bookings
 
 ### Shift

@@ -23,12 +23,24 @@ const hours = (c: Course, kind: string) => Math.round(c.sessions.filter((s) => s
 const meetings = (c: Course, kind: string, week = 1) => c.sessions.filter((s) => s.kind === kind && s.week === week).map((s) => `${s.dayOfWeek} ${s.startTime}-${s.endTime} ${s.location}`);
 
 describe("Cape Fear Community College", () => {
-  it("is seeded with its nursing placeholder untouched and an Electrical Systems Technology family of five pack programs", () => {
+  it("is seeded with its four nursing tracks at the owner's caps (the transition joining the fall-entry class) and an Electrical Systems Technology family of five pack programs", () => {
     expect(PAUSED_INSTITUTIONS.has("Cape Fear Community College")).toBe(false);
     const inst = INSTITUTIONS.find((i) => i.name === "Cape Fear Community College")!;
     expect([inst.city, inst.serviceArea]).toEqual(["Wilmington", "New Hanover & Pender Counties, NC"]);
     expect(inst.families.map((f) => f.name)).toEqual(["Nursing (prelicensure RN)", "Electrical Systems Technology"]);
-    expect(inst.families[0].programs).toHaveLength(3); // ADN Spring, ADN Fall, LPN-to-ADN — the earlier placeholder, kept as-is
+    type Coded = { name: string; seats: number; launch: string; credential: string; note?: string; joins?: { program: string; atTermIndex: number; hostTermIndex: number }; terms: (h: unknown) => { index: number; name: string; startWeek: number; endWeek: number; courses: { code: string; credits: number }[] }[] };
+    const nursing = inst.families[0].programs as unknown as Coded[];
+    expect(nursing.map((p) => [p.name, p.seats, p.launch, p.credential])).toEqual([["ADN — Fall Entry", 80, "FALL", "AAS"], ["ADN — Spring Entry", 75, "SPRING", "AAS"], ["LPN-to-ADN", 40, "SUMMER", "AAS"], ["Nursing Transition", 10, "SPRING", "AAS"]]);
+    expect(nursing[3].joins).toEqual({ program: "ADN — Fall Entry", atTermIndex: 1, hostTermIndex: 2 });
+    expect(nursing.slice(0, 3).every((p) => !p.joins)).toBe(true);
+    const terms = (p: Coded) => p.terms(null).map((t) => [t.name, t.endWeek - t.startWeek + 1, t.courses.map((c) => c.code).join(" ")]);
+    expect(terms(nursing[0])).toEqual([["First Fall", 16, "NUR 111 BIO 168 PSY 150 ENG 111"], ["First Spring", 16, "NUR 112 NUR 114 BIO 169 PSY 241"], ["Summer", 10, "NUR 113 BIO 275"], ["Second Fall", 16, "NUR 211 NUR 212 ENG 112"], ["Second Spring", 16, "NUR 213 HUM 115"]]);
+    expect(terms(nursing[1]).map((t) => [t[0], t[1]])).toEqual([["First Spring", 16], ["First Summer", 10], ["First Fall", 16], ["Second Spring", 16], ["Second Summer", 10]]);
+    expect(terms(nursing[2])).toEqual([["Summer — NUR 214", 10, "NUR 214"], ["Fall", 16, "NUR 221"], ["Spring", 16, "NUR 223"]]);
+    // The transition is the ADN's second through fifth terms, so every course of every term is held in the host's sections.
+    expect(terms(nursing[3])).toEqual(terms(nursing[0]).slice(1));
+    expect(nursing[3].terms(null).map((t) => t.index)).toEqual([1, 2, 3, 4]);
+    expect(nursing[1].note).toMatch(/inference/); expect(nursing[2].note).toMatch(/NUR 223's hour split was not read/);
     const est = inst.families[1];
     expect(est.soc).toBe("47-2111");
     expect(est.programs).toBe(CAPE_FEAR_PROGRAMS);

@@ -35,6 +35,7 @@ import { seedInstitutions, goals, goalPlanJson, type CnaPacks } from "./seed-ins
 import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
 import { outcomeMix, assignOutcomes } from "../src/lib/cohorthistory";
 import { BENCHMARK_RATES } from "../src/lib/northstar";
+import { applyJoins, joinerSeatOffsets, hostSeat, normCode } from "../src/lib/cohortjoin";
 
 const prisma = new PrismaClient();
 
@@ -478,7 +479,20 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
   const usedNames = new Set<string>();
   const uniqueName = (a: number, b: number) => { for (let k = 0; k < FIRST.length * LAST.length; k++) { const n = `${FIRST[(a + k) % FIRST.length]} ${LAST[(b + k * 7) % LAST.length]}`; if (!usedNames.has(n)) { usedNames.add(n); return n; } } const n = `${FIRST[a % FIRST.length]} ${LAST[b % LAST.length]} ${usedNames.size}`; usedNames.add(n); return n; };
   let made = 0, sections = 0, shifts = 0;
-  const cohorts = await prisma.cohort.findMany({ where: NOT_ARCHIVED, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, sessions: { select: { id: true, kind: true, maxStudents: true, deliveryMode: true, location: true } } } } } } } }, cohortTerms: { select: { endDate: true } }, _count: { select: { students: true } } } });
+  const cohorts = await prisma.cohort.findMany({ where: NOT_ARCHIVED, include: { program: { select: { id: true, name: true, defaultCohortSeats: true, institution: { select: { name: true } }, terms: { select: { index: true, courses: { select: { id: true, code: true, sessions: { select: { id: true, kind: true, maxStudents: true, deliveryMode: true, location: true } } } } } } } }, cohortTerms: { select: { endDate: true, startDate: true, term: { select: { index: true } } } }, _count: { select: { students: true } } } });
+  // Shared sections (lib/cohortjoin): a host's sections in a shared term are dealt over its seats and its joiners'; a joiner's
+  // students sit in the host's sections for the courses the host holds (its course and session ids, their own offering).
+  const seatsOf = (co: (typeof cohorts)[number]) => Math.max(4, Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 20));
+  const joined = new Map(applyJoins(cohorts.map((co) => ({
+    cohortId: co.id, cohort: co.name,
+    join: co.joinsCohortId && co.joinsAtTermIndex != null && co.joinsHostTermIndex != null ? { hostCohortId: co.joinsCohortId, atTermIndex: co.joinsAtTermIndex, hostTermIndex: co.joinsHostTermIndex } : null,
+    enrollmentByTerm: Object.fromEntries(co.program.terms.map((tm) => [tm.index, seatsOf(co)])) as Record<number, number>,
+    termStartByIndex: Object.fromEntries(co.cohortTerms.map((ct) => [ct.term.index, ct.startDate])) as Record<number, Date | null>,
+    courses: co.program.terms.flatMap((tm) => tm.courses.map((c) => ({ code: c.code, termIndex: tm.index, courseId: c.id }))),
+  }))).map((j) => [j.cohortId, j]));
+  const cohortById = new Map(cohorts.map((co) => [co.id, co]));
+  const seatOffsetOf = new Map<string, number>();
+  for (const co of cohorts) { const joiners = cohorts.filter((j) => j.joinsCohortId === co.id); if (joiners.length) for (const [id, off] of joinerSeatOffsets({ cohortId: co.id, plannedSeats: seatsOf(co), enrollmentByTerm: {} }, joiners.map((j) => ({ cohortId: j.id, plannedSeats: seatsOf(j), startIso: j.startDate?.toISOString().slice(0, 10) ?? null, name: j.name })))) seatOffsetOf.set(id, off); }
   const today = new Date();
   const todayIso = today.toISOString().slice(0, 10);
   const pinned = new Set<number>();
@@ -573,19 +587,36 @@ async function seedOfferingStudents(pins: { program: string; cohort: string; wit
     const dated = (await sessionDatesForCohort(co.id)).dates;
     const secRows: { studentId: string; cohortId: string; courseId: string; kind: string; sectionIndex: number }[] = [];
     const shiftRows: { studentId: string; cohortId: string; sessionId: string; sectionIndex: number }[] = [];
-    for (const t of co.program.terms) for (const c of t.courses) {
+    const j = joined.get(co.id)!;
+    const heldIn = new Map(j.heldIn.map((h) => [h.courseId, h]));
+    // A course's sections: over the term's seats (a host's shared term counts its joiners), each student by seat — the
+    // seat `seatOf(st)` in the space the sections are dealt over.
+    const place = (course: { id: string; sessions: { id: string; kind: string; maxStudents: number; deliveryMode: string | null; location: string | null }[] }, cohortIdOfRows: string, totalSeats: number, seatOf: (st: (typeof students)[number]) => number, datedIn: Map<string, string | null>) => {
       // An online session is nothing to attend on a date (lib/capacitymodel isOnlineSession): no shift for it, whatever kind the sheet gives it.
       const kinds = new Map<string, { max: number; sessions: string[]; online: Set<string> }>();
-      for (const s of c.sessions) { const k = kinds.get(s.kind) ?? { max: 0, sessions: [], online: new Set<string>() }; k.max = Math.max(k.max, s.maxStudents ?? 0); k.sessions.push(s.id); if (isOnlineSession(s.deliveryMode, s.location)) k.online.add(s.id); kinds.set(s.kind, k); }
+      for (const s of course.sessions) { const k = kinds.get(s.kind) ?? { max: 0, sessions: [], online: new Set<string>() }; k.max = Math.max(k.max, s.maxStudents ?? 0); k.sessions.push(s.id); if (isOnlineSession(s.deliveryMode, s.location)) k.online.add(s.id); kinds.set(s.kind, k); }
       for (const [kind, k] of kinds) {
-        const nSec = Math.max(1, k.max > 0 ? Math.ceil(seats / k.max) : 1);
+        const nSec = Math.max(1, k.max > 0 ? Math.ceil(totalSeats / k.max) : 1);
         for (const st of students) {
           if (st.status === "withdrawn") continue;
-          const sec = Math.min(nSec, Math.floor(((st.sectionIndex ?? 1) - 1) * nSec / seats) + 1);
-          secRows.push({ studentId: st.id, cohortId: co.id, courseId: c.id, kind, sectionIndex: sec });
-          if (kind === "CLINICAL") for (const sid of k.sessions) if (dated.get(sid) && !k.online.has(sid)) shiftRows.push({ studentId: st.id, cohortId: co.id, sessionId: sid, sectionIndex: sec });
+          const sec = Math.min(nSec, Math.floor((seatOf(st) - 1) * nSec / totalSeats) + 1);
+          secRows.push({ studentId: st.id, cohortId: cohortIdOfRows, courseId: course.id, kind, sectionIndex: sec });
+          if (kind === "CLINICAL") for (const sid of k.sessions) if (datedIn.get(sid) && !k.online.has(sid)) shiftRows.push({ studentId: st.id, cohortId: cohortIdOfRows, sessionId: sid, sectionIndex: sec });
         }
       }
+    };
+    const hostDated = new Map<string, Map<string, string | null>>();
+    for (const t of co.program.terms) for (const c of t.courses) {
+      const held = heldIn.get(c.id);
+      if (!held) { place(c, co.id, Math.max(seats, Math.round(j.enrollmentByTerm[t.index] ?? seats)), (st) => st.sectionIndex ?? 1, dated); continue; }
+      // Held in the host: the host's course of the same code in the mapped term, its sessions and dates, the student's seat after the host's.
+      const host = cohortById.get(held.hostCohortId); if (!host) continue;
+      const hostCourse = host.program.terms.find((tm) => tm.index === held.hostTermIndex)?.courses.find((x) => normCode(x.code) === normCode(c.code));
+      if (!hostCourse) continue;
+      if (!hostDated.has(host.id)) hostDated.set(host.id, (await sessionDatesForCohort(host.id)).dates);
+      const hostSeats = Math.round(joined.get(host.id)!.enrollmentByTerm[held.hostTermIndex] ?? seatsOf(host));
+      const offset = seatOffsetOf.get(co.id) ?? seatsOf(host);
+      place(hostCourse, co.id, Math.max(hostSeats, offset + seats), (st) => hostSeat(offset, st.sectionIndex ?? 1), hostDated.get(host.id)!);
     }
     for (let i = 0; i < secRows.length; i += 500) await prisma.studentSection.createMany({ data: secRows.slice(i, i + 500) });
     for (let i = 0; i < shiftRows.length; i += 500) await prisma.studentShift.createMany({ data: shiftRows.slice(i, i + 500) });

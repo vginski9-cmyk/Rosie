@@ -56,6 +56,30 @@ export const SCHEDULED_OFFERINGS: Record<string, OfferingSpec[]> = {
   // day and night classes, the high-school CCP class each fall — make seven classes (54.1) for 2026 and 2027; a second spring
   // day class makes eight (62.3) for 2028–2030. Starts on the Monday of the college's term starts (the 2026–27 calendar: fall
   // Aug 19, spring Jan 11, summer May 20), then the same pattern. Rooms are the college's to enter.
+  // Cape Fear's nursing class of 2028 at the owner's caps (2026-11-19), the Nursing Transition joined to the fall-entry class from
+  // its second semester (lib/cohortjoin): the fall class on the coded Fall 2026 first day, the transition and the spring class on
+  // the coded Spring 2027 first day (Tuesday, January 5), the LPN-to-ADN on the summer start the anchor gives (Summer 2027 is past
+  // the loaded calendar). Goals are the seats' yield at the family's rates.
+  "Cape Fear Community College": [
+    { program: "ADN — Fall Entry", start: "2026-08-17", goal: 40.8, counts: { enrolled: 80 } },
+    { program: "Nursing Transition", start: "2027-01-05", goal: 5.1, counts: { enrolled: 10 }, joins: { program: "ADN — Fall Entry", start: "2026-08-17", atTermIndex: 1, hostTermIndex: 2 } },
+    { program: "ADN — Spring Entry", start: "2027-01-05", goal: 38.3, counts: { enrolled: 75 } },
+    { program: "LPN-to-ADN", start: "2027-05-17", goal: 20.4, counts: { enrolled: 40 } },
+  ],
+  // Brunswick's class of 2028: the ADN from its summer-before-fall start (Summer 2026 is not in the loaded calendar — the day after
+  // Memorial Day stands as the chosen start), the Paramedic-to-ADN from the coded Spring 2027 start joining the ADN's fourth term
+  // (NUR 113) from its own second, the LPN-to-ADN from the coded Summer 2027 start joining the same term from its first.
+  "Brunswick Community College": [
+    { program: "Associate Degree Nursing (A45110)", start: "2026-05-26", goal: 25.5, counts: { enrolled: 50 } },
+    { program: "Paramedic-to-ADN Bridge (A45110M)", start: "2027-01-06", goal: 5.1, counts: { enrolled: 10 }, joins: { program: "Associate Degree Nursing (A45110)", start: "2026-05-26", atTermIndex: 2, hostTermIndex: 4 } },
+    { program: "LPN-to-ADN Transition (A45110T)", start: "2027-05-24", goal: 10.2, counts: { enrolled: 20 }, joins: { program: "Associate Degree Nursing (A45110)", start: "2026-05-26", atTermIndex: 1, hostTermIndex: 4 } },
+  ],
+  // Southeastern's class of 2028: the ADN from the coded Fall 2026 start; the LPN-to-ADN bridge from the coded Summer 2027 start,
+  // joining the ADN's second-year fall (its fourth term: NUR 212 and PSY 241 shared, NUR 211 its own) from its own second term.
+  "Southeastern Community College": [
+    { program: "Associate Degree Nursing (A45110)", start: "2026-08-17", goal: 30.6, counts: { enrolled: 60 } },
+    { program: "LPN-to-ADN Transition (A45110, accelerated bridge)", start: "2027-05-17", goal: 10.2, counts: { enrolled: 20 }, joins: { program: "Associate Degree Nursing (A45110)", start: "2026-08-17", atTermIndex: 2, hostTermIndex: 4 } },
+  ],
   "Craven Community College": [
     ...cravenYear({ spring: "2026-01-12", summer: "2026-05-18", fall: "2026-08-17" }),
     ...cravenYear({ spring: "2027-01-11", summer: "2027-05-17", fall: "2027-08-16" }),

@@ -80,4 +80,24 @@ describe("cohorts scheduled to the goals", () => {
     }
     for (const s of specs) expect(new Date(s.start + "T00:00:00Z").getUTCDay(), s.start).toBe(1);
   });
+  it("the joined nursing classes of 2028: every join names a host listed before it at the same college, at the owner's caps and the packs' class sizes", () => {
+    const cases: [string, [string, number, string | null][]][] = [
+      ["Cape Fear Community College", [["ADN — Fall Entry", 80, null], ["Nursing Transition", 10, "ADN — Fall Entry"], ["ADN — Spring Entry", 75, null], ["LPN-to-ADN", 40, null]]],
+      ["Brunswick Community College", [["Associate Degree Nursing (A45110)", 50, null], ["Paramedic-to-ADN Bridge (A45110M)", 10, "Associate Degree Nursing (A45110)"], ["LPN-to-ADN Transition (A45110T)", 20, "Associate Degree Nursing (A45110)"]]],
+      ["Southeastern Community College", [["Associate Degree Nursing (A45110)", 60, null], ["LPN-to-ADN Transition (A45110, accelerated bridge)", 20, "Associate Degree Nursing (A45110)"]]],
+    ];
+    for (const [college, want] of cases) {
+      const specs = SCHEDULED_OFFERINGS[college];
+      expect(specs.map((s) => [s.program, s.counts?.enrolled, s.joins?.program ?? null]), college).toEqual(want);
+      for (const [i, s] of specs.entries()) if (s.joins) {
+        const host = specs.slice(0, i).find((h) => h.program === s.joins!.program && h.start === s.joins!.start);
+        expect(host, `${college}: ${s.program} joins ${s.joins.program} ${s.joins.start}`).toBeDefined();
+        expect(s.joins.atTermIndex).toBeGreaterThanOrEqual(1); expect(s.joins.hostTermIndex).toBeGreaterThanOrEqual(1);
+        expect(s.start >= host!.start).toBe(true);
+      }
+    }
+    // Cape Fear's transition and spring class open on the coded Spring 2027 first day; Brunswick's bridges on its coded starts.
+    expect(SCHEDULED_OFFERINGS["Cape Fear Community College"].filter((s) => s.start === "2027-01-05")).toHaveLength(2);
+    expect(SCHEDULED_OFFERINGS["Brunswick Community College"].map((s) => s.start)).toEqual(["2026-05-26", "2027-01-06", "2027-05-24"]);
+  });
 });

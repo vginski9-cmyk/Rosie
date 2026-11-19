@@ -19,7 +19,8 @@ import { resolveHoliday, isHolidayRule, DEFAULT_HOLIDAY_RULE } from "../src/lib/
 import { NOT_ARCHIVED, cohortStatusOn } from "../src/lib/cohortscope";
 import { pickGrade, gpaOf } from "../src/lib/cohorthistory";
 import { ENROLLED_AND_BEYOND } from "../src/lib/learners";
-import { offeringName, shortTermProgram, campusLabel, programDetail } from "../src/lib/offeringname";
+import { offeringName, shortTermProgram, campusLabel, programDetail, classYearNaming } from "../src/lib/offeringname";
+import { joinedTermDates, bookingJoins, type JoinSpec } from "../src/lib/cohortjoin";
 import { clinicalHostsFor } from "../src/lib/hosts";
 
 const FIRST = ["Maria", "James", "Aisha", "Daniel", "Priya", "Marcus", "Elena", "Thomas", "Keisha", "Robert", "Sofia", "William", "Nadia", "Andre", "Grace", "Samuel", "Lena", "Victor", "Hannah", "Omar", "Claire", "Jordan", "Renee", "Miguel", "Tasha", "Peter", "Yolanda", "Chris", "Ingrid", "Devon", "Beatriz", "Nathan", "Carmen", "Louis", "Farah", "Isaac", "Monica", "Trevor", "Dana", "Kwame"];
@@ -272,7 +273,9 @@ export async function seedInstructors(prisma: PrismaClient, institutionId: strin
 }
 
 /** One offering to seed: the program by name, its first day, its goal share, and what the college or the plan states for the class. */
-export type OfferingSpec = { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES>; /** The counts stated for the class by pipeline stage (enrolled, completing, …); the rest derives. */ counts?: PlannedCounts; /** Where it meets: a campus of the college by name (default: the main campus). */ campus?: string; locationNote?: string; code?: string };
+export type OfferingSpec = { program: string; start: string; goal: number; seats?: number; /** This offering's own talent-pipeline rates, over the family's (a planned class at a 90% completion rate). */ rates?: Partial<typeof BENCHMARK_RATES>; /** The counts stated for the class by pipeline stage (enrolled, completing, …); the rest derives. */ counts?: PlannedCounts; /** Where it meets: a campus of the college by name (default: the main campus). */ campus?: string; locationNote?: string; code?: string;
+  /** Shared sections (lib/cohortjoin): the offering of another program of the family this one joins — by program name and first day, listed before it — from which of its terms, onto which of the host's. */
+  joins?: { program: string; start: string; atTermIndex: number; hostTermIndex: number } };
 export async function seedOfferings(prisma: PrismaClient, institutionId: string, offerings: OfferingSpec[]): Promise<number> {
   const inst = await prisma.institution.findUnique({ where: { id: institutionId }, select: { springStart: true, summerStart: true, fallStart: true, academicEvents: { select: { date: true, endDate: true, label: true, kind: true, season: true } } } });
   const anchors = { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" };
@@ -280,9 +283,26 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
   const events = (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season }));
   const campuses = await prisma.campus.findMany({ where: { institutionId }, orderBy: [{ isMain: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, city: true, isMain: true } });
   let made = 0;
+  // The offerings made here, by program and first day, so a later spec can join one (a host is listed before its joiners).
+  const madeByKey = new Map<string, { id: string; terms: { index: number; startIso: string; endIso: string | null }[] }>();
   for (const o of offerings) {
     const program = await prisma.program.findFirst({ where: { institutionId, name: o.program }, include: { family: { select: { goalPlan: true } }, terms: { orderBy: { index: "asc" } }, cohorts: { select: { name: true } } } });
     if (!program) continue;
+    // A joiner's shared terms take the host's dates; its courses the host also carries are the host's sections.
+    let join: JoinSpec | null = null; let joinedDates: Record<string, { startIso: string; endIso: string | null }> = {};
+    if (o.joins) {
+      const key = `${o.joins.program}|${o.joins.start}`;
+      let host = madeByKey.get(key);
+      if (!host) {
+        const row = await prisma.cohort.findFirst({ where: { program: { institutionId, name: o.joins.program }, startDate: new Date(o.joins.start + "T00:00:00Z") }, select: { id: true, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } });
+        if (row) host = { id: row.id, terms: row.cohortTerms.filter((ct) => ct.startDate).map((ct) => ({ index: ct.term.index, startIso: ct.startDate!.toISOString().slice(0, 10), endIso: ct.endDate?.toISOString().slice(0, 10) ?? null })) };
+      }
+      if (!host) throw new Error(`${o.program} ${o.start} joins ${o.joins.program} ${o.joins.start}, which must be seeded before it`);
+      join = { hostCohortId: host.id, atTermIndex: o.joins.atTermIndex, hostTermIndex: o.joins.hostTermIndex };
+      const jt = joinedTermDates(join, program.terms.map((t) => ({ id: t.id, index: t.index })), host.terms);
+      if (jt.missing.length) throw new Error(`${o.program} ${o.start}: its term${jt.missing.length > 1 ? "s" : ""} ${jt.missing.join(", ")} run past ${o.joins.program}'s last term`);
+      joinedDates = jt.dates;
+    }
     // Names are unique across the family (one delivery model per program at the Nurse Aide colleges), the model's label telling two same-month runs apart.
     const familyNames = program.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : program.cohorts.map((c) => c.name);
     const campus = (o.campus ? campuses.find((c) => c.name === o.campus) : null) ?? campuses.find((c) => c.isMain) ?? campuses[0] ?? null;
@@ -294,24 +314,28 @@ export async function seedOfferings(prisma: PrismaClient, institutionId: string,
     const capacity = o.seats ?? t.enrolled;
     // Same alignment engine as lock-in: term starts/ends and course windows on the institution's calendar.
     const courses = await prisma.course.findMany({ where: { term: { programId: program.id } }, select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } });
-    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events, calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester" });
+    const aligned = alignOffering({ startIso: o.start, terms: program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })), courses, anchors, events, manual: joinedDates, calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester" });
+    // A joiner whose first term is the host's starts on the host's day.
+    const startIso = aligned.terms[0] && joinedDates[aligned.terms[0].termId] ? aligned.terms[0].startIso : o.start;
     const lastEnd = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
     // Named the way lock-in names an offering: by class year, or by start month and place for a short-term program.
     const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
-    // A family that runs more than one class-year program (Albemarle's AAS and Diploma) names each class by its credential too.
+    // A family that runs more than one class-year program names each class by its credential too (Albemarle's AAS and
+    // Diploma), or by its track where the siblings share a credential (Cape Fear's four AAS nursing tracks).
     const siblings = program.familyId ? await prisma.program.findMany({ where: { familyId: program.familyId, id: { not: program.id } }, select: { launchCadence: true, credential: true, terms: { select: { startWeek: true, endWeek: true } } } }) : [];
-    const longSibling = siblings.some((s) => !shortTermProgram({ launchCadence: s.launchCadence, spanWeeks: s.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0) }));
-    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: o.start, endIso: lastEnd, campus: campusLabel(campus), detail: programDetail(program.name), credential: longSibling ? program.credential : null, existing: familyNames });
-    const startD = new Date(o.start + "T00:00:00Z");
+    const naming = classYearNaming(program, siblings.map((s) => ({ credential: s.credential, shortTerm: shortTermProgram({ launchCadence: s.launchCadence, spanWeeks: s.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0) }) })));
+    const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso, endIso: lastEnd, campus: campusLabel(campus), detail: programDetail(program.name), ...naming, existing: familyNames });
+    const startD = new Date(startIso + "T00:00:00Z");
     // An offering whose first day has passed is running, one whose last day has passed is completed; one still ahead is planned (recruiting).
     const endIso = aligned.terms.map((t) => t.endIso).sort().at(-1)!;
-    const status = cohortStatusOn(o.start, endIso, new Date().toISOString().slice(0, 10));
-    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: solved.goal, rates: solved.rates, ownRates: o.rates ?? {}, termOverrides: o.seats != null ? [o.seats] : [], counts: o.counts ?? {} }), campusId: campus?.id ?? null, locationNote: o.locationNote ?? null, code: o.code ?? null } });
+    const status = cohortStatusOn(startIso, endIso, new Date().toISOString().slice(0, 10));
+    const cohort = await prisma.cohort.create({ data: { programId: program.id, name, status, startDate: startD, entryYear: startD.getUTCFullYear(), isExplicit: true, plannedSeats: Math.round(capacity), pipelineRates: JSON.stringify({ goal: solved.goal, rates: solved.rates, ownRates: o.rates ?? {}, termOverrides: o.seats != null ? [o.seats] : [], counts: o.counts ?? {} }), campusId: campus?.id ?? null, locationNote: o.locationNote ?? null, code: o.code ?? null, joinsCohortId: join?.hostCohortId ?? null, joinsAtTermIndex: join?.atTermIndex ?? null, joinsHostTermIndex: join?.hostTermIndex ?? null } });
     const stageTargets: Record<string, number> = { interested: t.interested, qualified: t.qualified, offered: t.offered, enrolled: capacity, completing: t.completing, licensed: t.licensed, placed: t.placed, productive: t.productive };
     await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label, targetNumber: stageTargets[s.key] ?? 0 })) });
-    await prisma.cohortTerm.createMany({ data: aligned.terms.map((t) => ({ cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] })) });
+    await prisma.cohortTerm.createMany({ data: aligned.terms.map((t) => ({ cohortId: cohort.id, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: joinedDates[t.termId] ? "joined" : t.startSource, semester: t.semester.split(" ")[0] })) });
     await prisma.cohortCourseDates.createMany({ data: aligned.courses.map((c) => ({ cohortId: cohort.id, courseId: c.courseId, startDate: new Date(c.startIso + "T00:00:00Z"), endDate: new Date(c.endIso + "T00:00:00Z"), auto: true })) });
     program.cohorts.push({ name });
+    madeByKey.set(`${o.program}|${o.start}`, { id: cohort.id, terms: aligned.terms.map((t) => ({ index: t.index, startIso: t.startIso, endIso: t.endIso })) });
     made++;
   }
   return made;
@@ -332,6 +356,9 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
     },
   });
   const secured = (await prisma.employer.findMany({ where: { institutionId, status: "active", agreementStatus: "secured" }, select: { id: true } })).map((e) => e.id);
+  // Shared sections: a host's sections are sized for the students sitting in from its joiners; a joiner books nothing for
+  // the courses the host holds (lib/cohortjoin).
+  const joins = await bookingJoins(prisma, { program: { institutionId }, ...NOT_ARCHIVED });
   let meetings = 0, offerings = 0;
   for (const co of cohorts) {
     if (!co.cohortTerms.length) continue;
@@ -339,6 +366,7 @@ export async function seedOfferingMeetings(prisma: PrismaClient, institutionId: 
     const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
     const rows = planMeetings({
       cohortId: co.id, seats: Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30), cohortStartMs: co.startDate?.getTime() ?? null,
+      seatsByTerm: joins.get(co.id)?.seatsByTerm, skipCourseIds: joins.get(co.id)?.skipCourseIds,
       terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctById.get(t.id)?.startDate?.getTime() ?? null, endMs: ctById.get(t.id)?.endDate?.getTime() ?? null, courses: t.courses })),
       rooms, hostIds: secured, hosts, rotations,
     });
@@ -447,17 +475,22 @@ export async function seedShiftAssignments(prisma: PrismaClient, institutionId: 
   }
   let made = 0;
   const staffRows: { cohortId: string; sessionId: string; personId: string; sectionIndex: number; role: string; contactHours: number; startOffsetMin: number; segment: string | null }[] = [];
+  // Shared sections (lib/cohortjoin): a host's shared term has as many sections as its own seats and its joiners' need; a joiner staffs nothing for a course its host holds.
+  const joins = await bookingJoins(prisma, { program: { institutionId }, ...NOT_ARCHIVED });
   for (const co of cohorts) {
     const key = /Radiograph/i.test(co.program.name) ? /Radiograph/i : /Surgical/i.test(co.program.name) ? /Surgical/i : /Nurse Aide/i.test(co.program.name) ? /Nurse Aide/i : /./;
     const instructors = people.filter((p) => p.role === "instructor" && key.test(p.title ?? ""));
     if (!instructors.length) continue;
-    const enrolled = Math.max(co._count.students, co.plannedSeats ?? 0, 1);
+    const enrolledOwn = Math.max(co._count.students, co.plannedSeats ?? 0, 1);
+    const jn = joins.get(co.id);
     // Class and lab shifts rotate through the instructors so nobody carries a
     // whole course alone; clinical shifts get a preceptor at the booked site
     // (clinical faculty are left for someone to assign by hand).
     let rr = 0;
     const leadOf = new Map<string, (typeof instructors)[number]>();
     for (const t of co.program.terms) for (const c of t.courses) {
+      if (jn?.skipCourseIds.has(c.id)) continue;
+      const enrolled = Math.max(enrolledOwn, Math.round(jn?.seatsByTerm[t.index] ?? 0));
       for (const s of c.sessions) {
         const shifts = Math.max(1, Math.ceil(enrolled / Math.max(1, s.maxStudents)));
         // Clinical shifts are staffed by the scheduler's plan (seed-plan): the site's own preceptor
@@ -536,6 +569,9 @@ export async function seedLearnerRecords(prisma: PrismaClient, institutionId: st
     }
     return out;
   };
+  // Shared sections (lib/cohortjoin): a joiner's students' shifts on the host's sessions count toward the host's sections.
+  const joinerShifts = await prisma.studentShift.findMany({ where: { cohort: { joinsCohortId: { in: cohorts.map((co) => co.id) }, ...NOT_ARCHIVED } }, select: { id: true, studentId: true, sessionId: true, sectionIndex: true, cohort: { select: { joinsCohortId: true } }, asset: { select: { settingCode: true } } } });
+  for (const sh of joinerShifts) { const host = cohorts.find((co) => co.id === sh.cohort.joinsCohortId); if (host && host.program.terms.some((t) => t.courses.some((c) => c.sessions.some((s) => s.id === sh.sessionId)))) host.studentShifts.push({ id: sh.id, studentId: sh.studentId, sessionId: sh.sessionId, sectionIndex: sh.sectionIndex, asset: sh.asset }); }
   const instructorOfBy = new Map(cohorts.map((co) => [co.id, new Map(co.sessionStaff.filter((a) => a.role === "instructor").map((a) => [`${a.sessionId}#${a.sectionIndex}`, a.personId]))]));
   const ledBy = new Map(cohorts.map((co) => [co.id, ledSectionsOf(co)]));
   // Pass 1: the plan's own instructors occupy their date × start time across every offering (a whole person only), so a fill can never double-book one; load is the hours each carries.

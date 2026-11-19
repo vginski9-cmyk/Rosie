@@ -3,7 +3,9 @@
 //   A program that graduates a class a year (an AAS, a diploma) names its offerings by the year the
 //   last term ends: "Class of 2028" — and, where its family runs more than one such program, by the
 //   credential too, so a diploma class and an AAS class of the same year are told apart:
-//   "Class of 2028 · Diploma", "Class of 2028 · AAS".
+//   "Class of 2028 · Diploma", "Class of 2028 · AAS" — or, where the siblings share a credential (a
+//   college's ADN fall entry, spring entry, LPN bridge and transition tracks, all AAS), by the track:
+//   "Class of 2028 · ADN Fall Entry", "Class of 2028 · Nursing Transition".
 //   A short-term program that runs several times a year (a Nurse Aide class, a continuing-education
 //   course) names them by when and where they start: "Jan 2026 · Greene County Center". Two runs
 //   that start the same month at the same place are told apart by their days and time of day
@@ -45,11 +47,13 @@ export function offeringName(o: {
   detail?: string | null;
   /** The program's credential ("AAS", "Diploma"), given only when its family runs more than one class-year program. */
   credential?: string | null;
+  /** The program's track ("ADN Fall Entry", "Nursing Transition" — trackLabel), given only when a class-year sibling shares its credential. */
+  track?: string | null;
   /** Names its siblings in the program already use. */
   existing: string[];
 }): string {
   // A second class graduating the same year is a parallel class, and says so.
-  if (!o.shortTerm) { const base = [`Class of ${o.endIso.slice(0, 4)}`, o.credential].filter(Boolean).join(" · "); return unique([base, `${base} · 2nd class`, `${base} · 3rd class`], o.existing); }
+  if (!o.shortTerm) { const base = [`Class of ${o.endIso.slice(0, 4)}`, o.credential, o.track].filter(Boolean).join(" · "); return unique([base, `${base} · 2nd class`, `${base} · 3rd class`], o.existing); }
   const base = [monthYearOf(o.startIso), o.campus].filter(Boolean).join(" · ");
   return unique(o.detail ? [base, `${base} · ${o.detail}`] : [base], o.existing);
 }
@@ -69,4 +73,19 @@ export function programDetail(programName: string): string | null {
   const m = /[—–-]\s*(.+)$/.exec(programName);
   const d = (m ? m[1] : "").replace(/\boffering\b/i, "").replace(/\s+/g, " ").trim();
   return d || null;
+}
+
+/** A program's track, for a class name: its name without a trailing code in parentheses and with the dash read as a
+ *  space — "LPN-to-ADN Transition (A45110T)" → "LPN-to-ADN Transition", "ADN — Fall Entry" → "ADN Fall Entry". */
+export function trackLabel(programName: string): string {
+  return programName.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s*[—–]\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** How a class-year program's classes are told from its family's other class-year programs' classes of the same year:
+ *  by credential when a sibling's differs, by track when a sibling shares it. */
+export function classYearNaming(program: { credential: string | null; name: string }, siblings: { credential: string | null; shortTerm: boolean }[]): { credential: string | null; track: string | null } {
+  const long = siblings.filter((s) => !s.shortTerm);
+  if (!long.length) return { credential: null, track: null };
+  const sameCred = long.some((s) => (s.credential ?? "") === (program.credential ?? ""));
+  return { credential: long.some((s) => (s.credential ?? "") !== (program.credential ?? "")) ? program.credential : null, track: sameCred ? trackLabel(program.name) : null };
 }

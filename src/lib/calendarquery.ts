@@ -6,6 +6,7 @@
 
 import { prisma } from "./db";
 import { buildInstances, resolveSessionDay, isOnlineSession, type CohortCalendarInput, type DatedInstance } from "./capacitymodel";
+import { applyJoins, type JoinSpec } from "./cohortjoin";
 import { holidayMap } from "./academiccalendar";
 import { isHolidayRule, DEFAULT_HOLIDAY_RULE, type HolidayRule } from "./holidayrule";
 import { closedWeek, mondayOfDate, type SemesterAnchors } from "./term";
@@ -88,6 +89,7 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
       terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, startWeek: true, endWeek: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, sessions: { orderBy: [{ week: "asc" }, { number: "asc" }], select: { id: true, kind: true, number: true, title: true, deliveryMode: true, location: true, lengthHours: true, maxStudents: true, facultyNeeded: true, facultyContactPolicy: true, supportStaffNeeded: true, supportContactPolicy: true, week: true, dayOfWeek: true, startTime: true, notes: true, preceptorsNeeded: true, preceptorContactPolicy: true, rotationType: true, clinicalMode: true } } } } } },
       cohorts: { where: { status: { not: "archived" } }, orderBy: { name: "asc" }, select: {
         id: true, name: true, status: true, plannedSeats: true, campus: { select: { name: true } }, locationNote: true, _count: { select: { students: true } },
+        joinsCohortId: true, joinsAtTermIndex: true, joinsHostTermIndex: true,
         cohortTerms: { select: { termId: true, startDate: true, endDate: true } },
         courseDates: { select: { courseId: true, startDate: true, endDate: true } },
         sessionOverrides: true,
@@ -99,6 +101,12 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
   type Pattern = (typeof programs)[number]["cohorts"][number]["meetings"][number];
   const instances: { inst: DatedInstance; cohort: { id: string; name: string; status: string; programId: string; programName: string }; patterns: Map<string, Pattern[]>; enrollment: number }[] = [];
   const termBars: CalTermBar[] = [];
+  // Every offering's input first, so the shared-section mapping (lib/cohortjoin) can size a host's terms for the students
+  // sitting in from its joiners and drop a joiner's courses the host holds — then the instances.
+  const inputs: (CohortCalendarInput & { join: JoinSpec | null; courses: (CohortCalendarInput["courses"][number] & { courseId: string })[] })[] = [];
+  const meta = new Map<string, { cohort: { id: string; name: string; status: string; programId: string; programName: string }; patterns: Map<string, Pattern[]> }>();
+  const cohortProgram = new Map<string, string>(); const hostOf = new Map<string, string>();
+  for (const prog of programs) for (const co of prog.cohorts) { cohortProgram.set(co.id, prog.id); if (co.joinsCohortId) hostOf.set(co.id, co.joinsCohortId); }
   for (const prog of programs) {
     const orderedTerms = prog.terms;
     for (const co of prog.cohorts) {
@@ -137,17 +145,28 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
         }))),
       };
       const cohort = { id: co.id, name: co.name, status: co.status, programId: prog.id, programName: prog.name };
-      for (const inst of buildInstances(input)) {
-        if (!inst.dateIso || inst.beyondTerm) continue;
-        // Keep a fortnight either side so a move into the range is found.
-        if (inst.dateIso < addDaysIso(range.fromIso, -14) || inst.dateIso > addDaysIso(range.toIso, 14)) continue;
-        instances.push({ inst, cohort, patterns, enrollment });
-      }
+      meta.set(co.id, { cohort, patterns });
+      inputs.push({ ...input, join: co.joinsCohortId && co.joinsAtTermIndex != null && co.joinsHostTermIndex != null ? { hostCohortId: co.joinsCohortId, atTermIndex: co.joinsAtTermIndex, hostTermIndex: co.joinsHostTermIndex } : null, courses: input.courses as (CohortCalendarInput["courses"][number] & { courseId: string })[] });
+    }
+  }
+  for (const input of applyJoins(inputs)) {
+    const m = meta.get(input.cohortId)!;
+    for (const inst of buildInstances(input)) {
+      if (!inst.dateIso || inst.beyondTerm) continue;
+      // Keep a fortnight either side so a move into the range is found.
+      if (inst.dateIso < addDaysIso(range.fromIso, -14) || inst.dateIso > addDaysIso(range.toIso, 14)) continue;
+      instances.push({ inst, cohort: m.cohort, patterns: m.patterns, enrollment: Math.max(1, Math.round(input.enrollmentByTerm[inst.termIndex] ?? 1)) });
     }
   }
 
   // ── The joins for these sessions: staff, students, moves, bookings ────────────────────────────
-  const cohortIds = [...new Set(instances.map((x) => x.cohort.id))];
+  // A joiner's students sit in its host's sections: their rows (under their own offering) read under the host for the
+  // host's courses and sessions, so the offerings that join one on the calendar are fetched with it.
+  const instanceCohortIds = new Set(instances.map((x) => x.cohort.id));
+  const cohortIds = [...new Set([...instanceCohortIds, ...[...hostOf.entries()].filter(([, h]) => instanceCohortIds.has(h)).map(([j]) => j)])];
+  const courseOwner = new Map<string, string>(); const sessionOwner = new Map<string, string>();
+  for (const prog of programs) for (const t of prog.terms) for (const c of t.courses) { courseOwner.set(c.id, prog.id); for (const sn of c.sessions) sessionOwner.set(sn.id, prog.id); }
+  const under = (cohortId: string, ownerProgramId: string | undefined) => { const h = hostOf.get(cohortId); return h && ownerProgramId && cohortProgram.get(h) === ownerProgramId ? h : cohortId; };
   const sessionIds = [...new Set(instances.map((x) => x.inst.session.id))];
   const win = { gte: new Date(addDaysIso(range.fromIso, -14) + "T00:00:00Z"), lte: new Date(addDaysIso(range.toIso, 14) + "T00:00:00Z") };
   const [staffRows, shiftRows, sectionRows, moveRows, bookingRows] = cohortIds.length ? await Promise.all([
@@ -158,14 +177,14 @@ export async function getCalendarView(p: CalendarParams): Promise<CalendarData> 
     prisma.assetBooking.findMany({ where: { cohortId: { in: cohortIds }, sessionId: { not: null }, date: win }, select: { cohortId: true, sessionId: true, sectionIndex: true, date: true, asset: { select: { employer: { select: { id: true, name: true } } } } } }),
   ]) : [[], [], [], [], []];
   const staffBy = new Map<string, { id: string; name: string; role: string }[]>();
-  for (const r of staffRows) { const k = `${r.cohortId}|${r.sessionId}|${r.sectionIndex}`; const l = staffBy.get(k) ?? []; if (!l.some((x) => x.id === r.person.id)) l.push({ id: r.person.id, name: r.person.name, role: r.role }); staffBy.set(k, l); }
+  for (const r of staffRows) { const k = `${under(r.cohortId ?? "", sessionOwner.get(r.sessionId))}|${r.sessionId}|${r.sectionIndex}`; const l = staffBy.get(k) ?? []; if (!l.some((x) => x.id === r.person.id)) l.push({ id: r.person.id, name: r.person.name, role: r.role }); staffBy.set(k, l); }
   const shiftsBy = new Map<string, { id: string; name: string; status: string | null; preceptor: { id: string; name: string } | null }[]>();
-  for (const r of shiftRows) { const k = `${r.cohortId}|${r.sessionId}|${r.sectionIndex}`; const l = shiftsBy.get(k) ?? []; l.push({ id: r.student.id, name: r.student.name, status: r.status, preceptor: r.preceptor ? { id: r.preceptor.id, name: r.preceptor.name } : null }); shiftsBy.set(k, l); }
+  for (const r of shiftRows) { const k = `${under(r.cohortId ?? "", sessionOwner.get(r.sessionId))}|${r.sessionId}|${r.sectionIndex}`; const l = shiftsBy.get(k) ?? []; l.push({ id: r.student.id, name: r.student.name, status: r.status, preceptor: r.preceptor ? { id: r.preceptor.id, name: r.preceptor.name } : null }); shiftsBy.set(k, l); }
   const rosterBy = new Map<string, { id: string; name: string; status: string | null }[]>();
-  for (const r of sectionRows) { const k = `${r.cohortId}|${r.courseId}|${r.kind}|${r.sectionIndex}`; const l = rosterBy.get(k) ?? []; l.push({ id: r.student.id, name: r.student.name, status: r.student.status }); rosterBy.set(k, l); }
+  for (const r of sectionRows) { const k = `${under(r.cohortId ?? "", courseOwner.get(r.courseId))}|${r.courseId}|${r.kind}|${r.sectionIndex}`; const l = rosterBy.get(k) ?? []; l.push({ id: r.student.id, name: r.student.name, status: r.student.status }); rosterBy.set(k, l); }
   const moveBy = new Map(moveRows.map((m) => [`${m.cohortId}|${m.sessionId}|${m.sectionIndex}|${isoOf(m.fromDate)}`, m]));
   const bookingBy = new Map<string, (typeof bookingRows)[number]>();
-  for (const b of bookingRows) bookingBy.set(`${b.cohortId}|${b.sessionId}|${b.sectionIndex}|${isoOf(b.date)}`, b);
+  for (const b of bookingRows) bookingBy.set(`${under(b.cohortId ?? "", b.sessionId ? sessionOwner.get(b.sessionId) : undefined)}|${b.sessionId}|${b.sectionIndex}|${isoOf(b.date)}`, b);
 
   // ── Events: one per session per date, with its sections ──────────────────────────────────────
   const all = new Map<string, CalEvent>();

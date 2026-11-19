@@ -75,6 +75,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
         endDate: tm.endDate ? tm.endDate.toISOString().slice(0, 10) : null,
         location: [co.campus?.name, co.locationNote].filter(Boolean).join(", ") || null,
         phase: tm.phase, currentTerm: tm.currentTermName,
+        joinsHost: co.joinsHost ? { id: co.joinsHost.id, name: co.joinsHost.name } : null, joiners: co.joiners.map((j) => j.name),
         endLabel: tm.endDate ? `${tm.phase === "graduated" ? "ended" : "ends"} ${monthYear(tm.endDate)}` : null,
       });
     }
@@ -94,6 +95,7 @@ export default async function ProgramGoalPage({ params }: { params: { id: string
           calendarMode: p.calendarMode === "continuous" ? "continuous" as const : "semester" as const,
           termList: [...p.terms].sort((a, b) => a.index - b.index).map((t) => ({ id: t.id, index: t.index, name: t.name, startWeek: t.startWeek, endWeek: t.endWeek, semester: t.semester })),
           launchTerms: (p.launchTerms ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+          joinHint: p.joinsProgramId ? { programId: p.joinsProgramId, programName: family.programs.find((x) => x.id === p.joinsProgramId)?.name ?? "", atTermIndex: p.joinsAtTermIndex ?? 1, hostTermIndex: p.joinsHostTermIndex ?? 1 } : null,
           sessionMax: (() => { const mx: Partial<Record<"CLASS" | "LAB" | "CLINICAL", number>> = {}; for (const t of p.terms) for (const c of t.courses) for (const x of c.sessions) { const k = x.kind as "CLASS" | "LAB" | "CLINICAL"; if (x.maxStudents > 0) mx[k] = Math.min(mx[k] ?? Infinity, x.maxStudents); } return mx; })(),
         }))}
         campuses={campuses.map((c) => ({ id: c.id, name: c.name, city: c.city }))}

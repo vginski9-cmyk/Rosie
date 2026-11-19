@@ -22,6 +22,7 @@ import { OfferingPipelineEditor } from "@/components/OfferingPipelineEditor";
 import { familyRatesOf, type LadderRates } from "@/lib/northstar";
 import { countsOfPlan, ownRatesOfPlan, type PlannedCounts } from "@/lib/pipelinecounts";
 import { alignOffering, SOURCE_LABEL, type DateSource } from "@/lib/termalign";
+import { hostTermOf, normCode, headcount, type JoinSpec } from "@/lib/cohortjoin";
 import { OPERATIONAL } from "@/lib/mode";
 import { ReadOnly } from "@/components/ReadOnly";
 import { PageHeader } from "@/components/PageHeader";
@@ -45,6 +46,15 @@ export default async function OfferingPage({ params, searchParams }: { params: {
   const program = offering.program;
   const [capModel, staffing, ledger, rotations, reqProgress, campuses] = await Promise.all([getCapacityModel({ cohortId: params.cohortId }), getOfferingStaffing(params.cohortId), getOfferingLedger(params.cohortId), getRotationBoard(params.cohortId, searchParams?.course ?? null), getCohortRequirementProgress(params.cohortId), prisma.campus.findMany({ where: { institutionId: program.institutionId }, orderBy: [{ isMain: "desc" }, { name: "asc" }], select: { id: true, name: true, city: true } })]);
 
+  // Shared sections (lib/cohortjoin): the offering this one joins — from which of its terms, onto which of the host's — and the
+  // courses the host holds for it (the same code in the mapped host term); or the offerings that join this one.
+  const host = offering.joinsHost;
+  const join: JoinSpec | null = host && offering.joinsAtTermIndex != null && offering.joinsHostTermIndex != null ? { hostCohortId: host.id, atTermIndex: offering.joinsAtTermIndex, hostTermIndex: offering.joinsHostTermIndex } : null;
+  const termNameOf = (terms: { index: number; name: string }[], index: number) => terms.find((x) => x.index === index)?.name ?? `term ${index}`;
+  const heldIn = host && join ? program.terms.filter((tm) => tm.index >= join.atTermIndex).flatMap((tm) => { const ht = host.program.terms.find((x) => x.index === hostTermOf(join, tm.index)); return tm.courses.filter((c) => ht?.courses.some((x) => normCode(x.code) === normCode(c.code))).map((c) => ({ code: c.code ?? c.name, term: tm.name, hostTerm: ht!.name })); }) : [];
+  const joinedTermIndexes = new Set(join ? program.terms.filter((tm) => tm.index >= join.atTermIndex).map((tm) => tm.index) : []);
+  const joinLine = host && join ? `Joins ${host.name} from ${termNameOf(program.terms, join.atTermIndex)} (its ${termNameOf(host.program.terms, join.hostTermIndex)})` : null;
+  const sharedLine = offering.joiners.length ? `Shared with ${offering.joiners.map((j) => `${j.name} from ${termNameOf(program.terms, j.joinsHostTermIndex ?? 1)}`).join(", ")}` : null;
   // Real date per template term for THIS offering.
   const termDate = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.startDate]));
   const termEnd = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct.endDate]));
@@ -132,7 +142,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           : timing.phase === "recruiting" ? <>Starts {exactDate(offering.startDate ?? timing.startDate)} and runs {timing.totalWeeks} weeks, ending {exactDate(timing.endDate)}.</>
           : timing.phase === "graduated" ? <>Ran {exactDate(offering.startDate ?? timing.startDate)} to {exactDate(timing.endDate)}.</>
           : <>No start date yet.</>}
-        meta={[offering.campus ? `Meets at ${offering.campus.name}${offering.locationNote && offering.locationNote !== offering.campus.name ? `, ${offering.locationNote}` : ""}` : offering.locationNote ? `Meets at ${offering.locationNote}` : null, offering.code ? `College reference ${offering.code}` : null, program.calendarMode === "continuous" ? "runs straight through, across semesters" : null].filter(Boolean).join(" · ") || undefined}
+        meta={[offering.campus ? `Meets at ${offering.campus.name}${offering.locationNote && offering.locationNote !== offering.campus.name ? `, ${offering.locationNote}` : ""}` : offering.locationNote ? `Meets at ${offering.locationNote}` : null, offering.code ? `College reference ${offering.code}` : null, program.calendarMode === "continuous" ? "runs straight through, across semesters" : null, joinLine, sharedLine].filter(Boolean).join(" · ") || undefined}
         actions={<>
           <a href={`/api/offerings/${offering.id}/rotations`} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50" title="every clinical course's rotation schedule as a workbook">Rotations ↓</a>
           <Link href={`/programs/${program.id}/offerings/${offering.id}/design`} className="rounded-lg bg-slate-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700">Design &amp; sequence →</Link>
@@ -153,7 +163,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
         <Tile label="Starts" value={offering.startDate ? dateFmt(offering.startDate) : "—"} />
         <Tile label="Ends" value={exactDate(timing.endDate)} sub={timing.phase === "in-program" ? `now in ${timing.currentTermName ?? "—"}` : lastDay && timing.endDate && lastDay.getTime() !== timing.endDate.getTime() ? `last class meets ${exactDate(lastDay)}` : undefined} />
         <Tile label="Goal" value={fmt.num(offering.stages.find((s) => s.stageKey === "productive")?.targetNumber ?? 0)} sub="fully productive workers" />
-        <Tile label="Students" value={fmt.num(enrolledNow)} sub={ledger ? (() => { const o = outcomeStats(ledger.students, ledger.today); const parts: string[] = []; if (o.completionRate != null) parts.push(`${fmt.num(o.maturedCompleted)} of ${fmt.num(o.maturedEntrants)} completed (${fmt.pct(o.completionRate)})`); if (o.withdrawn) parts.push(`${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`); return parts.length ? parts.join(" · ") : undefined; })() : undefined} />
+        <Tile label="Students" value={offering.joiners.length ? headcount({ students: enrolledNow, joiners: ledger ? [{ students: ledger.joined }] : offering.joiners.map((j) => ({ students: j._count.students })) }).label : fmt.num(enrolledNow)} sub={host ? `sit in ${host.name}'s sections from ${termNameOf(program.terms, join?.atTermIndex ?? 1)}` : ledger ? (() => { const o = outcomeStats(ledger.students, ledger.today); const parts: string[] = []; if (o.completionRate != null) parts.push(`${fmt.num(o.maturedCompleted)} of ${fmt.num(o.maturedEntrants)} completed (${fmt.pct(o.completionRate)})`); if (o.withdrawn) parts.push(`${fmt.num(o.withdrawn)} withdrawn · ${fmt.pct(o.withdrawalRate)} of ${fmt.num(o.entrants)} who started`); return parts.length ? parts.join(" · ") : undefined; })() : undefined} />
       </div>
 
       {/* Where it meets — a planning decision (campus, building or room, the college's own reference) */}
@@ -205,7 +215,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
           calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester",
         }) : null;
         const ctByTerm = new Map(offering.cohortTerms.map((ct) => [ct.termId, ct]));
-        const SRC_TONE: Record<string, string> = { calendar: "bg-emerald-100 text-emerald-800", pattern: "bg-sky-100 text-sky-800", template: "bg-slate-100 text-slate-600", chosen: "bg-slate-100 text-slate-600", manual: "bg-amber-100 text-amber-800" };
+        const SRC_TONE: Record<string, string> = { calendar: "bg-emerald-100 text-emerald-800", pattern: "bg-sky-100 text-sky-800", template: "bg-slate-100 text-slate-600", chosen: "bg-slate-100 text-slate-600", manual: "bg-amber-100 text-amber-800", joined: "bg-violet-100 text-violet-800" };
         const autoWindows = offering.courseDates.filter((cd) => cd.auto).length;
         const typedWindows = offering.courseDates.length - autoWindows;
         return (
@@ -236,7 +246,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
                         <td className="px-2 py-1.5 tabular-nums text-slate-800">{exactDate(ct?.endDate ?? null)}</td>
                         <td className="px-2 py-1.5 tabular-nums text-slate-600">{calWeeks === tplWeeks ? `${tplWeeks}` : <span className={calWeeks < tplWeeks ? "text-amber-700" : "text-slate-600"} title={`the template plans ${tplWeeks} weeks; the semester gives ${calWeeks}`}>{calWeeks} <span className="text-[10px] text-slate-400">(template {tplWeeks})</span></span>}</td>
                         <td className="px-2 py-1.5 text-xs">
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SRC_TONE[src] ?? SRC_TONE.template}`} title={pv?.startLabel && src !== "manual" ? `${pv.startLabel}${pv.endLabel ? ` → ${pv.endLabel}` : ""}` : undefined}>{SOURCE_LABEL[src] ?? src}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SRC_TONE[src] ?? SRC_TONE.template}`} title={src === "joined" && host ? `follows ${host.name}` : pv?.startLabel && src !== "manual" ? `${pv.startLabel}${pv.endLabel ? ` → ${pv.endLabel}` : ""}` : undefined}>{src === "joined" && host ? `follows ${host.name}` : SOURCE_LABEL[src] ?? src}</span>
                         </td>
                       </tr>
                     );
@@ -251,6 +261,11 @@ export default async function OfferingPage({ params, searchParams }: { params: {
               const all = [...other, ...stored];
               return all.length > 0 ? <ul className="mt-2 space-y-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-amber-200">{all.map((w, i) => <li key={i}>⚠ {w}</li>)}</ul> : null;
             })()}
+            {heldIn.length > 0 && host && (
+              <div className="mt-2 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-900 ring-1 ring-violet-200">
+                <span className="font-medium">Held in {host.name}:</span> {heldIn.map((h) => `${h.code} (${h.term} · its ${h.hostTerm})`).join(" · ")}. One meeting for both classes, staffed and booked once, under <Link href={`/programs/${host.programId}/offerings/${host.id}`} className="font-medium underline">{host.name}</Link>; this class&apos;s students sit in those sections.
+              </div>
+            )}
             {preview && preview.courses.length > 0 && (
               <details className="mt-2 text-xs text-slate-500">
                 <summary className="cursor-pointer">{preview.courses.length} shorter course{preview.courses.length === 1 ? " has its" : "s have their"} own window</summary>
@@ -267,6 +282,7 @@ export default async function OfferingPage({ params, searchParams }: { params: {
                 </label>
                 {orderedTerms.map((t) => {
                   const ct = ctByTerm.get(t.id);
+                  if (joinedTermIndexes.has(t.index)) return <span key={t.id} className="text-xs text-violet-700">{t.name}: follows {host?.name}</span>;
                   return (
                     <span key={t.id} className="flex items-end gap-1">
                       <label className="block">

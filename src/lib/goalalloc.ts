@@ -20,6 +20,8 @@ export interface OfferingSlot {
   counts?: PlannedCounts;
   /** Where this run meets (a campus of the college), chosen before lock-in. */
   campusId?: string | null;
+  /** Shared sections (lib/cohortjoin): the offering of the program's usual host whose sections this run joins, chosen before lock-in. */
+  joinsCohortId?: string | null;
   /** Locked in: the real cohort this run became. */
   locked?: boolean;
   cohortId?: string | null;

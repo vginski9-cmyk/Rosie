@@ -89,6 +89,10 @@ v0.1's capacity engine uses term `startWeek/endWeek` for week counts; wiring the
 holiday-adjusted block weekdays directly into the engine is a P1 item (see
 ETL doc, "Calendar-aware capacity").
 
+### Cohort joins (shared sections)
+
+A `Cohort` may join another cohort of the same family: `joinsCohortId` (the host), `joinsAtTermIndex` (the joiner's first shared term) and `joinsHostTermIndex` (the host term it maps to). From that term on, joiner term *k* maps to host term `joinsHostTermIndex + (k − joinsAtTermIndex)`; a joiner course whose **code** exists in the mapped host term is the host's section — one meeting, the host's enrollment for that term includes the joiner's, the joiner books, dates and staffs nothing for it, and its students sit in the host's sections (their `StudentSection`/`StudentShift` rows keep the joiner's `cohortId` and carry the host's course and session ids). The joiner's other courses in a shared term stay its own. Joined terms take the host's dates (`CohortTerm.source = "joined"`). One level only (a host never itself joins); a host cannot be deleted while it has joiners. `Program.joinsProgramId` / `joinsAtTermIndex` / `joinsHostTermIndex` is the hint the forms default from. The resolver is `src/lib/cohortjoin.ts` (`applyJoins`), applied in the capacity model, the calendar view, the weekly bookings and the seeds.
+
 ## Enums-as-strings (portability)
 
 To keep the schema portable to SQLite and Postgres alike, enum-like fields are

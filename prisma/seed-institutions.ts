@@ -31,14 +31,36 @@ const cc = (code: string, name: string, classH: number, labH: number, clinH: num
   ({ code, name, weeklyClassHours: classH, weeklyLabHours: labH, weeklyClinicalHours: clinH, credits, semester: "All", type, description: "", requisites: "", ...(clinH > 0 ? { rotations: NURSING_ROTATIONS, clinical: grp } : {}), ...extra });
 const T = (index: number, name: string, weeks: number, courses: CourseSeed[], startWeek = 1): TermSeed => ({ index, name, startWeek, endWeek: startWeek + weeks - 1, courses });
 
-/** Associate Degree Nursing — the five-semester NCCCS concept-based curriculum. */
-function adnTerms(): TermSeed[] {
+/** Associate Degree Nursing — the five-semester NCCCS concept-based curriculum, course set by course set (fresh rows each call). */
+const ADN_COURSES: (() => CourseSeed[])[] = [
+  () => [cc("NUR 111", "Introduction to Health Concepts", 4, 6, 6, 8), cc("BIO 168", "Anatomy and Physiology I", 3, 3, 0, 4, "GENED"), cc("PSY 150", "General Psychology", 3, 0, 0, 3, "GENED"), cc("ENG 111", "Writing and Inquiry", 3, 0, 0, 3, "GENED")],
+  () => [cc("NUR 112", "Health-Illness Concepts", 3, 0, 6, 5), cc("NUR 114", "Holistic Health Concepts", 3, 0, 6, 5), cc("BIO 169", "Anatomy and Physiology II", 3, 3, 0, 4, "GENED"), cc("PSY 241", "Developmental Psychology", 3, 0, 0, 3, "GENED")],
+  () => [cc("NUR 113", "Family Health Concepts", 3, 0, 6, 5), cc("BIO 275", "Microbiology", 3, 3, 0, 4, "GENED")],
+  () => [cc("NUR 211", "Health Care Concepts", 3, 0, 6, 5), cc("NUR 212", "Health System Concepts", 3, 0, 6, 5), cc("ENG 112", "Writing/Research in the Disciplines", 3, 0, 0, 3, "GENED")],
+  () => [cc("NUR 213", "Complex Health Concepts", 4, 3, 15, 10, "CORE", { clinical: precept }), cc("HUM 115", "Critical Thinking", 3, 0, 0, 3, "GENED")],
+];
+/** The five terms from a fall entry (fall · spring · summer · fall · spring) or a spring entry (spring · summer · fall ·
+ *  spring · summer — the same course sets in order; the college's own spring sequence was not read). */
+function adnTerms(entry: "Fall" | "Spring" = "Fall"): TermSeed[] {
+  const names = entry === "Fall" ? ["First Fall", "First Spring", "Summer", "Second Fall", "Second Spring"] : ["First Spring", "First Summer", "First Fall", "Second Spring", "Second Summer"];
+  const weeks = entry === "Fall" ? [16, 16, 10, 16, 16] : [16, 10, 16, 16, 10];
+  let start = 1;
+  return ADN_COURSES.map((courses, i) => { const t = T(i + 1, names[i], weeks[i], courses(), start); start += weeks[i]; return t; });
+}
+/** Cape Fear's Nursing Transition (10 a year, spring entry): the ADN's second through fifth terms, carried as its own
+ *  program whose every course is held in the ADN Fall Entry class's sections (the join). */
+function transitionJoinTerms(): TermSeed[] {
+  const names = ["First Spring", "Summer", "Second Fall", "Second Spring"]; const weeks = [16, 10, 16, 16];
+  let start = 1;
+  return ADN_COURSES.slice(1).map((courses, i) => { const t = T(i + 1, names[i], weeks[i], courses(), start); start += weeks[i]; return t; });
+}
+/** Cape Fear's LPN-to-ADN (40 a year): the three-semester hybrid — NUR 214 the summer before entry, then the LPN-to-ADN
+ *  concept courses in the fall and the spring (the 2025 information packet; NUR 223's hour split was not read). */
+function lpnToAdnTerms(): TermSeed[] {
   return [
-    T(1, "First Fall", 16, [cc("NUR 111", "Introduction to Health Concepts", 4, 6, 6, 8), cc("BIO 168", "Anatomy and Physiology I", 3, 3, 0, 4, "GENED"), cc("PSY 150", "General Psychology", 3, 0, 0, 3, "GENED"), cc("ENG 111", "Writing and Inquiry", 3, 0, 0, 3, "GENED")]),
-    T(2, "First Spring", 16, [cc("NUR 112", "Health-Illness Concepts", 3, 0, 6, 5), cc("NUR 114", "Holistic Health Concepts", 3, 0, 6, 5), cc("BIO 169", "Anatomy and Physiology II", 3, 3, 0, 4, "GENED"), cc("PSY 241", "Developmental Psychology", 3, 0, 0, 3, "GENED")], 17),
-    T(3, "Summer", 10, [cc("NUR 113", "Family Health Concepts", 3, 0, 6, 5), cc("BIO 275", "Microbiology", 3, 3, 0, 4, "GENED")], 33),
-    T(4, "Second Fall", 16, [cc("NUR 211", "Health Care Concepts", 3, 0, 6, 5), cc("NUR 212", "Health System Concepts", 3, 0, 6, 5), cc("ENG 112", "Writing/Research in the Disciplines", 3, 0, 0, 3, "GENED")], 43),
-    T(5, "Second Spring", 16, [cc("NUR 213", "Complex Health Concepts", 4, 3, 15, 10, "CORE", { clinical: precept }), cc("HUM 115", "Critical Thinking", 3, 0, 0, 3, "GENED")], 59),
+    T(1, "Summer — NUR 214", 10, [cc("NUR 214", "Nursing Transition Concepts", 3, 3, 6, 6)]),
+    T(2, "Fall", 16, [cc("NUR 221", "LPN to ADN Concepts I", 6, 0, 9, 9)], 11),
+    T(3, "Spring", 16, [cc("NUR 223", "LPN to ADN Concepts II", 6, 0, 9, 9)], 27),
   ];
 }
 /** LPN-to-ADN / Paramedic-to-ADN: the transition course, then the second-year sequence. */
@@ -74,8 +96,11 @@ function electricalTerms(): TermSeed[] {
 
 // ── The institutions ────────────────────────────────────────────────────────
 /** A program is either coded here (`terms`) or a template pack under prisma/templates (`pack`: name, type, credential, class size, terms, courses and sessions all come from the file). */
-type CodedProgramDef = { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string };
-type PackProgramDef = { pack: string; launch: string; months?: number; note?: string };
+/** Shared sections (lib/cohortjoin): the host program of the same family this program's offerings join by default, from
+ *  which of their terms, onto which of the host's — the forms default from it; each offering states its own. */
+type JoinHint = { program: string; atTermIndex: number; hostTermIndex: number };
+type CodedProgramDef = { name: string; type: string; credential: string; terms: (h: Helpers) => TermSeed[]; launch: string; seats: number; months?: number; note?: string; joins?: JoinHint };
+type PackProgramDef = { pack: string; launch: string; months?: number; note?: string; joins?: JoinHint };
 type ProgramDef = CodedProgramDef | PackProgramDef;
 const isPack = (p: ProgramDef): p is PackProgramDef => "pack" in p;
 interface FamilyDef { name: string; soc: string; occupation: string; description: string; goals: Record<number, number>; /** The family's own default pipeline health rates (completionRate, licensureRate, …) where the college has stated them; omit for the workbook benchmarks. */ rates?: Record<string, number>; programs: ProgramDef[]; cna?: boolean; /** Seed every delivery model in this college's own workbook pack. */ cnaAll?: keyof CnaPacks }
@@ -97,7 +122,7 @@ export const flatGoal = (base: number) => ({ [THIS_YEAR]: base, [THIS_YEAR + 1]:
 export const goalPlanJson = (g: Record<number, number>, goal?: Record<string, number>) => { const years = Object.keys(g).map(Number).sort(); return JSON.stringify({ anchor: "northstar", years, goalsByYear: Object.fromEntries(Object.entries(g).map(([y, v]) => [String(y), v])), selectedYear: years[1] ?? years[0], ...(goal ? { goal } : {}) }); };
 
 const nursingFamily = (description: string, base: number, programs: ProgramDef[]): FamilyDef => ({ name: "Nursing (prelicensure RN)", ...RN, description, goals: goals(base), programs });
-const adn = (entry: "Fall" | "Spring", seats = 40): ProgramDef => ({ name: `ADN — ${entry} Entry`, type: "Traditional Full Time", credential: "AAS", terms: adnTerms, launch: entry.toUpperCase(), seats, months: 6 });
+const adn = (entry: "Fall" | "Spring", seats = 40, note?: string): ProgramDef => ({ name: `ADN — ${entry} Entry`, type: "Traditional Full Time", credential: "AAS", terms: () => adnTerms(entry), launch: entry.toUpperCase(), seats, months: 6, note });
 const lpnTransition = (entry: "Fall" | "Spring" | "Summer", note?: string, seats = 20): ProgramDef => ({ name: `LPN-to-ADN Transition — ${entry} Entry`, type: "Transition (LPN)", credential: "AAS", terms: () => transitionTerms(entry, "NUR 214", "Nursing Transition Concepts"), launch: entry.toUpperCase(), seats, months: 6, note });
 
 /** Brunswick Community College's three RN pathways — template packs built by scripts/build-brunswick-packs.mjs
@@ -108,8 +133,8 @@ const lpnTransition = (entry: "Fall" | "Spring" | "Summer", note?: string, seats
 const TEMPLATE_PENDING = "Sessions are the college's published Fall 2026 – Summer 2027 sections; the college's own program-structure workbook replaces them when it arrives.";
 export const BRUNSWICK_PROGRAMS: PackProgramDef[] = [
   { pack: "brunswick-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Admitted in the Dec–Jan window (TEAS ≥ 59, GPA ≥ 2.5); NUR 117 in the summer, NUR 111 in the fall. Class size from the college's sections (NUR 111: 51 seats; NUR 112 and 114: 50).` },
-  { pack: "brunswick-lpn-adn.json", launch: "SUMMER", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150, PSY 241 (17 credits); NUR 111, 112, 114 and 117 (20 credits) credited for the LPN license after NUR 212. Application Dec 1 – Jan 31, ATI PN predictor in April, classes begin with the summer term. Class size from the college's sections (20 seats).` },
-  { pack: "brunswick-paramedic-adn.json", launch: "SPRING", months: 6, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150 (14 credits); NUR 215 with a B or better converts to credit for NUR 111, 112, 114 and 117 (20 credits). Application Jul 1 – Aug 30 (TEAS ≥ 59, GPA ≥ 2.5), classes begin with the spring term. Class size from the college's sections (10 seats).` },
+  { pack: "brunswick-lpn-adn.json", launch: "SUMMER", months: 6, joins: { program: "Associate Degree Nursing (A45110)", atTermIndex: 1, hostTermIndex: 4 }, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150, PSY 241 (17 credits); NUR 111, 112, 114 and 117 (20 credits) credited for the LPN license after NUR 212. Application Dec 1 – Jan 31, ATI PN predictor in April, classes begin with the summer term. Class size from the college's sections (20 seats).` },
+  { pack: "brunswick-paramedic-adn.json", launch: "SPRING", months: 6, joins: { program: "Associate Degree Nursing (A45110)", atTermIndex: 2, hostTermIndex: 4 }, note: `${TEMPLATE_PENDING} Before applying: BIO 168, BIO 169, ENG 111, PSY 150 (14 credits); NUR 215 with a B or better converts to credit for NUR 111, 112, 114 and 117 (20 credits). Application Jul 1 – Aug 30 (TEAS ≥ 59, GPA ≥ 2.5), classes begin with the spring term. Class size from the college's sections (10 seats).` },
 ];
 
 /** Southeastern Community College's RN pathways — template packs built by scripts/build-southeastern-packs.mjs
@@ -120,7 +145,7 @@ export const BRUNSWICK_PROGRAMS: PackProgramDef[] = [
 const SCC_PENDING = "Hours and credits from the NCCCS standard; the term placement, the eight-week sessions, the hospital-only rotations, the clinical group of ten, the NUR 111 lab split and the preceptorship design are what the program told the owner on 2026-10-28 — its course-sequence document, Fall 2026 schedule and clinical calendars (due Dec 4) replace the assumptions that remain (the order of the spring eight-week courses, the rotate-out days, the simulation weeks).";
 export const SOUTHEASTERN_PROGRAMS: PackProgramDef[] = [
   { pack: "southeastern-adn.json", launch: "FALL", months: 6, note: `${SCC_PENDING} Fall entry: application Dec 1 – Mar 1, acceptance notices Apr 1, orientation in June (2026 cycle); TEAS ≥ 59, SCC GPA ≥ 2.5, NUR 117 Pharmacology within five years before admission; ACA 122, ENG 111/112, BIO 168/169, PSY 150/241 and PHI 240 encouraged beforehand. Class size 60: the program's own figure (2026-10-28) — physical resources (the testing lab, classroom seating) support about 60 traditional admissions, 60 to 70 is what it aspires to admit, and NUR 111 has 42 students in Fall 2026; the NC Board of Nursing's approved maximum of 140 (2024 list, full approval) is the ADN program's total enrollment at any one time across both years, not an admission number, so each fall's intake depends on second-year retention.` },
-  { pack: "southeastern-lpn-adn.json", launch: "SUMMER", months: 6, note: `${SCC_PENDING} The accelerated LPN-to-ADN bridge the college launched in Summer 2026 (grant-funded): three semesters in HyFlex format — class in person, live online or recorded; labs on campus; clinicals at sites. Application Feb 15 – Apr 15, orientation in early May (2026 cycle); a current unencumbered NC or compact LPN license, GPA ≥ 2.0, the ATI Comprehensive Predictor; NUR 117 waived for LPNs. Class size 20: the program admitted 20 to the inaugural Summer 2026 cohort after planning 10 and doubling on the applicant pool (2026-10-28); the number will move with second-year retention and applications. The program's Fall 2026 schedule lists the transition course as NUR 221 — its code, hours, term and dates come with the Dec 4 sequence document, so the pack keeps NUR 214 as the workspace carries it until then.` },
+  { pack: "southeastern-lpn-adn.json", launch: "SUMMER", months: 6, joins: { program: "Associate Degree Nursing (A45110)", atTermIndex: 2, hostTermIndex: 4 }, note: `${SCC_PENDING} The accelerated LPN-to-ADN bridge the college launched in Summer 2026 (grant-funded): three semesters in HyFlex format — class in person, live online or recorded; labs on campus; clinicals at sites. Application Feb 15 – Apr 15, orientation in early May (2026 cycle); a current unencumbered NC or compact LPN license, GPA ≥ 2.0, the ATI Comprehensive Predictor; NUR 117 waived for LPNs. Class size 20: the program admitted 20 to the inaugural Summer 2026 cohort after planning 10 and doubling on the applicant pool (2026-10-28); the number will move with second-year retention and applications. The program's Fall 2026 schedule lists the transition course as NUR 221 — its code, hours, term and dates come with the Dec 4 sequence document, so the pack keeps NUR 214 as the workspace carries it until then.` },
 ];
 
 /** UNC Wilmington's three prelicensure BSN tracks — template packs built by scripts/build-uncw-packs.mjs (2026-10-28)
@@ -236,9 +261,13 @@ export const INSTITUTIONS: InstitutionDef[] = [
       description: "Brunswick's prelicensure RN pathways: the Associate Degree Nursing program (A45110, admitted for fall with NUR 117 in the summer before), the LPN-to-ADN Transition (A45110T, summer entry) and the Paramedic-to-ADN Bridge (A45110M, spring entry). Every NUR course runs once a year in a fixed term, so the LPN and paramedic cohorts join the second-year ADN cohort for NUR 113, 211, 212 and 213. Sequences and hours from the college's information sheets; sessions and class sizes from its published Fall 2026 – Summer 2027 sections." },
   ] },
   { name: "Cape Fear Community College", short: "Cape Fear CC", kind: "Community college", city: "Wilmington", serviceArea: "New Hanover & Pender Counties, NC", families: [
-    nursingFamily("Cape Fear's prelicensure RN pathways: two ADN intakes a year plus the LPN-to-ADN transition.", 90, [
-      adn("Spring", 48), adn("Fall", 48),
-      lpnTransition("Fall", "Confirm: the website currently shows two application windows — one cohort or two per year, and which term(s) it starts?"),
+    // Cape Fear's four nursing tracks at the owner's cohort enrollment caps (2026-11-19): ADN Fall Entry 80, ADN Spring Entry 75,
+    // LPN-to-ADN 40, Nursing Transition 10 — the transition sits with the fall-entry class from its second semester (lib/cohortjoin).
+    nursingFamily("Cape Fear's prelicensure RN tracks, at the college's cohort enrollment caps (the owner, 2026-11-19): the ADN Fall Entry (80) and ADN Spring Entry (75) on the five-semester NCCCS sequence (NUR 111 · 112/114 · 113 · 211/212 · 213 — the fall sequence from the college's 2025 information packet; the spring entry's order of the same courses is an inference), the LPN-to-ADN (40; a three-semester hybrid — NUR 214 the summer before entry, NUR 221 in the fall, NUR 223 in the spring, from the 2025 packet and the current page's \"three semesters\"; application window Nov 19, 2026 – Feb 18, 2027; program director Allison Gilbert), and the Nursing Transition (10, the \"balancing act\"): a spring-entry group that sits with the ADN Fall Entry class from that class's second semester (NUR 112/114) through NUR 213 — one meeting, both classes' students in it, staffed once (the shared-section join). The college's sequences past the 2025 packet, class rooms and sections, and faculty load are not on record. The North-Star goal of 90 a year is the earlier placeholder.", 90, [
+      adn("Fall", 80, "Cohort enrollment cap 80 (the owner, 2026-11-19). The fall sequence from the Fall 2025 ADN information packet (NUR 112 and NUR 114 as eight-week halves of the spring; NUR 211 and 212 of the second fall); hours are the NCCCS standard's. The Nursing Transition class joins this class from the second semester."),
+      adn("Spring", 75, "Cohort enrollment cap 75 (the owner, 2026-11-19). The same five course sets from a spring entry — spring, summer, fall, spring, summer — an inference: the college's spring-entry plan of study was not read."),
+      { name: "LPN-to-ADN", type: "Transition (LPN)", credential: "AAS", terms: lpnToAdnTerms, launch: "SUMMER", seats: 40, months: 6, note: "Cohort enrollment cap 40 (the owner, 2026-11-19; the 2025 packet: up to 40 conditionally admitted). A three-semester hybrid (online and in-class, with clinicals): NUR 214 Nursing Transition Concepts the summer before entry (the packet: required before the fall), NUR 221 LPN to ADN Concepts I in the fall, NUR 223 LPN to ADN Concepts II in the spring; NUR 223's hour split was not read (carried as NUR 221's). Application Nov 19, 2026 – Feb 18, 2027; information session Jan 14, 2027. Runs its own sections — it does not join the ADN class." },
+      { name: "Nursing Transition", type: "Transition", credential: "AAS", terms: transitionJoinTerms, launch: "SPRING", seats: 10, months: 6, joins: { program: "ADN — Fall Entry", atTermIndex: 1, hostTermIndex: 2 }, note: "Cohort enrollment cap 10 (the owner, 2026-11-19) — \"a balancing act\": the group that sits with the ADN Fall Entry class from that class's second semester (NUR 112/114 in the spring) through NUR 213, refilling the fall class after first-semester attrition. Every course is held in the fall-entry class's sections (the join); who is admitted to it is not on record." },
     ]),
     { name: "Electrical Systems Technology", ...ELECTRICIAN, goals: goals(24), programs: CAPE_FEAR_PROGRAMS,
       description: "Cape Fear's Electrical Systems Technology (program 35130, taught at the North Campus in Castle Hayne): the 15-credit certificate (C35130) and its Career & College Promise CTE pathway (C35130CP), the 40-credit diploma (D35130) and the 71-credit AAS (A35130) — the college's credentials and credit totals (2024–25 list), with the course sequences laid out from the NCCCS standard until the catalog's program-of-study pages can be read — plus the college's four-year registered Electrical Apprenticeship (Job Training, Mike Holt curriculum, evenings). Fall 2026 brought evening sections of ELC 112 and ELC 113 at the North Campus under a $250,000 Careers Electric grant that funds a second instructor. No clinical component. The North-Star goal of 24 a year is the earlier placeholder, not the college's figure." },
@@ -341,17 +370,27 @@ export async function seedInstitutions(prisma: PrismaClient, h: Helpers) {
         await h.createCnaProgram(inst.id, occ.id, fam.id, { ...tpl, name: "Nurse Aide I" });
         programs++;
       }
+      const madeIds = new Map<string, string>();
       for (const p of f.programs) {
         if (isPack(p)) {
           // A template pack: the program, its class size, terms, courses and sessions as the file gives them.
           const prog = await h.createPackProgram(h.loadPack(p.pack), { institutionId: inst.id, occupationId: occ.id, familyId: fam.id, launchCadence: "ANNUAL", launchTerms: p.launch, monthsToFullProductivity: p.months ?? 6 });
           await prisma.program.update({ where: { id: prog.id }, data: { inventoryNote: p.note ?? null } });
+          madeIds.set(prog.name, prog.id);
           programs++;
           continue;
         }
         const prog = await h.createProgram({ institutionId: inst.id, occupationId: occ.id, name: p.name, programType: p.type, credential: p.credential, terms: p.terms(h) });
         await prisma.program.update({ where: { id: prog.id }, data: { familyId: fam.id, launchCadence: "ANNUAL", launchTerms: p.launch, termSlots: "FALL,SPRING,SUMMER", defaultCohortSeats: p.seats, monthsToFullProductivity: p.months ?? 6, inventoryNote: p.note ?? null } });
+        madeIds.set(p.name, prog.id);
         programs++;
+      }
+      // The join hints: a program whose offerings join another program's by default (the host listed in the same family).
+      for (const p of f.programs) {
+        if (!p.joins) continue;
+        const own = madeIds.get(isPack(p) ? h.loadPack(p.pack).name : p.name); const host = madeIds.get(p.joins.program);
+        if (!own || !host) throw new Error(`${f.name} at ${def.name}: the join hint names ${p.joins.program}, which is not a program of the family`);
+        await prisma.program.update({ where: { id: own }, data: { joinsProgramId: host, joinsAtTermIndex: p.joins.atTermIndex, joinsHostTermIndex: p.joins.hostTermIndex } });
       }
     }
   }

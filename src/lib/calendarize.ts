@@ -24,6 +24,10 @@ export interface CalendarizeInput {
   cohortId: string;
   /** Term-1 seats — sections = ceil(seats ÷ session capacity). */
   seats: number;
+  /** Seats per term index where they differ from `seats` (a host whose joiners sit in from a later term — lib/cohortjoin). */
+  seatsByTerm?: Record<number, number>;
+  /** Courses that book nothing here: a joiner's courses held in its host's sections. */
+  skipCourseIds?: Set<string>;
   /** Offering start (ms) — synthesizes term windows for undated terms. */
   cohortStartMs: number | null;
   terms: CalendarizeTerm[];
@@ -44,7 +48,7 @@ export interface MeetingRow {
 const normName = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
 
 export function planMeetings(input: CalendarizeInput): MeetingRow[] {
-  const E = Math.max(1, Math.round(input.seats));
+  const seatsIn = (termIndex: number) => Math.max(1, Math.round(input.seatsByTerm?.[termIndex] ?? input.seats));
   const reqs: PlaceReq[] = [];
   const roomByName = new Map(input.rooms.map((r) => [normName(r.name), r]));
   const codeOf = new Map((input.rotations ?? []).map((r) => [r.rotationType.toLowerCase(), r.settingCode]));
@@ -55,7 +59,9 @@ export function planMeetings(input: CalendarizeInput): MeetingRow[] {
     if (base == null) continue;
     const tw = (t.endWeek ?? 16) - (t.startWeek ?? 1) + 1;
     const endMs = t.startMs != null && t.endMs != null && t.endMs > t.startMs ? t.endMs + 24 * 3600 * 1000 : base + tw * WK_MS;
+    const E = seatsIn(t.index);
     for (const c of t.courses) {
+      if (input.skipCourseIds?.has(c.id)) continue;
       // The course's weekly pattern per kind AND weekday: a "TTh" clinical is two bookings a
       // week, a "MWF" one three — each on the sheet's own day, time and room. Online sessions
       // with no fixed weekday never book a room or a site (a kind that is only that has no

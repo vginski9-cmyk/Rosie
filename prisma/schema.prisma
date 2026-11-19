@@ -398,6 +398,14 @@ model Program {
   /// calendar) or runs its template weeks straight from the chosen start, across semester boundaries (a
   /// continuing-education class). Holidays and closed weeks apply either way.
   calendarMode             String         @default("semester")
+  /// The join this program's offerings make by default (lib/cohortjoin): the host program of the same family, the
+  /// term of this program where the sharing begins and the host's term it maps to — Cape Fear's Nursing Transition
+  /// joins the ADN Fall Entry from its term 1 onto the host's term 2. The forms default from it; each offering states its own.
+  joinsProgramId           String?
+  joinsProgram             Program?       @relation("programJoins", fields: [joinsProgramId], references: [id], onDelete: SetNull)
+  joinedByPrograms         Program[]      @relation("programJoins")
+  joinsAtTermIndex         Int?
+  joinsHostTermIndex       Int?
   // --- Workload assumption cells (clinical capacity model AH–AN) ---
   /// "Full time faculty student contact hours" — cell AI2.
   facContactHours          Float          @default(16)
@@ -728,6 +736,16 @@ model Cohort {
   locationNote  String?
   /// The college's own reference for the offering (a section or course number), kept beside the readable name.
   code          String?
+  /// Shared sections: this offering JOINS another offering of its family from its own term `joinsAtTermIndex` on,
+  /// mapped onto the host's term `joinsHostTermIndex` (its term k ≥ joinsAtTermIndex sits in the host's term
+  /// joinsHostTermIndex + (k − joinsAtTermIndex)). A course whose code the mapped host term also carries is the
+  /// host's section — one meeting, both offerings' students in it, staffed once; its other courses stay its own.
+  /// Its joined terms take the host's dates (CohortTerm.source "joined"). Null = runs its own sections (lib/cohortjoin).
+  joinsCohortId      String?
+  joinsHost          Cohort?   @relation("cohortJoins", fields: [joinsCohortId], references: [id], onDelete: SetNull)
+  joiners            Cohort[]  @relation("cohortJoins")
+  joinsAtTermIndex   Int?
+  joinsHostTermIndex Int?
 
   stages           FunnelStage[]
   assetBookings    AssetBooking[]
@@ -745,6 +763,7 @@ model Cohort {
   meetings         MeetingPattern[]
 
   @@index([programId])
+  @@index([joinsCohortId])
 }
 
 /// Per-offering scheduling of a template term: the real-world start date this

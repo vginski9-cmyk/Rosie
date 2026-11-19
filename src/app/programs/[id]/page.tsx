@@ -19,6 +19,11 @@ export default async function ProgramPage({ params }: { params: { id: string } }
   const program = await getProgramFull(params.id);
   if (!program) notFound();
   const [offerings, provenance, campuses] = await Promise.all([getProgramOfferings(params.id), getCalendarProvenance(program.institutionId), prisma.campus.findMany({ where: { institutionId: program.institutionId }, orderBy: [{ isMain: "desc" }, { name: "asc" }], select: { id: true, name: true, city: true, isMain: true } })]);
+  // Shared sections (lib/cohortjoin): the offerings of the family's other programs this program's new offering may join — those
+  // not themselves joiners — and the program's own hint (which program it usually joins, from which term, onto which).
+  const joinHosts = program.familyId ? await prisma.cohort.findMany({ where: { program: { familyId: program.familyId, id: { not: program.id } }, joinsCohortId: null, status: { not: "archived" } }, orderBy: [{ startDate: "desc" }], select: { id: true, name: true, startDate: true, program: { select: { id: true, name: true } } } }) : [];
+  const joinHint = program.joinsProgramId ? { programId: program.joinsProgramId, atTermIndex: program.joinsAtTermIndex ?? 1, hostTermIndex: program.joinsHostTermIndex ?? 1 } : null;
+  const defaultHost = joinHint ? joinHosts.find((h) => h.program.id === joinHint.programId && (!h.startDate || h.startDate >= new Date(Date.now() - 365 * 86400000))) ?? null : null;
   const northStar = program.yearTargets.find((t) => t.credentialTarget != null);
   const defaultEnrollment = Math.round(program.defaultCohortSeats ?? northStar?.cohortCapacity ?? 40);
 
@@ -45,7 +50,7 @@ export default async function ProgramPage({ params }: { params: { id: string } }
                 const productive = o.stages.find((s) => s.stageKey === "productive");
                 return (
                   <tr key={o.id} className="hover:bg-slate-50/60">
-                    <td className="px-5 py-2"><Link href={`/programs/${program.id}/offerings/${o.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{o.name}</Link></td>
+                    <td className="px-5 py-2"><Link href={`/programs/${program.id}/offerings/${o.id}`} className="font-medium text-slate-800 hover:text-rose-700 hover:underline">{o.name}</Link>{o.joinsHost ? <span className="block text-[10px] text-violet-700">joins <Link href={`/programs/${o.joinsHost.programId}/offerings/${o.joinsHost.id}`} className="underline">{o.joinsHost.name}</Link>&apos;s sections</span> : o.joiners.length ? <span className="block text-[10px] text-violet-700">shared with {o.joiners.map((j) => j.name).join(", ")}</span> : null}</td>
                     <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS[o.status] ?? "bg-slate-100 text-slate-600"}`}>{STATUS_LABEL[o.status] ?? o.status}</span></td>
                     <td className="px-3 py-2 text-slate-600">{dateOf(o.startDate)}</td>
                     <td className="px-3 py-2 text-slate-600">{o.campus?.name ?? <span className="text-slate-300">—</span>}{o.locationNote ? <span className="block text-[10px] text-slate-400">{o.locationNote}</span> : null}</td>
@@ -64,6 +69,13 @@ export default async function ProgramPage({ params }: { params: { id: string } }
           <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Where</span><select name="campusId" className="input-sm w-48"><option value="">— not set —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}{c.city && !c.name.includes(c.city) ? ` · ${c.city}` : ""}</option>)}</select></label>
           <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Building / room</span><input name="locationNote" placeholder="optional" className="input-sm w-40" /></label>
           <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Name</span><input name="name" placeholder="blank = named for you" className="input-sm w-44" /></label>
+          {joinHosts.length > 0 && (
+            <>
+              <label className="block" title="its students sit in that offering's sections for the courses both run in the same term — one meeting, staffed and booked once"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Joins the sections of</span><select name="joinsCohortId" defaultValue={defaultHost?.id ?? ""} className="input-sm w-56"><option value="">— runs its own sections —</option>{joinHosts.map((h) => <option key={h.id} value={h.id}>{h.name} · {h.program.name}</option>)}</select></label>
+              <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">From its term</span><input name="joinsAtTermIndex" type="number" min={1} max={program.terms.length} defaultValue={joinHint?.atTermIndex ?? 1} className="input-sm w-16" /></label>
+              <label className="block"><span className="mb-0.5 block text-[10px] uppercase tracking-wide text-slate-400">Onto the host&apos;s term</span><input name="joinsHostTermIndex" type="number" min={1} defaultValue={joinHint?.hostTermIndex ?? 1} className="input-sm w-16" /></label>
+            </>
+          )}
           <button className="btn-primary text-sm">+ Create offering</button>
         </form>
       </section>

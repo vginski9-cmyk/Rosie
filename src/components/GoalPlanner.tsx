@@ -48,6 +48,9 @@ export interface OfferingSummary {
   location?: string | null;
   phase: string;              // recruiting | in-program | graduated | unscheduled
   currentTerm: string | null; // current term name (when in-program)
+  /** Shared sections (lib/cohortjoin): the offering this one joins, or the offerings that join it. */
+  joinsHost?: { id: string; name: string } | null;
+  joiners?: string[];
   endLabel: string | null;    // expected-end label, e.g. "ends May 2026"
 }
 
@@ -96,6 +99,8 @@ export interface ProgramOption {
   termList?: TermLite[];
   /** The seasons the program launches in (FALL, SPRING, SUMMER) — the starts offered when term 1 codes no season. */
   launchTerms?: string[];
+  /** Shared sections (lib/cohortjoin): the program whose offerings this one's usually join, from which of its terms, onto which of the host's. */
+  joinHint?: { programId: string; programName: string; atTermIndex: number; hostTermIndex: number } | null;
 }
 
 interface Persisted {
@@ -377,12 +382,15 @@ export function GoalPlanner({
   const lockIn = async (ai: number, oi: number, slots: OfferingSlot[]) => {
     const a = allocs[ai];
     const m = models.find((x) => x.programId === a.programId);
-    const slot = slots[oi];
-    if (!m || !slot?.startDate || slot.locked) return;
-    const tv = slotTargets(slot);
+    const slot0 = slots[oi];
+    if (!m || !slot0?.startDate || slot0.locked) return;
+    const tv = slotTargets(slot0);
+    // A join left at its default (the newest host not yet graduated) is sent as that host.
+    const hosts = m.joinHint ? allInsts.filter((x) => x.programId === m.joinHint!.programId && !x.joinsHost).sort((p, q) => (q.startDate ?? "").localeCompare(p.startDate ?? "")) : [];
+    const slot = { ...slot0, startDate: slot0.startDate, joinsCohortId: slot0.joinsCohortId === undefined && m.joinHint ? hosts.find((h) => h.phase !== "graduated")?.id ?? null : slot0.joinsCohortId ?? null };
     setLockingId(`${a.programId}:${oi}`); setActionError(null);
     try {
-      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? (tv.rates as Record<string, number>) : undefined, counts: tv.counts, campusId: slot.campusId ?? null });
+      const res = await lockInInstantiation(a.programId, familyId, { gradYear: s.selectedYear, goal: tv.goal, startDate: slot.startDate, termOverrides: tv.termOverrides, rates: Object.keys(tv.rates).length ? (tv.rates as Record<string, number>) : undefined, counts: tv.counts, campusId: slot.campusId ?? null, joins: slot.joinsCohortId && m.joinHint ? { hostCohortId: slot.joinsCohortId, atTermIndex: m.joinHint.atTermIndex, hostTermIndex: m.joinHint.hostTermIndex } : null });
       const next = slots.map((x, i) => (i === oi ? { ...x, locked: true, cohortId: res.cohortId, cohortName: res.name } : x));
       setAllocs(allocs.map((x, i) => (i === ai ? { ...x, offerings: next, startDate: undefined, locked: undefined, cohortId: undefined, cohortName: undefined } : x)));
       router.refresh();
@@ -638,6 +646,7 @@ export function GoalPlanner({
                                   <>
                                     <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-700">🔒 {o.cohortName ?? "Locked in"}</span>
                                     <span className="tabular-nums text-slate-500">{fmtD(o.startDate ?? null)} → {(() => { const inst = allInsts.find((x) => x.id === o.cohortId); return inst?.endDate ? fmtD(inst.endDate) : fmtD(stopDateOf(o.startDate, m)); })()}{(() => { const loc = allInsts.find((x) => x.id === o.cohortId)?.location; return loc ? ` · ${loc}` : ""; })()}</span>
+                                    {(() => { const inst = allInsts.find((x) => x.id === o.cohortId); return inst?.joinsHost ? <span className="text-violet-700" title="its students sit in the host's sections for the courses both run in the same term">joins {inst.joinsHost.name}{m.joinHint ? ` from ${termNames[m.joinHint.atTermIndex - 1] ?? `term ${m.joinHint.atTermIndex}`}` : ""}</span> : inst?.joiners?.length ? <span className="text-violet-700">shared with {inst.joiners.join(", ")}</span> : null; })()}
                                     {o.cohortId && <Link href={`/programs/${m.programId}/offerings/${o.cohortId}`} className="font-medium text-rose-700 hover:underline">open the offering ↦</Link>}
                                     <span className="text-[10px] text-slate-400">edits below save to this offering</span>
                                     <button onClick={() => unlock(ai, oi, slots)} disabled={unlockingId != null} className="ml-auto rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50" title="undo the lock-in — deletes the offering (students are detached, not deleted) and frees this slot">{unlockingId === `${a.programId}:${oi}` ? "Unlocking…" : "🔓 Unlock"}</button>
@@ -666,6 +675,12 @@ export function GoalPlanner({
                                     </label>
                                     {(() => { const end = stopDateOf(o.startDate, m); const endYear = end ? Number(end.slice(0, 4)) : null; const off = endYear != null && plannerModel(m) && endYear !== s.selectedYear; const snap = snappedStart(o.startDate, m); return <span className={`tabular-nums ${off ? "font-medium text-amber-700" : "text-slate-500"}`}>{snap ? <span className="text-amber-700">lands on {fmtD(snap)} (the coded semester start) · </span> : null}ends {fmtD(end)}{off ? ` — that graduates in ${endYear}, not ${s.selectedYear}` : ""}</span>; })()}
                                     <span className={`tabular-nums ${over ? "font-medium text-rose-700" : "text-slate-400"}`}>{fmt.num(seats)} seats in term 1{over ? ` — over this program's max cohort of ${fmt.num(m.maxCapacity)}` : ""}{(() => { const secs = sectionsFor(seats, m.sessionMax).filter((x) => x.sections > 1); return secs.length ? ` · runs as ${secs.map((x) => `${fmt.num(x.sections)} ${x.kind.toLowerCase()} sections`).join(", ")}` : ""; })()}</span>
+                                    {m.joinHint && (() => {
+                                      // The hosts on offer: the usual host program's offerings that are not themselves joiners, latest first; the newest not yet graduated is the default.
+                                      const hosts = allInsts.filter((x) => x.programId === m.joinHint!.programId && !x.joinsHost).sort((p, q) => (q.startDate ?? "").localeCompare(p.startDate ?? ""));
+                                      const picked = o.joinsCohortId === undefined ? hosts.find((h) => h.phase !== "graduated")?.id ?? "" : o.joinsCohortId ?? "";
+                                      return <label className="flex items-center gap-1.5" title={`its students sit in the host's sections from ${termNames[m.joinHint!.atTermIndex - 1] ?? `term ${m.joinHint!.atTermIndex}`} (the host's ${m.joinHint!.hostTermIndex}); one meeting, staffed and booked once`}><span className="text-slate-500">joins</span><select value={picked} onChange={(e) => setSlot(oi, { joinsCohortId: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none"><option value="">— its own sections —</option>{hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}</select></label>;
+                                    })()}
                                     {campuses.length > 0 && <label className="flex items-center gap-1.5"><span className="text-slate-500">at</span><select value={o.campusId ?? ""} onChange={(e) => setSlot(oi, { campusId: e.target.value || null })} className="rounded border border-slate-200 px-1.5 py-1 focus:border-rose-400 focus:outline-none"><option value="">— where? —</option>{campuses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>}
                                     {(!o.startDate || tv.goal <= 0) && <span className="ml-auto text-[11px] text-amber-700">{!o.startDate ? "set a start date to lock in" : "enter how many productive workers this offering covers to lock in"}</span>}
                                     <button onClick={() => lockIn(ai, oi, slots)} disabled={!o.startDate || tv.goal <= 0 || lockingId != null} className={`${!o.startDate || tv.goal <= 0 ? "" : "ml-auto "}rounded-lg bg-rose-600 px-3 py-1 font-medium text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400`} title={!o.startDate ? "set a start date first" : tv.goal <= 0 ? "give this offering a goal first" : "create the real offering with these targets"}>{lockingId === `${a.programId}:${oi}` ? "Locking in…" : "🔒 Lock in"}</button>

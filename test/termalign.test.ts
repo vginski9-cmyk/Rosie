@@ -127,6 +127,18 @@ describe("alignOffering", () => {
     const early = a.courses.find((c) => c.courseId === "c-early")!;
     expect([early.startIso, early.endIso]).toEqual(["2026-08-17", "2026-10-09"]);
   });
+  it("a first-week course of a term that opens mid-week opens on the term's first day, not on that week's Monday", () => {
+    // Brunswick's Spring 2027 opens Wednesday, January 6: NUR 112 (the first eight weeks) opens January 6, not Monday the 4th.
+    const events: CodedEventLite[] = [
+      { iso: "2027-01-06", endIso: null, label: "Spring classes begin", kind: "term_start", season: "Spring" },
+      { iso: "2027-05-05", endIso: null, label: "Spring semester ends", kind: "term_end", season: "Spring" },
+    ];
+    const courses = [{ id: "c-first8", termId: "t1", code: "NUR 112", name: "First 8 weeks", sessions: Array.from({ length: 8 }, (_, i) => ({ week: i + 1 })) }];
+    const a = alignOffering({ startIso: "2027-01-06", terms: TERMS.slice(0, 1), courses, anchors, events });
+    expect(a.terms[0].startIso).toBe("2027-01-06");
+    expect(a.courses[0].startIso).toBe("2027-01-06");
+    expect(a.courses[0].endIso).toBe("2027-02-26");
+  });
 });
 
 // A continuing-education class (calendarMode "continuous") runs its template weeks from the day it is

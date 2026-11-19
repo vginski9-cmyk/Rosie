@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { offeringName, shortTermProgram, campusLabel, runDetail, programDetail } from "../src/lib/offeringname";
+import { trackLabel, classYearNaming, offeringName, shortTermProgram, campusLabel, runDetail, programDetail } from "../src/lib/offeringname";
 
 describe("offering names", () => {
   it("a class-a-year program names by the year the last term ends, numbered when repeated", () => {
@@ -40,5 +40,26 @@ describe("offering names", () => {
     expect(programDetail("Nurse Aide Level I — Monday & Wednesday 20-week Offering")).toBe("Monday & Wednesday 20-week");
     expect(programDetail("Radiography")).toBeNull();
     expect(offeringName({ shortTerm: true, startIso: "2026-08-17", endIso: "2026-11-10", campus: "Morehead City", detail: "11-week daytime", existing: ["Aug 2026 · Morehead City"] })).toBe("Aug 2026 · Morehead City · 11-week daytime");
+  });
+});
+
+describe("class-year siblings that share a credential are told apart by track", () => {
+  it("trackLabel drops a trailing code and reads the dash as a space", () => {
+    expect(trackLabel("LPN-to-ADN Transition (A45110T)")).toBe("LPN-to-ADN Transition");
+    expect(trackLabel("ADN — Fall Entry")).toBe("ADN Fall Entry");
+    expect(trackLabel("Nursing Transition")).toBe("Nursing Transition");
+    expect(trackLabel("Associate Degree Nursing (A45110)")).toBe("Associate Degree Nursing");
+  });
+  it("classYearNaming: credential when a sibling's differs, track when a sibling shares it, nothing when the siblings are short-term", () => {
+    expect(classYearNaming({ credential: "AAS", name: "Medical Office Administration AAS (A25310MO, hybrid)" }, [{ credential: "Diploma", shortTerm: false }, { credential: "Certificate", shortTerm: true }])).toEqual({ credential: "AAS", track: null });
+    expect(classYearNaming({ credential: "AAS", name: "Nursing Transition" }, [{ credential: "AAS", shortTerm: false }, { credential: "AAS", shortTerm: false }])).toEqual({ credential: null, track: "Nursing Transition" });
+    expect(classYearNaming({ credential: "AAS", name: "ADN — Fall Entry" }, [{ credential: "AAS", shortTerm: false }, { credential: "Diploma", shortTerm: false }])).toEqual({ credential: "AAS", track: "ADN Fall Entry" });
+    expect(classYearNaming({ credential: "Diploma", name: "Nurse Aide Level I — 6-week offering" }, [{ credential: "Diploma", shortTerm: true }])).toEqual({ credential: null, track: null });
+  });
+  it("names Cape Fear's four AAS nursing classes of 2028 by track", () => {
+    const existing: string[] = [];
+    for (const track of ["ADN Fall Entry", "Nursing Transition", "ADN Spring Entry", "LPN-to-ADN"]) existing.push(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-05", track, existing }));
+    expect(existing).toEqual(["Class of 2028 · ADN Fall Entry", "Class of 2028 · Nursing Transition", "Class of 2028 · ADN Spring Entry", "Class of 2028 · LPN-to-ADN"]);
+    expect(offeringName({ shortTerm: false, startIso: "2026-08-17", endIso: "2028-05-05", track: "ADN Fall Entry", existing })).toBe("Class of 2028 · ADN Fall Entry · 2nd class");
   });
 });

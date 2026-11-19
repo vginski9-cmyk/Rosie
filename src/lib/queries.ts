@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { NOT_ARCHIVED, gradYearOf as classYearOf } from "./cohortscope";
+import { joinerSeatOffsets, hostSeat, hostTermOf, normCode, type JoinSpec } from "./cohortjoin";
 import { supervisionOnShift } from "./supervision";
 import { ENROLLED_AND_BEYOND, ROSTER_STATUSES } from "./learners";
 import type { Prisma } from "@prisma/client";
@@ -880,7 +881,7 @@ export async function getFamily(familyId: string) {
           terms: { include: { courses: { include: { sessions: true } } } },
           cohorts: {
             orderBy: { name: "asc" },
-            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, campus: { select: { name: true } } },
+            include: { stages: { orderBy: { sortOrder: "asc" } }, _count: { select: { students: true } }, students: { select: { status: true } }, cohortTerms: { select: { termId: true, startDate: true, endDate: true } }, campus: { select: { name: true } }, joinsHost: { select: { id: true, name: true } }, joiners: { select: { id: true, name: true } } },
           },
         },
       },
@@ -1052,6 +1053,8 @@ export async function getProgramOfferings(programId: string) {
       cohortTerms: { include: { term: { select: { index: true, name: true } } }, orderBy: { term: { index: "asc" } } },
       stages: { orderBy: { sortOrder: "asc" } },
       campus: { select: { id: true, name: true, city: true, isMain: true } },
+      joinsHost: { select: { id: true, name: true, programId: true } },
+      joiners: { select: { id: true, name: true, programId: true } },
     },
   });
 }
@@ -1068,6 +1071,10 @@ export async function getOffering(cohortId: string) {
       stages: { orderBy: { sortOrder: "asc" } },
       campus: { select: { id: true, name: true, city: true, isMain: true } },
       _count: { select: { students: true, sessionStaff: true, meetings: true, studentShifts: true } },
+      // Shared sections (lib/cohortjoin): the offering this one joins, with the host's terms and course codes (to name the
+      // courses the host holds for it), and the offerings that join this one.
+      joinsHost: { select: { id: true, name: true, programId: true, program: { select: { name: true, terms: { orderBy: { index: "asc" }, select: { index: true, name: true, courses: { select: { code: true } } } } } } } },
+      joiners: { select: { id: true, name: true, programId: true, plannedSeats: true, startDate: true, joinsAtTermIndex: true, joinsHostTermIndex: true, program: { select: { name: true, terms: { orderBy: { index: "asc" }, select: { index: true, name: true } } } }, _count: { select: { students: true } } } },
     },
   });
 }
@@ -2301,7 +2308,8 @@ async function capacityModelFor(institution: { id: string; name: string }) {
     },
   });
 
-  const cohorts = programs.flatMap((p) => {
+  const { applyJoins } = await import("./cohortjoin");
+  const rawCohorts = programs.flatMap((p) => {
     // Rates: the family's saved goal plan, else benchmarks.
     const rates = familyRatesOf(p.family?.goalPlan);
     const orderedTerms = [...p.terms].sort((a, b) => a.index - b.index);
@@ -2379,7 +2387,8 @@ async function capacityModelFor(institution: { id: string; name: string }) {
         cohortId: co.id, cohort: co.name, status: co.status,
         programId: p.id, program: p.name, familyId: p.family?.id ?? null, family: p.family?.name ?? null,
         institutionId: institution.id, institution: institution.name,
-        students: co._count.students,
+        students: co._count.students, plannedSeats: co.plannedSeats,
+        join: co.joinsCohortId && co.joinsAtTermIndex != null && co.joinsHostTermIndex != null ? { hostCohortId: co.joinsCohortId, atTermIndex: co.joinsAtTermIndex, hostTermIndex: co.joinsHostTermIndex } : null,
         enrollmentByTerm, termStartByIndex, termEndByIndex, termWeeksByIndex, holidays, holidayRule, anchors,
         // One row per booked section — the calendar's draggable shift instances.
         meetings: co.meetings.map((m) => ({
@@ -2433,6 +2442,10 @@ async function capacityModelFor(institution: { id: string; name: string }) {
       };
     });
   });
+
+  // Shared sections: a host's terms carry its joiners' seats, a joiner's courses the host holds are dropped (`heldIn`) —
+  // one mapping for every reader of this model, so a shared meeting is counted once.
+  const cohorts = applyJoins(rawCohorts);
 
   // Clinical-site supply: every partner site and the students/day it can host.
   const clinicalSites = await prisma.employer.findMany({
@@ -2499,7 +2512,7 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
   const [map, people, students, familySites, located] = await Promise.all([
     getAssetMap(institutionId, from, to),
     prisma.person.findMany({ where: { institutionId, active: true, role: { in: ["preceptor", "instructor"] } }, orderBy: { name: "asc" }, select: { id: true, name: true, role: true, employerId: true } }),
-    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: [...ROSTER_STATUSES] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true } }),
+    prisma.student.findMany({ where: { program: { institutionId }, cohortId: { not: null }, status: { in: [...ROSTER_STATUSES] } }, orderBy: [{ sectionIndex: "asc" }, { name: "asc" }], select: { id: true, name: true, cohortId: true, sectionIndex: true, city: true, state: true, cohort: { select: { id: true, joinsCohortId: true, joinsHost: { select: { id: true, plannedSeats: true, program: { select: { defaultCohortSeats: true } }, joiners: { select: { id: true, name: true, plannedSeats: true, startDate: true } } } } } } } }),
     prisma.familySite.findMany({ where: { family: { institutionId } }, select: { familyId: true, employerId: true, agreementStatus: true, agreementEnds: true, studentsAtOnce: true, approvedCapacity: true, studentsAtOnceMode: true, availabilityMode: true } }),
     prisma.employer.findMany({ where: { institutionId, lat: { not: null }, lng: { not: null } }, select: { id: true, lat: true, lng: true } }),
   ]);
@@ -2527,7 +2540,14 @@ export async function getSchedulerData(institutionId: string, from: string, to: 
     ...map,
     preceptors: people.filter((p) => p.role === "preceptor").map((p) => ({ id: p.id, name: p.name, employerId: p.employerId, role: p.role })),
     instructors: people.filter((p) => p.role === "instructor").map((p) => ({ id: p.id, name: p.name, role: p.role })),
-    students: students.map((s) => ({ id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex, homeLabel: s.city, driveTo: driveFrom(s.city, s.state) })),
+    // A student of a joiner also sits in the host's seat space (lib/cohortjoin): a second row under the host, seat after the host's own.
+    students: students.flatMap((s) => {
+      const own = { id: s.id, name: s.name, cohortId: s.cohortId!, sectionIndex: s.sectionIndex, homeLabel: s.city, driveTo: driveFrom(s.city, s.state) };
+      const host = s.cohort?.joinsHost;
+      if (!host) return [own];
+      const offsets = joinerSeatOffsets({ cohortId: host.id, plannedSeats: host.plannedSeats ?? host.program.defaultCohortSeats ?? null, enrollmentByTerm: {} }, host.joiners.map((j) => ({ cohortId: j.id, plannedSeats: j.plannedSeats, startIso: j.startDate?.toISOString().slice(0, 10) ?? null, name: j.name })));
+      return [own, { ...own, cohortId: host.id, sectionIndex: hostSeat(offsets.get(s.cohortId!) ?? 0, s.sectionIndex), viaCohortId: s.cohortId! }];
+    }),
     familyAgreements: familySites.map((f) => ({ familyId: f.familyId, employerId: f.employerId, agreementStatus: f.agreementStatus, agreementEnds: f.agreementEnds ? f.agreementEnds.toISOString().slice(0, 10) : null })),
     siteCaps: familySites.map((f) => ({ employerId: f.employerId, familyId: f.familyId, studentsAtOnce: f.studentsAtOnce, approvedCapacity: f.approvedCapacity, studentsAtOnceMode: (f.studentsAtOnce != null ? "known" : f.studentsAtOnceMode) as "known" | "unrestricted" | "unknown", availabilityMode: f.availabilityMode as "inherit" | "specific" | "unavailable" | "unknown" })),
     confirmedSettings,
@@ -3020,6 +3040,9 @@ export async function getOfferingLedger(cohortId: string) {
       sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } },
       students: { orderBy: [{ sectionIndex: "asc" }], select: { id: true, name: true, status: true, sectionIndex: true, attendedCount: true, missedCount: true, sections: { select: { courseId: true, kind: true, sectionIndex: true } }, shifts: { select: { sessionId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, instructorId: true } } } },
       program: { select: { terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, settingCodes: true } } } }, sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, preceptorsNeeded: true, facultyNeeded: true, clinicalMode: true, deliveryMode: true, location: true } } } } } } } },
+      joinsCohortId: true, joinsAtTermIndex: true, joinsHostTermIndex: true,
+      joinsHost: { select: { id: true, name: true, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employer: { select: { name: true } } } }, sessionStaff: { select: { sessionId: true, sectionIndex: true, role: true, person: { select: { id: true, name: true } } } }, program: { select: { terms: { orderBy: { index: "asc" }, select: { id: true, index: true, name: true, courses: { orderBy: { sequenceOrder: "asc" }, select: { id: true, code: true, name: true, clinicalRequirements: { select: { hoursPerStudent: true, casesPerStudent: true, serviceArea: { select: { code: true, settingCodes: true } } } }, sessions: { select: { id: true, kind: true, lengthHours: true, maxStudents: true, preceptorsNeeded: true, facultyNeeded: true, clinicalMode: true, deliveryMode: true, location: true } } } } } } } } } },
+      joiners: { select: { id: true, name: true, students: { select: { status: true, shifts: { select: { sessionId: true, sectionIndex: true, status: true } } } } } },
     },
   });
   if (!co) return null;
@@ -3028,21 +3051,31 @@ export async function getOfferingLedger(cohortId: string) {
   // The class's last day: a completion rate is decidable only once it has passed (lib/learners outcomeStats).
   const cohortEnds = co.cohortTerms.map((t) => t.endDate).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0]?.toISOString().slice(0, 10) ?? null;
   const enrolled = Math.max(co.students.filter((s) => s.status !== "withdrawn").length, co.plannedSeats ?? 0, 1);
-  const started = co.program.terms.filter((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id); return ct?.startDate && ct.startDate <= today; });
+  // Shared sections (lib/cohortjoin): a course the host holds is read as the host's — its sessions, staff and sites — in the joiner's ledger.
+  const host = co.joinsHost;
+  const join: JoinSpec | null = host && co.joinsAtTermIndex != null && co.joinsHostTermIndex != null ? { hostCohortId: host.id, atTermIndex: co.joinsAtTermIndex, hostTermIndex: co.joinsHostTermIndex } : null;
+  const heldBy = new Map<string, string>();
+  if (host && join) for (const t of co.program.terms) { if (t.index < join.atTermIndex) continue; const ht = host.program.terms.find((x) => x.index === hostTermOf(join, t.index)); for (const c of t.courses) { const hc = ht?.courses.find((x) => normCode(x.code) === normCode(c.code)); if (hc) heldBy.set(c.id, hc.id); } }
+  const hostCourses = new Map((host?.program.terms ?? []).flatMap((t) => t.courses.map((c) => [c.id, c] as const)));
+  const terms = co.program.terms.map((t) => ({ ...t, courses: t.courses.map((c) => { const hc = heldBy.get(c.id); return hc ? { ...hostCourses.get(hc)!, heldIn: host!.name } : c; }) }));
+  const staffRows = [...co.sessionStaff, ...(host?.sessionStaff ?? [])];
+  const meetings = [...co.meetings, ...(host?.meetings ?? [])];
+  const started = terms.filter((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id); return ct?.startDate && ct.startDate <= today; });
   const current = started.find((t) => { const ct = co.cohortTerms.find((x) => x.termId === t.id)!; return !ct.endDate || ct.endDate >= today; }) ?? started.at(-1) ?? null;
   const sessionInfo = new Map<string, { courseId: string; kind: string; lengthHours: number; preceptorsNeeded: number; facultyNeeded: number; clinicalMode: string | null }>();
-  for (const t of co.program.terms) for (const c of t.courses) for (const x of c.sessions) sessionInfo.set(x.id, { courseId: c.id, kind: x.kind, lengthHours: x.lengthHours, preceptorsNeeded: x.preceptorsNeeded, facultyNeeded: x.facultyNeeded, clinicalMode: x.clinicalMode });
+  for (const t of [...terms, ...(host?.program.terms ?? [])]) for (const c of t.courses) for (const x of c.sessions) sessionInfo.set(x.id, { courseId: c.id, kind: x.kind, lengthHours: x.lengthHours, preceptorsNeeded: x.preceptorsNeeded, facultyNeeded: x.facultyNeeded, clinicalMode: x.clinicalMode });
   // Learners on each clinical shift (session × section) — the same count site load uses — and each shift's supervision reading.
+  // A host's shift carries its joiners' learners too (they sit in the same section).
   const learnersOn = new Map<string, number>();
-  for (const st of co.students) for (const sh of st.shifts) if (sh.status === "completed" || (sh.status === "scheduled" && st.status !== "withdrawn")) { const k = `${sh.sessionId}|${sh.sectionIndex}`; learnersOn.set(k, (learnersOn.get(k) ?? 0) + 1); }
-  const supOf = (sh: { sessionId: string; sectionIndex: number; status: string; preceptorId: string | null; instructorId: string | null }) => { const si = sessionInfo.get(sh.sessionId)!; return supervisionOnShift({ clinicalMode: si.clinicalMode, facultyNeeded: si.facultyNeeded, preceptorsNeeded: si.preceptorsNeeded, lengthHours: si.lengthHours, learners: learnersOn.get(`${sh.sessionId}|${sh.sectionIndex}`) ?? 0, preceptorNamed: !!sh.preceptorId, instructorNamed: !!sh.instructorId, attended: sh.status === "completed" || sh.status === "scheduled" }); };
-  const personName = (id: string) => co.sessionStaff.find((a) => a.person.id === id)?.person.name ?? "?";
+  for (const st of [...co.students, ...co.joiners.flatMap((j) => j.students)]) for (const sh of st.shifts) if (sh.status === "completed" || (sh.status === "scheduled" && st.status !== "withdrawn")) { const k = `${sh.sessionId}|${sh.sectionIndex}`; learnersOn.set(k, (learnersOn.get(k) ?? 0) + 1); }
+  const supOf = (sh: { sessionId: string; sectionIndex: number; status: string; preceptorId: string | null; instructorId: string | null }) => { const si = sessionInfo.get(sh.sessionId) ?? { courseId: "", kind: "CLINICAL", lengthHours: 0, preceptorsNeeded: 0, facultyNeeded: 0, clinicalMode: null }; return supervisionOnShift({ clinicalMode: si.clinicalMode, facultyNeeded: si.facultyNeeded, preceptorsNeeded: si.preceptorsNeeded, lengthHours: si.lengthHours, learners: learnersOn.get(`${sh.sessionId}|${sh.sectionIndex}`) ?? 0, preceptorNamed: !!sh.preceptorId, instructorNamed: !!sh.instructorId, attended: sh.status === "completed" || sh.status === "scheduled" }); };
+  const personName = (id: string) => staffRows.find((a) => a.person.id === id)?.person.name ?? "?";
   const staffByKey = new Map<string, Map<string, { name: string; role: string }>>();
-  for (const a of co.sessionStaff) { const si = sessionInfo.get(a.sessionId); if (!si) continue; const k = `${si.courseId}|${si.kind}|${a.sectionIndex}`; const m = staffByKey.get(k) ?? new Map(); m.set(a.person.id, { name: a.person.name, role: a.role }); staffByKey.set(k, m); }
+  for (const a of staffRows) { const si = sessionInfo.get(a.sessionId); if (!si) continue; const k = `${si.courseId}|${si.kind}|${a.sectionIndex}`; const m = staffByKey.get(k) ?? new Map(); m.set(a.person.id, { name: a.person.name, role: a.role }); staffByKey.set(k, m); }
   // Course kinds every learner should sit in: in-person kinds of the courses of the terms that have started (online-only kinds need no section).
   const expected = started.flatMap((t) => t.courses.flatMap((c) => [...new Set(c.sessions.filter((x) => !isOnlineSession(x.deliveryMode, x.location)).map((x) => x.kind))].map((kind) => ({ courseId: c.id, code: c.code, kind, current: t.id === current?.id }))));
-  const clinicalCourses = co.program.terms.flatMap((t) => t.courses.filter((c) => c.sessions.some((x) => x.kind === "CLINICAL")).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, termIndex: t.index, requiredHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0), requiredCases: c.clinicalRequirements.reduce((n, r) => n + (r.casesPerStudent ?? 0), 0), byArea: c.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, hours: r.hoursPerStudent, settingCodes: r.serviceArea.settingCodes.split(",").filter(Boolean) })), started: started.some((t2) => t2.courses.some((x) => x.id === c.id)) })));
-  const siteOf = (courseId: string, sectionIndex: number) => co.meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex)?.employer?.name ?? null;
+  const clinicalCourses = terms.flatMap((t) => t.courses.filter((c) => c.sessions.some((x) => x.kind === "CLINICAL")).map((c) => ({ id: c.id, code: c.code, name: c.name, term: t.name, termIndex: t.index, heldIn: "heldIn" in c ? c.heldIn : null, requiredHours: c.clinicalRequirements.reduce((n, r) => n + r.hoursPerStudent, 0), requiredCases: c.clinicalRequirements.reduce((n, r) => n + (r.casesPerStudent ?? 0), 0), byArea: c.clinicalRequirements.filter((r) => r.hoursPerStudent > 0).map((r) => ({ code: r.serviceArea.code, hours: r.hoursPerStudent, settingCodes: r.serviceArea.settingCodes.split(",").filter(Boolean) })), started: started.some((t2) => t2.courses.some((x) => x.id === c.id)) })));
+  const siteOf = (courseId: string, sectionIndex: number) => meetings.find((m) => m.courseId === courseId && m.sectionIndex === sectionIndex)?.employer?.name ?? null;
   const students = co.students.map((st) => {
     const secOf = (courseId: string, kind: string) => st.sections.find((x) => x.courseId === courseId && x.kind === kind)?.sectionIndex ?? null;
     const missingSections = st.status === "withdrawn" ? [] : expected.filter((e) => secOf(e.courseId, e.kind) == null).map((e) => `${e.code ?? e.courseId} ${e.kind.toLowerCase()}`);
@@ -3074,7 +3107,7 @@ export async function getOfferingLedger(cohortId: string) {
       instructorHours: clinical.reduce((n, c) => n + c.instructorHours, 0), preceptorHours: clinical.reduce((n, c) => n + c.preceptorHours, 0),
     };
   });
-  return { cohortId: co.id, name: co.name, enrolled, currentTerm: current ? { index: current.index, name: current.name } : null, clinicalCourses, students, today: today.toISOString().slice(0, 10) };
+  return { cohortId: co.id, name: co.name, enrolled, joined: co.joiners.reduce((n, j) => n + j.students.filter((s) => s.status !== "withdrawn").length, 0), joinsHost: host ? { id: host.id, name: host.name } : null, currentTerm: current ? { index: current.index, name: current.name } : null, clinicalCourses, students, today: today.toISOString().slice(0, 10) };
 }
 
 export async function getLearnerAnalytics() {
@@ -3155,7 +3188,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
   if (!inst) return null;
   const cohorts = await prisma.cohort.findMany({
     where: { program: { institutionId: inst.id }, ...NOT_ARCHIVED },
-    select: { id: true, name: true, program: { select: { id: true, name: true, familyId: true, family: { select: { id: true, name: true, serviceAreas: { select: { settingCodes: true } }, requirementSets: { select: { items: { select: { settingCodes: true } } } }, familySites: { select: { employerId: true, agreementStatus: true } } } } } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, staffPersonId: true, staff: { select: { name: true, role: true } } } } },
+    select: { id: true, name: true, joinsCohortId: true, program: { select: { id: true, name: true, familyId: true, family: { select: { id: true, name: true, serviceAreas: { select: { settingCodes: true } }, requirementSets: { select: { items: { select: { settingCodes: true } } } }, familySites: { select: { employerId: true, agreementStatus: true } } } } } }, meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, staffPersonId: true, staff: { select: { name: true, role: true } } } }, joinsHost: { select: { meetings: { where: { kind: "CLINICAL" }, select: { courseId: true, sectionIndex: true, employerId: true, staffPersonId: true, staff: { select: { name: true, role: true } } } } } } },
   });
   // Every site with its seats: each active asset (a unit, room or suite), the shift blocks it runs and the learners it takes per shift.
   const employers = await prisma.employer.findMany({ where: { institutionId: inst.id }, select: { id: true, name: true, organization: true, county: true, ring: true, facilityType: true, driveMinutes: true, agreementStatus: true, assets: { where: { status: { not: "archived" } }, select: { id: true, externalId: true, assetType: true, assetNumber: true, settingCode: true, learnersPerShift: true, shiftBlocks: true } }, people: { where: { active: true, role: "preceptor" }, select: { id: true } } } });
@@ -3166,12 +3199,16 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
   const rows: import("./siteload").LoadRow[] = [];
   const familySettings: Record<string, string[]> = {};
   for (const co of cohorts) {
+    // An offering that joins another's sections (lib/cohortjoin): its students' shifts on the host's sessions are seated by the
+    // host's bookings, led on the host's calendar patterns and dated by the host's terms.
     const { dates } = await sessionDatesForCohort(co.id);
+    if (co.joinsCohortId) for (const [sid, iso] of (await sessionDatesForCohort(co.joinsCohortId)).dates) if (!dates.has(sid)) dates.set(sid, iso);
+    const meetings = [...co.meetings, ...(co.joinsHost?.meetings ?? [])];
     const fam = co.program.family;
     if (fam && !familySettings[fam.id]) familySettings[fam.id] = [...familySettingSet(fam, { sets: fam.requirementSets })];
     const agreementBy = new Map((fam?.familySites ?? []).map((f) => [f.employerId, f.agreementStatus]));
     // The seats the plan booked for this offering: per session × section × asset, the date and shift block the shift lands on.
-    const bookings = await prisma.assetBooking.findMany({ where: { cohortId: co.id, sessionId: { not: null } }, select: { assetId: true, sessionId: true, sectionIndex: true, date: true, block: true } });
+    const bookings = await prisma.assetBooking.findMany({ where: { cohortId: { in: co.joinsCohortId ? [co.id, co.joinsCohortId] : [co.id] }, sessionId: { not: null } }, select: { assetId: true, sessionId: true, sectionIndex: true, date: true, block: true } });
     const seatOf = new Map<string, { date: string; block: string }>();
     for (const bk of bookings) { const k = `${bk.sessionId}|${bk.sectionIndex}|${bk.assetId}`; if (!seatOf.has(k)) seatOf.set(k, { date: bk.date.toISOString().slice(0, 10), block: bk.block }); }
     const shifts = await prisma.studentShift.findMany({ where: { cohortId: co.id, session: { kind: "CLINICAL" } }, select: { studentId: true, sectionIndex: true, status: true, hoursLogged: true, settingCode: true, preceptorId: true, instructorId: true, student: { select: { name: true, status: true, keepAssignments: true } }, preceptor: { select: { name: true } }, instructor: { select: { name: true } }, asset: { select: { id: true, employerId: true, settingCode: true, externalId: true, assetType: true, assetNumber: true, learnersPerShift: true } }, session: { select: { id: true, lengthHours: true, rotationType: true, preceptorsNeeded: true, facultyNeeded: true, clinicalMode: true, course: { select: { id: true, code: true, name: true, term: { select: { name: true } } } } } } } });
@@ -3185,7 +3222,7 @@ export async function getSiteLoad(institutionId?: string): Promise<{ institution
       learnersOn.set(k, (learnersOn.get(k) ?? 0) + 1);
     }
     for (const s of shifts) {
-      const m = co.meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
+      const m = meetings.find((x) => x.courseId === s.session.course.id && x.sectionIndex === s.sectionIndex);
       // The section's usual lead staff on the calendar pattern stands in for a shift with no pin of that role — by that person's role, never across roles.
       const patternPreceptor = m?.staff?.role === "preceptor" ? { id: m.staffPersonId, name: m.staff.name } : null;
       const patternInstructor = m?.staff?.role === "instructor" ? { id: m.staffPersonId, name: m.staff.name } : null;

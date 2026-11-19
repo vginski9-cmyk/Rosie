@@ -24,6 +24,7 @@ import { writeSchedulerPlan, clearSchedulerPlanRows, AUTO_PLAN_NOTE as PW_AUTO_P
 import { redirect } from "next/navigation";
 import { STAGES } from "./funnel";
 import { seasonOfDate, seasonOfName } from "./term";
+import { joinedTermDates, type JoinSpec } from "./cohortjoin";
 
 const str = (v: FormDataEntryValue | null) => (v == null ? "" : String(v).trim());
 const numOr = (v: FormDataEntryValue | null, d = 0) => {
@@ -192,13 +193,16 @@ export interface AlignSummary { offerings: number; termsMoved: number; courseWin
 /** Put ONE offering's term dates (start and end) and course windows on the
  *  institution's coded academic calendar from its chosen first day. Terms typed
  *  by hand stay put unless `resetManual`; course windows typed by hand stay put. */
-export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean; dryRun?: boolean } = {}): Promise<AlignReport | null> {
+export async function alignOfferingToCalendar(cohortId: string, opts: { resetManual?: boolean; dryRun?: boolean; /** Set when called for an offering's joiners after it was aligned (a join never chains). */ _depth?: number } = {}): Promise<AlignReport | null> {
   const { alignOffering, endYearOf } = await import("./termalign");
   const cohort = await prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
       program: { select: { id: true, name: true, institutionId: true, calendarMode: true, terms: { orderBy: { index: "asc" }, include: { courses: { select: { id: true, code: true, name: true, termId: true, sessions: { select: { week: true } } } } } }, cohorts: { select: { id: true, name: true } } } },
       cohortTerms: true, courseDates: true,
+      // Shared sections (lib/cohortjoin): a joiner's shared terms take its host's dates; a host re-aligns its joiners after itself.
+      joinsHost: { select: { id: true, name: true, cohortTerms: { select: { startDate: true, endDate: true, term: { select: { index: true } } } } } },
+      joiners: { select: { id: true } },
     },
   });
   if (!cohort || !cohort.startDate) return null;
@@ -210,6 +214,12 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   const isoOf = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
   const manual: Record<string, { startIso: string; endIso: string | null }> = {};
   if (!opts.resetManual) for (const ct of cohort.cohortTerms) if ((ct.source === "manual" || ct.source === "chosen") && ct.startDate) manual[ct.termId] = { startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) };
+  // A joined term is dated by the host, whatever was typed or reset: the host's row for the term it maps to.
+  let joined: Record<string, { startIso: string; endIso: string | null }> = {};
+  if (cohort.joinsHost && cohort.joinsAtTermIndex != null && cohort.joinsHostTermIndex != null) {
+    joined = joinedTermDates({ hostCohortId: cohort.joinsHost.id, atTermIndex: cohort.joinsAtTermIndex, hostTermIndex: cohort.joinsHostTermIndex }, cohort.program.terms.map((x) => ({ id: x.id, index: x.index })), cohort.joinsHost.cohortTerms.filter((ct) => ct.startDate).map((ct) => ({ index: ct.term.index, startIso: isoOf(ct.startDate)!, endIso: isoOf(ct.endDate) }))).dates;
+    Object.assign(manual, joined);
+  }
   const a = alignOffering({
     startIso: isoOf(cohort.startDate)!,
     terms: cohort.program.terms.map((t) => ({ id: t.id, index: t.index, name: t.name, semester: t.semester, startWeek: t.startWeek, endWeek: t.endWeek })),
@@ -226,8 +236,8 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     if (opts.dryRun) continue;
     await prisma.cohortTerm.upsert({
       where: { cohortId_termId: { cohortId, termId: t.termId } },
-      update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] },
-      create: { cohortId, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: t.startSource, semester: t.semester.split(" ")[0] },
+      update: { startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: joined[t.termId] ? "joined" : t.startSource, semester: t.semester.split(" ")[0] },
+      create: { cohortId, termId: t.termId, startDate: new Date(t.startIso + "T00:00:00Z"), endDate: new Date(t.endIso + "T00:00:00Z"), source: joined[t.termId] ? "joined" : t.startSource, semester: t.semester.split(" ")[0] },
     });
   }
   // Course windows: rewrite the auto ones, leave typed ones alone.
@@ -244,9 +254,9 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
     });
     courseWindows++;
   }
-  // The offering's own first day follows term 1 when it snapped onto the coded semester start.
+  // The offering's own first day follows term 1 when it snapped onto the coded semester start, or when term 1 is the host's.
   const first = a.terms[0];
-  if (first?.movedFrom && !opts.dryRun) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
+  if (first && !opts.dryRun && (first.movedFrom || (joined[first.termId] && isoOf(cohort.startDate) !== first.startIso))) await prisma.cohort.update({ where: { id: cohortId }, data: { startDate: new Date(first.startIso + "T00:00:00Z"), entryYear: Number(first.startIso.slice(0, 4)) } });
   // Its status follows its dates (lib/cohortscope, the rule the seed applies): a start already behind us is
   // active, a last day already behind us is completed — a recorded offering never reads "planned".
   const lastEnd = a.terms.map((t) => t.endIso).sort().at(-1) ?? null;
@@ -270,6 +280,8 @@ export async function alignOfferingToCalendar(cohortId: string, opts: { resetMan
   revalidatePath(`/programs/${cohort.program.id}`);
   revalidatePath("/calendar"); revalidatePath("/scheduler");
   revalidatePath("/insights/staffing-need"); revalidatePath("/insights/coverage"); revalidatePath("/insights/clinical-sites");
+  // Its joiners' shared terms follow its dates (one level: a join never chains).
+  if (!(opts._depth ?? 0)) for (const j of cohort.joiners) await alignOfferingToCalendar(j.id, { _depth: 1 });
   return { cohortId, name: renamed ?? cohort.name, program: cohort.program.name, changed, terms: a.terms.length, courseWindows, warnings: a.warnings, renamed };
 }
 
@@ -1242,6 +1254,9 @@ export async function createOffering(programId: string, formData: FormData) {
   const startD = startStr ? new Date(startStr) : null;
   const campusId = str(formData.get("campusId")) || null;
   const locationNote = str(formData.get("locationNote")) || null;
+  // Shared sections: the offering of another program of the family this one joins, from which of its terms, onto which of the host's.
+  const joinsCohortId = str(formData.get("joinsCohortId")) || null;
+  const join = joinsCohortId ? await validateJoin(programId, { hostCohortId: joinsCohortId, atTermIndex: Number(str(formData.get("joinsAtTermIndex"))) || null, hostTermIndex: Number(str(formData.get("joinsHostTermIndex"))) || null }) : null;
   // A blank name is filled in the way lock-in names an offering: by class year, or by start month and place.
   let name = str(formData.get("name"));
   if (!name) {
@@ -1251,10 +1266,10 @@ export async function createOffering(programId: string, formData: FormData) {
     const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId }, select: { name: true, city: true, isMain: true } }) : null;
     const spanWeeks = (program?.terms ?? []).reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
     const startIso = startD ? startD.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program?.launchCadence, spanWeeks }), startIso, endIso: startIso, campus: campusLabel(campus), detail: program ? programDetail(program.name) : null, credential: program && (await familyRunsAnotherClassYearProgram(program.id, program.familyId)) ? program.credential : null, existing: familyNames });
+    name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program?.launchCadence, spanWeeks }), startIso, endIso: startIso, campus: campusLabel(campus), detail: program ? programDetail(program.name) : null, ...(program ? await classYearSiblings(program, program.familyId) : {}), existing: familyNames });
   }
   const cohort = await prisma.cohort.create({
-    data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null, campusId, locationNote },
+    data: { programId, name, status: "planned", startDate: startD, entryYear: startD ? startD.getFullYear() : null, campusId, locationNote, joinsCohortId: join?.hostCohortId ?? null, joinsAtTermIndex: join?.atTermIndex ?? null, joinsHostTermIndex: join?.hostTermIndex ?? null },
   });
   await prisma.funnelStage.createMany({ data: STAGES.map((s, i) => ({ cohortId: cohort.id, stageKey: s.key, sortOrder: i, label: s.label })) });
   const terms = await prisma.term.findMany({ where: { programId }, orderBy: { index: "asc" } });
@@ -1266,13 +1281,30 @@ export async function createOffering(programId: string, formData: FormData) {
   redirect(`/programs/${programId}/offerings/${cohort.id}`);
 }
 
-/** Whether a program's family runs another class-year (not short-term) program — then each class is named by its
- *  credential too ("Class of 2028 · Diploma"), so a diploma class and an AAS class of the same year are told apart. */
-async function familyRunsAnotherClassYearProgram(programId: string, familyId: string | null): Promise<boolean> {
-  if (!familyId) return false;
-  const { shortTermProgram } = await import("./offeringname");
-  const siblings = await prisma.program.findMany({ where: { familyId, id: { not: programId } }, select: { launchCadence: true, terms: { select: { startWeek: true, endWeek: true } } } });
-  return siblings.some((s) => !shortTermProgram({ launchCadence: s.launchCadence, spanWeeks: s.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0) }));
+/** A join an offering states (lib/cohortjoin), checked: the host is an offering of another program of the same family that
+ *  does not itself join one; the term indexes default from the program's hint and must sit inside both templates. */
+async function validateJoin(programId: string, j: { hostCohortId: string; atTermIndex: number | null; hostTermIndex: number | null }): Promise<JoinSpec> {
+  const program = await prisma.program.findUnique({ where: { id: programId }, select: { name: true, familyId: true, joinsProgramId: true, joinsAtTermIndex: true, joinsHostTermIndex: true, _count: { select: { terms: true } } } });
+  const host = await prisma.cohort.findUnique({ where: { id: j.hostCohortId }, select: { name: true, joinsCohortId: true, program: { select: { id: true, name: true, familyId: true, _count: { select: { terms: true } } } } } });
+  if (!program || !host) throw new Error("The offering to join is not on record.");
+  if (!program.familyId || host.program.familyId !== program.familyId) throw new Error(`${host.name} is not an offering of this family.`);
+  if (host.program.id === programId) throw new Error("An offering joins an offering of another program, not its own.");
+  if (host.joinsCohortId) throw new Error(`${host.name} itself joins another offering; a join cannot chain.`);
+  const atTermIndex = j.atTermIndex ?? (program.joinsProgramId === host.program.id ? program.joinsAtTermIndex : null) ?? 1;
+  const hostTermIndex = j.hostTermIndex ?? (program.joinsProgramId === host.program.id ? program.joinsHostTermIndex : null) ?? 1;
+  if (atTermIndex < 1 || atTermIndex > program._count.terms) throw new Error(`${program.name} has no term ${atTermIndex}.`);
+  if (hostTermIndex < 1 || hostTermIndex > host.program._count.terms) throw new Error(`${host.program.name} has no term ${hostTermIndex}.`);
+  return { hostCohortId: j.hostCohortId, atTermIndex, hostTermIndex };
+}
+
+/** How a program's classes are told from its family's other class-year programs' classes of the same year: by credential
+ *  ("Class of 2028 · Diploma") when a sibling's differs, by track ("Class of 2028 · Nursing Transition") when a sibling
+ *  shares the credential (classYearNaming). */
+async function classYearSiblings(program: { id: string; name: string; credential: string | null }, familyId: string | null): Promise<{ credential: string | null; track: string | null }> {
+  if (!familyId) return { credential: null, track: null };
+  const { shortTermProgram, classYearNaming } = await import("./offeringname");
+  const siblings = await prisma.program.findMany({ where: { familyId, id: { not: program.id } }, select: { launchCadence: true, credential: true, terms: { select: { startWeek: true, endWeek: true } } } });
+  return classYearNaming(program, siblings.map((s) => ({ credential: s.credential, shortTerm: shortTermProgram({ launchCadence: s.launchCadence, spanWeeks: s.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0) }) })));
 }
 
 /** Lock in an instantiation from the goal-breakdown box: create the cohort
@@ -1283,7 +1315,7 @@ async function familyRunsAnotherClassYearProgram(programId: string, familyId: st
 export async function lockInInstantiation(
   programId: string,
   familyId: string,
-  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number>; /** The counts typed for this offering by pipeline stage; the rest derive from the family's rates. */ counts?: Record<string, number | null>; /** Where the offering meets (a campus of the college). */ campusId?: string | null; locationNote?: string | null },
+  input: { gradYear: number; goal: number; startDate: string; termOverrides?: (number | null)[]; rates?: Record<string, number>; /** The counts typed for this offering by pipeline stage; the rest derive from the family's rates. */ counts?: Record<string, number | null>; /** Where the offering meets (a campus of the college). */ campusId?: string | null; locationNote?: string | null; /** Shared sections: the offering this one joins and from which terms (lib/cohortjoin). */ joins?: { hostCohortId: string; atTermIndex?: number | null; hostTermIndex?: number | null } | null },
 ): Promise<{
   cohortId: string; name: string }> {
   const { solveLadder, cleanCounts } = await import("./pipelinecounts");
@@ -1298,6 +1330,10 @@ export async function lockInInstantiation(
   // Names are unique across the family, the delivery model's label telling two same-month runs apart.
   const familyNames = program.familyId ? (await prisma.cohort.findMany({ where: { program: { familyId: program.familyId } }, select: { name: true } })).map((c) => c.name) : program.cohorts.map((c) => c.name);
   const campus = input.campusId ? await prisma.campus.findFirst({ where: { id: input.campusId, institutionId: program.institutionId }, select: { id: true, name: true, city: true, isMain: true } }) : null;
+  const join = input.joins?.hostCohortId ? await validateJoin(programId, { hostCohortId: input.joins.hostCohortId, atTermIndex: input.joins.atTermIndex ?? null, hostTermIndex: input.joins.hostTermIndex ?? null }) : null;
+  // A joiner's shared terms take the host's dates, in the preview too (the class year is the host's).
+  const hostTerms = join ? (await prisma.cohortTerm.findMany({ where: { cohortId: join.hostCohortId, startDate: { not: null } }, select: { startDate: true, endDate: true, term: { select: { index: true } } } })).map((ct) => ({ index: ct.term.index, startIso: ct.startDate!.toISOString().slice(0, 10), endIso: ct.endDate?.toISOString().slice(0, 10) ?? null })) : [];
+  const joinedDates = join ? joinedTermDates(join, program.terms.map((term) => ({ id: term.id, index: term.index })), hostTerms).dates : {};
 
   // The SAME rates the goal planner saves — one plan, every surface reads it — under any rates an earlier plan set on
   // this slot; then the counts typed for this offering stand and the rest derives (lib/pipelinecounts).
@@ -1326,20 +1362,22 @@ export async function lockInInstantiation(
     courses: [],
     anchors: { springStart: inst?.springStart ?? "01-08", summerStart: inst?.summerStart ?? "05-28", fallStart: inst?.fallStart ?? "08-15" },
     events: (inst?.academicEvents ?? []).map((e) => ({ iso: e.date.toISOString().slice(0, 10), endIso: e.endDate?.toISOString().slice(0, 10) ?? null, label: e.label, kind: e.kind, season: e.season })),
+    manual: joinedDates,
     calendarMode: program.calendarMode === "continuous" ? "continuous" : "semester",
   });
   const endYear = endYearOf(preview.terms);
 
   // Named by the year it lands its graduates, or — a short-term program — by when and where it starts.
   const spanWeeks = program.terms.reduce((n, t) => n + ((t.endWeek ?? 16) - (t.startWeek ?? 1) + 1), 0);
-  const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: input.startDate, endIso: `${endYear}-01-01`, campus: campusLabel(campus), detail: programDetail(program.name), credential: (await familyRunsAnotherClassYearProgram(program.id, program.familyId)) ? program.credential : null, existing: familyNames });
+  const name = offeringName({ shortTerm: shortTermProgram({ launchCadence: program.launchCadence, spanWeeks }), startIso: input.startDate, endIso: `${endYear}-01-01`, campus: campusLabel(campus), detail: programDetail(program.name), ...(await classYearSiblings(program, program.familyId)), existing: familyNames });
 
-  const startD = new Date(input.startDate);
+  const startD = new Date(preview.terms[0] && joinedDates[preview.terms[0].termId] ? preview.terms[0].startIso : input.startDate);
   const cohort = await prisma.cohort.create({
     data: {
       programId, name, status: "planned", startDate: startD,
       entryYear: startD.getUTCFullYear(), isExplicit: true,
       campusId: campus?.id ?? null, locationNote: input.locationNote?.trim() || null,
+      joinsCohortId: join?.hostCohortId ?? null, joinsAtTermIndex: join?.atTermIndex ?? null, joinsHostTermIndex: join?.hostTermIndex ?? null,
       plannedSeats: Math.round(term1),
       // The slot's own plan travels with the offering: the counts typed, the goal and rates they imply, per-term enrollment.
       pipelineRates: JSON.stringify({ goal: solved.goal, rates: solved.rates, ownRates, termOverrides, counts }),
@@ -1367,6 +1405,8 @@ export async function lockInInstantiation(
   // (with days/times) land on the master calendar and drive the capacity
   // insights. Rooms/sites stay unassigned until someone places them.
   await calendarizeCohort(cohort.id, programId);
+  // The host's shared sections are sized for the students sitting in: its weekly bookings are planned again.
+  if (join) { const { replanMeetings } = await import("./autoassign"); await replanMeetings(join.hostCohortId); }
 
   revalidateOfferingReaders();
   revalidatePath(`/families/${familyId}`);
@@ -1498,7 +1538,10 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     where: { id: cohortId },
     data: startStr ? { startDate: new Date(startStr), entryYear: new Date(startStr).getFullYear() } : {},
   });
-  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true } });
+  const cts = await prisma.cohortTerm.findMany({ where: { cohortId }, select: { id: true, termId: true, term: { select: { index: true } } } });
+  // A joined term's dates are the host's: a typed date for one is ignored.
+  const joinedFrom = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { joinsCohortId: true, joinsAtTermIndex: true } });
+  const isJoined = (index: number) => !!joinedFrom?.joinsCohortId && joinedFrom.joinsAtTermIndex != null && index >= joinedFrom.joinsAtTermIndex;
   if (str(formData.get("rederive")) === "1") {
     // Back onto the academic calendar: every term (typed ones too) re-derived from the offering start.
     await alignOfferingToCalendar(cohortId, { resetManual: true });
@@ -1506,6 +1549,7 @@ export async function updateOfferingDates(cohortId: string, programId: string, f
     // Typed dates are kept as typed (source "manual"); everything else — later
     // terms, term ends, course windows — follows the calendar around them.
     for (const ct of cts) {
+      if (isJoined(ct.term.index)) continue;
       const v = str(formData.get(`term_${ct.termId}`));
       const e = str(formData.get(`term_end_${ct.termId}`));
       if (v) await prisma.cohortTerm.update({ where: { id: ct.id }, data: { startDate: new Date(v), endDate: e ? new Date(e) : null, source: "manual", semester: seasonOfDate(new Date(v)) } });
@@ -1958,8 +2002,10 @@ export async function saveCohortPipeline(
  *  enrolled students are detached, never deleted. The slot goes back to a
  *  plannable start date. */
 export async function unlockInstantiation(cohortId: string): Promise<void> {
-  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } } } });
+  const co = await prisma.cohort.findUnique({ where: { id: cohortId }, select: { programId: true, program: { select: { familyId: true } }, joiners: { select: { name: true } } } });
   if (!co) return;
+  // Its joiners' students sit in its sections: they are unlocked first.
+  if (co.joiners.length) throw new Error(`${co.joiners.map((j) => j.name).join(", ")} ${co.joiners.length === 1 ? "joins" : "join"} this offering's sections — unlock ${co.joiners.length === 1 ? "it" : "them"} first.`);
   await prisma.cohort.delete({ where: { id: cohortId } });
   revalidateOfferingReaders();
   revalidatePath("/calendar");

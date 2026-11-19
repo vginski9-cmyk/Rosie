@@ -47,9 +47,9 @@ const mondayOf = (isoDate: string) => { const d = new Date(isoDate + "T00:00:00Z
 const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(":").map(Number); return (h || 0) * 60 + (m || 0); };
 
 /** The weekly bookings calendarizing an offering would create (none when it already has some). */
-export async function calendarizeRows(cohortId: string) {
+export async function calendarizeRows(cohortId: string, opts: { force?: boolean } = {}) {
   const existing = await prisma.meetingPattern.count({ where: { cohortId } });
-  if (existing > 0) return [];
+  if (existing > 0 && !opts.force) return [];
   const co = await prisma.cohort.findUnique({
     where: { id: cohortId },
     include: {
@@ -63,12 +63,25 @@ export async function calendarizeRows(cohortId: string) {
   const hosts = await prisma.employer.findMany({ where: { institutionId: co.program.institutionId, status: "active", OR: [{ agreementStatus: "secured" }, { setting: { contains: "Hospital" } }, { setting: { contains: "Imaging" } }, { setting: { contains: "Surgical" } }, { setting: { contains: "Clinic" } }] }, select: { id: true, agreementStatus: true } });
   hosts.sort((a, b) => Number(b.agreementStatus === "secured") - Number(a.agreementStatus === "secured"));
   const ctById = new Map(co.cohortTerms.map((ct) => [ct.termId, ct]));
+  // Shared sections (lib/cohortjoin): this offering with its host and its joiners, so a host's sections are sized for the
+  // students sitting in and a joiner books nothing for the courses its host holds.
+  const { bookingJoins } = await import("./cohortjoin");
+  const joins = await bookingJoins(prisma, { OR: [{ id: cohortId }, { joinsCohortId: cohortId }, { joiners: { some: { id: cohortId } } }] });
   const rows = planMeetings({
     cohortId, seats: Math.round(co.plannedSeats ?? co.program.defaultCohortSeats ?? 30), cohortStartMs: co.startDate?.getTime() ?? null,
+    seatsByTerm: joins.get(cohortId)?.seatsByTerm, skipCourseIds: joins.get(cohortId)?.skipCourseIds,
     terms: co.program.terms.map((t) => ({ id: t.id, index: t.index, startWeek: t.startWeek, endWeek: t.endWeek, startMs: ctById.get(t.id)?.startDate?.getTime() ?? null, endMs: ctById.get(t.id)?.endDate?.getTime() ?? null, courses: t.courses })),
     rooms, hostIds: hosts.map((h) => h.id), hosts: siteHosts, rotations,
   });
   return rows;
+}
+
+/** Plan an offering's weekly bookings again from scratch (a host whose joiners changed): the bookings are replaced. */
+export async function replanMeetings(cohortId: string): Promise<number> {
+  const rows = await calendarizeRows(cohortId, { force: true });
+  await prisma.meetingPattern.deleteMany({ where: { cohortId } });
+  for (let i = 0; i < rows.length; i += 400) await prisma.meetingPattern.createMany({ data: rows.slice(i, i + 400) });
+  return rows.length;
 }
 
 /** Calendarize an offering that has no weekly bookings yet (idempotent). */

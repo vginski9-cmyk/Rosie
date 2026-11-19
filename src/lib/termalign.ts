@@ -16,7 +16,7 @@ export interface CodedEventLite { iso: string; endIso: string | null; label: str
 export interface TermLite { id: string; index: number; name: string; startWeek: number | null; endWeek: number | null; /** The season the template codes for this term (Fall | Spring | Summer), when it does. */ semester?: string | null }
 export interface CourseLite { id: string; termId: string; code: string | null; name: string; sessions: { week: number | null }[] }
 
-export type DateSource = "calendar" | "pattern" | "template" | "chosen" | "manual";
+export type DateSource = "calendar" | "pattern" | "template" | "chosen" | "manual" | "joined";
 
 export interface AlignedTerm {
   termId: string; index: number; name: string;
@@ -181,7 +181,8 @@ export function alignOffering(input: {
     // Template weeks → the term's real weeks (fitted when the semester is shorter; a closed week is skipped).
     const f0 = fitWeek(firstWeek, term.templateWeeks, term.calendarWeeks), f1 = fitWeek(lastWeek, term.templateWeeks, term.calendarWeeks);
     const anchor = { termStart: term.startIso, termEnd: term.endIso, templateWeeks: term.templateWeeks, holidays };
-    let startIso = iso(weekMonday(anchor, f0) ?? dateOf(addDays(term.startIso, (f0 - 1) * 7))); let snappedTo: string | null = null;
+    // A course that opens in the term's first week opens on the term's first day, not on that week's Monday (a Wednesday start).
+    let startIso = [iso(weekMonday(anchor, f0) ?? dateOf(addDays(term.startIso, (f0 - 1) * 7))), term.startIso].sort()[1]; let snappedTo: string | null = null;
     if (firstWeek > 1) {
       const hit = nearest(input.events.filter((e) => e.iso > term.startIso && e.iso <= term.endIso), "session_start", startIso, 7);
       if (hit) { startIso = hit.iso; snappedTo = hit.label; }
@@ -207,5 +208,5 @@ function codedStartOn(events: CodedEventLite[], isoDate: string): CodedEventLite
 export const endYearOf = (terms: { endIso: string }[]) => Number(terms.map((t) => t.endIso).sort().at(-1)?.slice(0, 4) ?? NaN);
 
 export const SOURCE_LABEL: Record<DateSource, string> = {
-  calendar: "from the academic calendar", pattern: "semester pattern (no coded date for this semester)", template: "template weeks (no coded semester end)", chosen: "the chosen start", manual: "typed by hand",
+  calendar: "from the academic calendar", pattern: "semester pattern (no coded date for this semester)", template: "template weeks (no coded semester end)", chosen: "the chosen start", manual: "typed by hand", joined: "the host class's dates (shared sections)",
 };
